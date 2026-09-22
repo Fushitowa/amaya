@@ -2,14 +2,17 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 
 import "../../assets/css/admin/AdminOrder.css";
+import "../../assets/css/sidebar-collapse.css";
 
 const orders = [];
 
 const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed"];
 
 function AdminOrder() {
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [activeStatus, setActiveStatus] = useState("All orders");
 	const [search, setSearch] = useState("");
 	const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -26,9 +29,9 @@ function AdminOrder() {
 	const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
 
 	return (
-		<div className="admin-orders-page">
+		<div className={`admin-orders-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 			<aside className="admin-orders-sidebar">
-				<div className="admin-orders-brand"><img src={amayaLogo} alt="Amaya logo" /><div><strong>Amaya</strong><span>Admin Portal</span></div></div>
+				<div className="admin-orders-brand"><SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} /><div><strong>Amaya</strong><span>Admin Portal</span></div></div>
 				<nav className="admin-orders-nav" aria-label="Admin navigation">
 					<span className="admin-orders-nav-label">MAIN MENU</span>
 					<Link to="/admin" className="admin-orders-nav-link"><span>▦</span>Dashboard</Link>

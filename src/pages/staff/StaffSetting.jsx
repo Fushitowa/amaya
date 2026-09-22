@@ -4,21 +4,22 @@ import { Link } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext.jsx";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 
 import "../../assets/css/staff/staff-setting.css";
+import "../../assets/css/sidebar-collapse.css";
 
 function StaffSetting() {
 
   const { darkMode } = useTheme();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [notifications, setNotifications] = useState(true);
   const [orderAlerts, setOrderAlerts] = useState(true);
 
   return (
     <div
-      className={`staff-settings-page ${
-        darkMode ? "dark-mode" : ""
-      }`}
+      className={`staff-settings-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
     >
 
       
@@ -27,10 +28,7 @@ function StaffSetting() {
 
         <div className="staff-brand">
 
-          <img
-            src={amayaLogo}
-            alt="Amaya Logo"
-          />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya Logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
 
           <div>
             <h2>Amaya</h2>

@@ -1,0 +1,213 @@
+.sidebar-logo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 180ms ease, filter 180ms ease;
+}
+
+.sidebar-logo-button:hover {
+  transform: scale(1.04);
+  filter: brightness(1.03);
+}
+
+.sidebar-logo-button:focus-visible {
+  outline: 3px solid rgba(200, 138, 82, 0.55);
+  outline-offset: 4px;
+}
+
+.sidebar-logo-button img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.admin-sidebar,
+.admin-inventory-sidebar,
+.admin-menu-sidebar,
+.admin-orders-sidebar,
+.admin-report-sidebar,
+.staff-sidebar,
+.staff-menu-sidebar,
+.admin-main,
+.admin-inventory-main,
+.admin-menu-main,
+.admin-orders-main,
+.admin-report-main,
+.staff-main,
+.staff-orders-main,
+.staff-settings-main {
+  transition: width 300ms ease, min-width 300ms ease, margin-left 300ms ease;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-sidebar,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-sidebar,
+.admin-menu-page.sidebar-collapsed .admin-menu-sidebar,
+.admin-orders-page.sidebar-collapsed .admin-orders-sidebar,
+.admin-report-page.sidebar-collapsed .admin-report-sidebar,
+.staff-dashboard.sidebar-collapsed .staff-sidebar,
+.staff-orders-page.sidebar-collapsed .staff-sidebar,
+.staff-settings-page.sidebar-collapsed .staff-sidebar,
+.staff-menu-page.sidebar-collapsed .staff-menu-sidebar {
+  width: 88px;
+  min-width: 88px;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-main,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-main,
+.admin-menu-page.sidebar-collapsed .admin-menu-main,
+.admin-orders-page.sidebar-collapsed .admin-orders-main,
+.admin-report-page.sidebar-collapsed .admin-report-main,
+.staff-dashboard.sidebar-collapsed .staff-main,
+.staff-orders-page.sidebar-collapsed .staff-orders-main,
+.staff-settings-page.sidebar-collapsed .staff-settings-main {
+  margin-left: 88px;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-brand,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-brand,
+.admin-menu-page.sidebar-collapsed .admin-menu-brand,
+.admin-orders-page.sidebar-collapsed .admin-orders-brand,
+.admin-report-page.sidebar-collapsed .admin-report-brand,
+.staff-dashboard.sidebar-collapsed .staff-brand,
+.staff-orders-page.sidebar-collapsed .staff-brand,
+.staff-settings-page.sidebar-collapsed .staff-brand,
+.staff-menu-page.sidebar-collapsed .staff-menu-brand {
+  justify-content: center;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-brand-text,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-brand > div,
+.admin-menu-page.sidebar-collapsed .admin-menu-brand > div,
+.admin-orders-page.sidebar-collapsed .admin-orders-brand > div,
+.admin-report-page.sidebar-collapsed .admin-report-brand > div,
+.staff-dashboard.sidebar-collapsed .staff-brand > div,
+.staff-orders-page.sidebar-collapsed .staff-brand > div,
+.staff-settings-page.sidebar-collapsed .staff-brand > div,
+.staff-menu-page.sidebar-collapsed .staff-menu-brand-text,
+.admin-dashboard.sidebar-collapsed .admin-nav-title,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav-label,
+.admin-menu-page.sidebar-collapsed .admin-menu-nav-label,
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-label,
+.admin-report-page.sidebar-collapsed .admin-report-nav-label,
+.staff-dashboard.sidebar-collapsed .nav-label,
+.staff-orders-page.sidebar-collapsed .nav-label,
+.staff-settings-page.sidebar-collapsed .nav-label,
+.staff-menu-page.sidebar-collapsed .staff-menu-nav-title,
+.staff-menu-page.sidebar-collapsed .staff-menu-category-panel,
+.staff-menu-page.sidebar-collapsed .staff-menu-workstation {
+  display: none;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-nav,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav,
+.admin-menu-page.sidebar-collapsed .admin-menu-nav,
+.admin-orders-page.sidebar-collapsed .admin-orders-nav,
+.admin-report-page.sidebar-collapsed .admin-report-nav,
+.staff-dashboard.sidebar-collapsed .staff-nav,
+.staff-orders-page.sidebar-collapsed .staff-nav,
+.staff-settings-page.sidebar-collapsed .staff-nav,
+.staff-menu-page.sidebar-collapsed .staff-menu-dashboard-navigation {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-nav-link,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav-link,
+.admin-menu-page.sidebar-collapsed .admin-menu-nav-link,
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-link,
+.admin-report-page.sidebar-collapsed .admin-report-nav-link,
+.staff-dashboard.sidebar-collapsed .staff-nav-link,
+.staff-orders-page.sidebar-collapsed .staff-nav-link,
+.staff-settings-page.sidebar-collapsed .staff-nav-link,
+.staff-menu-page.sidebar-collapsed .staff-menu-nav-link {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-nav-link > span:last-child,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav-link > span:not(:first-child),
+.admin-menu-page.sidebar-collapsed .admin-menu-nav-link > span:not(:first-child),
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-link > span:not(:first-child),
+.admin-report-page.sidebar-collapsed .admin-report-nav-link > span:not(:first-child),
+.staff-dashboard.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
+.staff-orders-page.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
+.staff-settings-page.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
+.staff-menu-page.sidebar-collapsed .staff-menu-nav-link > span:not(.staff-menu-nav-icon) {
+  display: none;
+}
+
+.staff-dashboard.sidebar-collapsed .back-to-site,
+.staff-dashboard.sidebar-collapsed .staff-logout,
+.staff-orders-page.sidebar-collapsed .back-to-site,
+.staff-orders-page.sidebar-collapsed .staff-logout,
+.staff-settings-page.sidebar-collapsed .back-to-site,
+.staff-settings-page.sidebar-collapsed .staff-logout {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.staff-dashboard.sidebar-collapsed .back-to-site > span:not(.nav-icon),
+.staff-dashboard.sidebar-collapsed .staff-logout > span:not(.nav-icon),
+.staff-orders-page.sidebar-collapsed .back-to-site > span:not(.nav-icon),
+.staff-orders-page.sidebar-collapsed .staff-logout > span:not(.nav-icon),
+.staff-settings-page.sidebar-collapsed .back-to-site > span:not(.nav-icon),
+.staff-settings-page.sidebar-collapsed .staff-logout > span:not(.nav-icon) {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.staff-dashboard .back-to-site > span:not(.nav-icon),
+.staff-dashboard .staff-logout > span:not(.nav-icon),
+.staff-orders-page .back-to-site > span:not(.nav-icon),
+.staff-orders-page .staff-logout > span:not(.nav-icon),
+.staff-settings-page .back-to-site > span:not(.nav-icon),
+.staff-settings-page .staff-logout > span:not(.nav-icon) {
+  max-width: 180px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 300ms ease, opacity 180ms ease;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-sidebar-bottom,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-sidebar-bottom,
+.admin-menu-page.sidebar-collapsed .admin-menu-sidebar-bottom,
+.admin-orders-page.sidebar-collapsed .admin-orders-sidebar-bottom,
+.admin-report-page.sidebar-collapsed .admin-report-sidebar-bottom,
+.staff-dashboard.sidebar-collapsed .sidebar-bottom,
+.staff-orders-page.sidebar-collapsed .sidebar-bottom,
+.staff-settings-page.sidebar-collapsed .sidebar-bottom {
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .admin-dashboard.sidebar-collapsed .admin-sidebar,
+  .admin-inventory-page.sidebar-collapsed .admin-inventory-sidebar,
+  .admin-menu-page.sidebar-collapsed .admin-menu-sidebar,
+  .admin-orders-page.sidebar-collapsed .admin-orders-sidebar,
+  .admin-report-page.sidebar-collapsed .admin-report-sidebar,
+  .staff-dashboard.sidebar-collapsed .staff-sidebar,
+  .staff-orders-page.sidebar-collapsed .staff-sidebar,
+  .staff-settings-page.sidebar-collapsed .staff-sidebar,
+  .staff-menu-page.sidebar-collapsed .staff-menu-sidebar {
+    width: 88px;
+    min-width: 88px;
+  }
+}

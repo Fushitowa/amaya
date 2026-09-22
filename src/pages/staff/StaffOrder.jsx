@@ -1,15 +1,19 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTheme } from "../../context/ThemeContext.jsx";
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 
 import "../../assets/css/staff/staff-orders.css";
+import "../../assets/css/sidebar-collapse.css";
 
 function StaffOrder() {
   const { darkMode } = useTheme();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className={`staff-orders-page ${darkMode ? "dark-mode" : ""}`}>
+    <div className={`staff-orders-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 
       
 
@@ -17,10 +21,7 @@ function StaffOrder() {
 
         <div className="staff-brand">
 
-          <img
-            src={amayaLogo}
-            alt="Amaya Logo"
-          />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya Logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
 
           <div>
             <h2>Amaya</h2>

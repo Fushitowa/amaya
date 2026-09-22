@@ -1,13 +1,17 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
+import "../../assets/css/sidebar-collapse.css";
 
 
 function StaffDashboard() { 
   const { darkMode } = useTheme();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const liveDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -15,13 +19,13 @@ function StaffDashboard() {
   });
 
   return (
-    <div className={`staff-dashboard ${darkMode ? "dark-mode" : ""}`}>
+    <div className={`staff-dashboard ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 
       
       <aside className="staff-sidebar">
 
         <div className="staff-brand">
-          <img src={amayaLogo} alt="Amaya Logo" />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya Logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
           <div>
             <h2>Amaya</h2>
             <span>Staff Portal</span>

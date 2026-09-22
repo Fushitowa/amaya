@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import "../../assets/css/staff/staff-menu.css";
+import "../../assets/css/sidebar-collapse.css";
 
 const categoryTitles = {
   drinks: "Drinks",
@@ -28,6 +30,7 @@ function StaffMenu() {
   const [activeCategory, setActiveCategory] = useState("drinks");
   const [searchTerm, setSearchTerm] = useState("");
   const [order, setOrder] = useState([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const imageGroups = products.filter((product) => product.available).reduce((groups, product) => {
     const category = Object.entries(categoryTitles).find(([, label]) => label === product.category)?.[0];
@@ -131,10 +134,10 @@ function StaffMenu() {
   };
 
   return (
-    <div className={`staff-menu-page ${darkMode ? "dark-mode" : ""}`}>
+    <div className={`staff-menu-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="staff-menu-sidebar">
         <div className="staff-menu-brand">
-          <img src={amayaLogo} alt="Amaya" className="staff-menu-logo-image" />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} className="staff-menu-logo-image" />
           <div className="staff-menu-brand-text">
             <span className="brand-kicker">Amaya</span>
             <span className="brand-label">Staff Order Menu</span>

@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import "../../assets/css/admin/AdminInventory.css";
+import "../../assets/css/sidebar-collapse.css";
 
 const initialInventory = [
   { id: 1, item: "Coca-Cola", category: "Soft Drinks", quantity: 18, unit: "bottles/cans", minimumStock: 8 },
@@ -74,6 +76,7 @@ const getInventoryStatus = (quantity, minimumStock) => {
 };
 
 function AdminInventory() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inventory, setInventory] = useState(initialInventory);
   const [activeCategory, setActiveCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -192,10 +195,10 @@ function AdminInventory() {
   };
 
   return (
-    <div className="admin-inventory-page">
+    <div className={`admin-inventory-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="admin-inventory-sidebar">
         <div className="admin-inventory-brand">
-          <img src={amayaLogo} alt="Amaya logo" />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
           <div>
             <strong>Amaya</strong>
             <span>Admin Portal</span>
