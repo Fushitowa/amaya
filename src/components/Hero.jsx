@@ -1,12 +1,16 @@
 import { Link } from "react-router-dom";
+import { useBusiness } from "../context/BusinessContext.jsx";
 
 function Hero() {
+  const { businessSettings } = useBusiness();
+  const { businessName } = businessSettings;
+
   return (
     <section className="hero">
       <div className="hero-container">
         <div className="hero-content">
           <span className="hero-subtitle">
-            WELCOME TO AMAYA
+            WELCOME TO {businessName.toUpperCase()}
           </span>
 
           <h1>
@@ -26,7 +30,7 @@ function Hero() {
             </Link>
 
             <Link to="/about" className="hero-secondary-button">
-              Discover Amaya
+              Discover {businessName}
             </Link>
           </div>
 

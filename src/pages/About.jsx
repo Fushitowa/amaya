@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import Header from "../components/Header.jsx";
+import { useBusiness } from "../context/BusinessContext.jsx";
 
 import amayaLogo from "../assets/images/amayalogo.png";
 import aboutBackground from "../assets/images/about/bg5.jpg";
@@ -82,6 +83,8 @@ const experiences = [
 ];
 
 function About() {
+  const { businessSettings } = useBusiness();
+  const { businessName } = businessSettings;
   const [activeSlide, setActiveSlide] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -207,11 +210,11 @@ function About() {
               <h2 id="about-story-title">
                 Welcome to
                 <br />
-                Amaya.
+                  {businessName}.
               </h2>
 
               <p>
-                Amaya is a café created with one simple idea:
+                {businessName} is a café created with one simple idea:
                 great food tastes even better when shared with
                 good company.
               </p>
@@ -225,7 +228,7 @@ function About() {
               <p>
                 Whether you are catching up with friends,
                 enjoying a quiet meal, or simply looking for
-                something delicious, Amaya is a place where
+                something delicious, {businessName} is a place where
                 you can feel right at home.
               </p>
 
@@ -255,7 +258,7 @@ function About() {
               </h2>
 
               <p>
-                Everything we do at Amaya is centered around
+                Everything we do at {businessName} is centered around
                 creating a better experience for our customers.
               </p>
             </div>
@@ -311,11 +314,11 @@ function About() {
           <div className="about-container">
             <div className="about-special-heading">
               <span className="about-section-label">
-                The Amaya Experience
+                The {businessName} Experience
               </span>
 
               <h2 id="about-special-title">
-                Why Choose Amaya?
+                Why Choose {businessName}?
               </h2>
 
               <p>
@@ -371,7 +374,7 @@ function About() {
             </h2>
 
             <p>
-              Come visit Amaya and make your next meal a
+              Come visit {businessName} and make your next meal a
               moment worth remembering.
             </p>
 
@@ -385,6 +388,7 @@ function About() {
           </div>
         </section>
       </main>
+
     </>
   );
 }

@@ -1,9 +1,13 @@
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../assets/images/amayalogo.png";
+import { formatBusinessTime, useBusiness } from "../context/BusinessContext.jsx";
 
 function Footer() {
   const currentYear = new Date().getFullYear();
+  const { businessSettings } = useBusiness();
+  const { businessName, email, phone, address, openingTime, closingTime } = businessSettings;
+  const formattedHours = `${formatBusinessTime(openingTime)} - ${formatBusinessTime(closingTime)}`;
 
   return (
     <footer className="footer">
@@ -12,12 +16,12 @@ function Footer() {
           <div className="footer-brand">
             <Link to="/" className="footer-logo">
               <img src={amayaLogo} alt="Amaya logo" />
-              <span>Amaya</span>
+              <span>{businessName}</span>
             </Link>
 
             <p>
               Good food, refreshing drinks, and meaningful moments. Welcome to
-              Amaya's Drinks and Bites.
+              {businessName}.
             </p>
 
             <Link to="/menu" className="footer-menu-link">
@@ -43,12 +47,12 @@ function Footer() {
             <dl className="footer-hours">
               <div className="footer-hours-row">
                 <dt>Monday - Friday</dt>
-                <dd>8:00 AM - 8:00 PM</dd>
+                <dd>{formattedHours}</dd>
               </div>
 
               <div className="footer-hours-row">
                 <dt>Saturday - Sunday</dt>
-                <dd>9:00 AM - 9:00 PM</dd>
+                <dd>{formattedHours}</dd>
               </div>
             </dl>
           </div>
@@ -57,16 +61,11 @@ function Footer() {
             <h3>Get In Touch</h3>
 
             <div className="footer-contact-list">
-              <a href="tel:+639000000000">+63 900 000 0000</a>
+              <a href={`tel:${phone}`}>{phone}</a>
 
-              <a href="mailto:amayadrinksandbites@gmail.com">
-                amayadrinksandbites@gmail.com
-              </a>
+              <a href={`mailto:${email}`}>{email}</a>
 
-              <p>
-                Your local destination for delicious bites and refreshing
-                drinks.
-              </p>
+              <address>{address}</address>
             </div>
           </div>
         </div>
@@ -74,7 +73,7 @@ function Footer() {
 
       <div className="footer-bottom">
         <div className="footer-container footer-bottom-container">
-          <p>&copy; {currentYear} Amaya's Drinks and Bites. All Rights Reserved.</p>
+          <p>&copy; {currentYear} {businessName}. All Rights Reserved.</p>
 
           <nav className="footer-socials" aria-label="Social media">
             <a

@@ -17,6 +17,113 @@ body {
   line-height: 1.6;
 }
 
+.contact-information {
+  padding: 88px 30px;
+  background: linear-gradient(135deg, #f4eee7 0%, #fffdf9 100%);
+}
+
+.contact-information-inner {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) 1.2fr;
+  gap: 70px;
+  align-items: start;
+}
+
+.contact-information-heading {
+  max-width: 380px;
+}
+
+.contact-information-label,
+.contact-information-item-label {
+  color: #8b5e3c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.contact-information-heading h2 {
+  margin: 14px 0 14px;
+  color: #30231c;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(32px, 4vw, 46px);
+  line-height: 1.08;
+}
+
+.contact-information-heading p {
+  margin: 0;
+  color: #75685e;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.contact-information-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 34px;
+  border-top: 1px solid rgba(36, 26, 20, 0.12);
+}
+
+.contact-information-item {
+  min-width: 0;
+  padding: 19px 0;
+  border-bottom: 1px solid rgba(36, 26, 20, 0.12);
+}
+
+.contact-information-item-label {
+  display: block;
+  margin-bottom: 7px;
+  color: #75685e;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+.contact-information-item a,
+.contact-information-item address,
+.contact-information-item dd {
+  margin: 0;
+  color: #30231c;
+  font-size: 15px;
+  line-height: 1.6;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.contact-information-item a {
+  text-decoration: none;
+  transition: color 0.25s ease;
+}
+
+.contact-information-item a:hover {
+  color: #8b5e3c;
+}
+
+.contact-information-hours dl {
+  margin: 0;
+}
+
+.contact-information-hours dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.contact-information-hours dl > div + div {
+  margin-top: 4px;
+}
+
+.contact-information-hours dt,
+.contact-information-hours dd {
+  font-size: 14px;
+}
+
+.contact-information-hours dt {
+  color: #75685e;
+}
+
 
 
 
@@ -761,11 +868,13 @@ body {
 }
 
 .footer-section p,
-.footer-contact-list p {
+.footer-contact-list p,
+.footer-contact-list address {
   margin: 0;
   color: #d7c9c0;
   font-size: 14px;
   line-height: 1.8;
+  font-style: normal;
 }
 
 .footer-hours {
@@ -970,6 +1079,23 @@ body {
     width: 100%;
 
     text-align: center;
+  }
+
+  .contact-information {
+    padding: 64px 25px;
+  }
+
+  .contact-information-inner {
+    grid-template-columns: 1fr;
+    gap: 38px;
+  }
+
+  .contact-information-heading {
+    max-width: 520px;
+  }
+
+  .contact-information-details {
+    grid-template-columns: 1fr;
   }
 
 

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 
 import "../../assets/css/admin/AdminSettings.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -19,21 +20,33 @@ const initialSettings = {
 
 function AdminSettings() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
-	const [settings, setSettings] = useState(initialSettings);
+	const { businessSettings, saveBusinessSettings } = useBusiness();
+	const [settings, setSettings] = useState(() => ({ ...initialSettings, ...businessSettings }));
 	const [notifications, setNotifications] = useState(true);
 	const [orderAlerts, setOrderAlerts] = useState(true);
 	const [inventoryAlerts, setInventoryAlerts] = useState(true);
-	const [saved, setSaved] = useState(false);
+	const [saveState, setSaveState] = useState("idle");
+	const saveTimers = useRef([]);
+
+	useEffect(() => () => saveTimers.current.forEach((timer) => clearTimeout(timer)), []);
 
 	const updateSetting = (event) => {
 		const { name, value } = event.target;
 		setSettings((current) => ({ ...current, [name]: value }));
-		setSaved(false);
+		if (saveState !== "saving") setSaveState("idle");
 	};
 
 	const handleSave = (event) => {
 		event.preventDefault();
-		setSaved(true);
+		if (saveState === "saving") return;
+
+		saveTimers.current.forEach((timer) => clearTimeout(timer));
+		setSaveState("saving");
+		saveBusinessSettings(settings);
+		saveTimers.current = [
+			setTimeout(() => setSaveState("success"), 550),
+			setTimeout(() => setSaveState("idle"), 2200),
+		];
 	};
 
 	return (
@@ -77,7 +90,7 @@ function AdminSettings() {
 							<h2>Keep Amaya running smoothly.</h2>
 							<p>Manage your cafe profile, operating hours, and admin alerts from one place.</p>
 						</div>
-						<div className="admin-settings-save-state"><span className="settings-status-dot"></span>{saved ? "Changes saved" : "All systems operational"}</div>
+						<div className="admin-settings-save-state"><span className="settings-status-dot"></span>{saveState === "success" ? "Changes saved" : "All systems operational"}</div>
 					</section>
 
 					<form className="admin-settings-form" onSubmit={handleSave}>
@@ -106,9 +119,9 @@ function AdminSettings() {
 							<div className="admin-settings-secondary-column">
 								<section className="admin-settings-card notifications-card">
 									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">♢</div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div></div>
-									<SettingToggle label="Admin notifications" description="Receive important updates from the portal." enabled={notifications} onToggle={() => { setNotifications(!notifications); setSaved(false); }} />
-									<SettingToggle label="New order alerts" description="Get notified when a customer order arrives." enabled={orderAlerts} onToggle={() => { setOrderAlerts(!orderAlerts); setSaved(false); }} />
-									<SettingToggle label="Low stock alerts" description="Be alerted when inventory needs attention." enabled={inventoryAlerts} onToggle={() => { setInventoryAlerts(!inventoryAlerts); setSaved(false); }} />
+									<SettingToggle label="Admin notifications" description="Receive important updates from the portal." enabled={notifications} onToggle={() => { setNotifications(!notifications); setSaveState("idle"); }} />
+									<SettingToggle label="New order alerts" description="Get notified when a customer order arrives." enabled={orderAlerts} onToggle={() => { setOrderAlerts(!orderAlerts); setSaveState("idle"); }} />
+									<SettingToggle label="Low stock alerts" description="Be alerted when inventory needs attention." enabled={inventoryAlerts} onToggle={() => { setInventoryAlerts(!inventoryAlerts); setSaveState("idle"); }} />
 								</section>
 
 								<section className="admin-settings-card security-card">
@@ -119,7 +132,7 @@ function AdminSettings() {
 							</div>
 						</div>
 
-						<div className="admin-settings-footer"><span>Last saved just now</span><button type="submit" className="admin-settings-save-button">Save changes <span>→</span></button></div>
+						<div className="admin-settings-footer"><span>Last saved just now</span><button type="submit" className={`admin-settings-save-button is-${saveState}`} disabled={saveState === "saving"} aria-live="polite">{saveState === "saving" ? <><span className="save-spinner" aria-hidden="true"></span>Saving changes</> : saveState === "success" ? <><span className="save-check" aria-hidden="true">✓</span>Changes Saved</> : <>Save changes <span aria-hidden="true">→</span></>}</button></div>
 					</form>
 				</div>
 			</main>

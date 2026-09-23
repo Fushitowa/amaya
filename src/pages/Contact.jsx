@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import Header from "../components/Header.jsx";
+import { formatBusinessTime, useBusiness } from "../context/BusinessContext.jsx";
 
 import locationIcon from "../assets/images/icon/location.png";
 import callIcon from "../assets/images/icon/call.png";
@@ -8,6 +9,10 @@ import emailIcon from "../assets/images/icon/email.png";
 import "../assets/css/Contact.css";
 
 function Contact() {
+  const { businessSettings } = useBusiness();
+  const { businessName, email, phone, address, openingTime, closingTime } = businessSettings;
+  const formattedHours = `${formatBusinessTime(openingTime)} - ${formatBusinessTime(closingTime)}`;
+
   const handleSubmit = (event) => {
     event.preventDefault();
 
@@ -53,7 +58,7 @@ function Contact() {
             <div className="contact-info">
 
               <span className="section-label">
-                Contact Us
+                Contact Information
               </span>
 
               <h2>
@@ -79,8 +84,8 @@ function Contact() {
 
                   <address>
                     <span>Visit Us</span>
-                    <strong>Amaya Café</strong>
-                    <p>Your café address goes here</p>
+                    <strong>{businessName}</strong>
+                    <p>{address}</p>
                   </address>
 
                 </li>
@@ -97,10 +102,10 @@ function Contact() {
                     <span>Call Us</span>
 
                     <strong>
-                      <a href="tel:+639000000000">+63 900 000 0000</a>
+                      <a href={`tel:${phone}`}>{phone}</a>
                     </strong>
 
-                    <p>Monday – Sunday</p>
+                    <p>Available during opening hours</p>
                   </div>
 
                 </li>
@@ -117,7 +122,7 @@ function Contact() {
                     <span>Email Us</span>
 
                     <strong>
-                      <a href="mailto:hello@amaya.com">hello@amaya.com</a>
+                      <a href={`mailto:${email}`}>{email}</a>
                     </strong>
 
                     <p>We usually reply within 24 hours</p>
@@ -142,12 +147,12 @@ function Contact() {
                 <dl>
                   <div className="hours-row">
                     <dt>Monday – Friday</dt>
-                    <dd>8:00 AM – 8:00 PM</dd>
+                    <dd>{formattedHours}</dd>
                   </div>
 
                   <div className="hours-row">
                     <dt>Saturday – Sunday</dt>
-                    <dd>9:00 AM – 9:00 PM</dd>
+                    <dd>{formattedHours}</dd>
                   </div>
                 </dl>
 
