@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import { useSidebar } from "../../context/useSidebar.jsx";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -76,7 +77,7 @@ const getInventoryStatus = (quantity, minimumStock) => {
 };
 
 function AdminInventory() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const [inventory, setInventory] = useState(initialInventory);
   const [activeCategory, setActiveCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -198,7 +199,7 @@ function AdminInventory() {
     <div className={`admin-inventory-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="admin-inventory-sidebar">
         <div className="admin-inventory-brand">
-          <SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
+          <SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
           <div>
             <strong>Amaya</strong>
             <span>Admin Portal</span>

@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import { useSidebar } from "../../context/useSidebar.jsx";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -16,7 +16,7 @@ const inventory = [
 ];
 
 function AdminReport() {
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const liveDate = new Date().toLocaleDateString("en-US", {
 		month: "long",
 		day: "numeric",
@@ -27,7 +27,7 @@ function AdminReport() {
 		<div className={`admin-report-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 			<aside className="admin-report-sidebar">
 				<div className="admin-report-brand">
-					<SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
+					<SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
 					<div><strong>Amaya</strong><span>Admin Portal</span></div>
 				</div>
 

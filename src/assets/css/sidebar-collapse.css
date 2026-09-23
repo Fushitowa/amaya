@@ -35,6 +35,7 @@
 .admin-menu-sidebar,
 .admin-orders-sidebar,
 .admin-report-sidebar,
+.admin-settings-sidebar,
 .staff-sidebar,
 .staff-menu-sidebar,
 .admin-main,
@@ -42,10 +43,11 @@
 .admin-menu-main,
 .admin-orders-main,
 .admin-report-main,
+.admin-settings-main,
 .staff-main,
 .staff-orders-main,
 .staff-settings-main {
-  transition: width 300ms ease, min-width 300ms ease, margin-left 300ms ease;
+  transition: width 300ms ease, min-width 300ms ease, flex-basis 300ms ease, margin-left 300ms ease;
 }
 
 .admin-dashboard.sidebar-collapsed .admin-sidebar,
@@ -53,23 +55,14 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-sidebar,
 .admin-orders-page.sidebar-collapsed .admin-orders-sidebar,
 .admin-report-page.sidebar-collapsed .admin-report-sidebar,
+.admin-settings-page.sidebar-collapsed .admin-settings-sidebar,
 .staff-dashboard.sidebar-collapsed .staff-sidebar,
 .staff-orders-page.sidebar-collapsed .staff-sidebar,
 .staff-settings-page.sidebar-collapsed .staff-sidebar,
 .staff-menu-page.sidebar-collapsed .staff-menu-sidebar {
   width: 88px;
+  flex-basis: 88px;
   min-width: 88px;
-}
-
-.admin-dashboard.sidebar-collapsed .admin-main,
-.admin-inventory-page.sidebar-collapsed .admin-inventory-main,
-.admin-menu-page.sidebar-collapsed .admin-menu-main,
-.admin-orders-page.sidebar-collapsed .admin-orders-main,
-.admin-report-page.sidebar-collapsed .admin-report-main,
-.staff-dashboard.sidebar-collapsed .staff-main,
-.staff-orders-page.sidebar-collapsed .staff-orders-main,
-.staff-settings-page.sidebar-collapsed .staff-settings-main {
-  margin-left: 88px;
 }
 
 .admin-dashboard.sidebar-collapsed .admin-brand,
@@ -77,6 +70,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-brand,
 .admin-orders-page.sidebar-collapsed .admin-orders-brand,
 .admin-report-page.sidebar-collapsed .admin-report-brand,
+.admin-settings-page.sidebar-collapsed .admin-settings-brand,
 .staff-dashboard.sidebar-collapsed .staff-brand,
 .staff-orders-page.sidebar-collapsed .staff-brand,
 .staff-settings-page.sidebar-collapsed .staff-brand,
@@ -91,6 +85,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-brand > div,
 .admin-orders-page.sidebar-collapsed .admin-orders-brand > div,
 .admin-report-page.sidebar-collapsed .admin-report-brand > div,
+.admin-settings-page.sidebar-collapsed .admin-settings-brand > div,
 .staff-dashboard.sidebar-collapsed .staff-brand > div,
 .staff-orders-page.sidebar-collapsed .staff-brand > div,
 .staff-settings-page.sidebar-collapsed .staff-brand > div,
@@ -100,6 +95,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-nav-label,
 .admin-orders-page.sidebar-collapsed .admin-orders-nav-label,
 .admin-report-page.sidebar-collapsed .admin-report-nav-label,
+.admin-settings-page.sidebar-collapsed .admin-settings-nav-label,
 .staff-dashboard.sidebar-collapsed .nav-label,
 .staff-orders-page.sidebar-collapsed .nav-label,
 .staff-settings-page.sidebar-collapsed .nav-label,
@@ -114,6 +110,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-nav,
 .admin-orders-page.sidebar-collapsed .admin-orders-nav,
 .admin-report-page.sidebar-collapsed .admin-report-nav,
+.admin-settings-page.sidebar-collapsed .admin-settings-nav,
 .staff-dashboard.sidebar-collapsed .staff-nav,
 .staff-orders-page.sidebar-collapsed .staff-nav,
 .staff-settings-page.sidebar-collapsed .staff-nav,
@@ -127,6 +124,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-nav-link,
 .admin-orders-page.sidebar-collapsed .admin-orders-nav-link,
 .admin-report-page.sidebar-collapsed .admin-report-nav-link,
+.admin-settings-page.sidebar-collapsed .admin-settings-nav-link,
 .staff-dashboard.sidebar-collapsed .staff-nav-link,
 .staff-orders-page.sidebar-collapsed .staff-nav-link,
 .staff-settings-page.sidebar-collapsed .staff-nav-link,
@@ -137,15 +135,56 @@
   padding-right: 0;
 }
 
+.admin-dashboard.sidebar-collapsed .admin-nav-link,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav-link,
+.admin-menu-page.sidebar-collapsed .admin-menu-nav-link,
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-link,
+.admin-report-page.sidebar-collapsed .admin-report-nav-link,
+.admin-settings-page.sidebar-collapsed .admin-settings-nav-link {
+  font-size: 0;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-nav-link > span:first-child,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-nav-link > span:first-child,
+.admin-menu-page.sidebar-collapsed .admin-menu-nav-link > span:first-child,
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-link > span:first-child,
+.admin-report-page.sidebar-collapsed .admin-report-nav-link > span:first-child,
+.admin-settings-page.sidebar-collapsed .admin-settings-nav-link > span:first-child {
+  font-size: 18px;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-sidebar-bottom .admin-nav-link,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-sidebar-bottom .admin-inventory-nav-link,
+.admin-menu-page.sidebar-collapsed .admin-menu-sidebar-bottom .admin-menu-nav-link,
+.admin-orders-page.sidebar-collapsed .admin-orders-sidebar-bottom .admin-orders-nav-link,
+.admin-report-page.sidebar-collapsed .admin-report-sidebar-bottom .admin-report-nav-link,
+.admin-settings-page.sidebar-collapsed .admin-settings-sidebar-bottom .admin-settings-nav-link {
+  font-size: 0;
+}
+
+.admin-dashboard.sidebar-collapsed .admin-sidebar-bottom .admin-nav-link > span:first-child,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-sidebar-bottom .admin-inventory-nav-link > span:first-child,
+.admin-menu-page.sidebar-collapsed .admin-menu-sidebar-bottom .admin-menu-nav-link > span:first-child,
+.admin-orders-page.sidebar-collapsed .admin-orders-sidebar-bottom .admin-orders-nav-link > span:first-child,
+.admin-report-page.sidebar-collapsed .admin-report-sidebar-bottom .admin-report-nav-link > span:first-child,
+.admin-settings-page.sidebar-collapsed .admin-settings-sidebar-bottom .admin-settings-nav-link > span:first-child {
+  font-size: 18px;
+}
+
 .admin-dashboard.sidebar-collapsed .admin-nav-link > span:last-child,
 .admin-inventory-page.sidebar-collapsed .admin-inventory-nav-link > span:not(:first-child),
 .admin-menu-page.sidebar-collapsed .admin-menu-nav-link > span:not(:first-child),
 .admin-orders-page.sidebar-collapsed .admin-orders-nav-link > span:not(:first-child),
 .admin-report-page.sidebar-collapsed .admin-report-nav-link > span:not(:first-child),
+.admin-settings-page.sidebar-collapsed .admin-settings-nav-link > span:not(:first-child),
 .staff-dashboard.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
 .staff-orders-page.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
 .staff-settings-page.sidebar-collapsed .staff-nav-link > span:not(.nav-icon),
 .staff-menu-page.sidebar-collapsed .staff-menu-nav-link > span:not(.staff-menu-nav-icon) {
+  display: none;
+}
+
+.admin-orders-page.sidebar-collapsed .admin-orders-nav-link em {
   display: none;
 }
 
@@ -191,6 +230,7 @@
 .admin-menu-page.sidebar-collapsed .admin-menu-sidebar-bottom,
 .admin-orders-page.sidebar-collapsed .admin-orders-sidebar-bottom,
 .admin-report-page.sidebar-collapsed .admin-report-sidebar-bottom,
+.admin-settings-page.sidebar-collapsed .admin-settings-sidebar-bottom,
 .staff-dashboard.sidebar-collapsed .sidebar-bottom,
 .staff-orders-page.sidebar-collapsed .sidebar-bottom,
 .staff-settings-page.sidebar-collapsed .sidebar-bottom {
@@ -203,11 +243,13 @@
   .admin-menu-page.sidebar-collapsed .admin-menu-sidebar,
   .admin-orders-page.sidebar-collapsed .admin-orders-sidebar,
   .admin-report-page.sidebar-collapsed .admin-report-sidebar,
+  .admin-settings-page.sidebar-collapsed .admin-settings-sidebar,
   .staff-dashboard.sidebar-collapsed .staff-sidebar,
   .staff-orders-page.sidebar-collapsed .staff-sidebar,
   .staff-settings-page.sidebar-collapsed .staff-sidebar,
   .staff-menu-page.sidebar-collapsed .staff-menu-sidebar {
     width: 88px;
+    flex-basis: 88px;
     min-width: 88px;
   }
 }

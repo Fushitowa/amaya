@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
@@ -12,7 +13,7 @@ const categories = ["All items", "Milk Tea", "Drinks", "Snacks", "Desserts"];
 
 function AdminMenuManagement() {
 	const { products, addProduct, updateProduct, deleteProduct } = useMenu();
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
 	const [showForm, setShowForm] = useState(false);
@@ -93,7 +94,7 @@ function AdminMenuManagement() {
 	return (
 		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 			<aside className="admin-menu-sidebar">
-				<div className="admin-menu-brand"><SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} /><div><strong>Amaya</strong><span>Admin Portal</span></div></div>
+				<div className="admin-menu-brand"><SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} /><div><strong>Amaya</strong><span>Admin Portal</span></div></div>
 				<nav className="admin-menu-nav" aria-label="Admin navigation">
 					<span className="admin-menu-nav-label">MAIN MENU</span>
 					<Link to="/admin" className="admin-menu-nav-link"><span>▦</span>Dashboard</Link>

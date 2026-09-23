@@ -8,6 +8,7 @@ import AdminOrder from "./pages/admin/AdminOrder.jsx";
 import AdminInventory from "./pages/admin/AdminInventory.jsx";
 import AdminMenuManagement from "./pages/admin/AdminMenuManagement.jsx";
 import AdminReport from "./pages/admin/AdminReport.jsx";
+import AdminSettings from "./pages/admin/AdminSettings.jsx";
 import Contact from "./pages/Contact.jsx";
 import About from "./pages/About.jsx";
 import Menu from "./pages/Menu.jsx";
@@ -17,11 +18,13 @@ import StaffOrderConfirmation from "./pages/staff/StaffOrderConfirmation.jsx";
 import StaffReceipt from "./pages/staff/StaffReceipt.jsx";
 import StaffMenu from "./pages/staff/StaffMenu.jsx";
 import StaffQuantity from "./pages/staff/StaffQuantity.jsx";
+import { SidebarProvider } from "./context/SidebarContext.jsx";
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
+      <SidebarProvider>
+        <Routes>
 
         <Route path="/" element={<Home />} />
 
@@ -38,6 +41,8 @@ function App() {
         <Route path="/admin/menu" element={<AdminMenuManagement />} />
 
         <Route path="/admin/reports" element={<AdminReport />} />
+
+        <Route path="/admin/settings" element={<AdminSettings />} />
 
         <Route path="/contact" element={<Contact />} /> 
         
@@ -57,7 +62,8 @@ function App() {
 
         <Route path="/staff/quantity" element={<StaffQuantity />} />
 
-      </Routes>
+        </Routes>
+      </SidebarProvider>
     </BrowserRouter>
   );
 }
