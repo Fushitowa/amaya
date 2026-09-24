@@ -2,11 +2,19 @@ import { Link } from "react-router-dom";
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
+import { isToday, useOrders } from "../../context/OrdersContext.jsx";
+import { useMenu } from "../../context/MenuContext.jsx";
 import "../../assets/css/admin/AdminDashboard.css";
 import "../../assets/css/sidebar-collapse.css";
 
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
+  const { orders } = useOrders();
+  const { products } = useMenu();
+  const todaysOrders = orders.filter((order) => isToday(order.createdAt));
+  const todaysSales = todaysOrders.reduce((sum, order) => sum + order.total, 0);
+  const pendingOrders = orders.filter((order) => order.status === "Pending");
+  const lowStockProducts = products.filter((product) => Number(product.stock || 0) <= 5);
   const liveDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -202,9 +210,9 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Total Sales</span>
-                <h3>₱0.00</h3>
+                <h3>₱{todaysSales.toFixed(2)}</h3>
                 <small>
-                  No sales recorded yet
+                  {todaysOrders.length ? "Updated from today's orders" : "No sales recorded yet"}
                 </small>
               </div>
 
@@ -220,9 +228,9 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Today's Orders</span>
-                <h3>0</h3>
+                <h3>{todaysOrders.length}</h3>
                 <small>
-                  No orders yet
+                  {todaysOrders.length ? "Orders recorded today" : "No orders yet"}
                 </small>
               </div>
 
@@ -238,9 +246,9 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Pending Orders</span>
-                <h3>0</h3>
+                <h3>{pendingOrders.length}</h3>
                 <small>
-                  No pending orders
+                  {pendingOrders.length ? "Awaiting preparation" : "No pending orders"}
                 </small>
               </div>
 
@@ -256,9 +264,9 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Total Products</span>
-                <h3>32</h3>
+                <h3>{products.length}</h3>
                 <small>
-                  4 low-stock items
+                  {lowStockProducts.length} low-stock items
                 </small>
               </div>
 
@@ -302,12 +310,12 @@ function AdminDashboard() {
               <div className="sales-chart">
 
                 <div className="chart-value">
-                  ₱0
+                  ₱{todaysSales.toFixed(2)}
                 </div>
 
                 <div className="empty-orders-state">
-                  <strong>No sales yet</strong>
-                  <span>Sales performance will appear here once orders are placed.</span>
+                  <strong>{todaysOrders.length ? "Sales are being tracked" : "No sales yet"}</strong>
+                  <span>{todaysOrders.length ? `${todaysOrders.length} order${todaysOrders.length === 1 ? "" : "s"} recorded today.` : "Sales performance will appear here once orders are placed."}</span>
                 </div>
 
               </div>

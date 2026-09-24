@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
+import { useOrders } from "../../context/OrdersContext.jsx";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -78,6 +79,7 @@ const getInventoryStatus = (quantity, minimumStock) => {
 
 function AdminInventory() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
+  const { orders } = useOrders();
   const [inventory, setInventory] = useState(initialInventory);
   const [activeCategory, setActiveCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -108,6 +110,7 @@ function AdminInventory() {
   const lowStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "Low Stock").length;
   const outOfStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "Out of Stock").length;
   const inStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "In Stock").length;
+  const soldUnits = orders.reduce((total, order) => total + order.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0), 0);
 
   const resetForm = () => {
     setShowForm(false);
@@ -284,6 +287,14 @@ function AdminInventory() {
                 <small>Out of stock</small>
                 <strong>{outOfStockCount}</strong>
                 <span>Needs ordering</span>
+              </div>
+            </div>
+            <div>
+              <span className="inventory-stat-icon blue">↗</span>
+              <div>
+                <small>Sold from orders</small>
+                <strong>{soldUnits}</strong>
+                <span>Units recorded</span>
               </div>
             </div>
           </section>

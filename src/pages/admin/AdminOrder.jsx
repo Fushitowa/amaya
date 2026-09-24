@@ -1,33 +1,56 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
+import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/admin/AdminOrder.css";
 import "../../assets/css/sidebar-collapse.css";
-
-const orders = [];
 
 const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed"];
 
 function AdminOrder() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
+	const { orders, updateOrderStatus } = useOrders();
 	const [activeStatus, setActiveStatus] = useState("All orders");
 	const [search, setSearch] = useState("");
 	const [selectedOrderId, setSelectedOrderId] = useState(null);
+	const displayOrders = useMemo(() => orders.map((order) => ({
+		...order,
+		time: getOrderTime(order.createdAt),
+		itemsList: order.items,
+		itemsCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+		summary: order.items.map((item) => item.title).join(", "),
+		totalLabel: `₱${order.total.toFixed(2)}`,
+		initials: order.customer.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase(),
+	})), [orders]);
 
 	const filteredOrders = useMemo(() => {
 		const normalizedSearch = search.toLowerCase().trim();
-		return orders.filter((order) => {
+		return displayOrders.filter((order) => {
 			const matchesStatus = activeStatus === "All orders" || order.status === activeStatus;
 			const matchesSearch = !normalizedSearch || `${order.id} ${order.customer} ${order.summary}`.toLowerCase().includes(normalizedSearch);
 			return matchesStatus && matchesSearch;
 		});
-	}, [activeStatus, search]);
+	}, [activeStatus, displayOrders, search]);
 
-	const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
+	const selectedOrder = displayOrders.find((order) => order.id === selectedOrderId) ?? null;
+	const todaysOrders = displayOrders.filter((order) => isToday(order.createdAt));
+	const pendingOrders = displayOrders.filter((order) => order.status === "Pending");
+	const inProgressOrders = displayOrders.filter((order) => ["Preparing", "Ready"].includes(order.status));
+	const completedToday = todaysOrders.filter((order) => order.status === "Completed");
+	const todaysRevenue = todaysOrders.reduce((sum, order) => sum + order.total, 0);
+
+	useEffect(() => {
+		if (!orders.length) {
+			setSelectedOrderId(null);
+			return;
+		}
+
+		setSelectedOrderId((currentId) => currentId || orders[0].id);
+	}, [orders]);
 
 	return (
 		<div className={`admin-orders-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -53,17 +76,17 @@ function AdminOrder() {
 					<section className="admin-orders-heading"><div><span className="admin-orders-eyebrow">ORDER MANAGEMENT</span><h2>Customer orders</h2><p>Keep service moving with a clear view of every order in the queue.</p></div><button type="button" className="admin-orders-export">↓ <span>Export report</span></button></section>
 
 					<section className="admin-orders-stats" aria-label="Order summary">
-						<div><span className="stat-mark amber">◷</span><div><small>Pending</small><strong>0</strong><span className="stat-note warning">No pending orders</span></div></div>
-						<div><span className="stat-mark blue">▤</span><div><small>In progress</small><strong>0</strong><span className="stat-note">No orders being prepared</span></div></div>
-						<div><span className="stat-mark green">✓</span><div><small>Completed today</small><strong>0</strong><span className="stat-note positive">No completed orders yet</span></div></div>
-						<div><span className="stat-mark plum">₱</span><div><small>Today's revenue</small><strong>₱0.00</strong><span className="stat-note positive">No sales recorded yet</span></div></div>
+						<div><span className="stat-mark amber">◷</span><div><small>Pending</small><strong>{pendingOrders.length}</strong><span className="stat-note warning">{pendingOrders.length ? "Needs attention" : "No pending orders"}</span></div></div>
+						<div><span className="stat-mark blue">▤</span><div><small>In progress</small><strong>{inProgressOrders.length}</strong><span className="stat-note">{inProgressOrders.length ? "Being prepared" : "No orders being prepared"}</span></div></div>
+						<div><span className="stat-mark green">✓</span><div><small>Completed today</small><strong>{completedToday.length}</strong><span className="stat-note positive">{completedToday.length ? "Ready for pickup" : "No completed orders yet"}</span></div></div>
+						<div><span className="stat-mark plum">₱</span><div><small>Today's revenue</small><strong>₱{todaysRevenue.toFixed(2)}</strong><span className="stat-note positive">{todaysOrders.length ? `${todaysOrders.length} order${todaysOrders.length === 1 ? "" : "s"} today` : "No sales recorded yet"}</span></div></div>
 					</section>
 
 					<section className="admin-orders-workspace">
 						<div className="admin-orders-list-panel">
 							<div className="admin-orders-list-header"><div><h3>Order queue</h3><span>{filteredOrders.length} orders shown</span></div><label className="admin-orders-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search orders" aria-label="Search orders" /></label></div>
 							<div className="admin-orders-tabs" role="tablist" aria-label="Filter orders">{statusOptions.map((status) => <button key={status} type="button" className={activeStatus === status ? "active" : ""} onClick={() => setActiveStatus(status)}>{status}<span>{status === "All orders" ? orders.length : orders.filter((order) => order.status === status).length}</span></button>)}</div>
-							<div className="admin-orders-table-wrap"><table className="admin-orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Total</th><th>Status</th><th><span className="sr-only">View</span></th></tr></thead>{filteredOrders.length ? (<tbody>{filteredOrders.map((order) => <tr key={order.id} className={selectedOrder?.id === order.id ? "selected" : ""} onClick={() => setSelectedOrderId(order.id)}><td><strong>{order.id}</strong><span>{order.time}</span></td><td><div className="order-customer"><span>{order.initials}</span><div><strong>{order.customer}</strong><small>{order.items} · {order.summary}</small></div></div></td><td><span className="order-type"><i className={order.type.toLowerCase()}></i>{order.type}</span></td><td><strong>{order.total}</strong><span className="payment-status">{order.payment}</span></td><td><span className={`order-status ${order.status.toLowerCase()}`}>{order.status}</span></td><td><button type="button" className="row-arrow" aria-label={`View ${order.id}`}>›</button></td></tr>)}</tbody>) : (<tbody><tr><td colSpan="6"><div className="admin-orders-empty">No orders yet.</div></td></tr></tbody>)}</table></div>
+							<div className="admin-orders-table-wrap"><table className="admin-orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Total</th><th>Status</th><th><span className="sr-only">View</span></th></tr></thead>{filteredOrders.length ? (<tbody>{filteredOrders.map((order) => <tr key={order.id} className={selectedOrder?.id === order.id ? "selected" : ""} onClick={() => setSelectedOrderId(order.id)}><td><strong>{order.id}</strong><span>{order.time}</span></td><td><div className="order-customer"><span>{order.initials}</span><div><strong>{order.customer}</strong><small>{order.itemsCount} · {order.summary}</small></div></div></td><td><span className="order-type"><i className={order.type.toLowerCase()}></i>{order.type}</span></td><td><strong>{order.totalLabel}</strong><span className="payment-status">{order.payment}</span></td><td><span className={`order-status ${order.status.toLowerCase()}`}>{order.status}</span></td><td><button type="button" className="row-arrow" aria-label={`View ${order.id}`}>›</button></td></tr>)}</tbody>) : (<tbody><tr><td colSpan="6"><div className="admin-orders-empty">No orders yet.</div></td></tr></tbody>)}</table></div>
 						</div>
 
 						{selectedOrder ? (
@@ -71,10 +94,10 @@ function AdminOrder() {
 								<div className="detail-heading"><div><span className="admin-orders-eyebrow">ORDER DETAILS</span><h3>{selectedOrder.id}</h3></div><span className={`order-status ${selectedOrder.status.toLowerCase()}`}>{selectedOrder.status}</span></div>
 								<div className="detail-customer"><span>{selectedOrder.initials}</span><div><strong>{selectedOrder.customer}</strong><small>Placed today at {selectedOrder.time}</small></div></div>
 								<div className="detail-divider"></div>
-								<div className="detail-section"><div className="detail-section-title"><strong>Order items</strong><span>{selectedOrder.items}</span></div><div className="detail-item"><span>1 × {selectedOrder.summary.split(", ")[0]}</span><strong>{selectedOrder.total}</strong></div>{selectedOrder.summary.includes(", ") && <div className="detail-item"><span>1 × {selectedOrder.summary.split(", ")[1]}</span><strong>Included</strong></div>}</div>
-								<div className="detail-total"><span>Total amount</span><strong>{selectedOrder.total}</strong></div>
+								<div className="detail-section"><div className="detail-section-title"><strong>Order items</strong><span>{selectedOrder.itemsCount}</span></div>{selectedOrder.itemsList.map((item) => <div className="detail-item" key={`${selectedOrder.id}-${item.title}`}><span>{item.quantity} × {item.title}</span><strong>₱{(item.price * item.quantity).toFixed(2)}</strong></div>)}</div>
+								<div className="detail-total"><span>Total amount</span><strong>{selectedOrder.totalLabel}</strong></div>
 								<div className="detail-meta"><div><span>Order type</span><strong>{selectedOrder.type}</strong></div><div><span>Payment</span><strong className="paid">● {selectedOrder.payment}</strong></div></div>
-								<div className="detail-actions"><button type="button" className="primary-action">Update status <span>⌄</span></button><button type="button" className="secondary-action">Print receipt</button></div>
+								<div className="detail-actions"><button type="button" className="primary-action" onClick={() => updateOrderStatus(selectedOrder.id, selectedOrder.status === "Pending" ? "Preparing" : selectedOrder.status === "Preparing" ? "Ready" : "Completed")}>Update status <span>⌄</span></button><button type="button" className="secondary-action">Print receipt</button></div>
 							</aside>
 						) : (
 							<aside className="admin-order-detail">

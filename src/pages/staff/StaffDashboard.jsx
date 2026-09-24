@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
+import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -12,11 +13,15 @@ import "../../assets/css/sidebar-collapse.css";
 function StaffDashboard() { 
   const { darkMode } = useTheme();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { orders } = useOrders();
   const liveDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
+  const todaysOrders = orders.filter((order) => isToday(order.createdAt));
+  const todaysRevenue = todaysOrders.reduce((sum, order) => sum + order.total, 0);
+  const recentOrders = orders.slice(0, 5);
 
   return (
     <div className={`staff-dashboard ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -154,7 +159,7 @@ function StaffDashboard() {
           
           <section className="stats-grid">
 
-            <div className="stat-card empty-stat-card">
+            <div className={`stat-card ${todaysOrders.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
                 <div className="stat-icon orders-icon">
                   ≡
@@ -166,12 +171,12 @@ function StaffDashboard() {
               </div>
 
               <div className="stat-info">
-                <span>No orders</span>
-                <h3>0</h3>
+                <span>{todaysOrders.length ? "Orders today" : "No orders"}</span>
+                <h3>{todaysOrders.length}</h3>
               </div>
 
               <p className="stat-description">
-                Orders will appear here when received
+                {todaysOrders.length ? `₱${todaysRevenue.toFixed(2)} in revenue` : "Orders will appear here when received"}
               </p>
             </div>
 
@@ -212,14 +217,17 @@ function StaffDashboard() {
                   </thead>
 
                   <tbody>
-                    <tr>
-                      <td colSpan="5" className="empty-orders-cell">
-                        <div className="empty-orders-state">
-                          <strong>No orders yet</strong>
-                          <span>New customer orders will appear here.</span>
-                        </div>
-                      </td>
-                    </tr>
+                    {recentOrders.length ? recentOrders.map((order) => (
+                      <tr key={order.id}>
+                        <td><strong>{order.id}</strong><span>{getOrderTime(order.createdAt)}</span></td>
+                        <td>{order.customer}</td>
+                        <td>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</td>
+                        <td>₱{order.total.toFixed(2)}</td>
+                        <td><span className={`order-status ${order.status.toLowerCase()}`}>{order.status}</span></td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan="5" className="empty-orders-cell"><div className="empty-orders-state"><strong>No orders yet</strong><span>New customer orders will appear here.</span></div></td></tr>
+                    )}
                   </tbody>
 
                 </table>
@@ -297,14 +305,17 @@ function StaffDashboard() {
             </div>
 
             <div className="activity-list">
-              <div className="activity-item empty-activity">
-                <div className="activity-dot"></div>
-
-                <div className="activity-content">
-                  <strong>No recent activity</strong>
-                  <span>New staff actions will appear here.</span>
+              {todaysOrders.length ? todaysOrders.slice(0, 4).map((order) => (
+                <div className="activity-item" key={`activity-${order.id}`}>
+                  <div className="activity-dot"></div>
+                  <div className="activity-content">
+                    <strong>Order {order.id} received</strong>
+                    <span>{order.items.reduce((sum, item) => sum + item.quantity, 0)} item(s) · ₱{order.total.toFixed(2)} · {getOrderTime(order.createdAt)}</span>
+                  </div>
                 </div>
-              </div>
+              )) : (
+                <div className="activity-item empty-activity"><div className="activity-dot"></div><div className="activity-content"><strong>No recent activity</strong><span>New staff actions will appear here.</span></div></div>
+              )}
             </div>
 
           </section>

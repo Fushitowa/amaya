@@ -1,29 +1,30 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import { useOrders } from "../../context/OrdersContext.jsx";
 
 function StaffOrderConfirmation() {
   const navigate = useNavigate();
   const location = useLocation();
   const order = location.state?.order || [];
   const customerName = location.state?.customerName || "Walk-in Customer";
+  const { addOrder } = useOrders();
 
   const subtotal = order.reduce(
     (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
     0,
   );
 
-  const serviceFee = subtotal * 0.1;
-  const total = subtotal + serviceFee;
-
   const handleConfirm = () => {
+    const savedOrder = addOrder({ items: order, customerName });
+
     navigate("/staff/receipt", {
       state: {
         order,
         customerName,
         subtotal,
-        serviceFee,
-        total,
+        total: savedOrder.total,
+        orderId: savedOrder.id,
       },
     });
   };
@@ -156,10 +157,6 @@ function StaffOrderConfirmation() {
               <span>Subtotal</span>
               <strong>₱{subtotal.toFixed(2)}</strong>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#5d5049", fontSize: "14px" }}>
-              <span>Service Fee</span>
-              <strong>₱{serviceFee.toFixed(2)}</strong>
-            </div>
             <div style={{
               display: "flex",
               justifyContent: "space-between",
@@ -170,7 +167,7 @@ function StaffOrderConfirmation() {
               borderTop: "1px solid #ecdfd3",
             }}>
               <span>Total</span>
-              <span>₱{total.toFixed(2)}</span>
+              <span>₱{subtotal.toFixed(2)}</span>
             </div>
           </div>
 

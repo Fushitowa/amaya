@@ -5,6 +5,7 @@ import amayaLogo from "../../assets/images/amayalogo.png";
 import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
+import { useOrders } from "../../context/OrdersContext.jsx";
 import "../../assets/css/staff/staff-menu.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -25,6 +26,7 @@ const categoryDescriptions = {
 function StaffMenu() {
   const { darkMode } = useTheme();
   const { products } = useMenu();
+  const { orders } = useOrders();
   const navigate = useNavigate();
   const location = useLocation();
   const [activeCategory, setActiveCategory] = useState("drinks");
@@ -153,7 +155,7 @@ function StaffMenu() {
           <Link to="/staff/orders" className="staff-menu-nav-link">
             <span className="staff-menu-nav-icon">▤</span>
             <span>Orders</span>
-            <span className="staff-menu-nav-badge">5</span>
+            <span className="staff-menu-nav-badge">{orders.length}</span>
           </Link>
           <Link to="/staff/menu" className="staff-menu-nav-link active">
             <span className="staff-menu-nav-icon">☷</span>
