@@ -77,7 +77,7 @@ function Footer() {
 
           <nav className="footer-socials" aria-label="Social media">
             <a
-              href="https://facebook.com"
+              href="https://web.facebook.com/profile.php?id=61593571876259"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Visit Amaya on Facebook"
