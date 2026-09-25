@@ -292,3 +292,222 @@
     width: 100%;
   }
 }
+
+/* ==========================================================================
+   Thermal Receipt Slip & Browser Print Rules
+   ========================================================================== */
+
+.thermal-receipt-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.receipt-action-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-print-receipt-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 22px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #70482f 0%, #8b5e3c 100%);
+  color: #ffffff;
+  font: 700 13px "DM Sans", sans-serif;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(112, 72, 47, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.btn-print-receipt-main:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(112, 72, 47, 0.35);
+}
+
+.btn-secondary-receipt {
+  padding: 10px 18px;
+  border: 1px solid #d8ccc1;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #5a4b41;
+  font: 600 12px "DM Sans", sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-secondary-receipt:hover {
+  background: #f4eee7;
+}
+
+.thermal-slip {
+  width: 320px;
+  max-width: 100%;
+  background: #fffdf9;
+  border: 1px solid #e2d7c9;
+  border-radius: 8px;
+  padding: 24px 20px;
+  box-shadow: 0 12px 36px rgba(45, 31, 26, 0.08);
+  font-family: 'Courier New', Courier, monospace;
+  color: #1a1714;
+}
+
+.slip-header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.slip-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  margin-bottom: 6px;
+  object-fit: contain;
+}
+
+.slip-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.slip-meta-text {
+  margin: 2px 0;
+  font-size: 10.5px;
+  color: #4a4039;
+}
+
+.slip-divider-dashed {
+  border-top: 1px dashed #7a6e65;
+  margin: 10px 0;
+}
+
+.slip-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.slip-meta-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.slip-meta-row span {
+  color: #5d524a;
+}
+
+.slip-meta-row strong {
+  color: #1a1714;
+}
+
+.slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 6px 0;
+}
+
+.slip-table th {
+  padding: 4px 2px;
+  border-bottom: 1px dashed #7a6e65;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.slip-table td {
+  padding: 4px 2px;
+  vertical-align: top;
+}
+
+.slip-table .th-right,
+.slip-table .td-right {
+  text-align: right;
+}
+
+.slip-calc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.slip-calc-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.slip-calc-total {
+  font-size: 13.5px;
+  font-weight: 800;
+  padding-top: 4px;
+  border-top: 1px solid #1a1714;
+}
+
+.slip-barcode-area {
+  text-align: center;
+  margin: 12px 0 6px;
+}
+
+.slip-barcode-lines {
+  font-family: monospace;
+  font-size: 18px;
+  letter-spacing: 2px;
+  color: #222;
+  user-select: none;
+}
+
+.slip-footer {
+  text-align: center;
+  font-size: 10px;
+  color: #5d524a;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+/* Print CSS */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .printable-receipt-area,
+  .printable-receipt-area * {
+    visibility: visible;
+  }
+
+  .printable-receipt-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 300px !important;
+    max-width: 300px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
+
