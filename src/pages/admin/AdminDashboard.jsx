@@ -1,10 +1,13 @@
 import { Link } from "react-router-dom";
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import "../../assets/css/admin/AdminDashboard.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 function AdminDashboard() {
@@ -25,107 +28,12 @@ function AdminDashboard() {
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
 
       
-      <aside className="admin-sidebar">
-
-        
-        <div className="admin-brand">
-          <SidebarLogoButton
-            logo={amayaLogo}
-            alt="Amaya Logo"
-            collapsed={sidebarCollapsed}
-            onToggle={toggleSidebar}
-            className="admin-logo"
-          />
-
-          <div className="admin-brand-text">
-            <h2>Amaya</h2>
-            <span>Admin Portal</span>
-          </div>
-        </div>
-
-        
-        <nav className="admin-nav">
-
-          <p className="admin-nav-title">
-            MAIN MENU
-          </p>
-
-          <Link
-            to="/admin"
-            className="admin-nav-link active"
-          >
-            <span className="nav-icon">▦</span>
-            <span>Dashboard</span>
-          </Link>
-
-          <Link
-            to="/admin/orders"
-            className="admin-nav-link"
-          >
-            <span className="nav-icon">▤</span>
-            <span>Orders</span>
-          </Link>
-
-          <Link
-            to="/admin/inventory"
-            className="admin-nav-link"
-          >
-            <span className="nav-icon">☷</span>
-            <span>Inventory</span>
-          </Link>
-
-          <Link
-            to="/admin/menu"
-            className="admin-nav-link"
-          >
-            <span className="nav-icon">☷</span>
-            <span>Menu Management</span>
-          </Link>
-
-          <p className="admin-nav-title">
-            MANAGEMENT
-          </p>
-
-          <Link
-            to="/admin/reports"
-            className="admin-nav-link"
-          >
-            <span className="nav-icon">▥</span>
-            <span>Reports</span>
-          </Link>
-
-          <Link
-            to="/admin/settings"
-            className="admin-nav-link"
-          >
-            <span className="nav-icon">⚙</span>
-            <span>Settings</span>
-          </Link>
-
-        </nav>
-
-        
-        <div className="admin-sidebar-bottom">
-
-          <Link
-            to="/"
-            className="admin-nav-link website-link"
-          >
-            <span className="nav-icon">←</span>
-            <span>Back to Website</span>
-          </Link>
-
-          <Link
-            to="/login"
-            className="admin-nav-link logout-link"
-          >
-            <span className="nav-icon">↪</span>
-            <span>Log Out</span>
-          </Link>
-
-        </div>
-
-      </aside>
+      <Sidebar
+        role="admin"
+        activeTab="dashboard" orderCount={orders.length}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+      />
 
 
       
@@ -141,22 +49,11 @@ function AdminDashboard() {
 
           <div className="admin-topbar-right">
 
-            <button
-              className="admin-notification"
-              type="button"
-              aria-label="Notifications"
-            >
-              🔔
-              <span className="notification-badge">
-                3
-              </span>
-            </button>
+            <PortalNotificationButton count={3} />
 
             <div className="admin-user">
 
-              <div className="admin-avatar">
-                A
-              </div>
+              <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
 
               <div className="admin-user-info">
                 <strong>Administrator</strong>

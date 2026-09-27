@@ -4,10 +4,15 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 const ordersStorageKey = "amaya-orders";
 const OrdersContext = createContext(null);
 
+export const PAYMENT_STATUS_PAID = "Paid";
+export const DEFAULT_PAYMENT_METHOD = "Cash";
+export const WALK_IN_CUSTOMER_NAME = "Walk-in Customer";
+export const WALK_IN_INITIALS = "WC";
+
 export const defaultInitialOrders = [
   {
     id: "AM-104821",
-    customer: "Kent Carbonell",
+    customer: WALK_IN_CUSTOMER_NAME,
     items: [
       { title: "Matcha Milk Tea", quantity: 2, price: 39, size: "Regular", category: "Milk Tea" },
       { title: "Takoyaki", quantity: 1, price: 30, size: "Regular", category: "Snacks" },
@@ -15,12 +20,14 @@ export const defaultInitialOrders = [
     total: 108,
     status: "Pending",
     type: "Counter",
-    payment: "Paid",
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: "Cash",
+    paidAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
   },
   {
     id: "AM-104819",
-    customer: "Jessie Cataya",
+    customer: WALK_IN_CUSTOMER_NAME,
     items: [
       { title: "Classic Milk Tea", quantity: 1, price: 39, size: "Regular", category: "Milk Tea" },
       { title: "Burger", quantity: 1, price: 55, size: "Regular", category: "Snacks" },
@@ -28,12 +35,14 @@ export const defaultInitialOrders = [
     total: 94,
     status: "Preparing",
     type: "Counter",
-    payment: "Paid",
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: "GCash",
+    paidAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
   },
   {
     id: "AM-104815",
-    customer: "Maria Santos",
+    customer: WALK_IN_CUSTOMER_NAME,
     items: [
       { title: "Cookies & Cream", quantity: 2, price: 39, size: "Regular", category: "Milk Tea" },
       { title: "Lumpia", quantity: 2, price: 20, size: "Regular", category: "Snacks" },
@@ -41,12 +50,14 @@ export const defaultInitialOrders = [
     total: 118,
     status: "Ready",
     type: "Takeout",
-    payment: "Paid",
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: "Cash",
+    paidAt: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
   },
   {
     id: "AM-104810",
-    customer: "Mark Dela Cruz",
+    customer: WALK_IN_CUSTOMER_NAME,
     items: [
       { title: "Mango Float", quantity: 1, price: 95, size: "Regular", category: "Desserts" },
       { title: "Coke Float", quantity: 1, price: 25, size: "Regular", category: "Drinks" },
@@ -54,12 +65,14 @@ export const defaultInitialOrders = [
     total: 120,
     status: "Completed",
     type: "Dine-in",
-    payment: "Paid",
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: "Card",
+    paidAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
   },
   {
     id: "AM-104802",
-    customer: "Ana Reyes",
+    customer: WALK_IN_CUSTOMER_NAME,
     items: [
       { title: "Hotdog Bun", quantity: 2, price: 45, size: "Regular", category: "Snacks" },
       { title: "Strawberry Milk", quantity: 1, price: 30, size: "Regular", category: "Drinks" },
@@ -67,10 +80,38 @@ export const defaultInitialOrders = [
     total: 120,
     status: "Pending",
     type: "Counter",
-    payment: "Unpaid",
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: "GCash",
+    paidAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   },
 ];
+
+export function normalizeOrderCustomer(order) {
+  if (!order || typeof order !== "object") return order;
+
+  return {
+    ...order,
+    customer: WALK_IN_CUSTOMER_NAME,
+  };
+}
+
+function normalizeOrders(orders) {
+  if (!Array.isArray(orders)) return orders;
+  return orders.map(normalizeOrderCustomer);
+}
+
+export function normalizeOrderPayment(order) {
+  if (!order || typeof order !== "object") return order;
+
+  return {
+    ...order,
+    customer: WALK_IN_CUSTOMER_NAME,
+    payment: PAYMENT_STATUS_PAID,
+    paymentMethod: order.paymentMethod || DEFAULT_PAYMENT_METHOD,
+    paidAt: order.paidAt || order.createdAt || new Date().toISOString(),
+  };
+}
 
 function readOrders() {
   try {
@@ -78,7 +119,7 @@ function readOrders() {
     if (savedOrders) {
       const parsed = JSON.parse(savedOrders);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return normalizeOrders(parsed);
       }
     }
     return defaultInitialOrders;
@@ -106,7 +147,8 @@ export function OrdersProvider({ children }) {
       if (event.key !== ordersStorageKey || !event.newValue) return;
 
       try {
-        setOrders(JSON.parse(event.newValue));
+        const parsed = JSON.parse(event.newValue);
+        if (Array.isArray(parsed)) setOrders(normalizeOrders(parsed));
       } catch {
         // Ignore malformed values written by another tab.
       }
@@ -118,7 +160,14 @@ export function OrdersProvider({ children }) {
 
   const value = useMemo(() => ({
     orders,
-    addOrder: ({ items, customerName = "Walk-in Customer", type = "Counter" }) => {
+    addOrder: ({
+      items,
+      customerName = WALK_IN_CUSTOMER_NAME,
+      type = "Counter",
+      paymentMethod = DEFAULT_PAYMENT_METHOD,
+      cashTendered,
+      changeDue,
+    }) => {
       const total = getOrderTotal(items);
       const createdAt = new Date().toISOString();
       const order = {
@@ -134,7 +183,15 @@ export function OrdersProvider({ children }) {
         total,
         status: "Pending",
         type,
-        payment: "Unpaid",
+        payment: PAYMENT_STATUS_PAID,
+        paymentMethod,
+        paidAt: createdAt,
+        ...(paymentMethod === "Cash"
+          ? {
+            cashTendered: Number(cashTendered || total),
+            changeDue: Number(changeDue || 0),
+          }
+          : {}),
         createdAt,
       };
 
@@ -144,6 +201,18 @@ export function OrdersProvider({ children }) {
     updateOrderStatus: (id, status) => {
       setOrders((currentOrders) => currentOrders.map((order) => (
         order.id === id ? { ...order, status } : order
+      )));
+    },
+    markOrderPaid: (id, paymentMethod) => {
+      setOrders((currentOrders) => currentOrders.map((order) => (
+        order.id === id
+          ? {
+            ...order,
+            payment: PAYMENT_STATUS_PAID,
+            ...(paymentMethod ? { paymentMethod } : {}),
+            paidAt: new Date().toISOString(),
+          }
+          : order
       )));
     },
     deleteOrder: (id) => {
@@ -172,6 +241,18 @@ export function isToday(createdAt) {
   const date = new Date(createdAt);
   const today = new Date();
   return date.toDateString() === today.toDateString();
+}
+
+export function isOrderPaid(order) {
+  return (order?.payment ?? PAYMENT_STATUS_PAID) === PAYMENT_STATUS_PAID;
+}
+
+export function getPaymentStatusLabel(order) {
+  return isOrderPaid(order) ? "PAID" : String(order?.payment ?? "UNPAID").toUpperCase();
+}
+
+export function getPaymentMethodLabel(order) {
+  return String(order?.paymentMethod || DEFAULT_PAYMENT_METHOD).toUpperCase();
 }
 
 

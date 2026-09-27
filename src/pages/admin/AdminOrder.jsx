@@ -1,13 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import {
+  Check,
+  ChevronRight,
+  Coffee,
+  Lock,
+  Printer,
+  Search,
+} from "lucide-react";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
+import {
+  getOrderTime,
+  getPaymentMethodLabel,
+  getPaymentStatusLabel,
+  isOrderPaid,
+  isToday,
+  useOrders,
+  WALK_IN_CUSTOMER_NAME,
+  WALK_IN_INITIALS,
+} from "../../context/OrdersContext.jsx";
 import { useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 
 import "../../assets/css/admin/AdminOrder.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed"];
@@ -16,9 +35,10 @@ const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed
 const sampleMockOrders = [
   {
     id: "AM-104821",
-    customer: "Kent Carbonell",
+    customer: WALK_IN_CUSTOMER_NAME,
     type: "Counter",
     payment: "Paid",
+    paymentMethod: "Cash",
     status: "Pending",
     createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
     items: [
@@ -29,9 +49,10 @@ const sampleMockOrders = [
   },
   {
     id: "AM-104819",
-    customer: "Jessie Cataya",
+    customer: WALK_IN_CUSTOMER_NAME,
     type: "Counter",
     payment: "Paid",
+    paymentMethod: "GCash",
     status: "Preparing",
     createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
     items: [
@@ -42,9 +63,10 @@ const sampleMockOrders = [
   },
   {
     id: "AM-104815",
-    customer: "Maria Santos",
+    customer: WALK_IN_CUSTOMER_NAME,
     type: "Takeout",
     payment: "Paid",
+    paymentMethod: "Cash",
     status: "Ready",
     createdAt: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
     items: [
@@ -55,9 +77,10 @@ const sampleMockOrders = [
   },
   {
     id: "AM-104810",
-    customer: "Mark Dela Cruz",
+    customer: WALK_IN_CUSTOMER_NAME,
     type: "Dine-in",
     payment: "Paid",
+    paymentMethod: "Card",
     status: "Completed",
     createdAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
     items: [
@@ -68,9 +91,10 @@ const sampleMockOrders = [
   },
   {
     id: "AM-104802",
-    customer: "Ana Reyes",
+    customer: WALK_IN_CUSTOMER_NAME,
     type: "Counter",
     payment: "Paid",
+    paymentMethod: "GCash",
     status: "Pending",
     createdAt: new Date(Date.now() - 1000 * 60 * 125).toISOString(),
     items: [
@@ -112,12 +136,11 @@ function AdminOrder() {
       summary,
       totalAmount,
       totalLabel: `₱${totalAmount.toFixed(2)}`,
-      initials: (order.customer || "CU")
-        .split(" ")
-        .map((name) => name[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase(),
+      isPaid: isOrderPaid(order),
+      paymentStatusLabel: getPaymentStatusLabel(order),
+      paymentMethodLabel: getPaymentMethodLabel(order),
+      customer: WALK_IN_CUSTOMER_NAME,
+      initials: WALK_IN_INITIALS,
     };
   }), [rawOrders]);
 
@@ -126,7 +149,7 @@ function AdminOrder() {
     const normalizedSearch = search.toLowerCase().trim();
     return displayOrders.filter((order) => {
       const matchesStatus = activeStatus === "All orders" || order.status === activeStatus;
-      const matchesSearch = !normalizedSearch || `${order.id} ${order.customer} ${order.summary}`.toLowerCase().includes(normalizedSearch);
+      const matchesSearch = !normalizedSearch || `${order.id} ${order.summary}`.toLowerCase().includes(normalizedSearch);
       return matchesStatus && matchesSearch;
     });
   }, [activeStatus, displayOrders, search]);
@@ -165,48 +188,13 @@ function AdminOrder() {
 
   return (
     <div className={`admin-orders-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="admin-orders-sidebar">
-        <div className="admin-orders-brand">
-          <SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-          <div>
-            <strong>Amaya</strong>
-            <span>Admin Portal</span>
-          </div>
-        </div>
-
-        <nav className="admin-orders-nav" aria-label="Admin navigation">
-          <span className="admin-orders-nav-label">MAIN MENU</span>
-          <Link to="/admin" className="admin-orders-nav-link">
-            <span>▦</span>Dashboard
-          </Link>
-          <Link to="/admin/orders" className="admin-orders-nav-link active">
-            <span>▤</span>Orders<em>{rawOrders.length}</em>
-          </Link>
-          <Link to="/admin/inventory" className="admin-orders-nav-link">
-            <span>☷</span>Inventory
-          </Link>
-          <Link to="/admin/menu" className="admin-orders-nav-link">
-            <span>☷</span>Menu Management
-          </Link>
-
-          <span className="admin-orders-nav-label nav-label-spaced">MANAGEMENT</span>
-          <Link to="/admin/reports" className="admin-orders-nav-link">
-            <span>▥</span>Reports
-          </Link>
-          <Link to="/admin/settings" className="admin-orders-nav-link">
-            <span>⚙</span>Settings
-          </Link>
-        </nav>
-
-        <div className="admin-orders-sidebar-bottom">
-          <Link to="/" className="admin-orders-nav-link">
-            <span>←</span>Back to Website
-          </Link>
-          <Link to="/login" className="admin-orders-nav-link logout-link">
-            <span>↪</span>Log Out
-          </Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="admin"
+        activeTab="orders"
+        orderCount={rawOrders.length}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+      />
 
       <main className="admin-orders-main">
         <header className="admin-orders-topbar">
@@ -215,11 +203,9 @@ function AdminOrder() {
             <h1>Orders Overview</h1>
           </div>
           <div className="admin-orders-topbar-actions">
-            <button type="button" className="admin-orders-icon-button" aria-label="Notifications">
-              ♢<b>0</b>
-            </button>
+            <PortalNotificationButton count={0} />
             <div className="admin-orders-user">
-              <div className="admin-orders-avatar">A</div>
+              <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
               <div>
                 <strong>Administrator</strong>
                 <span>Store Supervisor</span>
@@ -244,7 +230,7 @@ function AdminOrder() {
                 }
               }}
             >
-              ⎙ <span>Quick print receipt</span>
+                              <Printer aria-hidden="true" /> <span>Quick print receipt</span>
             </button>
           </section>
 
@@ -271,7 +257,7 @@ function AdminOrder() {
               </div>
             </div>
             <div>
-              <span className="stat-mark green">✓</span>
+                <span className="stat-mark green"><Check aria-hidden="true" size={19} strokeWidth={2.6} /></span>
               <div>
                 <small>Completed today</small>
                 <strong>{completedToday.length}</strong>
@@ -302,11 +288,11 @@ function AdminOrder() {
                   <span>{filteredOrders.length} order{filteredOrders.length === 1 ? "" : "s"} shown</span>
                 </div>
                 <label className="admin-orders-search">
-                  <span>⌕</span>
+                  <Search aria-hidden="true" />
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search by ID, customer..."
+                    placeholder="Search by order ID or item..."
                     aria-label="Search orders"
                   />
                 </label>
@@ -379,7 +365,8 @@ function AdminOrder() {
                             </td>
                             <td>
                               <strong>{order.totalLabel}</strong>
-                              <span className="payment-status">{order.payment || "Paid"}</span>
+                              <span className="payment-status">● {order.paymentStatusLabel}</span>
+                              <span className="payment-method">{order.paymentMethodLabel}</span>
                             </td>
                             <td>
                               {/* Read-Only Status Pill */}
@@ -393,7 +380,7 @@ function AdminOrder() {
                                 className="row-arrow"
                                 aria-label={`View details for ${order.id}`}
                               >
-                                ›
+                                <ChevronRight aria-hidden="true" />
                               </button>
                             </td>
                           </tr>
@@ -460,21 +447,29 @@ function AdminOrder() {
                   <strong>{selectedOrder.totalLabel}</strong>
                 </div>
 
-                {/* Order Type & Payment Status */}
+                {/* Order Type, Payment Method & Payment Status */}
                 <div className="detail-meta">
                   <div>
                     <span>Order type</span>
                     <strong>{selectedOrder.type || "Counter"}</strong>
                   </div>
                   <div>
+                    <span>Payment method</span>
+                    <strong>{selectedOrder.paymentMethodLabel}</strong>
+                  </div>
+                  <div>
                     <span>Payment status</span>
-                    <strong className="paid">● {selectedOrder.payment || "Paid"}</strong>
+                    <strong className="payment-status-badge">● {selectedOrder.paymentStatusLabel}</strong>
+                  </div>
+                  <div>
+                    <span>Paid at</span>
+                    <strong>{getOrderTime(selectedOrder.paidAt || selectedOrder.createdAt)}</strong>
                   </div>
                 </div>
 
                 {/* Read-Only Workflow Notice */}
                 <div className="admin-readonly-banner">
-                  <span className="lock-icon" aria-hidden="true">🔒</span>
+                  <Lock aria-hidden="true" />
                   <span>Order status workflow is managed by Staff POS (Read-Only)</span>
                 </div>
 
@@ -570,7 +565,9 @@ function AdminOrder() {
             {/* Authentic Thermal Receipt Paper */}
             <div className="thermal-receipt-paper printable-area" id="printable-receipt">
               <div className="receipt-header">
-                <div className="receipt-brand-logo">☕</div>
+                <div className="receipt-brand-logo" aria-hidden="true">
+                  <Coffee size={22} />
+                </div>
                 <h2 className="receipt-store-title" id="receipt-dialog-title">
                   {business.businessName || "Amaya's Drinks and Bites"}
                 </h2>
@@ -641,8 +638,25 @@ function AdminOrder() {
                 </div>
                 <div className="calc-row payment-indicator">
                   <span>Payment Method:</span>
-                  <strong>{String(selectedOrder.payment || "PAID").toUpperCase()}</strong>
+                  <strong>{selectedOrder.paymentMethodLabel}</strong>
                 </div>
+                <div className="calc-row payment-indicator">
+                  <span>Payment Status:</span>
+                  <strong>PAID</strong>
+                </div>
+
+                {selectedOrder.paymentMethod === "Cash" ? (
+                  <>
+                    <div className="calc-row">
+                      <span>Cash Tendered:</span>
+                      <span>₱{Number(selectedOrder.cashTendered || selectedOrder.totalAmount).toFixed(2)}</span>
+                    </div>
+                    <div className="calc-row">
+                      <span>Change Due:</span>
+                      <span>₱{Number(selectedOrder.changeDue || 0).toFixed(2)}</span>
+                    </div>
+                  </>
+                ) : null}
               </div>
 
               <div className="receipt-divider-dashed"></div>

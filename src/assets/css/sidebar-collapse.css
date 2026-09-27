@@ -253,3 +253,56 @@
     min-width: 88px;
   }
 }
+
+/* ==========================================================================
+   Shared <Sidebar /> component (.amaya-sidebar)
+   ========================================================================== */
+
+.sidebar-collapsed .amaya-sidebar,
+.admin-dashboard.sidebar-collapsed .amaya-sidebar,
+.admin-inventory-page.sidebar-collapsed .amaya-sidebar,
+.admin-menu-page.sidebar-collapsed .amaya-sidebar,
+.admin-orders-page.sidebar-collapsed .amaya-sidebar,
+.admin-report-page.sidebar-collapsed .amaya-sidebar,
+.admin-settings-page.sidebar-collapsed .amaya-sidebar,
+.staff-dashboard.sidebar-collapsed .amaya-sidebar,
+.staff-orders-page.sidebar-collapsed .amaya-sidebar,
+.staff-settings-page.sidebar-collapsed .amaya-sidebar {
+  width: 88px;
+  flex-basis: 88px;
+  min-width: 88px;
+}
+
+.sidebar-collapsed .amaya-sidebar-brand,
+.admin-orders-page.sidebar-collapsed .amaya-sidebar-brand {
+  justify-content: center;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.sidebar-collapsed .amaya-sidebar-brand-text,
+.sidebar-collapsed .amaya-sidebar-section-label {
+  display: none;
+}
+
+.sidebar-collapsed .amaya-sidebar-nav {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.sidebar-collapsed .amaya-sidebar-link {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar-collapsed .amaya-sidebar-link-label,
+.sidebar-collapsed .amaya-sidebar-link-count {
+  display: none;
+}
+
+.sidebar-collapsed .amaya-sidebar-bottom {
+  align-items: center;
+}
+

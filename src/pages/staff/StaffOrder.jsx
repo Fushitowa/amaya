@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { useTheme } from "../../context/ThemeContext.jsx";
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
-import { getOrderTime, useOrders } from "../../context/OrdersContext.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import staffAvatar from "../../assets/images/icon/staff1.svg";
+import {
+  getOrderTime,
+  getPaymentMethodLabel,
+  getPaymentStatusLabel,
+  useOrders,
+  WALK_IN_CUSTOMER_NAME,
+  WALK_IN_INITIALS,
+} from "../../context/OrdersContext.jsx";
 import { useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 
 import "../../assets/css/staff/staff-orders.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const statusFilterList = ["All", "Pending", "Preparing", "Ready", "Completed"];
@@ -41,9 +50,8 @@ function StaffOrder() {
       if (!query) return true;
 
       const orderId = (order.id || "").toLowerCase();
-      const customer = (order.customer || "").toLowerCase();
-      const items = (order.items || []).map((item) => item.title.toLowerCase()).join(" ");
-      return orderId.includes(query) || customer.includes(query) || items.includes(query);
+      const items = (order.items || []).map((item) => (item.title || "").toLowerCase()).join(" ");
+      return orderId.includes(query) || items.includes(query);
     });
   }, [activeFilter, orders, searchQuery]);
 
@@ -93,53 +101,13 @@ function StaffOrder() {
 
   return (
     <div className={`staff-orders-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="staff-sidebar">
-        <div className="staff-brand">
-          <SidebarLogoButton
-            logo={amayaLogo}
-            alt="Amaya Logo"
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          />
-          <div>
-            <h2>Amaya</h2>
-            <span>Staff Portal</span>
-          </div>
-        </div>
-
-        <nav className="staff-nav">
-          <div className="nav-label">MAIN MENU</div>
-          <Link to="/staff" className="staff-nav-link">
-            <span className="nav-icon">▦</span>
-            <span>Dashboard</span>
-          </Link>
-          <Link to="/staff/orders" className="staff-nav-link active">
-            <span className="nav-icon">▤</span>
-            <span>Orders</span>
-            <span className="nav-badge">{totalOrdersCount}</span>
-          </Link>
-          <Link to="/staff/menu" className="staff-nav-link">
-            <span className="nav-icon">☷</span>
-            <span>Menu</span>
-          </Link>
-          <div className="nav-label nav-label-spaced">ACCOUNT</div>
-          <Link to="/staff/settings" className="staff-nav-link">
-            <span className="nav-icon">⚙</span>
-            <span>Settings</span>
-          </Link>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <Link to="/" className="back-to-site">
-            <span className="nav-icon">←</span>
-            <span>Back to Website</span>
-          </Link>
-          <Link to="/login" className="staff-logout">
-            <span className="nav-icon">↪</span>
-            <span>Log Out</span>
-          </Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="staff"
+        activeTab="orders"
+        orderCount={pendingCount}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
 
       <main className="staff-orders-main">
         <header className="staff-orders-topbar">
@@ -148,12 +116,11 @@ function StaffOrder() {
             <h1>Orders</h1>
           </div>
           <div className="orders-topbar-right">
-            <button type="button" className="orders-notification" aria-label="Notifications">
-              <span>♢</span>
-              <i />
-            </button>
+            <PortalNotificationButton hasUnread={pendingCount > 0} />
             <div className="orders-user">
-              <div className="orders-avatar">S</div>
+              <div className="amaya-user-avatar">
+                <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
+              </div>
               <div className="orders-user-info">
                 <strong>Staff</strong>
                 <span>Employee</span>
@@ -222,7 +189,7 @@ function StaffOrder() {
                 <span className="orders-search-icon">🔍</span>
                 <input
                   type="text"
-                  placeholder="Search by order ID, customer, item..."
+                  placeholder="Search by order ID or item..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="orders-search-input"
@@ -288,10 +255,10 @@ function StaffOrder() {
                           <td>
                             <div className="customer-info">
                               <div className="customer-avatar">
-                                {order.customer ? order.customer.charAt(0).toUpperCase() : "C"}
+                                {WALK_IN_INITIALS}
                               </div>
                               <div>
-                                <strong>{order.customer}</strong>
+                                <strong>{WALK_IN_CUSTOMER_NAME}</strong>
                                 <span>{order.type || "Counter"}</span>
                               </div>
                             </div>
@@ -487,7 +454,7 @@ function StaffOrder() {
               <div className="modal-order-summary">
                 <div className="summary-row">
                   <span>Customer:</span>
-                  <strong>{orderToDelete.customer}</strong>
+                  <strong>{WALK_IN_CUSTOMER_NAME}</strong>
                 </div>
                 <div className="summary-row">
                   <span>Current Status:</span>
@@ -603,7 +570,7 @@ function StaffOrder() {
                   <span>TIME:</span> <span>{getOrderTime(orderToPrint.createdAt)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>CUSTOMER:</span> <strong>{orderToPrint.customer}</strong>
+                  <span>CUSTOMER:</span> <strong>{WALK_IN_CUSTOMER_NAME}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>TYPE:</span> <strong>{String(orderToPrint.type || "Counter").toUpperCase()}</strong>
@@ -649,9 +616,13 @@ function StaffOrder() {
                 <span>TOTAL AMOUNT:</span>
                 <span>₱{Number(orderToPrint.total || 0).toFixed(2)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginTop: "3px", color: "#227733" }}>
-                <span>PAYMENT:</span>
-                <strong>{String(orderToPrint.payment || "PAID").toUpperCase()}</strong>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginTop: "3px" }}>
+                <span>PAYMENT METHOD:</span>
+                <strong>{getPaymentMethodLabel(orderToPrint)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginTop: "3px", color: "#227733", fontWeight: 700 }}>
+                <span>PAYMENT STATUS:</span>
+                <strong>{getPaymentStatusLabel(orderToPrint)}</strong>
               </div>
 
               <div style={{ borderTop: "1px dashed #666", margin: "8px 0" }}></div>

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import { useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
+import { getPaymentStatusLabel } from "../../context/OrdersContext.jsx";
 import "../../assets/css/staff/staff-receipt.css";
 
 function StaffReceipt() {
@@ -18,7 +19,10 @@ function StaffReceipt() {
 
   const customerName = location.state?.customerName || "Walk-in Customer";
   const orderType = location.state?.orderType || "Counter";
-  const paymentMethod = location.state?.paymentMethod || "CASH";
+  const paymentMethod = location.state?.paymentMethod || "Cash";
+  const paymentStatus = location.state?.paymentStatus
+    ? String(location.state.paymentStatus).toUpperCase()
+    : getPaymentStatusLabel({ payment: location.state?.payment });
   const subtotal = Number(location.state?.subtotal || 108);
   const total = Number(location.state?.total || subtotal);
   const cashTendered = Number(location.state?.cashTendered || total);
@@ -115,8 +119,12 @@ function StaffReceipt() {
               <strong>{String(orderType).toUpperCase()}</strong>
             </div>
             <div className="slip-meta-row">
-              <span>PAYMENT:</span>
-              <strong>{String(paymentMethod).toUpperCase()} (PAID)</strong>
+              <span>PAYMENT METHOD:</span>
+              <strong>{String(paymentMethod).toUpperCase()}</strong>
+            </div>
+            <div className="slip-meta-row">
+              <span>PAYMENT STATUS:</span>
+              <strong className="slip-paid">{paymentStatus}</strong>
             </div>
           </div>
 
@@ -190,6 +198,11 @@ function StaffReceipt() {
                 </div>
               </>
             )}
+
+            <div className="slip-calc-row slip-paid-row">
+              <span>Payment Status:</span>
+              <strong>PAID</strong>
+            </div>
           </div>
 
           <div className="slip-divider-dashed"></div>

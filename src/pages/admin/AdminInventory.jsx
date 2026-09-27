@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import "../../assets/css/admin/AdminInventory.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const initialInventory = [
@@ -200,31 +202,12 @@ function AdminInventory() {
 
   return (
     <div className={`admin-inventory-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="admin-inventory-sidebar">
-        <div className="admin-inventory-brand">
-          <SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-          <div>
-            <strong>Amaya</strong>
-            <span>Admin Portal</span>
-          </div>
-        </div>
-
-        <nav className="admin-inventory-nav" aria-label="Admin navigation">
-          <span className="admin-inventory-nav-label">MAIN MENU</span>
-          <Link to="/admin" className="admin-inventory-nav-link"><span>▦</span>Dashboard</Link>
-          <Link to="/admin/orders" className="admin-inventory-nav-link"><span>▤</span>Orders</Link>
-          <Link to="/admin/inventory" className="admin-inventory-nav-link active"><span>☷</span>Inventory</Link>
-          <Link to="/admin/menu" className="admin-inventory-nav-link"><span>☷</span>Menu Management</Link>
-          <span className="admin-inventory-nav-label nav-label-spaced">MANAGEMENT</span>
-          <Link to="/admin/reports" className="admin-inventory-nav-link"><span>▥</span>Reports</Link>
-          <Link to="/admin/settings" className="admin-inventory-nav-link"><span>⚙</span>Settings</Link>
-        </nav>
-
-        <div className="admin-inventory-sidebar-bottom">
-          <Link to="/" className="admin-inventory-nav-link"><span>←</span>Back to Website</Link>
-          <Link to="/login" className="admin-inventory-nav-link logout-link"><span>↪</span>Log Out</Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="admin"
+        activeTab="inventory"
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+      />
 
       <main className="admin-inventory-main">
         <header className="admin-inventory-topbar">
@@ -233,9 +216,9 @@ function AdminInventory() {
             <h1>Inventory</h1>
           </div>
           <div className="admin-inventory-topbar-actions">
-            <button type="button" className="admin-inventory-icon-button" aria-label="Notifications">♢<b>0</b></button>
+            <PortalNotificationButton count={0} />
             <div className="admin-inventory-user">
-              <div className="admin-inventory-avatar">A</div>
+              <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
               <div>
                 <strong>Administrator</strong>
                 <span>Admin</span>

@@ -413,6 +413,26 @@
   color: #1a1714;
 }
 
+.slip-meta-row .slip-paid {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid #b9dcc2;
+  border-radius: 4px;
+  background: #e6f4ea;
+  color: #2b6b3e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.slip-calc-row.slip-paid-row {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px dashed #b8ada4;
+  color: #2b6b3e;
+  font-weight: 700;
+}
+
 .slip-table {
   width: 100%;
   border-collapse: collapse;

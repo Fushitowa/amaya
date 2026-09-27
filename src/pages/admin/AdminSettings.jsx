@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import adminAvatar from "../../assets/images/icon/admin1.svg";
+import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 
 import "../../assets/css/admin/AdminSettings.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const initialSettings = {
@@ -51,35 +54,19 @@ function AdminSettings() {
 
 	return (
 		<div className={`admin-settings-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-			<aside className="admin-settings-sidebar">
-				<div className="admin-settings-brand">
-					<SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-					<div><strong>Amaya</strong><span>Admin Portal</span></div>
-				</div>
-
-				<nav className="admin-settings-nav" aria-label="Admin navigation">
-					<span className="admin-settings-nav-label">MAIN MENU</span>
-					<Link to="/admin" className="admin-settings-nav-link"><span>▦</span>Dashboard</Link>
-					<Link to="/admin/orders" className="admin-settings-nav-link"><span>▤</span>Orders</Link>
-					<Link to="/admin/inventory" className="admin-settings-nav-link"><span>☷</span>Inventory</Link>
-					<Link to="/admin/menu" className="admin-settings-nav-link"><span>☷</span>Menu Management</Link>
-					<span className="admin-settings-nav-label nav-label-spaced">MANAGEMENT</span>
-					<Link to="/admin/reports" className="admin-settings-nav-link"><span>▥</span>Reports</Link>
-					<Link to="/admin/settings" className="admin-settings-nav-link active"><span>⚙</span>Settings</Link>
-				</nav>
-
-				<div className="admin-settings-sidebar-bottom">
-					<Link to="/" className="admin-settings-nav-link"><span>←</span>Back to Website</Link>
-					<Link to="/login" className="admin-settings-nav-link logout-link"><span>↪</span>Log Out</Link>
-				</div>
-			</aside>
+      <Sidebar
+        role="admin"
+        activeTab="settings"
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+      />
 
 			<main className="admin-settings-main">
 				<header className="admin-settings-topbar">
 					<div><span className="admin-settings-section-label">ADMIN PORTAL</span><h1>Settings</h1></div>
 					<div className="admin-settings-topbar-actions">
-						<button type="button" className="admin-settings-icon-button" aria-label="Notifications">♢<b>3</b></button>
-						<div className="admin-settings-user"><div className="admin-settings-avatar">A</div><div><strong>Administrator</strong><span>Admin</span></div></div>
+						<PortalNotificationButton count={3} />
+						<div className="admin-settings-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div>
 					</div>
 				</header>
 
@@ -118,7 +105,7 @@ function AdminSettings() {
 
 							<div className="admin-settings-secondary-column">
 								<section className="admin-settings-card notifications-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">♢</div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div></div>
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div></div>
 									<SettingToggle label="Admin notifications" description="Receive important updates from the portal." enabled={notifications} onToggle={() => { setNotifications(!notifications); setSaveState("idle"); }} />
 									<SettingToggle label="New order alerts" description="Get notified when a customer order arrives." enabled={orderAlerts} onToggle={() => { setOrderAlerts(!orderAlerts); setSaveState("idle"); }} />
 									<SettingToggle label="Low stock alerts" description="Be alerted when inventory needs attention." enabled={inventoryAlerts} onToggle={() => { setInventoryAlerts(!inventoryAlerts); setSaveState("idle"); }} />

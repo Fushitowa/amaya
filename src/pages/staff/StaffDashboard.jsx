@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 function StaffDashboard() {
@@ -43,59 +46,13 @@ function StaffDashboard() {
   return (
     <div className={`staff-dashboard ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       {/* Staff Sidebar Navigation */}
-      <aside className="staff-sidebar">
-        <div className="staff-brand">
-          <SidebarLogoButton
-            logo={amayaLogo}
-            alt="Amaya Logo"
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          />
-          <div>
-            <h2>Amaya</h2>
-            <span>Staff Portal</span>
-          </div>
-        </div>
-
-        <nav className="staff-nav">
-          <div className="nav-label">MAIN MENU</div>
-
-          <Link to="/staff" className="staff-nav-link active">
-            <span className="nav-icon">▦</span>
-            <span>Dashboard</span>
-          </Link>
-
-          <Link to="/staff/orders" className="staff-nav-link">
-            <span className="nav-icon">▤</span>
-            <span>Orders</span>
-            <span className="nav-badge">{orders.length}</span>
-          </Link>
-
-          <Link to="/staff/menu" className="staff-nav-link">
-            <span className="nav-icon">☷</span>
-            <span>POS Menu</span>
-          </Link>
-
-          <div className="nav-label nav-label-spaced">SETTINGS & HARDWARE</div>
-
-          <Link to="/staff/settings" className="staff-nav-link">
-            <span className="nav-icon">⚙</span>
-            <span>Settings</span>
-          </Link>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <Link to="/" className="back-to-site">
-            <span className="nav-icon">←</span>
-            <span>Back to Website</span>
-          </Link>
-
-          <Link to="/login" className="staff-logout">
-            <span className="nav-icon">↪</span>
-            <span>Log Out</span>
-          </Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="staff"
+        activeTab="dashboard"
+        orderCount={pendingOrders.length}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
 
       {/* Main Staff Dashboard Body */}
       <main className="staff-main">
@@ -108,17 +65,12 @@ function StaffDashboard() {
           </div>
 
           <div className="topbar-right">
-            <button
-              type="button"
-              className="notification-button"
-              aria-label="Notifications"
-            >
-              <span>♢</span>
-              {pendingOrders.length > 0 && <i />}
-            </button>
+            <PortalNotificationButton hasUnread={pendingOrders.length > 0} />
 
             <div className="staff-user">
-              <div className="staff-avatar">S</div>
+              <div className="amaya-user-avatar">
+                <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
+              </div>
               <div className="staff-user-info">
                 <strong>Staff User</strong>
                 <span>Barista & Cashier</span>
@@ -343,7 +295,7 @@ function StaffDashboard() {
                     <div className="activity-item" key={`activity-${order.id}`}>
                       <div className="activity-dot"></div>
                       <div className="activity-content">
-                        <strong>Order #{order.id} for {order.customer} ({order.status})</strong>
+                        <strong>Order #{order.id} ({order.status})</strong>
                         <span>
                           {itemCount} item(s) · ₱{Number(order.total || 0).toFixed(2)} · Placed at {getOrderTime(order.createdAt)} · Type: {order.type || "Counter"}
                         </span>

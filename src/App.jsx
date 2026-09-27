@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
+import StaffMenu from "./pages/staff/StaffMenu.jsx";
+import StaffOrder from "./pages/staff/StaffOrder.jsx"; 
 import StaffDashboard from "./pages/staff/StaffDashboard.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminOrder from "./pages/admin/AdminOrder.jsx";
@@ -13,10 +15,9 @@ import Contact from "./pages/Contact.jsx";
 import About from "./pages/About.jsx";
 import Menu from "./pages/Menu.jsx";
 import StaffSetting from "./pages/staff/StaffSetting.jsx";
-import StaffOrder from "./pages/staff/StaffOrder.jsx";
 import StaffOrderConfirmation from "./pages/staff/StaffOrderConfirmation.jsx";
 import StaffReceipt from "./pages/staff/StaffReceipt.jsx";
-import StaffMenu from "./pages/staff/StaffMenu.jsx";
+
 import StaffQuantity from "./pages/staff/StaffQuantity.jsx";
 import { SidebarProvider } from "./context/SidebarContext.jsx";
 
@@ -29,6 +30,10 @@ function App() {
         <Route path="/" element={<Home />} />
 
         <Route path="/login" element={<Login />} />
+
+         <Route path="/staff/menu" element={<StaffMenu />} />
+
+        <Route path="/staff/orders" element={<StaffOrder />} />
 
         <Route path="/staff" element={<StaffDashboard />} />
 
@@ -51,10 +56,6 @@ function App() {
         <Route path="/menu" element={<Menu />} />
 
         <Route path="/staff/settings" element={<StaffSetting />} />
-
-        <Route path="/staff/menu" element={<StaffMenu />} />
-
-        <Route path="/staff/orders" element={<StaffOrder />} />
 
         <Route path="/staff/order-confirmation" element={<StaffOrderConfirmation />} />
 

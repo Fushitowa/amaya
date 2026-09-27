@@ -1,0 +1,75 @@
+/* Shared top-bar user avatar.
+   Replaces the plain text-initial circle with the role SVG asset so every
+   portal header shows the same badge. Token values mirror the Tailwind
+   equivalents in the design spec: w-10 h-10 rounded-full overflow-hidden
+   border border-amber-900/10 bg-amber-50/50 flex center flex-shrink-0. */
+
+.amaya-user-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 74, 41, 0.12);
+  background: rgba(253, 245, 235, 0.7);
+}
+
+.amaya-user-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 18%;
+}
+
+/* The asset is a solid black silhouette; tinting it keeps the header calm
+   and lets the cream badge read as a portrait rather than a black block. */
+.amaya-user-avatar img.tinted {
+  filter: brightness(0) saturate(100%) invert(38%) sepia(24%) saturate(1194%)
+    hue-rotate(347deg) brightness(92%) contrast(88%);
+}
+
+@media (max-width: 900px) {
+  .amaya-user-avatar {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+}
+
+/* Admin variant: white badge with a soft stone ring.
+   Token values mirror border-stone-200/80 bg-white shadow-sm. */
+
+.amaya-admin-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1px solid rgba(231, 229, 228, 0.8);
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.1), 0 1px 2px rgba(28, 25, 23, 0.06);
+}
+
+.amaya-admin-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 7px;
+  box-sizing: border-box;
+  object-fit: contain;
+}
+
+@media (max-width: 900px) {
+  .amaya-admin-avatar {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+}

@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 
 import { useTheme } from "../../context/ThemeContext.jsx";
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import NotificationIcon from "../../components/NotificationIcon.jsx";
+import staffAvatar from "../../assets/images/icon/staff1.svg";
 
 import "../../assets/css/staff/staff-setting.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 function StaffSetting() {
@@ -35,58 +38,12 @@ function StaffSetting() {
   return (
     <div className={`staff-settings-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       {/* Sidebar Navigation */}
-      <aside className="staff-sidebar">
-        <div className="staff-brand">
-          <SidebarLogoButton
-            logo={amayaLogo}
-            alt="Amaya Logo"
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          />
-          <div>
-            <h2>Amaya</h2>
-            <span>Staff Portal</span>
-          </div>
-        </div>
-
-        <nav className="staff-nav">
-          <div className="nav-label">MAIN MENU</div>
-
-          <Link to="/staff" className="staff-nav-link">
-            <span className="nav-icon">▦</span>
-            <span>Dashboard</span>
-          </Link>
-
-          <Link to="/staff/orders" className="staff-nav-link">
-            <span className="nav-icon">▤</span>
-            <span>Orders</span>
-          </Link>
-
-          <Link to="/staff/menu" className="staff-nav-link">
-            <span className="nav-icon">☷</span>
-            <span>POS Menu</span>
-          </Link>
-
-          <div className="nav-label nav-label-spaced">SETTINGS & HARDWARE</div>
-
-          <Link to="/staff/settings" className="staff-nav-link active">
-            <span className="nav-icon">⚙</span>
-            <span>Settings</span>
-          </Link>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <Link to="/" className="back-to-site">
-            <span className="nav-icon">←</span>
-            <span>Back to Website</span>
-          </Link>
-
-          <Link to="/login" className="staff-logout">
-            <span className="nav-icon">↪</span>
-            <span>Log Out</span>
-          </Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="staff"
+        activeTab="settings"
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
 
       {/* Main Settings Content */}
       <main className="staff-settings-main">
@@ -97,16 +54,12 @@ function StaffSetting() {
           </div>
 
           <div className="settings-topbar-right">
-            <button
-              type="button"
-              className="settings-notification"
-              aria-label="Notifications"
-            >
-              <span>♢</span>
-            </button>
+            <PortalNotificationButton />
 
             <div className="settings-user">
-              <div className="settings-avatar">S</div>
+              <div className="amaya-user-avatar">
+                <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
+              </div>
               <div className="settings-user-info">
                 <strong>Staff User</strong>
                 <span>Barista & Cashier</span>
@@ -297,8 +250,8 @@ function StaffSetting() {
             {/* Card 3: POS Ordering & Operational Alerts */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "bold" }}>
-                  🔔
+                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <NotificationIcon size={17} />
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#2d1f1a" }}>Notifications & Alerts</h3>

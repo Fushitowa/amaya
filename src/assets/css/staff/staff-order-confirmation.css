@@ -1,0 +1,34 @@
+.amaya-item-scroll {
+  max-height: 250px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #d8c7b6 #f7f2ed;
+  -webkit-overflow-scrolling: touch;
+}
+
+.amaya-item-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.amaya-item-scroll::-webkit-scrollbar-track {
+  background: #f7f2ed;
+  border-radius: 999px;
+}
+
+.amaya-item-scroll::-webkit-scrollbar-thumb {
+  background: #d8c7b6;
+  border: 2px solid #f7f2ed;
+  border-radius: 999px;
+}
+
+.amaya-item-scroll::-webkit-scrollbar-thumb:hover {
+  background: #c2aa95;
+}
+
+@media print {
+  .amaya-item-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+}

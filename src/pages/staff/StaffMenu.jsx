@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { StaffQuantityModal } from "./StaffQuantity.jsx";
 
 import "../../assets/css/staff/staff-menu.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const categoryTitles = {
@@ -191,50 +191,13 @@ function StaffMenu() {
   return (
     <div className={`staff-menu-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       {/* Sidebar Navigation */}
-      <aside className="staff-menu-sidebar">
-        <div className="staff-menu-brand">
-          <SidebarLogoButton
-            logo={amayaLogo}
-            alt="Amaya"
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            className="staff-menu-logo-image"
-          />
-          <div className="staff-menu-brand-text">
-            <span className="brand-kicker">Amaya</span>
-            <span className="brand-label">Staff POS Menu</span>
-          </div>
-        </div>
-
-        <nav className="staff-menu-dashboard-navigation">
-          <div className="staff-menu-nav-title">MAIN MENU</div>
-          <Link to="/staff" className="staff-menu-nav-link">
-            <span className="staff-menu-nav-icon">▦</span>
-            <span>Dashboard</span>
-          </Link>
-          <Link to="/staff/orders" className="staff-menu-nav-link">
-            <span className="staff-menu-nav-icon">▤</span>
-            <span>Orders</span>
-            <span className="staff-menu-nav-badge">{orders.length}</span>
-          </Link>
-          <Link to="/staff/menu" className="staff-menu-nav-link active">
-            <span className="staff-menu-nav-icon">☷</span>
-            <span>POS Menu</span>
-          </Link>
-
-          <div className="staff-menu-nav-title" style={{ marginTop: "20px" }}>CONFIG</div>
-          <Link to="/staff/settings" className="staff-menu-nav-link">
-            <span className="staff-menu-nav-icon">⚙</span>
-            <span>Settings</span>
-          </Link>
-        </nav>
-
-        <div className="sidebar-bottom" style={{ marginTop: "auto", padding: "16px" }}>
-          <Link to="/" className="back-to-site" style={{ display: "flex", gap: "8px", textDecoration: "none", color: "#6a5749", fontSize: "12px", fontWeight: 600 }}>
-            <span>←</span> Back to Website
-          </Link>
-        </div>
-      </aside>
+      <Sidebar
+        role="staff"
+        activeTab="menu"
+        orderCount={orders.length}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
 
       {/* Main Menu Grid Area */}
       <main className="staff-menu-main">

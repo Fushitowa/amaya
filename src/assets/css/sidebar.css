@@ -1,0 +1,197 @@
+.amaya-sidebar {
+  width: 280px;
+  flex: 0 0 280px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fdfbf7;
+  border-right: 1px solid #ece2d8;
+  box-shadow: 4px 0 18px rgba(60, 42, 30, 0.04);
+}
+
+.amaya-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 98px;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid #ece2d8;
+}
+
+.amaya-sidebar-brand-text {
+  min-width: 0;
+}
+
+.amaya-sidebar-brand-text strong {
+  display: block;
+  color: #5a3e2b;
+  font: 800 22px "DM Sans", sans-serif;
+  letter-spacing: -0.4px;
+}
+
+.amaya-sidebar-brand-text span {
+  display: block;
+  margin-top: 4px;
+  color: #a3928a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.amaya-sidebar-nav {
+  flex: 1;
+  padding: 24px 16px 18px;
+  overflow-y: auto;
+}
+
+.amaya-sidebar-section + .amaya-sidebar-section {
+  margin-top: 26px;
+}
+
+.amaya-sidebar-section-label {
+  display: block;
+  padding: 0 12px 10px;
+  color: #b0a196;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.amaya-sidebar-link {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 14px;
+  margin-top: 4px;
+  border-radius: 14px;
+  color: #5c4a3e;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.amaya-sidebar-link:hover {
+  background: rgba(90, 62, 43, 0.07);
+  color: #5a3e2b;
+  transform: translateX(2px);
+}
+
+.amaya-sidebar-link:focus-visible {
+  outline: 3px solid rgba(90, 62, 43, 0.35);
+  outline-offset: 2px;
+}
+
+.amaya-sidebar-link svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  stroke-width: 1.75;
+  color: #8a6a52;
+  transition: color 180ms ease;
+}
+
+.amaya-sidebar-link:hover svg {
+  color: #5a3e2b;
+}
+
+.amaya-sidebar-link-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.amaya-sidebar-link-count {
+  margin-left: auto;
+  min-width: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(90, 62, 43, 0.1);
+  color: #5a3e2b;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  text-align: center;
+}
+
+.amaya-sidebar-link.active {
+  background: #5a3e2b;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(90, 62, 43, 0.22);
+}
+
+.amaya-sidebar-link.active svg {
+  color: #ffffff;
+}
+
+.amaya-sidebar-link.active .amaya-sidebar-link-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.amaya-sidebar-bottom {
+  margin-top: auto;
+  padding: 14px 14px 18px;
+  border-top: 1px solid #ece2d8;
+}
+
+.amaya-sidebar-link--logout {
+  color: #8d4d4d;
+}
+
+.amaya-sidebar-link--logout svg {
+  color: #b07373;
+}
+
+.amaya-sidebar-link--logout:hover {
+  background: rgba(141, 77, 77, 0.08);
+  color: #8d4d4d;
+}
+
+/* ==========================================================================
+   Shared <Sidebar /> layout contract
+
+   The sidebar is an in-flow flex column, not a fixed element, so every page
+   root that renders it must be a flex row. These page roots were originally
+   block-level and offset their <main> with margin-left to compensate for a
+   position:fixed sidebar, which left one viewport of blank space above the
+   content once the sidebar became part of the flow. This block normalises
+   them to the flex-row layout and clears the legacy offset.
+   ========================================================================== */
+
+.admin-dashboard,
+.staff-dashboard,
+.staff-orders-page,
+.staff-settings-page {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+.admin-dashboard > .admin-main,
+.staff-dashboard > .staff-main,
+.staff-orders-page > .staff-orders-main,
+.staff-settings-page > .staff-settings-main {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .amaya-sidebar {
+    width: 88px;
+    flex-basis: 88px;
+  }
+
+  .amaya-sidebar-brand {
+    justify-content: center;
+    padding: 22px 12px 18px;
+  }
+}

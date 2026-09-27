@@ -56,6 +56,7 @@ function Footer() {
               </div>
             </dl>
           </div>
+          
 
           <div className="footer-section footer-contact">
             <h3>Get In Touch</h3>

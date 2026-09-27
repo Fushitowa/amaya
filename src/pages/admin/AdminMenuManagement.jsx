@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
-import amayaLogo from "../../assets/images/amayalogo.png";
-import SidebarLogoButton from "../../components/SidebarLogoButton.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
+import "../../assets/css/portal-user.css";
+import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const categories = ["All items", "Milk Tea", "Drinks", "Snacks", "Desserts"];
@@ -93,23 +95,15 @@ function AdminMenuManagement() {
 
 	return (
 		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-			<aside className="admin-menu-sidebar">
-				<div className="admin-menu-brand"><SidebarLogoButton logo={amayaLogo} alt="Amaya logo" collapsed={sidebarCollapsed} onToggle={toggleSidebar} /><div><strong>Amaya</strong><span>Admin Portal</span></div></div>
-				<nav className="admin-menu-nav" aria-label="Admin navigation">
-					<span className="admin-menu-nav-label">MAIN MENU</span>
-					<Link to="/admin" className="admin-menu-nav-link"><span>▦</span>Dashboard</Link>
-					<Link to="/admin/orders" className="admin-menu-nav-link"><span>▤</span>Orders</Link>
-					<Link to="/admin/inventory" className="admin-menu-nav-link"><span>☷</span>Inventory</Link>
-					<Link to="/admin/menu" className="admin-menu-nav-link active"><span>☷</span>Menu Management</Link>
-					<span className="admin-menu-nav-label nav-label-spaced">MANAGEMENT</span>
-					<Link to="/admin/reports" className="admin-menu-nav-link"><span>▥</span>Reports</Link>
-					<Link to="/admin/settings" className="admin-menu-nav-link"><span>⚙</span>Settings</Link>
-				</nav>
-				<div className="admin-menu-sidebar-bottom"><Link to="/" className="admin-menu-nav-link"><span>←</span>Back to Website</Link><Link to="/login" className="admin-menu-nav-link logout-link"><span>↪</span>Log Out</Link></div>
-			</aside>
+      <Sidebar
+        role="admin"
+        activeTab="menu"
+        sidebarCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+      />
 
 			<main className="admin-menu-main">
-				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><button type="button" className="admin-menu-icon-button" aria-label="Notifications">♢<b>3</b></button><div className="admin-menu-user"><div className="admin-menu-avatar">A</div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
+				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><PortalNotificationButton count={3} /><div className="admin-menu-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
 
 				<div className="admin-menu-content">
 					<section className="admin-menu-heading"><div><span className="admin-menu-eyebrow">PRODUCT CATALOG</span><h2>Everything on the menu</h2><p>Keep your offerings fresh, organized, and ready for every customer.</p></div><button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button></section>
