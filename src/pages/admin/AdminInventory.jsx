@@ -1,5 +1,18 @@
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, Package, Pencil, Search, Trash2, Warehouse } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  LayoutGrid,
+  List,
+  Package,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  TrendingUp,
+  Warehouse,
+} from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
@@ -193,58 +206,90 @@ function AdminInventory() {
         </header>
 
         <div className="admin-inventory-content">
-          <section className="admin-inventory-heading">
-            <div>
-              <span className="admin-inventory-eyebrow">STOCK OVERVIEW</span>
+          {/* Stock Overview Header + Unified Metrics Grid */}
+          <section className="admin-inventory-head">
+            <div className="admin-inventory-head-main">
+              <span className="admin-inventory-eyebrow">Stock Overview</span>
               <h2>Inventory management</h2>
               <p>Track ingredients, packaging, and supplies needed for your daily operations.</p>
             </div>
+
             <button type="button" className="admin-inventory-add-button" onClick={() => setShowForm(true)}>
-              <span>＋</span> Add inventory
+              <Plus size={16} strokeWidth={2.6} aria-hidden="true" />
+              <span>Add inventory item</span>
             </button>
           </section>
 
-          <section className="admin-inventory-stats" aria-label="Inventory summary">
-            <div>
-              <span className="inventory-stat-icon amber">☷</span>
-              <div>
-                <small>Total items</small>
-                <strong>{totalItems}</strong>
-                <span>Tracked inventory</span>
+          <section className="admin-inventory-metrics" aria-label="Inventory summary">
+            <article className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-icon amber">
+                  <Package size={18} strokeWidth={1.9} aria-hidden="true" />
+                </span>
+                <span className="metric-badge neutral">Total</span>
               </div>
-            </div>
-            <div>
-              <span className="inventory-stat-icon green">✓</span>
-              <div>
-                <small>In stock</small>
-                <strong>{inStockCount}</strong>
-                <span>Ready to use</span>
+              <div className="metric-body">
+                <span className="metric-label">Total Items</span>
+                <strong className="metric-value">{totalItems}</strong>
+                <span className="metric-hint">Tracked inventory</span>
               </div>
-            </div>
-            <div>
-              <span className="inventory-stat-icon orange">◷</span>
-              <div>
-                <small>Low stock</small>
-                <strong>{lowStockCount}</strong>
-                <span>Restock soon</span>
+            </article>
+
+            <article className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-icon emerald">
+                  <CheckCircle2 size={18} strokeWidth={2} aria-hidden="true" />
+                </span>
+                <span className="metric-badge emerald">Ready</span>
               </div>
-            </div>
-            <div>
-              <span className="inventory-stat-icon plum">!</span>
-              <div>
-                <small>Out of stock</small>
-                <strong>{outOfStockCount}</strong>
-                <span>Needs ordering</span>
+              <div className="metric-body">
+                <span className="metric-label">In Stock</span>
+                <strong className="metric-value">{inStockCount}</strong>
+                <span className="metric-hint">Ready to use</span>
               </div>
-            </div>
-            <div>
-              <span className="inventory-stat-icon blue">↗</span>
-              <div>
-                <small>Sold from orders</small>
-                <strong>{soldUnits}</strong>
-                <span>Units recorded</span>
+            </article>
+
+            <article className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-icon amber">
+                  <Clock size={18} strokeWidth={2} aria-hidden="true" />
+                </span>
+                <span className="metric-badge amber">Restock</span>
               </div>
-            </div>
+              <div className="metric-body">
+                <span className="metric-label">Low Stock</span>
+                <strong className="metric-value">{lowStockCount}</strong>
+                <span className="metric-hint">Restock soon</span>
+              </div>
+            </article>
+
+            <article className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-icon rose">
+                  <AlertTriangle size={18} strokeWidth={2} aria-hidden="true" />
+                </span>
+                <span className="metric-badge rose">Critical</span>
+              </div>
+              <div className="metric-body">
+                <span className="metric-label">Out of Stock</span>
+                <strong className="metric-value critical">{outOfStockCount}</strong>
+                <span className="metric-hint">Needs ordering</span>
+              </div>
+            </article>
+
+            <article className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-icon blue">
+                  <TrendingUp size={18} strokeWidth={2} aria-hidden="true" />
+                </span>
+                <span className="metric-badge blue">Tracked</span>
+              </div>
+              <div className="metric-body">
+                <span className="metric-label">Sold From Orders</span>
+                <strong className="metric-value">{soldUnits}</strong>
+                <span className="metric-hint">Units recorded</span>
+              </div>
+            </article>
           </section>
 
           <section className="admin-inventory-toolbar">
