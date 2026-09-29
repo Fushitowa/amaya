@@ -1,0 +1,350 @@
+/* ==========================================================================
+   Staff notification bell
+   ========================================================================== */
+
+.staff-notif {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.staff-notif-trigger {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(231, 229, 228, 0.8);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #5a3e2b;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.staff-notif-trigger:hover {
+  background: #fafaf9;
+  border-color: #ded5cb;
+  color: #3a2618;
+}
+
+.staff-notif-trigger:focus-visible {
+  outline: 3px solid rgba(90, 62, 43, 0.35);
+  outline-offset: 2px;
+}
+
+.staff-notif-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #b45309;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  animation: notifBadgePulse 2.4s ease-in-out infinite;
+}
+
+/* Ring flash when something new lands. */
+.staff-notif-trigger.ringing {
+  animation: notifRing 900ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+/* ---- dropdown panel ---- */
+
+.staff-notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
+  border-radius: 16px;
+  box-shadow: 0 24px 56px rgba(28, 25, 23, 0.18);
+  animation: notifPanelIn 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 640px) {
+  .staff-notif-panel {
+    width: 384px;
+  }
+}
+
+.staff-notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0efee;
+  background: #fafaf9;
+}
+
+.staff-notif-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.staff-notif-head h3 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.staff-notif-pill {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.staff-notif-link {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #92400e;
+  font: 700 11px "DM Sans", sans-serif;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.staff-notif-link:hover {
+  background: #fef3c7;
+}
+
+/* ---- list ---- */
+
+.staff-notif-list {
+  max-height: 384px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.staff-notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid #f5f5f4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.staff-notif-item.unread {
+  background: rgba(255, 251, 235, 0.5);
+}
+
+.staff-notif-item.read {
+  background: #ffffff;
+}
+
+.staff-notif-item:hover {
+  background: #fafaf9;
+}
+
+.staff-notif-item.unread:hover {
+  background: rgba(255, 251, 235, 0.8);
+}
+
+.staff-notif-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.staff-notif-icon.amber {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.staff-notif-icon.green {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.staff-notif-icon.blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.staff-notif-icon.emerald {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #059669;
+}
+
+.staff-notif-icon.red {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.staff-notif-icon.stone {
+  background: #f5f5f4;
+  border-color: #e7e5e4;
+  color: #57534e;
+}
+
+.staff-notif-body {
+  min-width: 0;
+  display: block;
+}
+
+.staff-notif-body strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.staff-notif-message {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #57534e;
+}
+
+.staff-notif-item.read .staff-notif-message,
+.staff-notif-item.read .staff-notif-body strong {
+  color: #a8a29e;
+}
+
+.staff-notif-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #a8a29e;
+}
+
+.staff-notif-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 34px 20px;
+  text-align: center;
+  color: #a8a29e;
+}
+
+.staff-notif-empty strong {
+  font-size: 12.5px;
+  color: #57534e;
+}
+
+.staff-notif-empty span {
+  max-width: 30ch;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---- footer ---- */
+
+.staff-notif-foot {
+  padding: 10px 16px;
+  border-top: 1px solid #f0efee;
+  background: #fafaf9;
+  text-align: center;
+}
+
+.staff-notif-clear {
+  border: 0;
+  background: transparent;
+  color: #78716c;
+  font: 700 11px "DM Sans", sans-serif;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 7px;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.staff-notif-clear:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ---- motion ---- */
+
+@keyframes notifBadgePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(180, 83, 9, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(180, 83, 9, 0);
+  }
+}
+
+@keyframes notifRing {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15% {
+    transform: rotate(13deg);
+  }
+  30% {
+    transform: rotate(-11deg);
+  }
+  45% {
+    transform: rotate(8deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes notifPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staff-notif-badge,
+  .staff-notif-trigger.ringing,
+  .staff-notif-panel {
+    animation: none;
+  }
+}

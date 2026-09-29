@@ -1,13 +1,24 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  ArrowRight,
+  CheckCircle2,
+  ClipboardList,
+  Package,
+  Plus,
+  Printer,
+  ShoppingBag,
+} from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import PortalHero from "../../components/PortalHero.jsx";
+import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
+import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -65,7 +76,7 @@ function StaffDashboard() {
           </div>
 
           <div className="topbar-right">
-            <PortalNotificationButton hasUnread={pendingOrders.length > 0} />
+            <StaffNotificationBell />
 
             <div className="staff-user">
               <div className="amaya-user-avatar">
@@ -80,27 +91,24 @@ function StaffDashboard() {
         </header>
 
         <div className="dashboard-content">
-          {/* Welcome & Shift Header */}
-          <section className="welcome-section">
-            <div>
-              <p className="welcome-label">{greetingTime.toUpperCase()}, TEAM</p>
-              <h2>{greetingTime}, Staff!</h2>
-              <p>Here is what is currently happening at Amaya's Drinks & Bites today.</p>
-            </div>
-
-            <div className="today-date">
-              <span>Today</span>
-              <strong>{liveDate}</strong>
-            </div>
-          </section>
+          {/* Espresso Welcome Hero */}
+          <PortalHero
+            label="Staff Portal · Barista & Cashier"
+            greeting={greetingTime}
+            highlight="Staff!"
+            subtitle="Here is what is currently happening at Amaya’s Drinks & Bites today."
+            date={liveDate}
+            statusTitle="Terminal active"
+          />
 
           {/* 4 KPI Metric Cards: Total Orders, Pending, Preparing, Completed Today */}
           <section className="stats-grid" aria-label="Quick metrics">
-            {/* Total Orders Card */}
-            <div className={`stat-card ${orders.length ? "" : "empty-stat-card"}`}>
+            <div className={`stat-card ${todaysOrders.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
-                <div className="stat-icon orders-icon">≡</div>
-                <span className="stat-status">Today</span>
+                <span className="stat-icon stat-icon-amber">
+                  <ShoppingBag size={17} strokeWidth={2} />
+                </span>
+                <span className="stat-status stat-status-today">Today</span>
               </div>
               <div className="stat-info">
                 <span>Total Orders Today</span>
@@ -111,11 +119,12 @@ function StaffDashboard() {
               </p>
             </div>
 
-            {/* Pending Orders Card */}
             <div className={`stat-card ${pendingOrders.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
-                <div className="stat-icon" style={{ background: "#fff3dc", color: "#b87923" }}>◷</div>
-                <span className="stat-status pending">Action Needed</span>
+                <span className="stat-icon stat-icon-amber">
+                  <ClipboardList size={17} strokeWidth={2} />
+                </span>
+                <span className="stat-status stat-status-pending">Action needed</span>
               </div>
               <div className="stat-info">
                 <span>Pending Orders</span>
@@ -126,11 +135,12 @@ function StaffDashboard() {
               </p>
             </div>
 
-            {/* Preparing Orders Card */}
             <div className={`stat-card ${preparingOrders.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
-                <div className="stat-icon" style={{ background: "#e8f1f8", color: "#497697" }}>◌</div>
-                <span className="stat-status preparing">In Kitchen</span>
+                <span className="stat-icon stat-icon-blue">
+                  <Package size={17} strokeWidth={2} />
+                </span>
+                <span className="stat-status stat-status-preparing">In kitchen</span>
               </div>
               <div className="stat-info">
                 <span>Preparing</span>
@@ -141,22 +151,24 @@ function StaffDashboard() {
               </p>
             </div>
 
-            {/* Completed Today Card */}
             <div className={`stat-card ${completedToday.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
-                <div className="stat-icon" style={{ background: "#e7f4ea", color: "#4a8457" }}>✓</div>
-                <span className="stat-status completed">Fulfilled</span>
+                <span className="stat-icon stat-icon-green">
+                  <CheckCircle2 size={17} strokeWidth={2} />
+                </span>
+                <span className="stat-status stat-status-completed">Fulfilled</span>
               </div>
               <div className="stat-info">
                 <span>Completed Today</span>
                 <h3>{completedToday.length}</h3>
               </div>
               <p className="stat-description">
-                {completedToday.length ? `${completedToday.length} orders served & picked up` : "No completed orders yet today"}
+                {completedToday.length
+                  ? `${completedToday.length} orders served & picked up`
+                  : "No completed orders yet today"}
               </p>
             </div>
           </section>
-
           {/* Main Dashboard Grid: Recent Orders & Quick POS Actions */}
           <section className="dashboard-grid">
             {/* Recent Orders Card */}
@@ -199,10 +211,8 @@ function StaffDashboard() {
                               <span>{getOrderTime(order.createdAt)}</span>
                             </td>
                             <td>
-                              <strong>{order.customer}</strong>
-                              <small style={{ display: "block", color: "#8a7c73", fontSize: "10px" }}>
-                                {order.type || "Counter"}
-                              </small>
+                              <strong>{order.customer || "Walk-in Customer"}</strong>
+                              <small className="orders-table-sub">{order.type || "Counter"}</small>
                             </td>
                             <td>{itemCount} item{itemCount === 1 ? "" : "s"}</td>
                             <td><strong>₱{Number(order.total || 0).toFixed(2)}</strong></td>
@@ -240,36 +250,36 @@ function StaffDashboard() {
 
               <div className="quick-actions">
                 <Link to="/staff/menu" className="quick-action">
-                  <div className="quick-action-icon" style={{ background: "rgba(139, 94, 60, 0.15)", color: "#8b5e3c" }}>
-                    +
-                  </div>
-                  <div>
+                  <span className="quick-action-icon quick-action-icon-amber">
+                    <Plus size={16} strokeWidth={2.4} />
+                  </span>
+                  <span className="quick-action-copy">
                     <strong>New POS Order</strong>
-                    <span>Open menu & build a customer order</span>
-                  </div>
-                  <span className="action-arrow">→</span>
+                    <span>Open menu &amp; build a customer order</span>
+                  </span>
+                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
                 </Link>
 
                 <Link to="/staff/orders" className="quick-action">
-                  <div className="quick-action-icon">
-                    ▤
-                  </div>
-                  <div>
+                  <span className="quick-action-icon">
+                    <ClipboardList size={16} strokeWidth={2} />
+                  </span>
+                  <span className="quick-action-copy">
                     <strong>Manage Order Queue</strong>
-                    <span>Advance statuses & print receipts</span>
-                  </div>
-                  <span className="action-arrow">→</span>
+                    <span>Advance statuses &amp; print receipts</span>
+                  </span>
+                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
                 </Link>
 
                 <Link to="/staff/settings" className="quick-action">
-                  <div className="quick-action-icon">
-                    ⚙
-                  </div>
-                  <div>
-                    <strong>Printer & Settings</strong>
-                    <span>Setup receipt printer & preferences</span>
-                  </div>
-                  <span className="action-arrow">→</span>
+                  <span className="quick-action-icon">
+                    <Printer size={16} strokeWidth={2} />
+                  </span>
+                  <span className="quick-action-copy">
+                    <strong>Printer &amp; Settings</strong>
+                    <span>Setup receipt printer &amp; preferences</span>
+                  </span>
+                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
                 </Link>
               </div>
             </div>

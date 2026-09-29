@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom"; 
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom"; 
 
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
@@ -35,7 +35,9 @@ function App() {
 
         <Route path="/staff/orders" element={<StaffOrder />} />
 
-        <Route path="/staff" element={<StaffDashboard />} />
+        <Route path="/staff" element={<Navigate to="/staff/menu" replace />} />
+
+        <Route path="/staff/dashboard" element={<StaffDashboard />} />
 
         <Route path="/admin" element={<AdminDashboard />} />
 

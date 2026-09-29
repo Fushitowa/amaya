@@ -1,89 +1,29 @@
 import { useMemo, useState } from "react";
+import { LayoutGrid, List, Package, Pencil, Search, Trash2, Warehouse } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
+import { getInventoryStatus, INVENTORY_CATEGORIES, useInventory } from "../../context/InventoryContext.jsx";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const initialInventory = [
-  { id: 1, item: "Coca-Cola", category: "Soft Drinks", quantity: 18, unit: "bottles/cans", minimumStock: 8 },
-  { id: 2, item: "Chocolate Syrup", category: "Syrup", quantity: 6, unit: "bottle/L", minimumStock: 4 },
-  { id: 3, item: "Blueberry Syrup", category: "Syrup", quantity: 9, unit: "bottle/L", minimumStock: 4 },
-  { id: 4, item: "Green Apple Syrup", category: "Syrup", quantity: 5, unit: "bottle/L", minimumStock: 4 },
-  { id: 5, item: "Strawberry Syrup", category: "Syrup", quantity: 10, unit: "bottle/L", minimumStock: 4 },
-  { id: 6, item: "Strawberry Milk Syrup", category: "Syrup", quantity: 7, unit: "bottle/L", minimumStock: 4 },
-  { id: 7, item: "Mango Syrup", category: "Syrup", quantity: 8, unit: "bottle/L", minimumStock: 4 },
-  { id: 8, item: "Fresh Milk", category: "Dairy", quantity: 15, unit: "liters", minimumStock: 6 },
-  { id: 9, item: "Vanilla Ice Cream", category: "Dairy", quantity: 12, unit: "liters", minimumStock: 5 },
-  { id: 10, item: "Ice", category: "Supplies", quantity: 22, unit: "kg", minimumStock: 10 },
-  { id: 11, item: "Black Tea", category: "Tea", quantity: 9, unit: "kg", minimumStock: 5 },
-  { id: 12, item: "Milk Powder", category: "Dairy", quantity: 6, unit: "kg", minimumStock: 4 },
-  { id: 13, item: "Tapioca Pearls", category: "Toppings", quantity: 8, unit: "kg", minimumStock: 4 },
-  { id: 14, item: "French Fries", category: "Frozen Food", quantity: 12, unit: "kg", minimumStock: 8 },
-  { id: 15, item: "Burger Patties", category: "Meat", quantity: 45, unit: "pcs", minimumStock: 20 },
-  { id: 16, item: "Burger Buns", category: "Bakery", quantity: 30, unit: "pcs", minimumStock: 12 },
-  { id: 17, item: "Hotdog", category: "Meat", quantity: 20, unit: "pcs", minimumStock: 10 },
-  { id: 18, item: "Hotdog Buns", category: "Bakery", quantity: 28, unit: "pcs", minimumStock: 12 },
-  { id: 19, item: "Tempura", category: "Frozen Food", quantity: 17, unit: "pcs/kg", minimumStock: 8 },
-  { id: 20, item: "Fish Balls", category: "Frozen Food", quantity: 25, unit: "pcs/kg", minimumStock: 10 },
-  { id: 21, item: "Siomai", category: "Frozen Food", quantity: 14, unit: "pcs", minimumStock: 6 },
-  { id: 22, item: "Lumpia", category: "Frozen Food", quantity: 19, unit: "pcs", minimumStock: 8 },
-  { id: 23, item: "Cooking Oil", category: "Cooking Supplies", quantity: 6, unit: "liters", minimumStock: 3 },
-  { id: 24, item: "Ketchup", category: "Condiments", quantity: 8, unit: "bottle", minimumStock: 3 },
-  { id: 25, item: "Mayonnaise", category: "Condiments", quantity: 5, unit: "bottle", minimumStock: 3 },
-  { id: 26, item: "Cheese", category: "Dairy", quantity: 2, unit: "slices/kg", minimumStock: 4 },
-  { id: 27, item: "Mango", category: "Fruit", quantity: 4, unit: "kg", minimumStock: 3 },
-  { id: 28, item: "Graham Crackers", category: "Dessert Ingredients", quantity: 10, unit: "packs/kg", minimumStock: 5 },
-  { id: 29, item: "All-Purpose Cream", category: "Dairy", quantity: 7, unit: "liters", minimumStock: 3 },
-  { id: 30, item: "Condensed Milk", category: "Dairy", quantity: 9, unit: "cans", minimumStock: 4 },
-  { id: 31, item: "Small Drink Cups", category: "Packaging", quantity: 350, unit: "pcs", minimumStock: 120 },
-  { id: 32, item: "Medium Drink Cups", category: "Packaging", quantity: 275, unit: "pcs", minimumStock: 120 },
-  { id: 33, item: "12oz Milktea Cups", category: "Packaging", quantity: 310, unit: "pcs", minimumStock: 120 },
-  { id: 34, item: "Drink Lids", category: "Packaging", quantity: 180, unit: "pcs", minimumStock: 100 },
-  { id: 35, item: "Straws", category: "Packaging", quantity: 110, unit: "pcs", minimumStock: 150 },
-  { id: 36, item: "Burger Boxes", category: "Packaging", quantity: 84, unit: "pcs", minimumStock: 30 },
-  { id: 37, item: "Food Containers", category: "Packaging", quantity: 120, unit: "pcs", minimumStock: 40 },
-  { id: 38, item: "Paper Bags", category: "Packaging", quantity: 42, unit: "pcs", minimumStock: 20 },
-  { id: 39, item: "Plastic Bags", category: "Packaging", quantity: 60, unit: "pcs", minimumStock: 25 },
-  { id: 40, item: "Napkins", category: "Supplies", quantity: 8, unit: "packs", minimumStock: 4 },
-  { id: 41, item: "Disposable Forks", category: "Supplies", quantity: 200, unit: "pcs", minimumStock: 80 },
-  { id: 42, item: "Disposable Spoons", category: "Supplies", quantity: 160, unit: "pcs", minimumStock: 80 },
-];
+const categories = INVENTORY_CATEGORIES;
 
-const categories = [
-  "All",
-  "Soft Drinks",
-  "Syrup",
-  "Tea",
-  "Dairy",
-  "Frozen Food",
-  "Meat",
-  "Bakery",
-  "Supplies",
-  "Condiments",
-  "Toppings",
-  "Packaging",
-  "Dessert Ingredients",
-  "Fruit",
-  "Cooking Supplies",
-];
-
-const getInventoryStatus = (quantity, minimumStock) => {
-  if (quantity === 0) return "Out of Stock";
-  if (quantity <= minimumStock) return "Low Stock";
-  return "In Stock";
-};
+// Stable reference so the memo dependencies below don't change every render.
+const EMPTY_INVENTORY = [];
 
 function AdminInventory() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
-  const [inventory, setInventory] = useState(initialInventory);
+  const { inventory: storedInventory, setInventory } = useInventory() || {};
+  const inventory = storedInventory || EMPTY_INVENTORY;
   const [activeCategory, setActiveCategory] = useState("All");
+  const [viewMode, setViewMode] = useState("grid");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -94,6 +34,8 @@ function AdminInventory() {
     unit: "",
     minimumStock: "",
   });
+
+  // Persistence now lives in InventoryContext, shared with Menu Management.
 
   const filteredInventory = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -107,6 +49,29 @@ function AdminInventory() {
       return matchesCategory && matchesSearch;
     });
   }, [activeCategory, inventory, search]);
+
+  // One row shape shared by both the grid and list views.
+  const rows = useMemo(() => filteredInventory.map((entry) => {
+    const status = getInventoryStatus(entry.quantity, entry.minimumStock);
+    // The bar reads "how comfortably stocked are we": full at 2x the minimum.
+    const healthyTarget = entry.minimumStock * 2;
+    const ratio = healthyTarget > 0 ? Math.max(0, Math.min(1, entry.quantity / healthyTarget)) : entry.quantity > 0 ? 1 : 0;
+
+    return {
+      ...entry,
+      status,
+      statusKey: status === "In Stock" ? "in-stock" : status === "Low Stock" ? "low-stock" : "out-of-stock",
+      stockRatio: Math.round(ratio * 100),
+    };
+  }), [filteredInventory]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = { All: inventory.length };
+    inventory.forEach((entry) => {
+      counts[entry.category] = (counts[entry.category] || 0) + 1;
+    });
+    return counts;
+  }, [inventory]);
 
   const totalItems = inventory.length;
   const lowStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "Low Stock").length;
@@ -283,84 +248,177 @@ function AdminInventory() {
           </section>
 
           <section className="admin-inventory-toolbar">
-            <div className="admin-inventory-tabs" role="tablist" aria-label="Inventory categories">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  className={activeCategory === category ? "active" : ""}
-                  onClick={() => setActiveCategory(category)}
-                >
-                  {category}
-                  <span>
-                    {category === "All"
-                      ? inventory.length
-                      : inventory.filter((item) => item.category === category).length}
-                  </span>
-                </button>
-              ))}
+            <div className="admin-inventory-pills" role="tablist" aria-label="Inventory categories">
+              {categories.map((category) => {
+                const count = categoryCounts[category] || 0;
+
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeCategory === category}
+                    className={`admin-inventory-pill ${activeCategory === category ? "active" : ""} ${count === 0 && category !== "All" ? "empty" : ""}`}
+                    onClick={() => setActiveCategory(category)}
+                  >
+                    {category}
+                    <span className="admin-inventory-pill-count">{count}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <label className="admin-inventory-search">
-              <span>⌕</span>
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search inventory"
-                aria-label="Search inventory"
-              />
-            </label>
+            <div className="admin-inventory-toolbar-right">
+              <label className="admin-inventory-search">
+                <Search aria-hidden="true" size={15} strokeWidth={2} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search inventory"
+                  aria-label="Search inventory"
+                />
+              </label>
+
+              <div className="admin-inventory-viewtoggle" role="group" aria-label="View mode">
+                <button
+                  type="button"
+                  className={viewMode === "grid" ? "active" : ""}
+                  onClick={() => setViewMode("grid")}
+                  aria-pressed={viewMode === "grid"}
+                  title="Grid view"
+                >
+                  <LayoutGrid aria-hidden="true" size={15} strokeWidth={2} />
+                  <span>Grid</span>
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === "list" ? "active" : ""}
+                  onClick={() => setViewMode("list")}
+                  aria-pressed={viewMode === "list"}
+                  title="List view"
+                >
+                  <List aria-hidden="true" size={15} strokeWidth={2} />
+                  <span>List</span>
+                </button>
+              </div>
+            </div>
           </section>
 
           <section className="admin-inventory-panel">
-            <div className="admin-inventory-table-wrap">
-              <table className="admin-inventory-table">
-                <thead>
-                  <tr>
-                    <th>Inventory Item</th>
-                    <th>Category</th>
-                    <th>Quantity</th>
-                    <th>Unit</th>
-                    <th>Minimum Stock</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredInventory.map((item) => {
-                    const status = getInventoryStatus(item.quantity, item.minimumStock);
+            {inventory.length === 0 ? (
+              <div className="admin-inventory-blank">
+                <div className="admin-inventory-blank-icon" aria-hidden="true">
+                  <Package size={24} strokeWidth={1.8} />
+                </div>
+                <p className="admin-inventory-blank-title">No inventory items found</p>
+                <p className="admin-inventory-blank-text">
+                  Click &ldquo;+ Add inventory&rdquo; above to start adding ingredients and packaging stock.
+                </p>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="admin-inventory-blank">
+                <div className="admin-inventory-blank-icon" aria-hidden="true">
+                  <Search size={22} strokeWidth={1.8} />
+                </div>
+                <p className="admin-inventory-blank-title">Nothing matches this view</p>
+                <p className="admin-inventory-blank-text">
+                  {search
+                    ? `No items matching "${search}" in ${activeCategory === "All" ? "the catalog" : activeCategory}.`
+                    : `No items in ${activeCategory}.`}
+                </p>
+              </div>
+            ) : viewMode === "grid" ? (
+              <div className="admin-inventory-grid">
+                {rows.map((row) => (
+                  <article className="admin-inventory-card" key={row.id}>
+                    <div>
+                      <div className="admin-inventory-card-top">
+                        <div className="admin-inventory-card-title">
+                          <span className="admin-inventory-card-category">{row.category}</span>
+                          <h4>{row.item}</h4>
+                        </div>
+                        <span className={`admin-inventory-badge ${row.statusKey}`}>{row.status}</span>
+                      </div>
 
-                    return (
-                      <tr key={item.id}>
-                        <td>{item.item}</td>
-                        <td>{item.category}</td>
-                        <td>{item.quantity}</td>
-                        <td>{item.unit}</td>
-                        <td>{item.minimumStock}</td>
+                      <div className="admin-inventory-card-stock">
+                        <div>
+                          <span className="admin-inventory-card-label">Current quantity</span>
+                          <p className="admin-inventory-card-qty">
+                            {row.quantity}
+                            <span>{row.unit}</span>
+                          </p>
+                        </div>
+                        <div className="admin-inventory-card-min">
+                          <span className="admin-inventory-card-label">Minimum stock</span>
+                          <p>{row.minimumStock} {row.unit}</p>
+                        </div>
+                      </div>
+
+                      <div
+                        className="admin-inventory-progress"
+                        role="progressbar"
+                        aria-valuenow={row.stockRatio}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${row.item} stock level`}
+                      >
+                        <span className={row.statusKey} style={{ width: `${row.stockRatio}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="admin-inventory-card-actions">
+                      <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
+                        <Pencil aria-hidden="true" size={13} strokeWidth={2.2} />
+                        <span>Edit</span>
+                      </button>
+                      <button type="button" className="restock" onClick={() => handleRestock(row.id)} title={`Restock ${row.item}`}>
+                        <Warehouse aria-hidden="true" size={13} strokeWidth={2.2} />
+                        <span>Restock</span>
+                      </button>
+                      <button type="button" className="danger" onClick={() => handleDelete(row.id)} title={`Delete ${row.item}`} aria-label={`Delete ${row.item}`}>
+                        <Trash2 aria-hidden="true" size={13} strokeWidth={2.2} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="admin-inventory-table-wrap">
+                <table className="admin-inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Inventory Item</th>
+                      <th>Category</th>
+                      <th>Quantity</th>
+                      <th>Unit</th>
+                      <th>Minimum Stock</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.item}</td>
+                        <td>{row.category}</td>
+                        <td>{row.quantity}</td>
+                        <td>{row.unit}</td>
+                        <td>{row.minimumStock}</td>
                         <td>
-                          <span className={`inventory-status ${status.toLowerCase().replace(/\s+/g, "-")}`}>
-                            {status}
-                          </span>
+                          <span className={`inventory-status ${row.statusKey}`}>{row.status}</span>
                         </td>
                         <td>
                           <div className="inventory-actions">
-                            <button type="button" onClick={() => handleEdit(item)}>Edit</button>
-                            <button type="button" onClick={() => handleRestock(item.id)}>Restock</button>
-                            <button type="button" className="danger" onClick={() => handleDelete(item.id)}>Delete</button>
+                            <button type="button" onClick={() => handleEdit(row)}>Edit</button>
+                            <button type="button" onClick={() => handleRestock(row.id)}>Restock</button>
+                            <button type="button" className="danger" onClick={() => handleDelete(row.id)}>Delete</button>
                           </div>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {!filteredInventory.length && (
-              <div className="admin-inventory-empty">
-                <strong>No inventory items found</strong>
-                <span>Try another search term or category.</span>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
@@ -385,7 +443,7 @@ function AdminInventory() {
                   type="text"
                   value={formValues.item}
                   onChange={(event) => setFormValues({ ...formValues, item: event.target.value })}
-                  placeholder="e.g. Coca-Cola"
+                  placeholder="e.g. Brown Sugar"
                   required
                 />
               </label>

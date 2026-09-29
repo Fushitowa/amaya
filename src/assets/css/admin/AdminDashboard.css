@@ -428,145 +428,6 @@ body {
 }
 
 
-.admin-welcome {
-  min-height: 145px;
-
-  margin-bottom: 24px;
-  padding: 27px 30px;
-
-  position: relative;
-
-  overflow: hidden;
-
-  border-radius: var(--radius-lg);
-
-  background:
-    linear-gradient(
-      135deg,
-      #45372f,
-      #8b5e3c
-    );
-
-  color: var(--white);
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  box-shadow: var(--shadow-md);
-}
-
-
-.admin-welcome::before {
-  content: "";
-
-  width: 220px;
-  height: 220px;
-
-  position: absolute;
-
-  right: -70px;
-  top: -110px;
-
-  border-radius: 50%;
-
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.admin-welcome::after {
-  content: "";
-
-  width: 140px;
-  height: 140px;
-
-  position: absolute;
-
-  right: 100px;
-  bottom: -90px;
-
-  border-radius: 50%;
-
-  background: rgba(255, 255, 255, 0.04);
-}
-
-
-
-
-.welcome-label {
-  position: relative;
-  z-index: 1;
-
-  color: rgba(255, 255, 255, 0.62);
-
-  font-size: 9px;
-  font-weight: 700;
-
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-}
-
-.admin-welcome h2 {
-  position: relative;
-  z-index: 1;
-
-  margin: 7px 0 5px;
-
-  font-size: 24px;
-  line-height: 1.2;
-
-  font-weight: 700;
-
-  letter-spacing: -0.5px;
-}
-
-.admin-welcome p {
-  position: relative;
-  z-index: 1;
-
-  color: rgba(255, 255, 255, 0.62);
-
-  font-size: 12px;
-}
-
-
-.welcome-date {
-  position: relative;
-  z-index: 1;
-
-  min-width: 155px;
-
-  padding: 14px 17px;
-
-  border: 1px solid rgba(255, 255, 255, 0.1);
-
-  border-radius: 11px;
-
-  background: rgba(255, 255, 255, 0.07);
-
-  text-align: right;
-}
-
-.welcome-date span {
-  display: block;
-
-  margin-bottom: 4px;
-
-  color: rgba(255, 255, 255, 0.52);
-
-  font-size: 9px;
-
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.welcome-date strong {
-  color: var(--white);
-
-  font-size: 12px;
-  font-weight: 600;
-}
-
-
 .admin-stats {
   display: grid;
 
@@ -1312,32 +1173,7 @@ body {
 
   
 
-  .admin-welcome {
-    padding: 22px;
-
-    display: block;
-
-    min-height: auto;
-  }
-
-  .admin-welcome h2 {
-    font-size: 20px;
-  }
-
-  .welcome-date {
-    width: fit-content;
-
-    min-width: 0;
-
-    margin-top: 17px;
-
-    padding: 10px 13px;
-
-    text-align: left;
-  }
-
-
-  
+        
 
   .admin-stats {
     grid-template-columns: 1fr 1fr;
@@ -1438,24 +1274,7 @@ body {
 
   
 
-  .admin-welcome {
-    padding: 19px;
-
-    border-radius: 13px;
-  }
-
-  .admin-welcome h2 {
-    font-size: 18px;
-  }
-
-  .admin-welcome p {
-    max-width: 240px;
-
-    line-height: 1.5;
-  }
-
-
-  
+        
 
   .admin-stats {
     grid-template-columns: 1fr;
@@ -1568,4 +1387,3 @@ body {
   }
 
 }
-

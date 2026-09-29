@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
-import { useMenu } from "../../context/MenuContext.jsx";
+import { useMenu, resolveProductSizes } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { StaffQuantityModal } from "./StaffQuantity.jsx";
 
@@ -38,7 +38,7 @@ function StaffMenu() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerName, setCustomerName] = useState("Walk-in Customer");
-  const [orderType, setOrderType] = useState("Counter");
+  const [orderType, setOrderType] = useState("Dine-in");
   const [customizingItem, setCustomizingItem] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -67,10 +67,9 @@ function StaffMenu() {
           categoryKey,
           category: product.category,
           price: basePrice,
-          sizeOptions: product.sizes || [
-            { label: "Regular", price: basePrice },
-            { label: "Large", price: basePrice + 15 },
-          ],
+          id: product.id,
+          // Size variants come from the Admin catalog only.
+          sizeOptions: resolveProductSizes(product),
         };
       });
   }, [products]);
@@ -121,13 +120,23 @@ function StaffMenu() {
   // Add customized item from the Modal
   const handleConfirmCustomized = (itemToAdd) => {
     setOrder((currentOrder) => {
-      // If exactly identical item with same size & modifiers exists, increment quantity
+      // Items merge only when they are the same catalog product with the same
+      // size & modifiers. Catalog id wins when present so two distinct menu
+      // items that share a title never collapse into one line.
       const existing = currentOrder.find(
-        (entry) =>
-          entry.title === itemToAdd.title &&
-          entry.size === itemToAdd.size &&
-          entry.sugarLevel === itemToAdd.sugarLevel &&
-          JSON.stringify(entry.addons) === JSON.stringify(itemToAdd.addons)
+        (entry) => {
+          const sameProduct =
+            entry.productId != null && itemToAdd.productId != null
+              ? entry.productId === itemToAdd.productId
+              : entry.title === itemToAdd.title;
+
+          return (
+            sameProduct &&
+            entry.size === itemToAdd.size &&
+            entry.sugarLevel === itemToAdd.sugarLevel &&
+            JSON.stringify(entry.addons) === JSON.stringify(itemToAdd.addons)
+          );
+        }
       );
 
       if (existing) {
@@ -419,21 +428,22 @@ function StaffMenu() {
               style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #ded6ce", fontSize: "12px", color: "#2d1f1a", outline: "none", marginBottom: "8px" }}
             />
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
-              {["Counter", "Takeout", "Dine-in"].map((type) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px", margin: "6px 0" }}>
+              {["Takeout", "Dine-in"].map((type) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => setOrderType(type)}
                   style={{
-                    padding: "5px 6px",
-                    borderRadius: "6px",
+                    padding: "8px 10px",
+                    borderRadius: "8px",
                     border: orderType === type ? "1.5px solid #8b5e3c" : "1px solid #e5ded7",
                     background: orderType === type ? "#fbf5ef" : "#ffffff",
                     color: orderType === type ? "#70482f" : "#6a5749",
-                    fontSize: "10px",
+                    fontSize: "11px",
                     fontWeight: 700,
                     cursor: "pointer",
+                    transition: "all 0.15s ease",
                   }}
                 >
                   {type}

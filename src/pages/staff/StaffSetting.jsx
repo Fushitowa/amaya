@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 
@@ -22,7 +22,7 @@ function StaffSetting() {
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [printerPaperSize, setPrinterPaperSize] = useState("80mm");
   const [printLogoOnReceipt, setPrintLogoOnReceipt] = useState(true);
-  const [defaultOrderType, setDefaultOrderType] = useState("Counter");
+  const [defaultOrderType, setDefaultOrderType] = useState("Dine-in");
   const [stationName, setStationName] = useState("POS Terminal #1");
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -54,7 +54,7 @@ function StaffSetting() {
           </div>
 
           <div className="settings-topbar-right">
-            <PortalNotificationButton />
+            <StaffNotificationBell />
 
             <div className="settings-user">
               <div className="amaya-user-avatar">
@@ -302,14 +302,13 @@ function StaffSetting() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Default Order Type</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Preselected counter service</span>
+                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Preselected service type</span>
                   </div>
                   <select
                     value={defaultOrderType}
                     onChange={(e) => setDefaultOrderType(e.target.value)}
                     style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #ded6ce", fontSize: "12px", color: "#2d1f1a" }}
                   >
-                    <option value="Counter">Counter</option>
                     <option value="Takeout">Takeout</option>
                     <option value="Dine-in">Dine-in</option>
                   </select>
@@ -366,7 +365,7 @@ function StaffSetting() {
                       setAudioChime(true);
                       setAutoPrintReceipt(false);
                       setPrinterPaperSize("80mm");
-                      setDefaultOrderType("Counter");
+                      setDefaultOrderType("Dine-in");
                       setToastMessage("Settings restored to defaults");
                       setTimeout(() => setToastMessage(null), 2500);
                     }}

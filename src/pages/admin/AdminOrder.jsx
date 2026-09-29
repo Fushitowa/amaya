@@ -31,79 +31,6 @@ import "../../assets/css/sidebar-collapse.css";
 
 const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed"];
 
-// Sample mock orders for immediate out-of-the-box functionality
-const sampleMockOrders = [
-  {
-    id: "AM-104821",
-    customer: WALK_IN_CUSTOMER_NAME,
-    type: "Counter",
-    payment: "Paid",
-    paymentMethod: "Cash",
-    status: "Pending",
-    createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    items: [
-      { title: "Matcha Milk Tea", quantity: 2, price: 39, size: "Regular", category: "Milk Tea" },
-      { title: "Takoyaki", quantity: 1, price: 30, size: "Regular", category: "Snacks" },
-    ],
-    total: 108,
-  },
-  {
-    id: "AM-104819",
-    customer: WALK_IN_CUSTOMER_NAME,
-    type: "Counter",
-    payment: "Paid",
-    paymentMethod: "GCash",
-    status: "Preparing",
-    createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-    items: [
-      { title: "Classic Milk Tea", quantity: 1, price: 39, size: "Regular", category: "Milk Tea" },
-      { title: "Burger", quantity: 1, price: 55, size: "Regular", category: "Snacks" },
-    ],
-    total: 94,
-  },
-  {
-    id: "AM-104815",
-    customer: WALK_IN_CUSTOMER_NAME,
-    type: "Takeout",
-    payment: "Paid",
-    paymentMethod: "Cash",
-    status: "Ready",
-    createdAt: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
-    items: [
-      { title: "Cookies & Cream", quantity: 2, price: 39, size: "Regular", category: "Milk Tea" },
-      { title: "Lumpia", quantity: 2, price: 20, size: "Regular", category: "Snacks" },
-    ],
-    total: 118,
-  },
-  {
-    id: "AM-104810",
-    customer: WALK_IN_CUSTOMER_NAME,
-    type: "Dine-in",
-    payment: "Paid",
-    paymentMethod: "Card",
-    status: "Completed",
-    createdAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-    items: [
-      { title: "Mango Float", quantity: 1, price: 95, size: "Regular", category: "Desserts" },
-      { title: "Coke Float", quantity: 1, price: 25, size: "Regular", category: "Drinks" },
-    ],
-    total: 120,
-  },
-  {
-    id: "AM-104802",
-    customer: WALK_IN_CUSTOMER_NAME,
-    type: "Counter",
-    payment: "Paid",
-    paymentMethod: "GCash",
-    status: "Pending",
-    createdAt: new Date(Date.now() - 1000 * 60 * 125).toISOString(),
-    items: [
-      { title: "Hotdog Bun", quantity: 2, price: 45, size: "Regular", category: "Snacks" },
-      { title: "Strawberry Milk", quantity: 1, price: 30, size: "Regular", category: "Drinks" },
-    ],
-    total: 120,
-  },
-];
 
 function AdminOrder() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
@@ -116,13 +43,8 @@ function AdminOrder() {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
-  // Use orders from context if available, otherwise use initial sample mock data
-  const rawOrders = useMemo(() => {
-    return orders && orders.length > 0 ? orders : sampleMockOrders;
-  }, [orders]);
-
   // Enrich order models for display
-  const displayOrders = useMemo(() => rawOrders.map((order) => {
+  const displayOrders = useMemo(() => orders.map((order) => {
     const itemsList = order.items || [];
     const itemsCount = itemsList.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const summary = itemsList.map((item) => item.title).join(", ");
@@ -142,7 +64,7 @@ function AdminOrder() {
       customer: WALK_IN_CUSTOMER_NAME,
       initials: WALK_IN_INITIALS,
     };
-  }), [rawOrders]);
+  }), [orders]);
 
   // Filter orders based on active status filter and search query
   const filteredOrders = useMemo(() => {
@@ -191,7 +113,7 @@ function AdminOrder() {
       <Sidebar
         role="admin"
         activeTab="orders"
-        orderCount={rawOrders.length}
+        orderCount={orders.length}
         sidebarCollapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
       />

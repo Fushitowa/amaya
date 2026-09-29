@@ -44,13 +44,15 @@ function StaffOrderConfirmation() {
 
   const order = useMemo(() => location.state?.order || [], [location.state?.order]);
   const initialCustomer = location.state?.customerName || "Walk-in Customer";
-  const initialType = location.state?.orderType || "Counter";
+  const initialType = location.state?.orderType || "Dine-in";
 
   const [customerName, setCustomerName] = useState(initialCustomer);
   const [orderType, setOrderType] = useState(initialType);
   const [selectedPayment, setSelectedPayment] = useState("Cash");
   const [cashTendered, setCashTendered] = useState("");
   const [isNarrow, setIsNarrow] = useState(false);
+  // PENDING until the order is created, then PAID (counter sales settle immediately).
+  const [paymentStatus, setPaymentStatus] = useState("PENDING");
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 760px)");
@@ -93,6 +95,9 @@ function StaffOrderConfirmation() {
 
     const orderId = savedOrder?.id || `AM-${String(Date.now()).slice(-6)}`;
 
+    // Order created successfully: a counter sale settles immediately.
+    setPaymentStatus(PAYMENT_STATUS_PAID.toUpperCase());
+
     navigate("/staff/receipt", {
       state: {
         order,
@@ -108,6 +113,8 @@ function StaffOrderConfirmation() {
       },
     });
   };
+
+  const isPaymentPending = paymentStatus !== PAYMENT_STATUS_PAID.toUpperCase();
 
   const gridColumns = isNarrow ? "minmax(0, 1fr)" : "minmax(0, 1.08fr) minmax(0, 0.92fr)";
   const itemRowGrid = "minmax(0, 1fr) 58px 92px";
@@ -193,16 +200,22 @@ function StaffOrderConfirmation() {
               fontWeight: 800,
               letterSpacing: "0.9px",
               textTransform: "uppercase",
-              background: theme.greenSoft,
-              color: theme.green,
-              border: `1px solid ${theme.greenBorder}`,
+              background: isPaymentPending ? theme.amberSoft : theme.greenSoft,
+              color: isPaymentPending ? theme.amber : theme.green,
+              border: `1px solid ${isPaymentPending ? theme.amberBorder : theme.greenBorder}`,
             }}
           >
             <span
               aria-hidden="true"
-              style={{ width: "7px", height: "7px", borderRadius: "50%", background: theme.green }}
+              style={{
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background: isPaymentPending ? theme.amber : theme.green,
+                animation: isPaymentPending ? "amaya-pulse 1.4s ease-in-out infinite" : "none",
+              }}
             />
-            Paid at counter
+            {isPaymentPending ? "Payment pending" : "Paid at counter"}
           </span>
         </header>
 
@@ -265,15 +278,15 @@ function StaffOrderConfirmation() {
               >
                 Service type
               </span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
-                {["Counter", "Takeout", "Dine-in"].map((type) => (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
+                {["Takeout", "Dine-in"].map((type) => (
                   <button
                     key={type}
                     type="button"
                     onClick={() => setOrderType(type)}
                     aria-pressed={orderType === type}
                     style={{
-                      padding: "9px 6px",
+                      padding: "10px 8px",
                       borderRadius: "10px",
                       border: orderType === type ? `1.5px solid ${theme.earth}` : `1px solid ${theme.border}`,
                       background: orderType === type ? theme.earthSoft : theme.card,
@@ -681,20 +694,48 @@ function StaffOrderConfirmation() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "space-between",
+                  gap: "10px",
                   marginTop: "12px",
-                  padding: "9px 12px",
+                  padding: "10px 12px",
                   borderRadius: "10px",
-                  background: theme.card,
-                  border: `1px solid ${theme.borderSoft}`,
+                  background: isPaymentPending ? theme.amberSoft : theme.greenSoft,
+                  border: `1px solid ${isPaymentPending ? theme.amberBorder : theme.greenBorder}`,
                 }}
               >
                 <span
-                  aria-hidden="true"
-                  style={{ width: "7px", height: "7px", flex: "0 0 7px", borderRadius: "50%", background: theme.green }}
-                />
-                <span style={{ fontSize: "10.5px", fontWeight: 700, color: theme.green }}>
-                  Payment status: PAID
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    fontSize: "10.5px",
+                    fontWeight: 700,
+                    color: isPaymentPending ? theme.amber : theme.green,
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: "7px",
+                      height: "7px",
+                      flex: "0 0 7px",
+                      borderRadius: "50%",
+                      background: isPaymentPending ? theme.amber : theme.green,
+                      animation: isPaymentPending ? "amaya-pulse 1.4s ease-in-out infinite" : "none",
+                    }}
+                  />
+                  Payment status:
+                </span>
+                <span
+                  style={{
+                    fontSize: "10.5px",
+                    fontWeight: 800,
+                    letterSpacing: "0.8px",
+                    textTransform: "uppercase",
+                    color: isPaymentPending ? theme.amber : theme.green,
+                  }}
+                >
+                  {paymentStatus}
                 </span>
               </div>
             </section>

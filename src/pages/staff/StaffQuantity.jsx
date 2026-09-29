@@ -5,74 +5,73 @@ import amayaLogo from "../../assets/images/amayalogo.png";
 import staffIcon from "../../assets/images/icon/staff.png";
 import defaultProductImage from "../../assets/images/menu/milktea/chocolate.png";
 import { useTheme } from "../../context/ThemeContext.jsx";
+import {
+  findProductById,
+  parseMenuPrice,
+  resolveProductAddons,
+  resolveProductSizes,
+  useMenu,
+} from "../../context/MenuContext.jsx";
 
 import "../../assets/css/staff/staff-quantity.css";
 
-// Sugar level presets for drinks & milk teas
-const sugarLevels = ["100% (Normal)", "75% (Less)", "50% (Half)", "25% (Mild)", "0% (No Sugar)"];
-
-// Available Add-ons with pricing
-const addonOptions = [
-  { id: "pearls", label: "Extra Pearls", price: 10 },
-  { id: "nata", label: "Nata de Coco", price: 10 },
-  { id: "cheese", label: "Cream Cheese Foam", price: 15 },
-  { id: "sauce", label: "Extra Sauce / Drizzle", price: 10 },
-];
+// Sugar-level presets were removed: drink sweetness is no longer chosen here.
+// All size and add-on options come from the Admin catalog.
 
 /**
  * Reusable Quantity & Modifiers Component used both as inline modal and standalone page
  */
 export function QuantityModifierContent({ product, onConfirm, onCancel, orderId = "NEW" }) {
+  const { products = [] } = useMenu() || {};
   const [quantity, setQuantity] = useState(1);
 
-  const fallbackSizes = useMemo(() => {
-    return product?.sizeOptions || [
-      { label: "Regular", price: Number(product?.price || 75) },
-      { label: "Large", price: Number(product?.price || 75) + 15 },
-    ];
-  }, [product]);
+  // Admin Menu Management owns sizes/add-ons. Resolve the live catalog record
+  // by the product's unique id so edits appear without a redeploy.
+  const catalogProduct = useMemo(() => {
+    if (!product) return null;
+    return findProductById(products, product.id) || product;
+  }, [product, products]);
 
-  const [selectedSize, setSelectedSize] = useState(fallbackSizes[0]?.label || "Regular");
-  const [selectedSugar, setSelectedSugar] = useState(sugarLevels[0]);
+  const basePrice = useMemo(() => parseMenuPrice(catalogProduct?.price), [catalogProduct]);
+  const sizeOptions = useMemo(() => resolveProductSizes(catalogProduct), [catalogProduct]);
+  const addonOptions = useMemo(() => resolveProductAddons(catalogProduct), [catalogProduct]);
+
+  const [selectedSize, setSelectedSize] = useState(sizeOptions[0]?.label || "Regular");
   const [selectedAddons, setSelectedAddons] = useState([]);
   const [instructions, setInstructions] = useState("");
 
   const currentSizeObj = useMemo(() => {
-    return fallbackSizes.find((s) => s.label === selectedSize) || fallbackSizes[0];
-  }, [fallbackSizes, selectedSize]);
+    return sizeOptions.find((size) => size.label === selectedSize) || sizeOptions[0];
+  }, [sizeOptions, selectedSize]);
 
   const addonsTotal = useMemo(() => {
-    return selectedAddons.reduce((sum, addonId) => {
-      const addon = addonOptions.find((a) => a.id === addonId);
+    return selectedAddons.reduce((sum, label) => {
+      const addon = addonOptions.find((option) => option.label === label);
       return sum + (addon ? addon.price : 0);
     }, 0);
-  }, [selectedAddons]);
+  }, [selectedAddons, addonOptions]);
 
-  const unitTotal = (Number(currentSizeObj?.price || product?.price || 75)) + addonsTotal;
+  const unitTotal = Number(currentSizeObj?.price ?? basePrice) + addonsTotal;
   const grandTotal = unitTotal * quantity;
+  const itemName = catalogProduct?.title || catalogProduct?.name;
 
-  const toggleAddon = (addonId) => {
+  const toggleAddon = (label) => {
     setSelectedAddons((prev) =>
-      prev.includes(addonId) ? prev.filter((id) => id !== addonId) : [...prev, addonId]
+      prev.includes(label) ? prev.filter((entry) => entry !== label) : [...prev, label]
     );
   };
 
-  const isDrink = useMemo(() => {
-    const cat = (product?.category || "").toLowerCase();
-    return cat.includes("drink") || cat.includes("tea") || cat.includes("milk");
-  }, [product]);
-
   const handleAdd = () => {
     const itemToAdd = {
-      title: product.title || product.name,
-      image: product.image,
-      category: product.category,
-      description: product.description,
+      productId: catalogProduct?.id,
+      title: itemName,
+      image: catalogProduct?.image,
+      category: catalogProduct?.category,
+      description: catalogProduct?.description,
       price: unitTotal,
       quantity,
       size: selectedSize,
-      sugarLevel: isDrink ? selectedSugar : undefined,
-      addons: selectedAddons.map((id) => addonOptions.find((a) => a.id === id)?.label).filter(Boolean),
+      addons: [...selectedAddons],
       instructions: instructions.trim() || undefined,
     };
 
@@ -81,41 +80,40 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
 
   return (
     <section className="staff-quantity-workspace">
-      {/* Product Image & Details */}
+      {/* Product Overview */}
       <section className="quantity-product-card">
-        <div className="quantity-product-image-wrap">
-          <img
-            src={product.image || defaultProductImage}
-            alt={product.title}
-            className="quantity-product-image"
-          />
+        <div>
+          <div className="quantity-product-image-wrap">
+            <img
+              src={catalogProduct?.image || defaultProductImage}
+              alt={itemName || ""}
+              className="quantity-product-image"
+            />
+          </div>
+          <span className="quantity-product-category">{catalogProduct?.category || "Menu Item"}</span>
+          <h2 className="quantity-product-title">{itemName}</h2>
+          <p className="quantity-product-description">
+            {catalogProduct?.description || "Freshly crafted favorite from Amaya Drinks & Bites."}
+          </p>
         </div>
 
-        <div className="quantity-product-info">
-          <span className="quantity-product-category">{product.category || "Menu Item"}</span>
-          <h2>{product.title}</h2>
-          <p style={{ color: "#7a6a61", fontSize: "12px", margin: "6px 0 14px" }}>
-            {product.description || "Freshly crafted favorite from Amaya Drinks & Bites."}
-          </p>
-          <div className="quantity-product-meta">
-            <span className="price-label">Base Price</span>
-            <span className="unit-price">₱{Number(product.price || 0).toFixed(2)}</span>
-          </div>
+        <div className="quantity-product-meta">
+          <span className="price-label">Base price</span>
+          <span className="unit-price">₱{basePrice.toFixed(2)}</span>
         </div>
       </section>
 
-      {/* Modifiers & Quantity Form */}
+      {/* Modifiers & Quantity */}
       <section className="quantity-form-card">
         <div className="quantity-form-header">
           <div>
             <span className="section-kicker">CUSTOMIZE ITEM</span>
-            <h2>Modifiers & Quantity</h2>
+            <h2>Modifiers &amp; Quantity</h2>
           </div>
           <span className="order-id">Order #{orderId}</span>
         </div>
 
         <div className="quantity-form-grid">
-          {/* Quantity Counter */}
           <div className="quantity-form-group">
             <label className="quantity-label">Quantity</label>
             <div className="quantity-stepper">
@@ -139,155 +137,92 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
             </div>
           </div>
 
-          {/* Size Options */}
           <div className="quantity-form-group">
-            <label className="quantity-label">Serving Size</label>
+            <label className="quantity-label">Serving size</label>
             <div className="size-options">
-              {fallbackSizes.map((opt) => (
+              {sizeOptions.map((size) => (
                 <button
-                  key={opt.label}
+                  key={size.label}
                   type="button"
-                  className={`size-option ${selectedSize === opt.label ? "selected" : ""}`}
-                  onClick={() => setSelectedSize(opt.label)}
+                  className={`size-option ${selectedSize === size.label ? "selected" : ""}`}
+                  onClick={() => setSelectedSize(size.label)}
+                  aria-pressed={selectedSize === size.label}
                 >
-                  <strong>{opt.label}</strong>
-                  <span>₱{Number(opt.price || 0).toFixed(2)}</span>
+                  <strong>{size.label}</strong>
+                  <span>₱{size.price.toFixed(2)}</span>
                 </button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Sugar Level Modifier (For Drinks & Milktea) */}
-        {isDrink && (
-          <div style={{ marginTop: "16px" }}>
-            <label className="quantity-label" style={{ display: "block", marginBottom: "8px", fontWeight: 700, fontSize: "11px", color: "#8a7c73" }}>
-              Sugar Level
-            </label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-              {sugarLevels.map((lvl) => (
-                <button
-                  key={lvl}
-                  type="button"
-                  onClick={() => setSelectedSugar(lvl)}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    border: selectedSugar === lvl ? "1.5px solid #8b5e3c" : "1px solid #e2dad2",
-                    background: selectedSugar === lvl ? "#fbf5ef" : "#ffffff",
-                    color: selectedSugar === lvl ? "#70482f" : "#5d4d43",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {lvl}
-                </button>
-              ))}
+        {/* Add-ons - driven entirely by the Admin catalog */}
+        {addonOptions.length > 0 && (
+          <div className="quantity-addons">
+            <label className="quantity-label">Add-ons / Extras</label>
+            <div className="addon-options">
+              {addonOptions.map((addon) => {
+                const isChecked = selectedAddons.includes(addon.label);
+
+                return (
+                  <button
+                    key={addon.label}
+                    type="button"
+                    className={`addon-option ${isChecked ? "selected" : ""}`}
+                    onClick={() => toggleAddon(addon.label)}
+                    aria-pressed={isChecked}
+                  >
+                    <span className="addon-option-name">{addon.label}</span>
+                    <span className="addon-option-price">+₱{addon.price.toFixed(2)}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Add-ons Selector */}
-        <div style={{ marginTop: "16px" }}>
-          <label className="quantity-label" style={{ display: "block", marginBottom: "8px", fontWeight: 700, fontSize: "11px", color: "#8a7c73" }}>
-            Add-ons / Extras
-          </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            {addonOptions.map((addon) => {
-              const isChecked = selectedAddons.includes(addon.id);
-              return (
-                <button
-                  key={addon.id}
-                  type="button"
-                  onClick={() => toggleAddon(addon.id)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 12px",
-                    borderRadius: "8px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    border: isChecked ? "1.5px solid #8b5e3c" : "1px solid #e2dad2",
-                    background: isChecked ? "#fbf5ef" : "#ffffff",
-                    color: isChecked ? "#70482f" : "#5d4d43",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <span>{isChecked ? "✓ " : "+ "}{addon.label}</span>
-                  <span style={{ color: "#8b5e3c", fontWeight: 700 }}>+₱{addon.price}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Special Instructions Note */}
-        <div style={{ marginTop: "16px" }}>
-          <label className="quantity-label" style={{ display: "block", marginBottom: "6px", fontWeight: 700, fontSize: "11px", color: "#8a7c73" }}>
-            Special Instructions / Kitchen Note
+        <div className="quantity-note">
+          <label className="quantity-label" htmlFor="quantity-kitchen-note">
+            Special instructions / kitchen note
           </label>
           <input
+            id="quantity-kitchen-note"
             type="text"
-            placeholder="e.g., Less ice, extra sauce on the side..."
+            placeholder="e.g. Less ice, extra sauce on the side..."
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px 12px",
-              borderRadius: "7px",
-              border: "1px solid #ded5cc",
-              fontSize: "12px",
-              color: "#3b2a20",
-              outline: "none",
-            }}
           />
         </div>
 
-        {/* Order Summary & Real-time Total */}
-        <div className="quantity-summary" style={{ marginTop: "20px" }}>
+        {/* Order breakdown */}
+        <div className="quantity-summary">
           <div className="summary-row">
             <span className="summary-label">Item</span>
-            <span className="summary-value">{product.title}</span>
+            <span className="summary-value">{itemName}</span>
           </div>
           <div className="summary-row">
-            <span className="summary-label">Selected Size</span>
-            <span className="summary-value">{selectedSize} (₱{currentSizeObj.price})</span>
+            <span className="summary-label">Selected size</span>
+            <span className="summary-value">
+              {selectedSize} (₱{Number(currentSizeObj?.price ?? basePrice).toFixed(2)})
+            </span>
           </div>
-          {isDrink && (
-            <div className="summary-row">
-              <span className="summary-label">Sugar</span>
-              <span className="summary-value">{selectedSugar}</span>
-            </div>
-          )}
           {selectedAddons.length > 0 && (
             <div className="summary-row">
-              <span className="summary-label">Add-ons (+₱{addonsTotal})</span>
-              <span className="summary-value">
-                {selectedAddons.map((id) => addonOptions.find((a) => a.id === id)?.label).join(", ")}
-              </span>
+              <span className="summary-label">Add-ons (+₱{addonsTotal.toFixed(2)})</span>
+              <span className="summary-value">{selectedAddons.join(", ")}</span>
             </div>
           )}
           <div className="summary-row">
             <span className="summary-label">Quantity</span>
             <span className="summary-value">{quantity}</span>
           </div>
-          <div className="summary-row total-row" style={{ paddingTop: "8px", borderTop: "1px solid #eadecf" }}>
-            <span className="summary-label" style={{ fontWeight: 800, fontSize: "14px", color: "#2d1f1a" }}>
-              Total Amount
-            </span>
-            <span className="summary-total" style={{ fontWeight: 800, fontSize: "18px", color: "#8b5e3c" }}>
-              ₱{grandTotal.toFixed(2)}
-            </span>
+          <div className="summary-row total-row">
+            <span className="summary-label">Total amount</span>
+            <span className="summary-total">₱{grandTotal.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="quantity-actions" style={{ marginTop: "18px" }}>
+        <div className="quantity-actions">
           <button type="button" className="cancel-button" onClick={onCancel}>
             Cancel
           </button>
@@ -356,18 +291,9 @@ function StaffQuantity() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const selectedProduct = location.state?.product || {
-    title: "Classic Milk Tea",
-    name: "Classic Milk Tea",
-    category: "Milk Tea",
-    image: defaultProductImage,
-    price: 39,
-    description: "Creamy and rich milk tea crafted with premium tea leaves.",
-    sizeOptions: [
-      { label: "Regular", price: 39 },
-      { label: "Large", price: 54 },
-    ],
-  };
+  // The product is always supplied by the menu, identified by its catalog id.
+  // There is no built-in sample item any more.
+  const selectedProduct = location.state?.product || null;
 
   const handleConfirm = (itemToAdd) => {
     navigate("/staff/menu", {
@@ -399,11 +325,23 @@ function StaffQuantity() {
           </div>
         </section>
 
-        <QuantityModifierContent
-          product={selectedProduct}
-          onConfirm={handleConfirm}
-          onCancel={handleCancel}
-        />
+        {selectedProduct ? (
+          <QuantityModifierContent
+            product={selectedProduct}
+            onConfirm={handleConfirm}
+            onCancel={handleCancel}
+          />
+        ) : (
+          <section className="quantity-form-card" style={{ textAlign: "center", padding: "48px 24px" }}>
+            <h2 style={{ margin: "0 0 8px", fontSize: "17px", color: "#2d1f1a" }}>No item selected</h2>
+            <p style={{ margin: "0 0 20px", fontSize: "12px", color: "#8a7c73" }}>
+              Pick a menu item first, then choose its size and add-ons.
+            </p>
+            <button type="button" className="confirm-button" onClick={handleCancel}>
+              Back to Menu
+            </button>
+          </section>
+        )}
       </div>
     </div>
   );

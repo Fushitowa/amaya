@@ -1,13 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  Banknote,
+  CalendarDays,
+  Check,
+  ClipboardList,
+  Clock,
+  CreditCard,
+  Hash,
+  MessageSquare,
+  Minus,
+  MoreVertical,
+  Plus,
+  Printer,
+  Trash2,
+  User,
+  Utensils,
+  Wallet,
+  X,
+} from "lucide-react";
+import searchIcon from "../../assets/images/icon/search.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
+import { useMenu } from "../../context/MenuContext.jsx";
 import {
+  getNextAllowedStatuses,
   getOrderTime,
   getPaymentMethodLabel,
   getPaymentStatusLabel,
+  ORDER_STATUS_FLOW,
   useOrders,
   WALK_IN_CUSTOMER_NAME,
   WALK_IN_INITIALS,
@@ -24,14 +47,25 @@ const statusFilterList = ["All", "Pending", "Preparing", "Ready", "Completed"];
 function StaffOrder() {
   const { darkMode } = useTheme();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { orders = [], updateOrderStatus, deleteOrder, resetOrders } = useOrders() || {};
+  const { orders = [], updateOrderStatus, deleteOrder, confirmOrder, printReceipt } = useOrders() || {};
+  const { products = [] } = useMenu() || {};
   const { businessSettings } = useBusiness() || {};
   const business = businessSettings || defaultBusinessSettings;
+
+  // Name -> product image, so the details modal can show real menu thumbnails.
+  const productImageByName = useMemo(() => {
+    const map = new Map();
+    products.forEach((product) => {
+      if (product?.name && product?.image) map.set(product.name, product.image);
+    });
+    return map;
+  }, [products]);
 
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [orderToDelete, setOrderToDelete] = useState(null);
   const [orderToPrint, setOrderToPrint] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
   // Dynamic summary metrics calculated directly from state
@@ -64,22 +98,34 @@ function StaffOrder() {
 
   // Close modals on Escape key
   useEffect(() => {
-    if (!orderToDelete && !orderToPrint) return;
+    if (!orderToDelete && !orderToPrint && !selectedOrder) return;
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
         setOrderToDelete(null);
         setOrderToPrint(null);
+        setSelectedOrder(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [orderToDelete, orderToPrint]);
+  }, [orderToDelete, orderToPrint, selectedOrder]);
 
-  const handleStatusChange = (orderId, newStatus) => {
-    if (updateOrderStatus) {
-      updateOrderStatus(orderId, newStatus);
-      setToastMessage(`Order ${orderId} updated to "${newStatus}"`);
+  const handleStatusChange = (orderId, currentStatus, newStatus) => {
+    if (!updateOrderStatus || newStatus === currentStatus) return;
+
+    const allowed = getNextAllowedStatuses(currentStatus);
+    if (!allowed.includes(newStatus)) {
+      const next = allowed[0];
+      setToastMessage(
+        next
+          ? `Order ${orderId} must move to "${next}" next.`
+          : `Order ${orderId} is completed and locked.`
+      );
+      return;
     }
+
+    updateOrderStatus(orderId, newStatus);
+    setToastMessage(`Order ${orderId} updated to "${newStatus}"`);
   };
 
   const handleConfirmDelete = () => {
@@ -90,13 +136,6 @@ function StaffOrder() {
       setToastMessage(`Order ${id} deleted successfully`);
     }
     setOrderToDelete(null);
-  };
-
-  const handleResetOrders = () => {
-    if (resetOrders) {
-      resetOrders();
-      setToastMessage("Demo orders restored");
-    }
   };
 
   return (
@@ -116,7 +155,7 @@ function StaffOrder() {
             <h1>Orders</h1>
           </div>
           <div className="orders-topbar-right">
-            <PortalNotificationButton hasUnread={pendingCount > 0} />
+            <StaffNotificationBell />
             <div className="orders-user">
               <div className="amaya-user-avatar">
                 <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
@@ -186,7 +225,12 @@ function StaffOrder() {
 
               {/* Quick Search */}
               <div className="orders-toolbar-search">
-                <span className="orders-search-icon">🔍</span>
+                <img
+                  className="orders-search-icon"
+                  src={searchIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
                 <input
                   type="text"
                   placeholder="Search by order ID or item..."
@@ -221,160 +265,153 @@ function StaffOrder() {
               </div>
             </div>
 
-            <div className="orders-table-wrapper">
-              <table className="staff-orders-table">
-                <thead>
-                  <tr>
-                    <th>ORDER</th>
-                    <th>CUSTOMER</th>
-                    <th>ITEMS</th>
-                    <th>TOTAL</th>
-                    <th>DATE</th>
-                    <th>STATUS</th>
-                    <th>ACTION</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleOrders.length ? (
-                    visibleOrders.map((order) => {
-                      const itemCount = order.items
-                        ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-                        : 0;
-                      const itemsSummary = order.items
-                        ? order.items.map((i) => `${i.quantity}x ${i.title}`).join(", ")
-                        : "";
+            <div className="order-card-grid">
+              {visibleOrders.length ? (
+                visibleOrders.map((order) => {
+                  const itemCount = order.items
+                    ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+                    : 0;
+                  const itemsSummary = order.items
+                    ? order.items.map((i) => `${i.quantity}x ${i.title}`).join(", ")
+                    : "";
+                  const allowedNext = getNextAllowedStatuses(order.status);
+                  const isLocked = allowedNext.length === 0;
 
-                      return (
-                        <tr key={order.id}>
-                          <td>
-                            <strong className="order-number">{order.id}</strong>
-                            <span className="order-time" style={{ display: "block", fontSize: "10px", color: "#8a7c73" }}>
+                  return (
+                    <article
+                      className="order-card order-card-clickable"
+                      key={order.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View details for order ${order.id}`}
+                      onClick={() => setSelectedOrder(order)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedOrder(order);
+                        }
+                      }}
+                      title={new Date(order.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    >
+                      <div className="order-card-head">
+                        <div className="order-card-header">
+                          <div>
+                            <h3 className="order-card-id">{order.id}</h3>
+                            <p className="order-card-time">
                               {getOrderTime(order.createdAt)}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="customer-info">
-                              <div className="customer-avatar">
-                                {WALK_IN_INITIALS}
-                              </div>
-                              <div>
-                                <strong>{WALK_IN_CUSTOMER_NAME}</strong>
-                                <span>{order.type || "Counter"}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span className="items-count" title={itemsSummary}>
-                              {itemCount} item{itemCount === 1 ? "" : "s"}
-                            </span>
-                          </td>
-                          <td>
-                            <strong className="order-total">₱{Number(order.total || 0).toFixed(2)}</strong>
-                          </td>
-                          <td>
-                            <div className="order-date">
-                              <strong>
-                                {new Date(order.createdAt).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}
-                              </strong>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`order-status ${order.status.toLowerCase()}`}>
-                              {order.status}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="order-actions-cell">
-                              {/* Requirement 1: Status Dropdown / Select control */}
-                              <div className="order-status-select-wrap">
-                                <select
-                                  value={order.status}
-                                  onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                                  className={`order-status-select select-${order.status.toLowerCase()}`}
-                                  aria-label={`Update status for ${order.id}`}
-                                >
-                                  <option value="Pending">Pending</option>
-                                  <option value="Preparing">Preparing</option>
-                                  <option value="Ready">Ready</option>
-                                  <option value="Completed">Completed</option>
-                                </select>
-                              </div>
-
-                              {/* Print Receipt Button */}
-                              <button
-                                type="button"
-                                className="order-print-btn"
-                                onClick={() => setOrderToPrint(order)}
-                                title={`Print receipt for ${order.id}`}
-                                aria-label={`Print receipt for ${order.id}`}
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="6 9 6 2 18 2 18 9" />
-                                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                                  <rect x="6" y="14" width="12" height="8" />
-                                </svg>
-                                <span>Print</span>
-                              </button>
-
-                              {/* Requirement 2: Delete Order Button */}
-                              <button
-                                type="button"
-                                className="order-delete-btn"
-                                onClick={() => setOrderToDelete(order)}
-                                title={`Delete order ${order.id}`}
-                                aria-label={`Delete order ${order.id}`}
-                              >
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                  <line x1="10" y1="11" x2="10" y2="17" />
-                                  <line x1="14" y1="11" x2="14" y2="17" />
-                                </svg>
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="7" className="empty-orders">
-                        <div className="empty-orders-state">
-                          <strong>No orders found</strong>
-                          <span>
-                            {searchQuery
-                              ? `No orders matching "${searchQuery}" in ${activeFilter} filter.`
-                              : "No orders available under this category."}
+                            </p>
+                          </div>
+                          <span
+                            className={`order-status order-card-badge ${order.status.toLowerCase()}`}
+                          >
+                            {order.status}
                           </span>
-                          {orders.length === 0 && (
-                            <button
-                              type="button"
-                              className="btn-reset-demo"
-                              onClick={handleResetOrders}
-                            >
-                              Restore Demo Orders
-                            </button>
-                          )}
                         </div>
-                      </td>
-                    </tr>
+
+                        <div className="order-card-customer">
+                          <div className="order-card-avatar">{WALK_IN_INITIALS}</div>
+                          <div className="order-card-customer-text">
+                            <p>
+                              <strong>{WALK_IN_CUSTOMER_NAME}</strong>
+                              <span>{order.type || "Counter"}</span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <hr className="order-card-divider" />
+
+                      <div className="order-card-summary">
+                        <span className="order-card-count" title={itemsSummary}>
+                          {itemCount} item{itemCount === 1 ? "" : "s"}
+                        </span>
+                        <span className="order-card-total">
+                          ₱{Number(order.total || 0).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <hr className="order-card-divider" />
+
+                      <div className="order-card-actions">
+                        <div className="order-status-select-wrap" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={order.status}
+                            onChange={(e) => handleStatusChange(order.id, order.status, e.target.value)}
+                            className={`order-status-select select-${order.status.toLowerCase()}`}
+                            aria-label={`Update status for ${order.id}`}
+                            title={
+                              isLocked
+                                ? `Order ${order.id} is completed and locked`
+                                : `Advance order ${order.id} to ${allowedNext[0]}`
+                            }
+                            disabled={isLocked}
+                          >
+                            {ORDER_STATUS_FLOW.map((status) => (
+                              <option
+                                key={status}
+                                value={status}
+                                disabled={!allowedNext.includes(status)}
+                              >
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="order-print-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOrderToPrint(order);
+                          }}
+                          title={`Print receipt for ${order.id}`}
+                          aria-label={`Print receipt for ${order.id}`}
+                        >
+                          <Printer aria-hidden="true" size={13} strokeWidth={2} />
+                          <span>Print</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="order-delete-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOrderToDelete(order);
+                          }}
+                          title={`Delete order ${order.id}`}
+                          aria-label={`Delete order ${order.id}`}
+                        >
+                          <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="order-card-empty">
+                  {orders.length === 0 ? (
+                    <div className="empty-orders-state">
+                      <strong>No orders found</strong>
+                      <span>There are currently no active customer orders in the system.</span>
+                    </div>
+                  ) : (
+                    <div className="empty-orders-state">
+                      <strong>No orders found</strong>
+                      <span>
+                        {searchQuery
+                          ? `No orders matching "${searchQuery}" in ${activeFilter} filter.`
+                          : `No ${activeFilter === "All" ? "" : `${activeFilter.toLowerCase()} `}orders in this view.`}
+                      </span>
+                    </div>
                   )}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
 
             <div className="orders-pagination">
@@ -401,6 +438,250 @@ function StaffOrder() {
         </div>
       </main>
 
+      {/* Order Details Modal (opened by clicking a card) */}
+      {selectedOrder && (() => {
+        const isConfirmed = selectedOrder.confirmed === true;
+        const orderItems = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
+        const totalUnits = orderItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        const orderTotal = Number(selectedOrder.total || 0);
+        const kitchenTicket = {
+          Pending: "Sent to Kitchen",
+          Preparing: "In Preparation",
+          Ready: "Ready for Pickup",
+          Completed: "Fulfilled",
+        }[selectedOrder.status] || "Not Sent";
+        const paymentMethod = selectedOrder.paymentMethod || "Cash";
+        const orderDate = new Date(selectedOrder.createdAt).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+        const orderTime = getOrderTime(selectedOrder.createdAt);
+        const orderNote =
+          selectedOrder.notes ||
+          orderItems.find((item) => item.notes)?.notes ||
+          "No special instructions.";
+
+        return (
+        <div
+          className="order-modal-backdrop"
+          onClick={() => setSelectedOrder(null)}
+          role="presentation"
+        >
+          <div
+            className="order-modal-dialog order-dashboard"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-details-title"
+          >
+            <header className="order-dashboard-header">
+              <span className="order-dashboard-header-icon" aria-hidden="true">
+                <ClipboardList size={19} strokeWidth={1.9} />
+              </span>
+              <div>
+                <h3 id="order-details-title">Order Details</h3>
+                <p>View and manage the items in this order.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-button"
+                onClick={() => setSelectedOrder(null)}
+                aria-label="Close order details"
+              >
+                <X aria-hidden="true" size={18} strokeWidth={2.2} />
+              </button>
+            </header>
+
+            <div className="order-dashboard-layout">
+              {/* ---------------- Left: order breakdown ---------------- */}
+              <div className="order-dashboard-main">
+                <div className="order-dashboard-section-head">
+                  <h4>Ordered Items</h4>
+                  <span className="order-dashboard-count">{totalUnits}</span>
+                </div>
+
+                <ul className="od-item-list">
+                  {orderItems.length ? orderItems.map((item, index) => {
+                    const image = productImageByName.get(item.title);
+                    const unitPrice = Number(item.price || 0);
+                    const qty = Number(item.quantity || 0);
+                    const lineTotal = unitPrice * qty;
+                    const description = [
+                      item.size && item.size !== "Regular" ? item.size : "Medium (16oz)",
+                      item.sugarLevel || null,
+                      item.addons?.length ? `+${item.addons.join(", ")}` : null,
+                    ].filter(Boolean).join(" · ");
+
+                    return (
+                      <li className="od-item" key={`${item.title}-${index}`}>
+                        <span className="od-item-thumb" aria-hidden="true">
+                          {image ? (
+                            <img src={image} alt="" />
+                          ) : (
+                            <span className="od-item-thumb-fallback">
+                              {String(item.title || "?").charAt(0)}
+                            </span>
+                          )}
+                        </span>
+
+                        <div className="od-item-text">
+                          <strong>{item.title}</strong>
+                          <span className="od-item-desc">{description}</span>
+                          <span className="od-item-unit">₱{unitPrice.toFixed(2)} each</span>
+                          {item.notes ? (
+                            <span className="od-item-note">Note: {item.notes}</span>
+                          ) : null}
+                        </div>
+
+                        <div
+                          className="od-item-qty"
+                          title="Quantity is locked once the order is placed"
+                        >
+                          <button type="button" disabled aria-label={`Decrease ${item.title} quantity`}>
+                            <Minus aria-hidden="true" size={13} strokeWidth={2.6} />
+                          </button>
+                          <span aria-label={`Quantity ${qty}`}>{qty}</span>
+                          <button type="button" disabled aria-label={`Increase ${item.title} quantity`}>
+                            <Plus aria-hidden="true" size={13} strokeWidth={2.6} />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="od-item-menu"
+                          disabled
+                          aria-label={`More options for ${item.title}`}
+                          title="Item options are not available for a placed order"
+                        >
+                          <MoreVertical aria-hidden="true" size={15} strokeWidth={2.2} />
+                        </button>
+
+                        <strong className="od-item-total">₱{lineTotal.toFixed(2)}</strong>
+                      </li>
+                    );
+                  }) : (
+                    <li className="od-item-empty">No items recorded for this order.</li>
+                  )}
+                </ul>
+
+                <div className="od-costs">
+                  <div className="od-cost-row">
+                    <span>Subtotal</span>
+                    <strong>₱{orderTotal.toFixed(2)}</strong>
+                  </div>
+                  <div className="od-cost-row">
+                    <span>Tax (VAT 0%)</span>
+                    <strong>₱0.00</strong>
+                  </div>
+                  <div className="od-cost-row">
+                    <span>Payment method</span>
+                    <span className="od-method-pill">
+                      {paymentMethod === "GCash" ? (
+                        <Wallet aria-hidden="true" size={12} strokeWidth={2.2} />
+                      ) : paymentMethod === "Card" ? (
+                        <CreditCard aria-hidden="true" size={12} strokeWidth={2.2} />
+                      ) : (
+                        <Banknote aria-hidden="true" size={12} strokeWidth={2.2} />
+                      )}
+                      {String(paymentMethod).toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="od-total-banner">
+                  <span className="od-total-label">
+                    <Wallet aria-hidden="true" size={16} strokeWidth={2.2} />
+                    Total Due
+                  </span>
+                  <strong>₱{orderTotal.toFixed(2)}</strong>
+                </div>
+              </div>
+
+              {/* ---------------- Right: information sidebar ---------------- */}
+              <aside className="order-dashboard-aside">
+                {isConfirmed ? (
+                  <span className="od-confirm confirmed">
+                    <Check aria-hidden="true" size={15} strokeWidth={3} />
+                    Order Confirmed
+                  </span>
+                ) : (
+                  <span className="od-confirm pending">
+                    <Clock aria-hidden="true" size={15} strokeWidth={2.4} />
+                    Pending Confirmation
+                  </span>
+                )}
+
+                {!isConfirmed ? (
+                  <button
+                    type="button"
+                    className="od-action secondary"
+                    onClick={() => {
+                      confirmOrder(selectedOrder.id);
+                      setSelectedOrder({ ...selectedOrder, confirmed: true, confirmedAt: new Date().toISOString() });
+                      setToastMessage(`Order ${selectedOrder.id} confirmed`);
+                    }}
+                  >
+                    <Check aria-hidden="true" size={15} strokeWidth={2.4} />
+                    Confirm order
+                  </button>
+                ) : null}
+
+                <dl className="od-meta">
+                  <div>
+                    <dt><Hash aria-hidden="true" size={13} strokeWidth={2.2} /> Order ID</dt>
+                    <dd>{selectedOrder.id}</dd>
+                  </div>
+                  <div>
+                    <dt><User aria-hidden="true" size={13} strokeWidth={2.2} /> Customer</dt>
+                    <dd>{selectedOrder.customer || WALK_IN_CUSTOMER_NAME}</dd>
+                  </div>
+                  <div>
+                    <dt><Utensils aria-hidden="true" size={13} strokeWidth={2.2} /> Order type</dt>
+                    <dd>
+                      <span className="od-type-pill">{selectedOrder.type || "Dine-in"}</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt><CalendarDays aria-hidden="true" size={13} strokeWidth={2.2} /> Date &amp; time</dt>
+                    <dd>{orderDate} &bull; {orderTime}</dd>
+                  </div>
+                  <div>
+                    <dt><ClipboardList aria-hidden="true" size={13} strokeWidth={2.2} /> Kitchen ticket</dt>
+                    <dd>{kitchenTicket}</dd>
+                  </div>
+                  <div>
+                    <dt><MessageSquare aria-hidden="true" size={13} strokeWidth={2.2} /> Notes</dt>
+                    <dd>{orderNote}</dd>
+                  </div>
+                </dl>
+
+                <div className="od-aside-actions">
+                  <button
+                    type="button"
+                    className="od-action primary"
+                    onClick={() => {
+                      setOrderToPrint(selectedOrder);
+                      setSelectedOrder(null);
+                    }}
+                  >
+                    <Printer aria-hidden="true" size={15} strokeWidth={2.2} />
+                    Print Receipt
+                  </button>
+                  <button
+                    type="button"
+                    className="od-action neutral"
+                    onClick={() => setSelectedOrder(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
       {/* Requirement 2: Delete Order Confirmation Modal */}
       {orderToDelete && (
         <div
@@ -521,7 +802,10 @@ function StaffOrder() {
                 type="button"
                 className="btn-modal-delete"
                 style={{ background: "#70482f", color: "#fff", display: "inline-flex", alignItems: "center", gap: "6px" }}
-                onClick={() => window.print()}
+                onClick={() => {
+                  if (orderToPrint) printReceipt(orderToPrint.id);
+                  window.print();
+                }}
               >
                 <span>⎙</span> Print Slip (80mm)
               </button>

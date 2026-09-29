@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import { AlertTriangle, Beaker, ClipboardList, FolderOpen, ImageOff, ImagePlus, List, Plus, Sparkles } from "lucide-react";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
+import { useInventory } from "../../context/InventoryContext.jsx";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
 import "../../assets/css/portal-user.css";
@@ -13,27 +15,170 @@ import "../../assets/css/sidebar-collapse.css";
 
 const categories = ["All items", "Milk Tea", "Drinks", "Snacks", "Desserts"];
 
+const parseList = (raw) =>
+  String(raw || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const parseSizes = (raw, fallbackPrice) =>
+  (Array.isArray(raw) ? raw : parseList(raw))
+    .map((entry) => {
+      const [label, price] = String(entry).split(":");
+      const parsed = Number(price);
+      return {
+        label: (label || "").trim(),
+        price: Number.isFinite(parsed) && String(price).trim() !== "" ? parsed : fallbackPrice,
+      };
+    })
+    .filter((entry) => entry.label && Number.isFinite(entry.price));
+
+// Turns "Extra Pearls: 15" into { label, price } for an add-on tag.
+const parseAddonTag = (raw) => {
+  const [label, price] = String(raw || "").split(":");
+  const parsed = Number(price);
+  return {
+    label: (label || "").trim(),
+    price: Number.isFinite(parsed) ? parsed : 0,
+  };
+};
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+
 function AdminMenuManagement() {
 	const { products, addProduct, updateProduct, deleteProduct } = useMenu();
+	const { syncIngredientsFromMenu } = useInventory() || {};
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
-	const [formValues, setFormValues] = useState({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: "Regular" });
+	const [itemToDelete, setItemToDelete] = useState(null);
+	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: ["Regular"], ingredients: [], addons: [], available: true });
+
+	const [formValues, setFormValues] = useState(emptyForm());
+	const [sizeInput, setSizeInput] = useState("");
+	const [ingredientInput, setIngredientInput] = useState("");
+	const [syncNotice, setSyncNotice] = useState("");
+	const syncTimer = useRef(null);
+
+	useEffect(() => {
+    if (!syncNotice) return;
+    syncTimer.current = setTimeout(() => setSyncNotice(""), 6000);
+    return () => clearTimeout(syncTimer.current);
+  }, [syncNotice]);
+	const [addonInput, setAddonInput] = useState("");
+	const [imageError, setImageError] = useState("");
+
+	useEffect(() => {
+		if (!itemToDelete && !showForm) return;
+		const handleKeyDown = (event) => {
+			if (event.key !== "Escape") return;
+			setItemToDelete(null);
+			setShowForm(false);
+			setEditingProduct(null);
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [itemToDelete, showForm]);
 
 	const openAddForm = () => {
 		setEditingProduct(null);
-		setFormValues({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: "Regular" });
+		setFormValues(emptyForm());
+		setSizeInput("");
+		setIngredientInput("");
+		setAddonInput("");
+		setImageError("");
 		setShowForm(true);
 	};
 
-	const handleImageUpload = (event) => {
-		const file = event.target.files?.[0];
+	const addSizes = (raw) => {
+		const tags = parseList(raw);
+		if (!tags.length) return;
+		setFormValues((current) => {
+			const merged = [...current.sizes];
+			tags.forEach((tag) => {
+				if (!merged.some((existing) => existing.toLowerCase() === tag.toLowerCase())) merged.push(tag);
+			});
+			return { ...current, sizes: merged };
+		});
+		setSizeInput("");
+	};
+
+	const removeSize = (index) =>
+		setFormValues((current) => ({ ...current, sizes: current.sizes.filter((_, i) => i !== index) }));
+
+	const addIngredients = (raw) => {
+		const tags = parseList(raw);
+		if (!tags.length) return;
+		setFormValues((current) => {
+			const merged = [...current.ingredients];
+			tags.forEach((tag) => {
+				if (!merged.some((existing) => existing.toLowerCase() === tag.toLowerCase())) merged.push(tag);
+			});
+			return { ...current, ingredients: merged };
+		});
+		setIngredientInput("");
+	};
+
+	const addAddons = (raw) => {
+		const tags = parseList(raw);
+		if (!tags.length) return;
+		setFormValues((current) => {
+			const merged = [...current.addons];
+			tags.forEach((tag) => {
+				if (!merged.some((existing) => existing.label.toLowerCase() === tag.toLowerCase())) {
+					merged.push(parseAddonTag(tag));
+				}
+			});
+			return { ...current, addons: merged };
+		});
+		setAddonInput("");
+	};
+
+	const removeIngredient = (index) =>
+		setFormValues((current) => ({ ...current, ingredients: current.ingredients.filter((_, i) => i !== index) }));
+
+	const removeAddon = (index) =>
+		setFormValues((current) => ({ ...current, addons: current.addons.filter((_, i) => i !== index) }));
+
+	const applyImageFile = (file) => {
 		if (!file) return;
+		if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+			setImageError("Unsupported file type. Use PNG, JPG, JPEG or WEBP.");
+			return;
+		}
+		if (file.size > MAX_IMAGE_BYTES) {
+			setImageError("Image is larger than 5MB. Please choose a smaller file.");
+			return;
+		}
 		const reader = new FileReader();
-		reader.onload = () => setFormValues((current) => ({ ...current, image: reader.result }));
+		reader.onload = () => {
+			setFormValues((current) => ({ ...current, image: reader.result }));
+			setImageError("");
+		};
+		reader.onerror = () => setImageError("Could not read that file. Please try another.");
 		reader.readAsDataURL(file);
+	};
+
+	const handleImageUpload = (event) => {
+		applyImageFile(event.target.files?.[0]);
+		event.target.value = "";
+	};
+
+	const handleImageDrop = (event) => {
+		event.preventDefault();
+		applyImageFile(event.dataTransfer?.files?.[0]);
+	};
+
+	const closeForm = () => {
+		setShowForm(false);
+		setEditingProduct(null);
+		setSizeInput("");
+		setIngredientInput("");
+		setAddonInput("");
+		setImageError("");
 	};
 
 	const visibleProducts = useMemo(() => {
@@ -50,27 +195,37 @@ function AdminMenuManagement() {
 	};
 
 	const handleDelete = (product) => {
-		if (window.confirm(`Delete ${product.name} from the menu?`)) {
-			deleteProduct(product.id);
-		}
+		setItemToDelete(product);
+	};
+
+	const confirmDelete = () => {
+		if (!itemToDelete) return;
+		deleteProduct(itemToDelete.id);
+		setItemToDelete(null);
 	};
 
 	const openEditForm = (product) => {
+		const basePrice = Number(String(product.price || "").replace("₱", "")) || 0;
 		setEditingProduct(product);
 		setFormValues({
 			name: product.name,
-			price: product.price.replace("₱", ""),
+			price: String(product.price || "").replace("₱", ""),
 			description: product.description,
 			category: product.category,
 			image: product.image,
-			sizes: (product.sizes || []).map((size) => `${size.label}:${size.price}`).join(", "),
+			// A size priced at the base price round-trips as a bare label.
+			sizes: (product.sizes || []).map((size) =>
+				size.price === basePrice ? size.label : `${size.label}:${size.price}`
+			),
+			ingredients: product.ingredients || [],
+			addons: product.addons || [],
+			available: product.available !== false,
 		});
+		setSizeInput("");
+		setIngredientInput("");
+		setAddonInput("");
+		setImageError("");
 		setShowForm(true);
-	};
-
-	const closeForm = () => {
-		setShowForm(false);
-		setEditingProduct(null);
 	};
 
 	const saveProduct = (event) => {
@@ -78,15 +233,34 @@ function AdminMenuManagement() {
 		const name = formValues.name.trim();
 		const description = formValues.description.trim();
 		const numericPrice = Number(formValues.price);
-		const sizes = formValues.sizes.split(",").map((size) => {
-			const [label, price] = size.split(":");
-			return { label: label.trim(), price: Number(price || numericPrice) };
-		}).filter((size) => size.label && Number.isFinite(size.price));
+		const sizes = parseSizes(formValues.sizes, numericPrice);
 
 		if (!name || !description || !Number.isFinite(numericPrice) || numericPrice < 0) return;
-		const productData = { name, price: `₱${numericPrice.toFixed(2)}`, description, category: formValues.category, image: formValues.image || products[0]?.image, sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice }] };
+		const productData = {
+			name,
+			price: `₱${numericPrice.toFixed(2)}`,
+			description,
+			category: formValues.category,
+			image: formValues.image || products[0]?.image,
+			sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice }],
+			ingredients: formValues.ingredients,
+			addons: formValues.addons,
+		};
 		if (editingProduct) updateProduct(editingProduct.id, productData);
-		else addProduct({ ...productData, stock: 20, available: true, featured: false });
+		else addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
+
+		// Recipe ingredients become inventory items automatically. Existing
+		// items are left alone so their stock, unit and status are preserved.
+		const { added } = syncIngredientsFromMenu(formValues.ingredients, {
+			category: formValues.category,
+		});
+
+		if (added.length) {
+			setSyncNotice(
+				`${added.length} ingredient${added.length === 1 ? "" : "s"} added to Inventory: ${added.join(", ")}`
+			);
+		}
+
 		closeForm();
 	};
 
@@ -129,7 +303,368 @@ function AdminMenuManagement() {
 				</div>
 			</main>
 
-			{showForm && <div className="admin-menu-modal-backdrop" role="presentation" onClick={closeForm}><form className="admin-menu-modal" onSubmit={saveProduct} role="dialog" aria-modal="true" aria-labelledby="edit-item-title" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><span className="admin-menu-eyebrow">CATALOG UPDATE</span><h3 id="edit-item-title">{editingProduct ? "Edit menu item" : "Add menu item"}</h3></div><button type="button" onClick={closeForm} aria-label="Close form">×</button></div><label>Item name<input value={formValues.name} onChange={(event) => setFormValues({ ...formValues, name: event.target.value })} placeholder="e.g. Strawberry Cream Tea" required /></label><div className="modal-form-row"><label>Category<select value={formValues.category} onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}><option>Milk Tea</option><option>Drinks</option><option>Snacks</option><option>Desserts</option></select></label><label>Price<input value={formValues.price} onChange={(event) => setFormValues({ ...formValues, price: event.target.value })} inputMode="decimal" placeholder="0.00" required /></label></div><label>Sizes<input value={formValues.sizes} onChange={(event) => setFormValues({ ...formValues, sizes: event.target.value })} placeholder="Small:39, Large:59" /><small>Use comma-separated Label:Price values.</small></label><label>Product image<input type="file" accept="image/*" onChange={handleImageUpload} /><small>{formValues.image ? "Image ready to save." : "Choose an image from your device."}</small></label><label>Description<textarea value={formValues.description} onChange={(event) => setFormValues({ ...formValues, description: event.target.value })} placeholder="Describe this menu item" rows="3" required></textarea></label><div className="modal-actions"><button type="button" className="modal-cancel" onClick={closeForm}>Cancel</button><button type="submit" className="modal-save">{editingProduct ? "Save changes" : "Add item"}</button></div></form></div>}
+			{itemToDelete && (
+				<div
+					className="admin-menu-modal-backdrop delete-backdrop"
+					role="presentation"
+					onClick={() => setItemToDelete(null)}
+				>
+					<div
+						className="delete-confirm-card"
+						role="alertdialog"
+						aria-modal="true"
+						aria-labelledby="delete-item-title"
+						aria-describedby="delete-item-message"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="delete-confirm-icon" aria-hidden="true">
+							<AlertTriangle size={22} strokeWidth={2} />
+						</div>
+
+						<div className="delete-confirm-text">
+							<h3 id="delete-item-title">Delete Menu Item?</h3>
+							<p id="delete-item-message">
+								Are you sure you want to delete <strong>{itemToDelete.name}</strong>? This item
+								will be permanently removed from the customer menu and POS catalog.
+							</p>
+						</div>
+
+						<div className="delete-confirm-preview">
+							{itemToDelete.image ? (
+								<img src={itemToDelete.image} alt="" />
+							) : (
+								<span className="delete-confirm-preview-fallback" aria-hidden="true">
+									{itemToDelete.name?.charAt(0) || "?"}
+								</span>
+							)}
+							<div>
+								<span className="delete-confirm-category">{itemToDelete.category}</span>
+								<strong>{itemToDelete.name}</strong>
+								<em>{itemToDelete.price}</em>
+							</div>
+						</div>
+
+						<div className="delete-confirm-actions">
+							<button type="button" className="delete-confirm-cancel" onClick={() => setItemToDelete(null)}>
+								Cancel
+							</button>
+							<button type="button" className="delete-confirm-submit" onClick={confirmDelete}>
+								Confirm Delete
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{showForm && (
+				<div className="admin-menu-modal-backdrop" role="presentation" onClick={closeForm}>
+					<form
+						className="admin-menu-modal menu-builder"
+						onSubmit={saveProduct}
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="edit-item-title"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<header className="menu-builder-header">
+							<span className="menu-builder-header-icon" aria-hidden="true">
+								<ClipboardList size={18} strokeWidth={1.9} />
+							</span>
+							<div>
+								<span className="admin-menu-eyebrow">CATALOG UPDATE</span>
+								<h3 id="edit-item-title">{editingProduct ? "Edit Menu Item" : "Add Menu Item"}</h3>
+								<p>
+									{editingProduct
+										? "Update this item's catalog details below."
+										: "Create a new menu item for your catalog. Fill in the details below."}
+								</p>
+							</div>
+							<button type="button" className="menu-builder-close" onClick={closeForm} aria-label="Close form">
+								×
+							</button>
+						</header>
+
+						<div className="menu-builder-layout">
+							{/* ---------------- Left: product image ---------------- */}
+							<aside className="menu-builder-media">
+								<h4 className="menu-builder-legend">Product Image</h4>
+								<p className="menu-builder-hint">Upload an image of the menu item.</p>
+
+								<label
+									className="menu-builder-dropzone"
+									onDragOver={(event) => event.preventDefault()}
+									onDrop={handleImageDrop}
+								>
+									<input
+										type="file"
+										accept="image/png,image/jpeg,image/webp"
+										onChange={handleImageUpload}
+										aria-label="Upload product image"
+									/>
+									<span className="menu-builder-dropzone-icon" aria-hidden="true">
+										<ImagePlus size={22} strokeWidth={1.8} />
+									</span>
+									<strong>Click to upload or drag and drop</strong>
+									<small>PNG, JPG, JPEG, WEBP (Max 5MB)</small>
+									<span className="menu-builder-dropzone-cta">
+										<FolderOpen size={14} strokeWidth={2} /> Choose File
+									</span>
+								</label>
+
+								{imageError ? <p className="menu-builder-error" role="alert">{imageError}</p> : null}
+
+								<div className="menu-builder-preview-card">
+									{formValues.image ? (
+										<>
+											<img src={formValues.image} alt="" />
+											<span>Image preview</span>
+										</>
+									) : (
+										<span className="menu-builder-preview-empty">
+											<ImageOff size={18} strokeWidth={1.7} />
+											No image selected - Your image will appear here.
+										</span>
+									)}
+								</div>
+							</aside>
+
+							{/* ---------------- Right: form sections ---------------- */}
+							<div className="menu-builder-sections">
+								<section className="menu-builder-card">
+									<h4 className="menu-builder-legend">Basic Information</h4>
+
+									<label className="menu-builder-field">
+										Item Name
+										<input
+											type="text"
+											value={formValues.name}
+											onChange={(event) => setFormValues({ ...formValues, name: event.target.value })}
+											placeholder="e.g. Classic Milk Tea"
+											required
+										/>
+									</label>
+
+									<div className="menu-builder-grid">
+										<label className="menu-builder-field">
+											Category
+											<select
+												value={formValues.category}
+												onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
+											>
+												{categories
+													.filter((category) => category !== "All items")
+													.map((category) => (
+														<option key={category} value={category}>{category}</option>
+													))}
+											</select>
+										</label>
+
+										<label className="menu-builder-field">
+											Base Price
+											<div className="menu-builder-price">
+												<span aria-hidden="true">₱</span>
+												<input
+													type="number"
+													value={formValues.price}
+													onChange={(event) => setFormValues({ ...formValues, price: event.target.value })}
+													inputMode="decimal"
+													placeholder="0.00"
+													min="0"
+													required
+												/>
+											</div>
+										</label>
+									</div>
+
+									<div className="menu-builder-field">
+										Status
+										<div className="menu-builder-toggle-row">
+											<button
+												type="button"
+												className={`menu-builder-toggle ${formValues.available ? "on" : ""}`}
+												role="switch"
+												aria-checked={formValues.available}
+												onClick={() => setFormValues({ ...formValues, available: !formValues.available })}
+											>
+												<span className="menu-builder-toggle-track" aria-hidden="true">
+													<span className="menu-builder-toggle-thumb" />
+												</span>
+												<span className="menu-builder-toggle-text">
+													{formValues.available ? "Available" : "Unavailable"}
+												</span>
+											</button>
+										</div>
+									</div>
+								</section>
+
+								<section className="menu-builder-card">
+									<label className="menu-builder-legend with-icon">
+										<List aria-hidden="true" size={13} strokeWidth={2.2} />
+										Item Variations &amp; Sizes
+									</label>
+									<div className="menu-builder-taginput">
+										<input
+											type="text"
+											value={sizeInput}
+											onChange={(event) => setSizeInput(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === "Enter") {
+													event.preventDefault();
+													addSizes(sizeInput);
+												}
+											}}
+											placeholder="e.g. Large: 59 or Regular"
+											aria-label="Add size"
+										/>
+										<button type="button" onClick={() => addSizes(sizeInput)} disabled={!sizeInput.trim()}>
+											<Plus size={14} strokeWidth={2.4} /> Add
+										</button>
+									</div>
+
+									{formValues.sizes.length ? (
+										<div className="menu-builder-tags">
+											{formValues.sizes.map((size, index) => (
+												<span className="menu-builder-tag" key={`${size}-${index}`}>
+													{size}
+													<button
+														type="button"
+														onClick={() => removeSize(index)}
+														aria-label={`Remove ${size}`}
+													>
+														×
+													</button>
+												</span>
+											))}
+										</div>
+									) : null}
+
+									<small>Type a size label (e.g. Regular or Large:59) and press Enter to add.</small>
+								</section>
+
+								<section className="menu-builder-card">
+									<label className="menu-builder-legend with-icon">
+										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
+										Ingredients &amp; Recipe
+									</label>
+									<div className="menu-builder-taginput">
+										<input
+											type="text"
+											value={ingredientInput}
+											onChange={(event) => setIngredientInput(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === "Enter") {
+													event.preventDefault();
+													addIngredients(ingredientInput);
+												}
+											}}
+											placeholder="Type an ingredient and press Enter..."
+											aria-label="Add ingredient"
+										/>
+										<button type="button" onClick={() => addIngredients(ingredientInput)} disabled={!ingredientInput.trim()}>
+											<Plus size={14} strokeWidth={2.4} /> Add
+										</button>
+									</div>
+
+									{formValues.ingredients.length ? (
+										<div className="menu-builder-tags">
+											{formValues.ingredients.map((item, index) => (
+												<span className="menu-builder-tag" key={`${item}-${index}`}>
+													{item}
+													<button
+														type="button"
+														onClick={() => removeIngredient(index)}
+														aria-label={`Remove ${item}`}
+													>
+														×
+													</button>
+												</span>
+											))}
+										</div>
+									) : null}
+
+									<small>Press Enter after typing each ingredient to add it to the recipe list.</small>
+								</section>
+
+								<section className="menu-builder-card">
+									<label className="menu-builder-legend with-icon">
+										<Sparkles aria-hidden="true" size={13} strokeWidth={2.2} />
+										Add-ons &amp; Customizations
+									</label>
+									<div className="menu-builder-taginput">
+										<input
+											type="text"
+											value={addonInput}
+											onChange={(event) => setAddonInput(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === "Enter") {
+													event.preventDefault();
+													addAddons(addonInput);
+												}
+											}}
+											placeholder="e.g. Extra Pearls: 15 (Press Enter to add)"
+											aria-label="Add add-on"
+										/>
+										<button type="button" onClick={() => addAddons(addonInput)} disabled={!addonInput.trim()}>
+											<Plus size={14} strokeWidth={2.4} /> Add
+										</button>
+									</div>
+
+									{formValues.addons.length ? (
+										<div className="menu-builder-tags">
+											{formValues.addons.map((addon, index) => (
+												<span className="menu-builder-tag" key={`${addon.label}-${index}`}>
+													{addon.label}
+													{addon.price ? <em>+₱{addon.price}</em> : null}
+													<button
+														type="button"
+														onClick={() => removeAddon(index)}
+														aria-label={`Remove ${addon.label}`}
+													>
+														×
+													</button>
+												</span>
+											))}
+										</div>
+									) : null}
+
+									<small>Format as AddonName:Price (e.g., Espresso Shot: 25) and press Enter.</small>
+								</section>
+
+								<section className="menu-builder-card">
+									<h4 className="menu-builder-legend">Description</h4>
+									<label className="menu-builder-field">
+										Item Description
+										<textarea
+											value={formValues.description}
+											onChange={(event) => setFormValues({ ...formValues, description: event.target.value })}
+											placeholder="Describe this menu item"
+											rows={3}
+											required
+										/>
+									</label>
+								</section>
+							</div>
+						</div>
+
+						<footer className="menu-builder-footer">
+							<button type="button" className="menu-builder-cancel" onClick={closeForm}>
+								Cancel
+							</button>
+							<button type="submit" className="menu-builder-save">
+								{editingProduct ? "Save Item" : "Add Item"}
+							</button>
+						</footer>
+					</form>
+				</div>
+			)}
+
+			{syncNotice && (
+				<div className="menu-sync-notice" role="status" aria-live="polite">
+					<Beaker aria-hidden="true" size={15} strokeWidth={2.2} />
+					<span>{syncNotice}</span>
+					<button type="button" onClick={() => setSyncNotice("")} aria-label="Dismiss notification">×</button>
+				</div>
+			)}
 		</div>
 	);
 }

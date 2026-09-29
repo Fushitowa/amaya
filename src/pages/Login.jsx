@@ -14,7 +14,7 @@ function Login() {
   const password = event.target.password.value;
 
   if (username === "staff" && password === "staff") {
-    navigate("/staff");
+    navigate("/staff/menu");
   }
 
   else if (username === "admin" && password === "admin") {

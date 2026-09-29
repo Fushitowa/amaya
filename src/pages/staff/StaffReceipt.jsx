@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import amayaLogo from "../../assets/images/amayalogo.png";
 import { useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 import { getPaymentStatusLabel } from "../../context/OrdersContext.jsx";
+import { notifyStaff } from "../../utils/notifications.js";
 import "../../assets/css/staff/staff-receipt.css";
 
 function StaffReceipt() {
@@ -18,7 +19,7 @@ function StaffReceipt() {
   ], [location.state?.order]);
 
   const customerName = location.state?.customerName || "Walk-in Customer";
-  const orderType = location.state?.orderType || "Counter";
+  const orderType = location.state?.orderType || "Dine-in";
   const paymentMethod = location.state?.paymentMethod || "Cash";
   const paymentStatus = location.state?.paymentStatus
     ? String(location.state.paymentStatus).toUpperCase()
@@ -28,8 +29,8 @@ function StaffReceipt() {
   const cashTendered = Number(location.state?.cashTendered || total);
   const changeDue = Number(location.state?.changeDue || 0);
 
-  // Deterministic order number without impure Math.random() calls during render
-  const orderNumber = location.state?.orderId || "AM-104821";
+  // No fabricated order number: the receipt only ever shows a real one.
+  const orderNumber = location.state?.orderId || "NEW";
 
   const date = useMemo(() => {
     return new Date().toLocaleDateString("en-US", {
@@ -48,6 +49,12 @@ function StaffReceipt() {
 
   const handlePrint = () => {
     window.print();
+    if (orderNumber && orderNumber !== "NEW") {
+      notifyStaff("receipt_printed", {
+        title: "Receipt printed",
+        message: `Receipt printed for order #${orderNumber}`,
+      });
+    }
   };
 
   return (

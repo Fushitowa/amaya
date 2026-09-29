@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 import Sidebar from "../../components/Sidebar.jsx";
+import PortalHero from "../../components/PortalHero.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import "../../assets/css/admin/AdminDashboard.css";
+import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -71,28 +73,14 @@ function AdminDashboard() {
         <div className="admin-content">
 
           
-          <section className="admin-welcome">
-
-            <div>
-              <span className="welcome-label">
-                ADMINISTRATOR
-              </span>
-
-              <h2>
-                Welcome back, Admin!
-              </h2>
-
-              <p>
-                Here's what's happening with Amaya today.
-              </p>
-            </div>
-
-            <div className="welcome-date">
-              <span>Today</span>
-              <strong>{liveDate}</strong>
-            </div>
-
-          </section>
+          <PortalHero
+            label="Administrator"
+            greeting="Welcome back"
+            highlight="Admin!"
+            subtitle="Here’s what’s happening with Amaya today."
+            date={liveDate}
+            statusTitle="System active"
+          />
 
 
           

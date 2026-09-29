@@ -813,3 +813,445 @@
   }
 }
 
+
+/* ==========================================================================
+   Customization modal polish (Amaya warm espresso)
+   ========================================================================== */
+
+.staff-quantity-workspace {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.quantity-product-card,
+.quantity-form-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+  background: #ffffff;
+  border: 1px solid rgba(231, 229, 228, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
+  padding: 20px;
+}
+
+/* ---- product overview ---- */
+
+.quantity-product-image-wrap {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #f5f5f4;
+  border: 1px solid #f0efee;
+  margin-bottom: 16px;
+}
+
+.quantity-product-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.quantity-product-category {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a39286;
+}
+
+.quantity-product-title {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #1c1917;
+}
+
+.quantity-product-description {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #78716c;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.quantity-product-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #f5f5f4;
+}
+
+.quantity-product-meta .price-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: #a8a29e;
+}
+
+.quantity-product-meta .unit-price {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #3a2618;
+}
+
+/* ---- modifiers header ---- */
+
+.quantity-form-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f5f5f4;
+}
+
+.quantity-form-header .section-kicker {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a39286;
+}
+
+.quantity-form-header h2 {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.quantity-form-header .order-id {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(254, 243, 199, 0.8);
+  border: 1px solid rgba(253, 230, 138, 0.6);
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---- quantity + size row ---- */
+
+.quantity-form-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin: 0;
+}
+
+.quantity-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: #a8a29e;
+}
+
+.quantity-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quantity-button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  background: #f5f5f4;
+  color: #44403c;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.quantity-button:hover {
+  background: #e7e5e4;
+  color: #3a2618;
+}
+
+.quantity-value {
+  min-width: 40px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  color: #1c1917;
+}
+
+/* ---- serving size pills ---- */
+
+.size-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.size-option {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid #e7e5e4;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #44403c;
+  font: 600 12px "DM Sans", sans-serif;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.size-option strong {
+  font-weight: 600;
+  color: inherit;
+  text-transform: capitalize;
+}
+
+.size-option span {
+  font-size: 11px;
+  font-weight: 500;
+  color: #a8a29e;
+  transition: color 160ms ease;
+}
+
+.size-option:hover {
+  background: #fafaf9;
+  border-color: #d6d3d1;
+  color: #3a2618;
+}
+
+.size-option.selected {
+  background: #3a2618;
+  border-color: #3a2618;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(58, 38, 24, 0.24);
+}
+
+.size-option.selected strong {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.size-option.selected span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* ---- add-ons ---- */
+
+.quantity-addons,
+.quantity-note {
+  margin-top: 20px;
+}
+
+.addon-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.addon-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e7e5e4;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #44403c;
+  font: 600 12px "DM Sans", sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.addon-option:hover {
+  background: #fafaf9;
+  border-color: #d6d3d1;
+  color: #3a2618;
+}
+
+.addon-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.addon-option-price {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #a8a29e;
+  transition: color 160ms ease;
+}
+
+.addon-option.selected {
+  background: #3a2618;
+  border-color: #3a2618;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(58, 38, 24, 0.24);
+}
+
+.addon-option.selected .addon-option-price {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ---- kitchen note ---- */
+
+.quantity-note input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e7e5e4;
+  border-radius: 12px;
+  background: #fafaf9;
+  color: #292524;
+  font: 400 13px "DM Sans", sans-serif;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.quantity-note input:focus {
+  border-color: #3a2618;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(58, 38, 24, 0.12);
+}
+
+/* ---- breakdown ---- */
+
+.quantity-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid #f0efee;
+  border-radius: 12px;
+  background: #fafaf9;
+}
+
+.quantity-summary .summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12.5px;
+}
+
+.quantity-summary .summary-label {
+  flex: 0 0 auto;
+  color: #78716c;
+}
+
+.quantity-summary .summary-value {
+  min-width: 0;
+  text-align: right;
+  font-weight: 600;
+  color: #1c1917;
+  overflow-wrap: anywhere;
+}
+
+.quantity-summary .total-row {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid #e7e5e4;
+}
+
+.quantity-summary .total-row .summary-label {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #1c1917;
+}
+
+.quantity-summary .summary-total {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: #3a2618;
+}
+
+/* ---- actions ---- */
+
+.quantity-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.quantity-actions .cancel-button,
+.quantity-actions .confirm-button {
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 0 16px;
+  font: 700 12.5px "DM Sans", sans-serif;
+  letter-spacing: 0.2px;
+}
+
+.quantity-actions .cancel-button {
+  border: 1px solid #e7e5e4;
+  background: #ffffff;
+  color: #57534e;
+}
+
+.quantity-actions .cancel-button:hover {
+  background: #fafaf9;
+  color: #3a2618;
+}
+
+.quantity-actions .confirm-button {
+  border: 0;
+  background: #3a2618;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(58, 38, 24, 0.24);
+}
+
+.quantity-actions .confirm-button:hover {
+  background: #2a1b10;
+}
+
+@media (max-width: 1080px) {
+  .staff-quantity-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quantity-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+}
+
+@media (max-width: 560px) {
+  .addon-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quantity-actions {
+    flex-direction: column-reverse;
+  }
+}

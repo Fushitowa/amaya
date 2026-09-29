@@ -8,6 +8,7 @@ import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { MenuProvider } from "./context/MenuContext.jsx";
 import { BusinessProvider } from "./context/BusinessContext.jsx";
 import { OrdersProvider } from "./context/OrdersContext.jsx";
+import InventoryProvider from "./context/InventoryContext.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -15,7 +16,9 @@ createRoot(document.getElementById("root")).render(
       <BusinessProvider>
         <OrdersProvider>
           <MenuProvider>
-            <App />
+            <InventoryProvider>
+              <App />
+            </InventoryProvider>
           </MenuProvider>
         </OrdersProvider>
       </BusinessProvider>

@@ -1,0 +1,260 @@
+/* ==========================================================================
+   PortalHero - shared espresso welcome banner (Admin + Staff dashboards)
+   Deep espresso base keeps the white type well above AA contrast.
+   ========================================================================== */
+
+.portal-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 156px;
+  margin-bottom: 22px;
+  padding: 28px 30px;
+  border-radius: 16px;
+  color: #ffffff;
+  background: linear-gradient(105deg, #2c1810 0%, #3a2618 52%, #4a3222 100%);
+  box-shadow: 0 8px 22px rgba(28, 25, 23, 0.16);
+  animation: portalHeroEnter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: box-shadow 300ms ease, transform 300ms ease;
+}
+
+.portal-hero:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(28, 25, 23, 0.24);
+}
+
+.portal-hero-glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  transition: background 500ms ease, transform 500ms ease;
+}
+
+.portal-hero-glow-lg {
+  width: 264px;
+  height: 264px;
+  right: -72px;
+  bottom: -128px;
+  background: rgba(245, 158, 11, 0.1);
+  filter: blur(64px);
+}
+
+.portal-hero-glow-sm {
+  width: 132px;
+  height: 132px;
+  top: -58px;
+  right: 26%;
+  background: rgba(252, 211, 77, 0.06);
+  filter: blur(42px);
+}
+
+.portal-hero:hover .portal-hero-glow-lg {
+  background: rgba(245, 158, 11, 0.2);
+  transform: scale(1.08);
+}
+
+.portal-hero-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.07) 45%,
+    transparent 70%
+  );
+  background-size: 260% 100%;
+  animation: portalHeroShimmer 7s ease-in-out infinite;
+}
+
+.portal-hero-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.portal-hero-copy {
+  min-width: 0;
+  animation: portalHeroEnter 620ms 90ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.portal-hero-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.portal-hero-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  color: #fcd34d;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.portal-hero-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: portalHeroPulse 2.4s ease-out infinite;
+}
+
+.portal-hero-headline {
+  margin: 9px 0 6px;
+  font-size: 25px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.portal-hero-accent {
+  color: #fde68a;
+}
+
+.portal-hero-subtitle {
+  margin: 0;
+  max-width: 46ch;
+  color: #f5f5f4;
+  font-size: 12.5px;
+  line-height: 1.55;
+  font-weight: 500;
+}
+
+.portal-hero-date {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 17px;
+  border-radius: 13px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: background 300ms ease, border-color 300ms ease;
+}
+
+.portal-hero:hover .portal-hero-date {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.portal-hero-date-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+}
+
+.portal-hero-date-text {
+  display: block;
+  min-width: 0;
+}
+
+.portal-hero-date-label {
+  display: block;
+  margin-bottom: 3px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+}
+
+.portal-hero-date-text strong {
+  display: block;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@keyframes portalHeroEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes portalHeroShimmer {
+  0% {
+    background-position: 130% 0;
+  }
+  50% {
+    background-position: -30% 0;
+  }
+  100% {
+    background-position: 130% 0;
+  }
+}
+
+@keyframes portalHeroPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-hero,
+  .portal-hero-copy,
+  .portal-hero-shimmer,
+  .portal-hero-dot {
+    animation: none;
+  }
+
+  .portal-hero,
+  .portal-hero:hover {
+    transform: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .portal-hero {
+    padding: 22px;
+    min-height: auto;
+  }
+
+  .portal-hero-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .portal-hero-headline {
+    font-size: 21px;
+  }
+
+  .portal-hero-date {
+    width: 100%;
+  }
+}

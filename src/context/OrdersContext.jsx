@@ -1,6 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+import {
+  notifyOrderCompleted,
+  notifyOrderCreated,
+  notifyReceiptPrinted,
+} from "../utils/notifications.js";
+
 const ordersStorageKey = "amaya-orders";
 const OrdersContext = createContext(null);
 
@@ -8,6 +14,20 @@ export const PAYMENT_STATUS_PAID = "Paid";
 export const DEFAULT_PAYMENT_METHOD = "Cash";
 export const WALK_IN_CUSTOMER_NAME = "Walk-in Customer";
 export const WALK_IN_INITIALS = "WC";
+
+/* Sequential order lifecycle: Pending -> Preparing -> Ready -> Completed.
+   Orders may only ever advance one step at a time, and Completed is final. */
+export const ORDER_STATUS_FLOW = ["Pending", "Preparing", "Ready", "Completed"];
+
+export function getNextAllowedStatuses(currentStatus) {
+  const index = ORDER_STATUS_FLOW.indexOf(currentStatus);
+  if (index < 0 || index === ORDER_STATUS_FLOW.length - 1) return [];
+  return [ORDER_STATUS_FLOW[index + 1]];
+}
+
+export function canTransitionTo(currentStatus, nextStatus) {
+  return getNextAllowedStatuses(currentStatus).includes(nextStatus);
+}
 
 export const defaultInitialOrders = [
   {
@@ -116,15 +136,15 @@ export function normalizeOrderPayment(order) {
 function readOrders() {
   try {
     const savedOrders = localStorage.getItem(ordersStorageKey);
-    if (savedOrders) {
-      const parsed = JSON.parse(savedOrders);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return normalizeOrders(parsed);
-      }
-    }
-    return defaultInitialOrders;
+    if (savedOrders === null) return defaultInitialOrders;
+
+    // Anything that is not a readable array means there is no order data to
+    // show. Seeding demo orders here would render them as real ones, so an
+    // empty queue is the honest result.
+    const parsed = JSON.parse(savedOrders);
+    return Array.isArray(parsed) ? normalizeOrders(parsed) : [];
   } catch {
-    return defaultInitialOrders;
+    return [];
   }
 }
 
@@ -163,7 +183,7 @@ export function OrdersProvider({ children }) {
     addOrder: ({
       items,
       customerName = WALK_IN_CUSTOMER_NAME,
-      type = "Counter",
+      type = "Takeout",
       paymentMethod = DEFAULT_PAYMENT_METHOD,
       cashTendered,
       changeDue,
@@ -174,11 +194,16 @@ export function OrdersProvider({ children }) {
         id: `AM-${String(Date.now()).slice(-6)}`,
         customer: customerName,
         items: items.map((item) => ({
+          // productId keeps the line linked to its Admin catalog record.
+          productId: item.productId,
           title: item.title,
           quantity: Number(item.quantity || 0),
           price: Number(item.price || 0),
           size: item.size || "Regular",
           category: item.category || "Menu item",
+          sugarLevel: item.sugarLevel,
+          addons: Array.isArray(item.addons) ? item.addons : [],
+          instructions: item.instructions,
         })),
         total,
         status: "Pending",
@@ -186,6 +211,7 @@ export function OrdersProvider({ children }) {
         payment: PAYMENT_STATUS_PAID,
         paymentMethod,
         paidAt: createdAt,
+        confirmed: false,
         ...(paymentMethod === "Cash"
           ? {
             cashTendered: Number(cashTendered || total),
@@ -196,11 +222,31 @@ export function OrdersProvider({ children }) {
       };
 
       setOrders((currentOrders) => [order, ...currentOrders]);
+      notifyOrderCreated(order);
       return order;
     },
     updateOrderStatus: (id, status) => {
+      let completedOrder = null;
+
+      setOrders((currentOrders) => currentOrders.map((order) => {
+        if (order.id !== id) return order;
+        // Enforce the sequential workflow regardless of caller.
+        if (!canTransitionTo(order.status, status)) return order;
+        if (status === "Completed") completedOrder = { ...order, status };
+        return { ...order, status };
+      }));
+
+      if (completedOrder) notifyOrderCompleted(completedOrder);
+    },
+    printReceipt: (id) => {
+      const order = orders.find((entry) => entry.id === id);
+      if (order) notifyReceiptPrinted(order);
+    },
+    confirmOrder: (id) => {
       setOrders((currentOrders) => currentOrders.map((order) => (
-        order.id === id ? { ...order, status } : order
+        order.id === id && !order.confirmed
+          ? { ...order, confirmed: true, confirmedAt: new Date().toISOString() }
+          : order
       )));
     },
     markOrderPaid: (id, paymentMethod) => {
@@ -217,9 +263,6 @@ export function OrdersProvider({ children }) {
     },
     deleteOrder: (id) => {
       setOrders((currentOrders) => currentOrders.filter((order) => order.id !== id));
-    },
-    resetOrders: () => {
-      setOrders(defaultInitialOrders);
     },
   }), [orders]);
 

@@ -26,6 +26,29 @@
   background: #c2aa95;
 }
 
+/* Pulsing dot for the pre-checkout "Payment pending" status.
+   Referenced by inline animationName on StaffOrderConfirmation. */
+@keyframes amaya-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 @media print {
   .amaya-item-scroll {
     max-height: none;
