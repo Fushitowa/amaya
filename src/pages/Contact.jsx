@@ -105,7 +105,7 @@ function Contact() {
                       <a href={`tel:${phone}`}>{phone}</a>
                     </strong>
 
-                    <p>Available during opening hours</p>
+                    <p>We usually reply within 24 hours</p>
                   </div>
 
                 </li>
