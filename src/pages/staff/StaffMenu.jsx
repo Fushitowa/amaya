@@ -38,7 +38,14 @@ function StaffMenu() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerName, setCustomerName] = useState("Walk-in Customer");
-  const [orderType, setOrderType] = useState("Dine-in");
+  const [orderType, setOrderType] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}");
+      return saved.defaultOrderType === "Takeout" ? "Takeout" : "Dine-in";
+    } catch {
+      return "Dine-in";
+    }
+  });
   const [customizingItem, setCustomizingItem] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 

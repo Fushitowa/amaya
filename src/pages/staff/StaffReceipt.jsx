@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
-import { useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
+import { formatBusinessTime, useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 import { getPaymentStatusLabel } from "../../context/OrdersContext.jsx";
 import { notifyStaff } from "../../utils/notifications.js";
 import "../../assets/css/staff/staff-receipt.css";
@@ -31,6 +31,23 @@ function StaffReceipt() {
 
   // No fabricated order number: the receipt only ever shows a real one.
   const orderNumber = location.state?.orderId || "NEW";
+  const printPreferences = useMemo(() => {
+    if (location.state?.printPreferences) return location.state.printPreferences;
+    try {
+      return JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}");
+    } catch {
+      return {};
+    }
+  }, [location.state?.printPreferences]);
+  const printerPaperSize = printPreferences.printerPaperSize === "58mm" ? "58mm" : "80mm";
+  const receiptWidth = printerPaperSize === "58mm" ? "219px" : "300px";
+  const stationName = String(printPreferences.stationName || "POS Terminal #1").trim() || "POS Terminal #1";
+
+  useEffect(() => {
+    if (!printPreferences.autoPrintReceipt || orderNumber === "NEW" || location.state?.testPrint) return undefined;
+    const timer = window.setTimeout(() => window.print(), 400);
+    return () => window.clearTimeout(timer);
+  }, [location.state?.testPrint, orderNumber, printPreferences.autoPrintReceipt]);
 
   const date = useMemo(() => {
     return new Date().toLocaleDateString("en-US", {
@@ -49,7 +66,7 @@ function StaffReceipt() {
 
   const handlePrint = () => {
     window.print();
-    if (orderNumber && orderNumber !== "NEW") {
+    if (orderNumber && orderNumber !== "NEW" && !location.state?.testPrint) {
       notifyStaff("receipt_printed", {
         title: "Receipt printed",
         message: `Receipt printed for order #${orderNumber}`,
@@ -59,7 +76,7 @@ function StaffReceipt() {
 
   return (
     <main className="staff-receipt-page">
-      <div className="thermal-receipt-container">
+      <div className="thermal-receipt-container" style={{ "--receipt-width": receiptWidth, "--receipt-print-width": receiptWidth }}>
         {/* Navigation & Action Bar (Hidden on Print) */}
         <div className="receipt-action-toolbar no-print">
           <button
@@ -72,7 +89,7 @@ function StaffReceipt() {
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
               <rect x="6" y="14" width="12" height="8"></rect>
             </svg>
-            Print Receipt (Thermal 80mm)
+            Print Receipt (Thermal {printerPaperSize})
           </button>
 
           <button
@@ -89,13 +106,13 @@ function StaffReceipt() {
         </div>
 
         {/* 300px Thermal Restaurant Receipt Slip */}
-        <article className="thermal-slip printable-receipt-area">
+        <article className="thermal-slip printable-receipt-area" style={{ "--receipt-width": receiptWidth, "--receipt-print-width": receiptWidth }}>
           <header className="slip-header">
-            <img src={amayaLogo} alt="Amaya Logo" className="slip-logo" />
+            {printPreferences.printLogoOnReceipt !== false && <img src={amayaLogo} alt="Amaya Logo" className="slip-logo" />}
             <h2 className="slip-title">{business.businessName || "AMAYA DRINKS & BITES"}</h2>
             <p className="slip-meta-text">{business.address || "Barangay Lilingayon, Valencia City, Bukidnon"}</p>
             <p className="slip-meta-text">Contact: {business.phone || "09636017184"}</p>
-            <p className="slip-meta-text">Store Hours: 9:00 AM - 7:00 PM</p>
+            <p className="slip-meta-text">Store Hours: {formatBusinessTime(business.openingTime || "09:00")} - {formatBusinessTime(business.closingTime || "19:00")}</p>
           </header>
 
           <div className="slip-divider-dashed"></div>
@@ -115,7 +132,7 @@ function StaffReceipt() {
             </div>
             <div className="slip-meta-row">
               <span>STATION:</span>
-              <strong>POS Terminal #1 (Staff)</strong>
+              <strong>{stationName} (Staff)</strong>
             </div>
             <div className="slip-meta-row">
               <span>CUSTOMER:</span>

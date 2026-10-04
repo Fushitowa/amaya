@@ -125,7 +125,7 @@ function AdminOrder() {
             <h1>Orders Overview</h1>
           </div>
           <div className="admin-orders-topbar-actions">
-            <PortalNotificationButton count={0} />
+            <PortalNotificationButton />
             <div className="admin-orders-user">
               <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
               <div>

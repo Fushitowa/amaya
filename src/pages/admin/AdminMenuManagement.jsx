@@ -45,6 +45,7 @@ const parseAddonTag = (raw) => {
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MENU_PAGE_SIZE = 16;
 
 function AdminMenuManagement() {
 	const { products, addProduct, updateProduct, deleteProduct } = useMenu();
@@ -52,6 +53,8 @@ function AdminMenuManagement() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
+	const [sortBy, setSortBy] = useState("popular");
+	const [currentPage, setCurrentPage] = useState(1);
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
@@ -62,6 +65,26 @@ function AdminMenuManagement() {
 	const [ingredientInput, setIngredientInput] = useState("");
 	const [syncNotice, setSyncNotice] = useState("");
 	const syncTimer = useRef(null);
+
+	useEffect(() => {
+		const root = document.documentElement;
+		const body = document.body;
+		const previousRootOverflow = root.style.overflow;
+		const previousBodyOverflow = body.style.overflow;
+		const syncPageScroll = () => {
+			const lockScroll = window.innerWidth > 700;
+			root.style.overflow = lockScroll ? "hidden" : previousRootOverflow;
+			body.style.overflow = lockScroll ? "hidden" : previousBodyOverflow;
+		};
+
+		syncPageScroll();
+		window.addEventListener("resize", syncPageScroll);
+		return () => {
+			window.removeEventListener("resize", syncPageScroll);
+			root.style.overflow = previousRootOverflow;
+			body.style.overflow = previousBodyOverflow;
+		};
+	}, []);
 
 	useEffect(() => {
     if (!syncNotice) return;
@@ -183,12 +206,22 @@ function AdminMenuManagement() {
 
 	const visibleProducts = useMemo(() => {
 		const query = search.toLowerCase().trim();
-		return products.filter((product) => {
+		const filtered = products.filter((product) => {
 			const categoryMatches = activeCategory === "All items" || product.category === activeCategory;
 			const searchMatches = !query || `${product.name} ${product.category}`.toLowerCase().includes(query);
 			return categoryMatches && searchMatches;
 		});
-	}, [activeCategory, products, search]);
+		return [...filtered].sort((left, right) => {
+			if (sortBy === "name") return left.name.localeCompare(right.name);
+			const leftPrice = Number(String(left.price || "").replace(/[^0-9.]/g, "")) || 0;
+			const rightPrice = Number(String(right.price || "").replace(/[^0-9.]/g, "")) || 0;
+			if (sortBy === "price") return leftPrice - rightPrice || left.name.localeCompare(right.name);
+			return Number(right.featured) - Number(left.featured) || left.name.localeCompare(right.name);
+		});
+	}, [activeCategory, products, search, sortBy]);
+	const pageCount = Math.max(1, Math.ceil(visibleProducts.length / MENU_PAGE_SIZE));
+	const safePage = Math.min(currentPage, pageCount);
+	const pageProducts = visibleProducts.slice((safePage - 1) * MENU_PAGE_SIZE, safePage * MENU_PAGE_SIZE);
 
 	const toggleAvailability = async (id) => {
 		try {
@@ -279,9 +312,10 @@ function AdminMenuManagement() {
       />
 
 			<main className="admin-menu-main">
-				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><PortalNotificationButton count={3} /><div className="admin-menu-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
+				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><PortalNotificationButton /><div className="admin-menu-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
 
-				<div className="admin-menu-content">
+				<div className="admin-menu-content custom-menu-scrollbar">
+					<div className="admin-menu-controls">
 					<section className="admin-menu-heading"><div><span className="admin-menu-eyebrow">PRODUCT CATALOG</span><h2>Everything on the menu</h2><p>Keep your offerings fresh, organized, and ready for every customer.</p></div><button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button></section>
 
 					<section className="admin-menu-stats" aria-label="Menu summary">
@@ -290,18 +324,27 @@ function AdminMenuManagement() {
 						<div><span className="menu-stat-icon orange">◷</span><div><small>Low stock</small><strong>{lowStockCount}</strong><span className="warning">Needs restocking</span></div></div>
 						<div><span className="menu-stat-icon plum">★</span><div><small>Featured items</small><strong>{products.filter((product) => product.featured).length}</strong><span>Shown on the homepage</span></div></div>
 					</section>
+					</div>
 
-					<section className="admin-menu-toolbar"><div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">{categories.map((category) => <button type="button" key={category} className={activeCategory === category ? "active" : ""} onClick={() => setActiveCategory(category)}>{category}<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span></button>)}</div><label className="admin-menu-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu items" aria-label="Search menu items" /></label></section>
+					<section className="admin-menu-toolbar"><div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">{categories.map((category) => <button type="button" key={category} className={activeCategory === category ? "active" : ""} onClick={() => { setActiveCategory(category); setCurrentPage(1); }}>{category}<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span></button>)}</div><label className="admin-menu-search"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" /></label></section>
 
-					<section className="admin-menu-list-header"><div><h3>{activeCategory}</h3><span>{visibleProducts.length} items in this view</span></div><select aria-label="Sort menu items" defaultValue="popular"><option value="popular">Sort: Featured first</option><option value="name">Sort: Name</option><option value="price">Sort: Price</option></select></section>
+					<section className="admin-menu-list-header"><div><h3>{activeCategory}</h3><span>{visibleProducts.length} items in this view</span></div><select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}><option value="popular">Sort: Featured first</option><option value="name">Sort: Name A–Z</option><option value="price">Sort: Price low to high</option></select></section>
 
 					<section className="admin-menu-grid">
-						{visibleProducts.map((product) => <article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
-							<div className="admin-product-image"><img src={product.image} alt={product.name} />{product.featured && <span className="featured-label">★ Featured</span>}<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button></div>
+						{pageProducts.map((product) => <article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
+							<div className="admin-product-image"><img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />{product.featured && <span className="featured-label">★ Featured</span>}<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button></div>
 							<div className="admin-product-body"><div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div><h4>{product.name}</h4><p>{product.description}</p><div className="admin-product-footer"><span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}</span><label className="availability-toggle"><input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} /><span></span><small>{product.available ? "Available" : "Hidden"}</small></label><button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button></div></div>
 						</article>)}
+						{!visibleProducts.length && <div className="admin-menu-empty"><strong>No menu items found</strong><span>Try another category or search term.</span></div>}
 					</section>
-					{!visibleProducts.length && <div className="admin-menu-empty"><strong>No menu items found</strong><span>Try another category or search term.</span></div>}
+					{visibleProducts.length > 0 && <nav className="admin-menu-pagination" aria-label="Menu catalog pages">
+						<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
+						<div>
+							<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
+							<span>Page {safePage} of {pageCount}</span>
+							<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+						</div>
+					</nav>}
 				</div>
 			</main>
 

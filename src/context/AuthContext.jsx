@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState(() => !sessionStorage.getItem("amaya-session-token"));
 
   useEffect(() => {
     const handleUnauthorized = () => setUser(null);
@@ -17,10 +17,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let active = true;
     const token = sessionStorage.getItem("amaya-session-token");
-    if (!token) {
-      setAuthReady(true);
-      return undefined;
-    }
+    if (!token) return undefined;
     apiRequest("/auth/me")
       .then((profile) => { if (active) setUser(profile); })
       .catch(() => { if (active) setAuthToken(null); })

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
@@ -11,28 +12,66 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
+const DEFAULT_STAFF_PREFERENCES = {
+  notifications: true,
+  orderAlerts: true,
+  audioChime: true,
+  autoPrintReceipt: false,
+  printerPaperSize: "80mm",
+  printLogoOnReceipt: true,
+  defaultOrderType: "Dine-in",
+  stationName: "POS Terminal #1",
+};
+
+function readStaffPreferences() {
+  try {
+    return { ...DEFAULT_STAFF_PREFERENCES, ...JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}") };
+  } catch {
+    return DEFAULT_STAFF_PREFERENCES;
+  }
+}
+
 function StaffSetting() {
   const { darkMode, toggleDarkMode } = useTheme();
+  const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  // Preference states
-  const [notifications, setNotifications] = useState(true);
-  const [orderAlerts, setOrderAlerts] = useState(true);
-  const [audioChime, setAudioChime] = useState(true);
-  const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
-  const [printerPaperSize, setPrinterPaperSize] = useState("80mm");
-  const [printLogoOnReceipt, setPrintLogoOnReceipt] = useState(true);
-  const [defaultOrderType, setDefaultOrderType] = useState("Dine-in");
-  const [stationName, setStationName] = useState("POS Terminal #1");
+  const [preferences, setPreferences] = useState(readStaffPreferences);
+  const { notifications, orderAlerts, audioChime, autoPrintReceipt, printerPaperSize, printLogoOnReceipt, defaultOrderType, stationName } = preferences;
   const [toastMessage, setToastMessage] = useState(null);
 
+  useEffect(() => {
+    if (!toastMessage) return undefined;
+    const timer = window.setTimeout(() => setToastMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
+  const updatePreference = (key, value) => setPreferences((current) => ({ ...current, [key]: value }));
+
   const handleSaveSettings = () => {
-    setToastMessage("Staff preferences & printer configurations saved successfully!");
-    setTimeout(() => setToastMessage(null), 3000);
+    try {
+      localStorage.setItem("amaya-staff-preferences", JSON.stringify(preferences));
+      setToastMessage("Staff and printer preferences saved on this device.");
+    } catch {
+      setToastMessage("Could not save preferences in this browser.");
+    }
   };
 
   const handleTestPrint = () => {
-    window.print();
+    navigate("/staff/receipt", {
+      state: {
+        testPrint: true,
+        orderId: "TEST",
+        printPreferences: preferences,
+        order: [{ title: "Receipt printer test", quantity: 1, price: 1, size: "Regular" }],
+        customerName: "Printer Test",
+        orderType: defaultOrderType,
+        paymentMethod: "Cash",
+        subtotal: 1,
+        total: 1,
+        cashTendered: 1,
+        changeDue: 0,
+      },
+    });
   };
 
   return (
@@ -129,7 +168,7 @@ function StaffSetting() {
                   <input
                     type="text"
                     value={stationName}
-                    onChange={(e) => setStationName(e.target.value)}
+                    onChange={(e) => updatePreference("stationName", e.target.value)}
                     style={{ width: "160px", padding: "6px 10px", borderRadius: "6px", border: "1px solid #dcd4cc", fontSize: "12px", textAlign: "right" }}
                   />
                 </div>
@@ -179,7 +218,7 @@ function StaffSetting() {
                       <button
                         key={size}
                         type="button"
-                        onClick={() => setPrinterPaperSize(size)}
+                        onClick={() => updatePreference("printerPaperSize", size)}
                         style={{
                           padding: "5px 12px",
                           borderRadius: "6px",
@@ -205,7 +244,7 @@ function StaffSetting() {
                   <input
                     type="checkbox"
                     checked={autoPrintReceipt}
-                    onChange={(e) => setAutoPrintReceipt(e.target.checked)}
+                    onChange={(e) => updatePreference("autoPrintReceipt", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
                   />
                 </div>
@@ -218,7 +257,7 @@ function StaffSetting() {
                   <input
                     type="checkbox"
                     checked={printLogoOnReceipt}
-                    onChange={(e) => setPrintLogoOnReceipt(e.target.checked)}
+                    onChange={(e) => updatePreference("printLogoOnReceipt", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
                   />
                 </div>
@@ -268,7 +307,7 @@ function StaffSetting() {
                   <input
                     type="checkbox"
                     checked={orderAlerts}
-                    onChange={(e) => setOrderAlerts(e.target.checked)}
+                    onChange={(e) => updatePreference("orderAlerts", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
                   />
                 </div>
@@ -281,7 +320,7 @@ function StaffSetting() {
                   <input
                     type="checkbox"
                     checked={audioChime}
-                    onChange={(e) => setAudioChime(e.target.checked)}
+                    onChange={(e) => updatePreference("audioChime", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
                   />
                 </div>
@@ -294,7 +333,7 @@ function StaffSetting() {
                   <input
                     type="checkbox"
                     checked={notifications}
-                    onChange={(e) => setNotifications(e.target.checked)}
+                    onChange={(e) => updatePreference("notifications", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
                   />
                 </div>
@@ -306,7 +345,7 @@ function StaffSetting() {
                   </div>
                   <select
                     value={defaultOrderType}
-                    onChange={(e) => setDefaultOrderType(e.target.value)}
+                    onChange={(e) => updatePreference("defaultOrderType", e.target.value)}
                     style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #ded6ce", fontSize: "12px", color: "#2d1f1a" }}
                   >
                     <option value="Takeout">Takeout</option>
@@ -360,14 +399,13 @@ function StaffSetting() {
                   <button
                     type="button"
                     onClick={() => {
-                      setNotifications(true);
-                      setOrderAlerts(true);
-                      setAudioChime(true);
-                      setAutoPrintReceipt(false);
-                      setPrinterPaperSize("80mm");
-                      setDefaultOrderType("Dine-in");
-                      setToastMessage("Settings restored to defaults");
-                      setTimeout(() => setToastMessage(null), 2500);
+                      setPreferences(DEFAULT_STAFF_PREFERENCES);
+                      try {
+                        localStorage.setItem("amaya-staff-preferences", JSON.stringify(DEFAULT_STAFF_PREFERENCES));
+                        setToastMessage("Settings restored to defaults and saved.");
+                      } catch {
+                        setToastMessage("Defaults restored for this session; browser storage is unavailable.");
+                      }
                     }}
                     style={{
                       padding: "6px 12px",

@@ -5,13 +5,11 @@ import PortalNotificationButton from "../../components/PortalNotificationButton.
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, useOrders } from "../../context/OrdersContext.jsx";
-import { useMenu } from "../../context/MenuContext.jsx";
+import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
-
-const LOW_STOCK_THRESHOLD = 5;
 
 const rangeOptions = [
   { key: "7d", label: "Last 7 days", days: 7, bucketDays: 1, axisStep: 1 },
@@ -22,12 +20,6 @@ const rangeOptions = [
 const stockFilters = ["all", "attention", "healthy"];
 
 const orderStatuses = ["Pending", "Preparing", "Ready", "Completed"];
-
-const lowStockTone = (stock) => {
-  if (stock <= 0) return { label: "Out of Stock", tone: "critical" };
-  if (stock <= LOW_STOCK_THRESHOLD) return { label: "Low Stock", tone: "low" };
-  return { label: "In Stock", tone: "available" };
-};
 
 const peso = (value) => `₱${Number(value || 0).toFixed(2)}`;
 
@@ -70,7 +62,7 @@ function percentChange(current, previous) {
 function AdminReport() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders = [] } = useOrders() || {};
-  const { products = [] } = useMenu() || {};
+  const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
 
   const [rangeKey, setRangeKey] = useState("7d");
   const [stockFilter, setStockFilter] = useState("all");
@@ -295,28 +287,20 @@ function AdminReport() {
   );
 
   const stockReport = useMemo(() => {
-    const soldByProduct = new Map();
-
-    orders.forEach((order) => {
-      orderItemList(order).forEach((item) => {
-        soldByProduct.set(item.title, (soldByProduct.get(item.title) || 0) + Number(item.quantity || 0));
-      });
-    });
-
-    return products.map((product) => {
-      const sold = soldByProduct.get(product.name) || 0;
-      const stock = Math.max(0, Number(product.stock || 0) - sold);
-
+    return inventory.map((entry) => {
+      const status = getInventoryStatus(entry.quantity, entry.minimumStock);
       return {
-        id: product.id,
-        product: product.name,
-        category: product.category,
-        stock,
-        sold,
-        ...lowStockTone(stock),
+        id: entry.id,
+        item: entry.item,
+        category: entry.category,
+        quantity: entry.quantity,
+        unit: entry.unit,
+        minimumStock: entry.minimumStock,
+        tone: status === "In Stock" ? "available" : status === "Low Stock" ? "low" : "critical",
+        label: status,
       };
     });
-  }, [orders, products]);
+  }, [inventory]);
 
   const stockBreakdown = useMemo(() => ({
     total: stockReport.length,
@@ -441,7 +425,7 @@ function AdminReport() {
             <h1>Sales &amp; Inventory Reports</h1>
           </div>
           <div className="admin-report-topbar-actions">
-            <PortalNotificationButton count={pendingCount} />
+            <PortalNotificationButton />
             <div className="admin-report-user">
               <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
               <div>
@@ -772,25 +756,29 @@ function AdminReport() {
               })}
             </div>
 
-            {visibleStock.length ? (
+            {inventoryLoading && inventory.length === 0 ? (
+              <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+            ) : inventoryError && inventory.length === 0 ? (
+              <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+            ) : visibleStock.length ? (
               <div className="inventory-table-wrap">
                 <table className="inventory-table">
                   <thead>
                     <tr>
-                      <th scope="col">Product</th>
+                      <th scope="col">Inventory item</th>
                       <th scope="col">Category</th>
-                      <th scope="col">Sold</th>
-                      <th scope="col">Remaining</th>
+                      <th scope="col">Current quantity</th>
+                      <th scope="col">Minimum stock</th>
                       <th scope="col">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleStock.map((item) => (
                       <tr key={item.id ?? item.product}>
-                        <td>{item.product}</td>
+                        <td>{item.item}</td>
                         <td>{item.category}</td>
-                        <td>{item.sold}</td>
-                        <td>{item.stock}</td>
+                        <td>{item.quantity} {item.unit}</td>
+                        <td>{item.minimumStock} {item.unit}</td>
                         <td>
                           <span className={`inventory-status ${item.tone}`}>{item.label}</span>
                         </td>
@@ -803,7 +791,7 @@ function AdminReport() {
               <div className="admin-report-empty">
                 <span>◔</span>
                 <strong>Nothing to show for this filter</strong>
-                <p>Switch filters to review the rest of your product stock.</p>
+                <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
               </div>
             )}
           </section>

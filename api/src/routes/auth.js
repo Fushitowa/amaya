@@ -25,6 +25,27 @@ router.post("/login", async (request, response) => {
   return response.json({ token: createAccessToken(profile), user: profile });
 });
 
+router.post("/change-password", requireAuth, async (request, response) => {
+  const currentPassword = String(request.body?.currentPassword || "");
+  const newPassword = String(request.body?.newPassword || "");
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    return response.status(400).json({ message: "Your new password must be between 8 and 128 characters." });
+  }
+  if (currentPassword === newPassword) {
+    return response.status(400).json({ message: "Choose a new password that differs from your current one." });
+  }
+
+  const [rows] = await pool.execute("SELECT id, password_hash FROM users WHERE id = ? LIMIT 1", [request.authUser.sub]);
+  const user = rows[0];
+  if (!user || !(await bcrypt.compare(currentPassword, user.password_hash))) {
+    return response.status(400).json({ message: "Your current password is incorrect." });
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await pool.execute("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+  response.json({ message: "Password updated successfully." });
+});
+
 router.get("/me", requireAuth, async (request, response) => {
   const [rows] = await pool.execute(
     "SELECT id, username, role, is_active FROM users WHERE id = ? LIMIT 1",

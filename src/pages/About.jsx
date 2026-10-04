@@ -108,14 +108,6 @@ function About() {
     setActiveSlide(index);
   };
 
-  const goToNextSlide = () => {
-    setActiveSlide((currentSlide) =>
-      currentSlide === aboutSlides.length - 1
-        ? 0
-        : currentSlide + 1,
-    );
-  };
-
   return (
     <>
       <Header />

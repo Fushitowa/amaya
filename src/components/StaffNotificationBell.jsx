@@ -41,9 +41,16 @@ function StaffNotificationBell() {
 
   useEffect(() => {
     // Newest arrival: chime, flash, and re-read (the notifier is the writer).
-    const handleNotification = () => {
+    const handleNotification = (event) => {
       load();
-      playNotificationChime();
+      let preferences = {};
+      try {
+        preferences = JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}");
+      } catch { /* Keep default alert behavior when browser storage is unavailable. */ }
+      const alertEnabled = preferences.notifications !== false
+        && !(event.detail?.type === "order_new" && preferences.orderAlerts === false);
+      if (!alertEnabled) return;
+      if (preferences.audioChime !== false) playNotificationChime();
       setIsRinging(true);
       clearTimeout(ringTimer.current);
       ringTimer.current = setTimeout(() => setIsRinging(false), 900);

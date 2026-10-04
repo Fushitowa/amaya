@@ -19,31 +19,50 @@ export function getInventoryStatus(quantity, minimumStock) {
 
 function InventoryProvider({ children }) {
   const [inventory, setInventory] = useState([]);
+  const [loadedUserId, setLoadedUserId] = useState(null);
+  const [error, setError] = useState("");
   const { user } = useAuth();
+  const userId = user?.id;
 
   const refreshInventory = useCallback(async () => {
     if (!user) return [];
-    const saved = await apiRequest("/inventory");
-    setInventory(saved);
-    return saved;
+    try {
+      const saved = await apiRequest("/inventory");
+      setInventory(saved);
+      setLoadedUserId(user.id);
+      setError("");
+      return saved;
+    } catch (requestError) {
+      setLoadedUserId(user.id);
+      setError(requestError.message || "Could not load inventory.");
+      throw requestError;
+    }
   }, [user]);
 
   useEffect(() => {
-    if (!user) {
-      setInventory([]);
-      return undefined;
-    }
+    if (!userId) return undefined;
     let active = true;
     const load = () => apiRequest("/inventory")
-      .then((saved) => { if (active) setInventory(saved); })
-      .catch((error) => console.error("Could not load inventory:", error.message));
+      .then((saved) => {
+        if (!active) return;
+        setInventory(saved);
+        setLoadedUserId(userId);
+        setError("");
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setLoadedUserId(userId);
+        setError(requestError.message || "Could not load inventory.");
+      });
     load();
     const interval = window.setInterval(load, 30000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [user?.role]);
+  }, [userId]);
 
   const value = useMemo(() => ({
-    inventory,
+    inventory: user ? inventory : [],
+    loading: Boolean(user && loadedUserId !== user.id),
+    error: user ? error : "",
     refreshInventory,
     syncIngredientsFromMenu: async () => {
       const before = new Set(inventory.map((item) => item.item.toLowerCase()));
@@ -71,7 +90,7 @@ function InventoryProvider({ children }) {
       await apiRequest(`/inventory/${id}`, { method: "DELETE" });
       setInventory((current) => current.filter((item) => item.id !== id));
     },
-  }), [inventory, refreshInventory]);
+  }), [error, inventory, loadedUserId, refreshInventory, user]);
 
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }

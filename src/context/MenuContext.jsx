@@ -94,6 +94,8 @@ function titleFromFile(fileName) {
 export function MenuProvider({ children }) {
   const [products, setProducts] = useState([]);
   const { user } = useAuth();
+  const isSignedIn = Boolean(user);
+  const userRole = user?.role;
 
   const withLocalImage = useCallback((product) => {
     if (product.image) return product;
@@ -105,24 +107,24 @@ export function MenuProvider({ children }) {
   }, []);
 
   const refreshProducts = useCallback(async () => {
-    const query = user ? "?all=true" : "";
+    const query = isSignedIn ? "?all=true" : "";
     const saved = await apiRequest(`/menu${query}`);
     setProducts(saved.map(withLocalImage));
     return saved.map(withLocalImage);
-  }, [user, withLocalImage]);
+  }, [isSignedIn, withLocalImage]);
 
   useEffect(() => {
     let current = true;
-    const load = () => apiRequest(`/menu${user ? "?all=true" : ""}`)
+    const load = () => apiRequest(`/menu${isSignedIn ? "?all=true" : ""}`)
       .then((saved) => { if (current) setProducts(saved.map(withLocalImage)); })
       .catch((error) => console.error("Could not load menu:", error.message));
     load();
     const interval = window.setInterval(load, 30000);
     return () => { current = false; window.clearInterval(interval); };
-  }, [user?.role, withLocalImage]);
+  }, [isSignedIn, userRole, withLocalImage]);
 
   const value = useMemo(() => ({
-    products,
+    products: isSignedIn ? products : products.filter((product) => product.available),
     refreshProducts,
     addProduct: async (product) => {
       const created = withLocalImage(await apiRequest("/menu", { method: "POST", body: JSON.stringify(product) }));
@@ -141,7 +143,7 @@ export function MenuProvider({ children }) {
       setProducts((current) => current.filter((entry) => entry.id !== id));
       if (product) notifyMenuDeleted(product);
     },
-  }), [products, user, refreshProducts, withLocalImage]);
+  }), [isSignedIn, products, refreshProducts, withLocalImage]);
 
   return <MenuContext.Provider value={value}>{children}</MenuContext.Provider>;
 }

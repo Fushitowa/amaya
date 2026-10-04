@@ -350,7 +350,7 @@
 }
 
 .thermal-slip {
-  width: 320px;
+  width: var(--receipt-width, 320px);
   max-width: 100%;
   background: #fffdf9;
   border: 1px solid #e2d7c9;
@@ -517,8 +517,8 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 300px !important;
-    max-width: 300px !important;
+    width: var(--receipt-print-width, 300px) !important;
+    max-width: var(--receipt-print-width, 300px) !important;
     padding: 0 !important;
     margin: 0 !important;
     border: none !important;

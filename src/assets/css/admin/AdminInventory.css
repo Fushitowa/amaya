@@ -225,8 +225,9 @@
 
 .admin-inventory-content {
   max-width: 1500px;
+  width: 100%;
   margin: 0 auto;
-  padding: 42px;
+  padding: clamp(24px, 3vw, 42px);
 }
 
 .admin-inventory-toolbar {
@@ -1281,5 +1282,245 @@
   .admin-inventory-add-button:hover {
     transform: none;
     transition: none;
+  }
+}
+
+/* Polished inventory feedback, sorting and accessible action states. */
+.admin-inventory-notice,
+.admin-inventory-sync-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #d9e6d9;
+  border-radius: 10px;
+  background: #f2f7f1;
+  color: #47634c;
+  font-size: 12px;
+}
+
+.admin-inventory-notice button,
+.admin-inventory-sync-warning button {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-inventory-sync-warning {
+  border-color: #ecd9bd;
+  background: #fff8ed;
+  color: #805d33;
+}
+
+.admin-inventory-stock-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border: 1px solid #edd7b9;
+  border-radius: 12px;
+  background: #fff8ef;
+  color: #80552e;
+  font-size: 12px;
+}
+
+.admin-inventory-stock-alert > svg {
+  flex: 0 0 auto;
+  color: #a6652b;
+}
+
+.admin-inventory-stock-alert strong {
+  color: #593b26;
+}
+
+.admin-inventory-stock-alert a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: #70472c;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-inventory-stock-alert a:hover {
+  color: #3f2a1c;
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .admin-inventory-stock-alert {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .admin-inventory-stock-alert a {
+    margin-left: 27px;
+  }
+}
+
+.admin-inventory-toolbar-right {
+  flex-wrap: wrap;
+}
+
+.admin-inventory-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--inventory-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-inventory-sort select {
+  min-height: 39px;
+  padding: 0 30px 0 11px;
+  border: 1px solid var(--inventory-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--inventory-ink);
+  font: 600 11px "DM Sans", sans-serif;
+}
+
+.admin-inventory-card-badges {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inventory-source-badge {
+  padding: 4px 8px;
+  border: 1px solid #eadac8;
+  border-radius: 999px;
+  background: #fbf4ec;
+  color: #896140;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.inventory-retry-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  margin-top: 8px;
+  padding: 0 13px;
+  border: 1px solid #e4d6c8;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--inventory-accent);
+  font: 700 11px "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+.inventory-retry-button:hover {
+  background: #f7efe8;
+}
+
+.inventory-form-error {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d0c9;
+  border-radius: 9px;
+  background: #fff6f4;
+  color: #9b4f42;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.inventory-action-modal > .admin-inventory-modal-header p,
+.inventory-delete-modal > .admin-inventory-modal-header p {
+  margin-top: 8px;
+  color: var(--inventory-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.inventory-restock-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--inventory-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inventory-restock-field input {
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--inventory-line);
+  border-radius: 10px;
+  color: var(--inventory-ink);
+  font: 14px "DM Sans", sans-serif;
+}
+
+.inventory-restock-field input:focus,
+.admin-inventory-form-grid input:focus,
+.admin-inventory-form-grid select:focus {
+  outline: 0;
+  border-color: var(--inventory-accent);
+  box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.12);
+}
+
+.inventory-restock-field small {
+  color: var(--inventory-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.inventory-delete-confirm {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #a56452;
+  color: #fff;
+  font: 700 12px "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+.inventory-delete-confirm:hover:not(:disabled) {
+  background: #874b3f;
+}
+
+.modal-save:disabled,
+.modal-cancel:disabled,
+.inventory-delete-confirm:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.admin-inventory-content button:focus-visible,
+.admin-inventory-content select:focus-visible,
+.admin-inventory-content input:focus-visible,
+.admin-inventory-modal button:focus-visible,
+.admin-inventory-modal input:focus-visible,
+.inventory-delete-modal button:focus-visible {
+  outline: 3px solid rgba(139, 94, 60, 0.35);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .admin-inventory-sort {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .admin-inventory-sort select {
+    flex: 1;
   }
 }

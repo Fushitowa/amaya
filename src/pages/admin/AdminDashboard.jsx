@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
@@ -16,6 +17,7 @@ function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
   const { products } = useMenu();
+  const [salesRange, setSalesRange] = useState("week");
   const todaysOrders = orders.filter((order) => isToday(order.createdAt));
   const todaysSales = todaysOrders.reduce((sum, order) => sum + order.total, 0);
   const pendingOrders = orders.filter((order) => order.status === "Pending");
@@ -25,6 +27,48 @@ function AdminDashboard() {
     day: "numeric",
     year: "numeric",
   });
+  const salesBuckets = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let buckets;
+
+    if (salesRange === "year") {
+      buckets = Array.from({ length: 12 }, (_, index) => {
+        const start = new Date(today.getFullYear(), today.getMonth() - 11 + index, 1);
+        const end = new Date(today.getFullYear(), today.getMonth() - 10 + index, 1);
+        return { start, end, label: start.toLocaleDateString("en-US", { month: "short" }) };
+      });
+    } else {
+      const days = salesRange === "month" ? 30 : 7;
+      const bucketDays = salesRange === "month" ? 5 : 1;
+      const start = new Date(today);
+      start.setDate(start.getDate() - days + 1);
+      buckets = Array.from({ length: days / bucketDays }, (_, index) => {
+        const bucketStart = new Date(start);
+        bucketStart.setDate(bucketStart.getDate() + index * bucketDays);
+        const end = new Date(bucketStart);
+        end.setDate(end.getDate() + bucketDays);
+        return {
+          start: bucketStart,
+          end,
+          label: salesRange === "week"
+            ? bucketStart.toLocaleDateString("en-US", { weekday: "short" })
+            : bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        };
+      });
+    }
+
+    return buckets.map((bucket) => ({
+      ...bucket,
+      total: orders.reduce((sum, order) => {
+        const createdAt = new Date(order.createdAt);
+        return createdAt >= bucket.start && createdAt < bucket.end ? sum + Number(order.total || 0) : sum;
+      }, 0),
+    }));
+  }, [orders, salesRange]);
+  const periodSales = salesBuckets.reduce((sum, bucket) => sum + bucket.total, 0);
+  const chartMaximum = Math.max(1, ...salesBuckets.map((bucket) => bucket.total));
+  const chartRangeLabel = salesRange === "year" ? "this year" : salesRange === "month" ? "last 30 days" : "last 7 days";
 
   return (
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -51,7 +95,7 @@ function AdminDashboard() {
 
           <div className="admin-topbar-right">
 
-            <PortalNotificationButton count={3} />
+            <PortalNotificationButton />
 
             <div className="admin-user">
 
@@ -170,12 +214,13 @@ function AdminDashboard() {
 
                 <div>
                   <h3>Sales Overview</h3>
-                  <p>Sales performance this week</p>
+                  <p>Sales performance for {chartRangeLabel}</p>
                 </div>
 
                 <select
                   className="sales-filter"
-                  defaultValue="week"
+                  value={salesRange}
+                  onChange={(event) => setSalesRange(event.target.value)}
                 >
                   <option value="week">
                     This Week
@@ -193,16 +238,18 @@ function AdminDashboard() {
               </div>
 
               <div className="sales-chart">
-
                 <div className="chart-value">
-                  ₱{todaysSales.toFixed(2)}
+                  ₱{periodSales.toFixed(2)}
                 </div>
 
-                <div className="empty-orders-state">
-                  <strong>{todaysOrders.length ? "Sales are being tracked" : "No sales yet"}</strong>
-                  <span>{todaysOrders.length ? `${todaysOrders.length} order${todaysOrders.length === 1 ? "" : "s"} recorded today.` : "Sales performance will appear here once orders are placed."}</span>
+                <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
+                  {salesBuckets.map((bucket) => (
+                    <div className="chart-column" key={`${salesRange}-${bucket.start.toISOString()}`}>
+                      <div className="chart-bar" title={`₱${bucket.total.toFixed(2)}`} style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }} />
+                      <span>{bucket.label}</span>
+                    </div>
+                  ))}
                 </div>
-
               </div>
 
             </div>

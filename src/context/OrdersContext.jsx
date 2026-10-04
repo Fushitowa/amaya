@@ -42,20 +42,18 @@ export function normalizeOrderPayment(order) {
 export function OrdersProvider({ children }) {
   const [orders, setOrders] = useState([]);
   const { user } = useAuth();
+  const userId = user?.id;
 
   const refreshOrders = useCallback(async () => {
-    if (!user) return [];
+    if (!userId) return [];
     const saved = await apiRequest("/orders");
     const normalized = saved.map((order) => normalizeOrderPayment(normalizeOrderCustomer(order)));
     setOrders(normalized);
     return normalized;
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!user) {
-      setOrders([]);
-      return undefined;
-    }
+    if (!userId) return undefined;
     let active = true;
     const refresh = () => apiRequest("/orders").then((saved) => {
       if (active) setOrders(saved.map((order) => normalizeOrderPayment(normalizeOrderCustomer(order))));
@@ -63,10 +61,10 @@ export function OrdersProvider({ children }) {
     refresh();
     const interval = window.setInterval(refresh, 15000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [user?.role]);
+  }, [userId]);
 
   const value = useMemo(() => ({
-    orders,
+    orders: user ? orders : [],
     refreshOrders,
     addOrder: async (payload) => {
       const order = await apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) });
@@ -115,7 +113,7 @@ export function OrdersProvider({ children }) {
         setOrders((current) => current.filter((entry) => entry.id !== id));
       } catch (error) { window.alert(error.message); }
     },
-  }), [orders, refreshOrders]);
+  }), [orders, refreshOrders, user]);
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }
