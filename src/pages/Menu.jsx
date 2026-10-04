@@ -27,7 +27,7 @@ function Menu() {
     id,
     label,
     sectionTitle: label,
-    items: products.filter((product) => product.available && product.category === label),
+    items: products.filter((product) => product.available && Number(product.stock) > 0 && product.category === label),
   }));
 
   const filteredSections = menuSections.map((section) => ({

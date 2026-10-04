@@ -12,6 +12,7 @@ import {
 
 import amayaLogo from "../assets/images/amayalogo.png";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
 
 const NAV_BY_ROLE = {
   admin: [
@@ -60,6 +61,7 @@ function Sidebar({
   logo = amayaLogo,
   className = "",
 }) {
+  const { logout } = useAuth();
   const resolvedSections = sections || NAV_BY_ROLE.admin;
   const portalLabel = role === "staff" ? "Staff Portal" : "Admin Portal";
 
@@ -109,7 +111,7 @@ function Sidebar({
           <ArrowLeft aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Back to Website</span>
         </Link>
-        <Link to="/login" className="amaya-sidebar-link amaya-sidebar-link--logout">
+        <Link to="/login" className="amaya-sidebar-link amaya-sidebar-link--logout" onClick={logout}>
           <LogOut aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Log Out</span>
         </Link>

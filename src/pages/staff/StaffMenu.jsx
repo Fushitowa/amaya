@@ -51,7 +51,7 @@ function StaffMenu() {
   // Group products by category key
   const allFormattedProducts = useMemo(() => {
     return products
-      .filter((p) => p.available)
+      .filter((p) => p.available && Number(p.stock) > 0)
       .map((product) => {
         let categoryKey = "snacks";
         const cat = (product.category || "").toLowerCase();
@@ -103,6 +103,7 @@ function StaffMenu() {
       return [
         ...currentOrder,
         {
+          productId: item.id,
           title: item.title,
           image: item.image,
           category: item.category,
@@ -390,8 +391,8 @@ function StaffMenu() {
       </main>
 
       {/* Right Cart & POS Register Panel */}
-      <aside className="staff-menu-order-panel" style={{ width: "340px", minWidth: "340px", borderLeft: "1px solid rgba(52, 39, 29, 0.09)", background: "#ffffff", padding: "20px", display: "flex", flexDirection: "column" }}>
-        <div className="staff-menu-order-card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <aside className="staff-menu-order-panel">
+        <div className="staff-menu-order-card">
           {/* Cart Header */}
           <div className="staff-menu-order-card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #eee5dc", paddingBottom: "14px" }}>
             <div>
@@ -453,7 +454,7 @@ function StaffMenu() {
           </div>
 
           {/* Cart Items List */}
-          <div className="staff-menu-order-list" style={{ flex: 1, overflowY: "auto", padding: "10px 0" }}>
+          <div className="staff-menu-order-list" style={{ padding: "10px 0" }}>
             {order.length > 0 ? (
               order.map((item, idx) => (
                 <div

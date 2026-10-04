@@ -33,7 +33,7 @@ const EMPTY_INVENTORY = [];
 function AdminInventory() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
-  const { inventory: storedInventory, setInventory } = useInventory() || {};
+  const { inventory: storedInventory, addInventoryItem, updateInventoryItem, removeInventoryItem, restockInventoryItem } = useInventory() || {};
   const inventory = storedInventory || EMPTY_INVENTORY;
   const [activeCategory, setActiveCategory] = useState("All");
   const [viewMode, setViewMode] = useState("grid");
@@ -116,24 +116,25 @@ function AdminInventory() {
     setShowForm(true);
   };
 
-  const handleDelete = (id) => {
-    setInventory((currentInventory) => currentInventory.filter((item) => item.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      await removeInventoryItem(id);
+    } catch (error) {
+      window.alert(error.message);
+    }
   };
 
-  const handleRestock = (id) => {
-    setInventory((currentInventory) =>
-      currentInventory.map((item) => {
-        if (item.id !== id) return item;
-
-        return {
-          ...item,
-          quantity: item.quantity + Math.max(item.minimumStock, 5),
-        };
-      })
-    );
+  const handleRestock = async (id) => {
+    const item = inventory.find((entry) => entry.id === id);
+    if (!item) return;
+    try {
+      await restockInventoryItem(id, Math.max(item.minimumStock, 5));
+    } catch (error) {
+      window.alert(error.message);
+    }
   };
 
-  const handleSave = (event) => {
+  const handleSave = async (event) => {
     event.preventDefault();
 
     const itemName = formValues.item.trim();
@@ -146,33 +147,13 @@ function AdminInventory() {
       return;
     }
 
-    if (editingItem) {
-      setInventory((currentInventory) =>
-        currentInventory.map((item) =>
-          item.id === editingItem.id
-            ? {
-                ...item,
-                item: itemName,
-                category,
-                quantity,
-                unit,
-                minimumStock,
-              }
-            : item
-        )
-      );
-    } else {
-      setInventory((currentInventory) => [
-        ...currentInventory,
-        {
-          id: Date.now(),
-          item: itemName,
-          category,
-          quantity,
-          unit,
-          minimumStock,
-        },
-      ]);
+    try {
+      const values = { item: itemName, category, quantity, unit, minimumStock };
+      if (editingItem) await updateInventoryItem(editingItem.id, values);
+      else await addInventoryItem(values);
+    } catch (error) {
+      window.alert(error.message);
+      return;
     }
 
     resetForm();

@@ -75,7 +75,7 @@ function StaffOrderConfirmation() {
   const isShort = selectedPayment === "Cash" && cashTendered !== "" && tenderedAmount < subtotal;
   const isCash = selectedPayment === "Cash";
 
-  const handleConfirmOrder = () => {
+  const handleConfirmOrder = async () => {
     if (order.length === 0) {
       navigate("/staff/menu");
       return;
@@ -83,14 +83,19 @@ function StaffOrderConfirmation() {
 
     let savedOrder;
     if (addOrder) {
-      savedOrder = addOrder({
+      try {
+        savedOrder = await addOrder({
         items: order,
         customerName: customerName.trim() || "Walk-in Customer",
         type: orderType,
         paymentMethod: selectedPayment,
         cashTendered: isCash ? tenderedAmount : subtotal,
         changeDue: isCash ? changeDue : 0,
-      });
+        });
+      } catch (error) {
+        window.alert(error.message);
+        return;
+      }
     }
 
     const orderId = savedOrder?.id || `AM-${String(Date.now()).slice(-6)}`;

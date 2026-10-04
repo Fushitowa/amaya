@@ -190,18 +190,26 @@ function AdminMenuManagement() {
 		});
 	}, [activeCategory, products, search]);
 
-	const toggleAvailability = (id) => {
-		updateProduct(id, { available: !products.find((product) => product.id === id)?.available });
+	const toggleAvailability = async (id) => {
+		try {
+			await updateProduct(id, { available: !products.find((product) => product.id === id)?.available });
+		} catch (error) {
+			window.alert(error.message);
+		}
 	};
 
 	const handleDelete = (product) => {
 		setItemToDelete(product);
 	};
 
-	const confirmDelete = () => {
+	const confirmDelete = async () => {
 		if (!itemToDelete) return;
-		deleteProduct(itemToDelete.id);
-		setItemToDelete(null);
+		try {
+			await deleteProduct(itemToDelete.id);
+			setItemToDelete(null);
+		} catch (error) {
+			window.alert(error.message);
+		}
 	};
 
 	const openEditForm = (product) => {
@@ -228,7 +236,7 @@ function AdminMenuManagement() {
 		setShowForm(true);
 	};
 
-	const saveProduct = (event) => {
+	const saveProduct = async (event) => {
 		event.preventDefault();
 		const name = formValues.name.trim();
 		const description = formValues.description.trim();
@@ -246,22 +254,16 @@ function AdminMenuManagement() {
 			ingredients: formValues.ingredients,
 			addons: formValues.addons,
 		};
-		if (editingProduct) updateProduct(editingProduct.id, productData);
-		else addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
-
-		// Recipe ingredients become inventory items automatically. Existing
-		// items are left alone so their stock, unit and status are preserved.
-		const { added } = syncIngredientsFromMenu(formValues.ingredients, {
-			category: formValues.category,
-		});
-
-		if (added.length) {
-			setSyncNotice(
-				`${added.length} ingredient${added.length === 1 ? "" : "s"} added to Inventory: ${added.join(", ")}`
-			);
+		try {
+			if (editingProduct) await updateProduct(editingProduct.id, productData);
+			else await addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
+			// The API syncs recipe names into inventory in the same database transaction.
+			const { added } = await syncIngredientsFromMenu(formValues.ingredients, { category: formValues.category });
+			if (added.length) setSyncNotice(`${added.length} ingredient${added.length === 1 ? "" : "s"} added to Inventory: ${added.join(", ")}`);
+			closeForm();
+		} catch (error) {
+			window.alert(error.message);
 		}
-
-		closeForm();
 	};
 
 	const availableCount = products.filter((product) => product.available).length;

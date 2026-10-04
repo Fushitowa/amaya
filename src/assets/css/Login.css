@@ -311,3 +311,13 @@
     font-size: 20px;
   }
 }
+.login-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.9rem;
+}
+
+.login-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}

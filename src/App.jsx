@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom"; 
+import { BrowserRouter, Navigate, Routes, Route, Outlet } from "react-router-dom";
+import RequireAuth from "./components/RequireAuth.jsx";
 
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
@@ -31,39 +32,32 @@ function App() {
 
         <Route path="/login" element={<Login />} />
 
-         <Route path="/staff/menu" element={<StaffMenu />} />
-
-        <Route path="/staff/orders" element={<StaffOrder />} />
-
         <Route path="/staff" element={<Navigate to="/staff/menu" replace />} />
 
-        <Route path="/staff/dashboard" element={<StaffDashboard />} />
+        <Route element={<RequireAuth roles={["staff"]}><Outlet /></RequireAuth>}>
+          <Route path="/staff/menu" element={<StaffMenu />} />
+          <Route path="/staff/orders" element={<StaffOrder />} />
+          <Route path="/staff/dashboard" element={<StaffDashboard />} />
+          <Route path="/staff/settings" element={<StaffSetting />} />
+          <Route path="/staff/order-confirmation" element={<StaffOrderConfirmation />} />
+          <Route path="/staff/receipt" element={<StaffReceipt />} />
+          <Route path="/staff/quantity" element={<StaffQuantity />} />
+        </Route>
 
-        <Route path="/admin" element={<AdminDashboard />} />
-
-        <Route path="/admin/orders" element={<AdminOrder />} />
-
-        <Route path="/admin/inventory" element={<AdminInventory />} />
-
-        <Route path="/admin/menu" element={<AdminMenuManagement />} />
-
-        <Route path="/admin/reports" element={<AdminReport />} />
-
-        <Route path="/admin/settings" element={<AdminSettings />} />
+        <Route element={<RequireAuth roles={["admin"]}><Outlet /></RequireAuth>}>
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/orders" element={<AdminOrder />} />
+          <Route path="/admin/inventory" element={<AdminInventory />} />
+          <Route path="/admin/menu" element={<AdminMenuManagement />} />
+          <Route path="/admin/reports" element={<AdminReport />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+        </Route>
 
         <Route path="/contact" element={<Contact />} /> 
         
         <Route path="/about" element={<About />} />
 
         <Route path="/menu" element={<Menu />} />
-
-        <Route path="/staff/settings" element={<StaffSetting />} />
-
-        <Route path="/staff/order-confirmation" element={<StaffOrderConfirmation />} />
-
-        <Route path="/staff/receipt" element={<StaffReceipt />} />
-
-        <Route path="/staff/quantity" element={<StaffQuantity />} />
 
         </Routes>
       </SidebarProvider>

@@ -8,7 +8,7 @@ import "../assets/css/Menu.css";
 
 function Home() {
   const { products } = useMenu();
-  const availableProducts = products.filter((product) => product.available);
+  const availableProducts = products.filter((product) => product.available && Number(product.stock) > 0);
 
   return (
     <>

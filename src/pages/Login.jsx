@@ -1,30 +1,33 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.jsx";
 import amayaLogo from "../assets/images/amayalogo.png";
 import "../assets/css/login.css";
 
 function Login() {
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
 
-  const handleSubmit = (event) => {
-  event.preventDefault();
-
-  const username = event.target.username.value;
-  const password = event.target.password.value;
-
-  if (username === "staff" && password === "staff") {
-    navigate("/staff/menu");
-  }
-
-  else if (username === "admin" && password === "admin") {
-    navigate("/admin");
-  }
-
-  else {
-    alert("Invalid username or password.");
-  }
-};
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      const user = await login(String(form.get("username") || ""), String(form.get("password") || ""));
+      const fallback = user.role === "admin" ? "/admin" : "/staff/menu";
+      const requestedPath = location.state?.from?.pathname;
+      navigate(requestedPath?.startsWith(user.role === "admin" ? "/admin" : "/staff") ? requestedPath : fallback, { replace: true });
+    } catch (loginError) {
+      setError(loginError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   
 
   return (
@@ -108,9 +111,12 @@ function Login() {
           <button
             type="submit"
             className="login-button"
+            disabled={submitting}
           >
-            Sign In
+            {submitting ? "Signing in…" : "Sign In"}
           </button>
+
+          {error && <p className="login-error" role="alert">{error}</p>}
 
         </form>
 

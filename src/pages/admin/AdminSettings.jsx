@@ -39,17 +39,26 @@ function AdminSettings() {
 		if (saveState !== "saving") setSaveState("idle");
 	};
 
-	const handleSave = (event) => {
+	useEffect(() => {
+		setSettings((current) => ({ ...current, ...businessSettings }));
+	}, [businessSettings]);
+
+	const handleSave = async (event) => {
 		event.preventDefault();
 		if (saveState === "saving") return;
 
 		saveTimers.current.forEach((timer) => clearTimeout(timer));
 		setSaveState("saving");
-		saveBusinessSettings(settings);
-		saveTimers.current = [
-			setTimeout(() => setSaveState("success"), 550),
-			setTimeout(() => setSaveState("idle"), 2200),
-		];
+		try {
+			await saveBusinessSettings(settings);
+			saveTimers.current = [
+				setTimeout(() => setSaveState("success"), 250),
+				setTimeout(() => setSaveState("idle"), 2200),
+			];
+		} catch (error) {
+			setSaveState("idle");
+			window.alert(error.message);
+		}
 	};
 
 	return (

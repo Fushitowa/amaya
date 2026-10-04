@@ -1,7 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-
-const businessStorageKey = "amaya-business-settings";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { apiRequest } from "../utils/api.js";
 
 export const defaultBusinessSettings = {
   businessName: "Amaya's Drinks and Bites",
@@ -14,56 +13,30 @@ export const defaultBusinessSettings = {
 
 const BusinessContext = createContext(null);
 
-function readBusinessSettings() {
-  try {
-    const savedSettings = localStorage.getItem(businessStorageKey);
-    return savedSettings
-      ? { ...defaultBusinessSettings, ...JSON.parse(savedSettings) }
-      : defaultBusinessSettings;
-  } catch {
-    return defaultBusinessSettings;
-  }
-}
-
 export function formatBusinessTime(time) {
   const [hours, minutes] = time.split(":").map(Number);
   const period = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  return `${displayHours}:${String(minutes).padStart(2, "0")} ${period}`;
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 export function BusinessProvider({ children }) {
-  const [businessSettings, setBusinessSettings] = useState(readBusinessSettings);
+  const [businessSettings, setBusinessSettings] = useState(defaultBusinessSettings);
 
   useEffect(() => {
-    localStorage.setItem(businessStorageKey, JSON.stringify(businessSettings));
-  }, [businessSettings]);
-
-  useEffect(() => {
-    const syncBusinessSettings = (event) => {
-      if (event.key !== businessStorageKey || !event.newValue) return;
-
-      try {
-        setBusinessSettings({
-          ...defaultBusinessSettings,
-          ...JSON.parse(event.newValue),
-        });
-      } catch {
-        // Ignore malformed values written by another tab.
-      }
-    };
-
-    window.addEventListener("storage", syncBusinessSettings);
-    return () => window.removeEventListener("storage", syncBusinessSettings);
+    let active = true;
+    apiRequest("/settings")
+      .then((saved) => { if (active) setBusinessSettings({ ...defaultBusinessSettings, ...saved }); })
+      .catch((error) => console.error("Could not load business settings:", error.message));
+    return () => { active = false; };
   }, []);
 
-  const value = useMemo(() => ({
-    businessSettings,
-    saveBusinessSettings: (updates) => {
-      setBusinessSettings((current) => ({ ...current, ...updates }));
-    },
-  }), [businessSettings]);
+  const saveBusinessSettings = useCallback(async (updates) => {
+    const saved = await apiRequest("/settings", { method: "PUT", body: JSON.stringify(updates) });
+    setBusinessSettings({ ...defaultBusinessSettings, ...saved });
+    return saved;
+  }, []);
 
+  const value = useMemo(() => ({ businessSettings, saveBusinessSettings }), [businessSettings, saveBusinessSettings]);
   return <BusinessContext.Provider value={value}>{children}</BusinessContext.Provider>;
 }
 

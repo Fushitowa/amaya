@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { notifyMenuAdded, notifyMenuDeleted } from "../utils/notifications.js";
+import { apiRequest } from "../utils/api.js";
+import { useAuth } from "./AuthContext.jsx";
 
-const menuStorageKey = "amaya-admin-menu-products";
 const MenuContext = createContext(null);
 
 /**
@@ -75,43 +76,6 @@ export function resolveProductAddons(product) {
   return addons;
 }
 
-const categoryMap = {
-  milktea: "Milk Tea",
-  drinks: "Drinks",
-  snacks: "Snacks",
-  dessert: "Desserts",
-};
-
-const categoryDescriptions = {
-  "Milk Tea": "Creamy and sweet milktea selections.",
-  Drinks: "Refreshing drinks and crafted cafe favorites.",
-  Snacks: "Savory bites and comfort snack classics.",
-  Desserts: "Sweet desserts and finishing treats.",
-};
-
-const priceMap = {
-  classic: 39,
-  chocolate: 39,
-  "cookie&cream": 39,
-  matcha: 39,
-  mango: 30,
-  caramel: 39,
-  cokefloat: 25,
-  chocofloat: 25,
-  blueberry: 25,
-  greenapple: 25,
-  stawberry: 25,
-  stawberrymilk: 30,
-  lumpia: 20,
-  takoyaki: 30,
-  burger: 55,
-  hotdogbun: 45,
-  tempura: 20,
-  fishball: 20,
-  siomai: 20,
-  mangofloat: 95,
-};
-
 const imageImports = import.meta.glob("../assets/images/menu/**/*.{png,jpg,jpeg,webp}", {
   eager: true,
   import: "default",
@@ -127,73 +91,57 @@ function titleFromFile(fileName) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function initialProducts() {
-  return Object.entries(imageImports).map(([path, image], index) => {
-    const parts = path.split("/");
-    const category = categoryMap[parts[parts.length - 2]] || "Drinks";
-    const fileName = parts[parts.length - 1];
-    const key = fileName.replace(/\.(png|jpe?g|webp)$/i, "").toLowerCase();
-    const price = priceMap[key] || 75;
-
-    return {
-      id: index + 1,
-      name: titleFromFile(fileName),
-      category,
-      price: `₱${price.toFixed(2)}`,
-      image,
-      description: categoryDescriptions[category],
-      stock: 20,
-      available: true,
-      featured: index < 3,
-      sizes: [{ label: "Regular", price }],
-    };
-  });
-}
-
-function readProducts() {
-  try {
-    const savedProducts = localStorage.getItem(menuStorageKey);
-    return savedProducts ? JSON.parse(savedProducts) : initialProducts();
-  } catch {
-    return initialProducts();
-  }
-}
-
 export function MenuProvider({ children }) {
-  const [products, setProducts] = useState(readProducts);
+  const [products, setProducts] = useState([]);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    localStorage.setItem(menuStorageKey, JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    const syncProducts = (event) => {
-      if (event.key !== menuStorageKey || !event.newValue) return;
-      try {
-        setProducts(JSON.parse(event.newValue));
-      } catch {
-        // Ignore malformed values written by another tab.
-      }
-    };
-
-    window.addEventListener("storage", syncProducts);
-    return () => window.removeEventListener("storage", syncProducts);
+  const withLocalImage = useCallback((product) => {
+    if (product.image) return product;
+    const imageEntry = Object.entries(imageImports).find(([path]) => {
+      const fileName = path.split("/").at(-1);
+      return titleFromFile(fileName).toLowerCase() === product.name.toLowerCase();
+    });
+    return imageEntry ? { ...product, image: imageEntry[1] } : product;
   }, []);
+
+  const refreshProducts = useCallback(async () => {
+    const query = user ? "?all=true" : "";
+    const saved = await apiRequest(`/menu${query}`);
+    setProducts(saved.map(withLocalImage));
+    return saved.map(withLocalImage);
+  }, [user, withLocalImage]);
+
+  useEffect(() => {
+    let current = true;
+    const load = () => apiRequest(`/menu${user ? "?all=true" : ""}`)
+      .then((saved) => { if (current) setProducts(saved.map(withLocalImage)); })
+      .catch((error) => console.error("Could not load menu:", error.message));
+    load();
+    const interval = window.setInterval(load, 30000);
+    return () => { current = false; window.clearInterval(interval); };
+  }, [user?.role, withLocalImage]);
 
   const value = useMemo(() => ({
     products,
-    addProduct: (product) => {
-      const created = { ...product, id: Date.now() };
+    refreshProducts,
+    addProduct: async (product) => {
+      const created = withLocalImage(await apiRequest("/menu", { method: "POST", body: JSON.stringify(product) }));
       setProducts((current) => [...current, created]);
       notifyMenuAdded(created);
+      return created;
     },
-    updateProduct: (id, updates) => setProducts((current) => current.map((product) => product.id === id ? { ...product, ...updates } : product)),
-    deleteProduct: (id) => {
+    updateProduct: async (id, updates) => {
+      const saved = withLocalImage(await apiRequest(`/menu/${id}`, { method: "PUT", body: JSON.stringify({ ...products.find((product) => product.id === id), ...updates }) }));
+      setProducts((current) => current.map((product) => product.id === id ? saved : product));
+      return saved;
+    },
+    deleteProduct: async (id) => {
       const product = products.find((entry) => entry.id === id);
+      await apiRequest(`/menu/${id}`, { method: "DELETE" });
       setProducts((current) => current.filter((entry) => entry.id !== id));
       if (product) notifyMenuDeleted(product);
     },
-  }), [products]);
+  }), [products, user, refreshProducts, withLocalImage]);
 
   return <MenuContext.Provider value={value}>{children}</MenuContext.Provider>;
 }
