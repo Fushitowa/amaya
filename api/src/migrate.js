@@ -6,6 +6,8 @@ import mysql from "mysql2/promise";
 const migrations = [
   "001_initial_schema.sql",
   "002_expand_product_images_and_seed_menu.sql",
+  "003_order_inventory_consumptions.sql",
+  "004_inventory_tracked_addons.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -31,7 +33,7 @@ try {
     await connection.execute("INSERT INTO schema_migrations (version) VALUES (?)", [version]);
     console.log(`Applied ${version}`);
   }
-  console.log("Database migrations are current. Starter categories and menu items are ready.");
+  console.log("Database migrations are current. Menu categories are ready; add products in Admin Portal.");
 } finally {
   await connection.end();
 }

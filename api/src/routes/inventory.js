@@ -60,8 +60,14 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[current]] = await connection.execute("SELECT quantity FROM inventory_items WHERE id = ? FOR UPDATE", [id]);
+    const [[current]] = await connection.execute("SELECT quantity, unit FROM inventory_items WHERE id = ? FOR UPDATE", [id]);
     if (!current) throw httpError(404, "Inventory item not found.");
+    if (String(current.unit).trim().toLowerCase() !== cleanUnit.toLowerCase()) {
+      const [[recipeUsage]] = await connection.execute(
+        "SELECT (SELECT COUNT(*) FROM product_ingredients WHERE inventory_item_id = ?) + (SELECT COUNT(*) FROM product_addons WHERE inventory_item_id = ?) AS total", [id, id],
+      );
+      if (Number(recipeUsage.total) > 0) throw httpError(409, "This unit is used by a menu ingredient or add-on. Remove it from those menu items before changing the inventory unit.");
+    }
     await connection.execute("UPDATE inventory_items SET name = ?, category = ?, quantity = ?, unit = ?, minimum_stock = ? WHERE id = ?", [name, cleanCategory, quantity, cleanUnit, minimumStock, id]);
     const delta = quantity - Number(current.quantity);
     if (delta !== 0) await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'adjustment', ?, 'Manual inventory adjustment')", [id, request.authUser.sub, delta]);
@@ -95,8 +101,8 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
 router.delete("/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const id = Number(request.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid inventory ID.");
-  const [[usage]] = await pool.execute("SELECT (SELECT COUNT(*) FROM product_ingredients WHERE inventory_item_id = ?) AS recipes, (SELECT COUNT(*) FROM inventory_movements WHERE inventory_item_id = ?) AS movements", [id, id]);
-  if (Number(usage.recipes) > 0) throw httpError(409, "This ingredient is used by a menu recipe. Remove it from the recipe before deleting it.");
+  const [[usage]] = await pool.execute("SELECT (SELECT COUNT(*) FROM product_ingredients WHERE inventory_item_id = ?) AS recipes, (SELECT COUNT(*) FROM product_addons WHERE inventory_item_id = ?) AS addons, (SELECT COUNT(*) FROM inventory_movements WHERE inventory_item_id = ?) AS movements", [id, id, id]);
+  if (Number(usage.recipes) > 0 || Number(usage.addons) > 0) throw httpError(409, "This inventory item is used by a menu ingredient or add-on. Remove it from those menu items before deleting it.");
   if (Number(usage.movements) > 0) throw httpError(409, "This item has stock history and cannot be deleted.");
   try {
     const [result] = await pool.execute("DELETE FROM inventory_items WHERE id = ?", [id]);

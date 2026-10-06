@@ -27,8 +27,19 @@ function toProduct(row, sizes, addons, ingredients) {
     available: Boolean(row.is_available),
     featured: Boolean(row.is_featured),
     sizes: sizes.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({ label: entry.label, price: Number(entry.price) })),
-    addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({ label: entry.label, price: Number(entry.price) })),
-    ingredients: ingredients.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => entry.name),
+    addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
+      label: entry.label,
+      price: Number(entry.price),
+      inventoryItemId: entry.inventory_item_id == null ? null : Number(entry.inventory_item_id),
+      quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
+      unit: entry.inventory_unit || "pcs",
+    })),
+    ingredients: ingredients.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
+      inventoryItemId: Number(entry.inventory_item_id),
+      name: entry.name,
+      quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
+      unit: entry.unit || entry.inventory_unit,
+    })),
   };
 }
 
@@ -44,8 +55,8 @@ async function listProducts(includeUnavailable = false) {
   const marks = ids.map(() => "?").join(",");
   const [sizeResult, addonResult, ingredientResult] = await Promise.all([
     pool.execute(`SELECT product_id, label, price FROM product_sizes WHERE product_id IN (${marks}) ORDER BY display_order, id`, ids),
-    pool.execute(`SELECT product_id, label, price FROM product_addons WHERE product_id IN (${marks}) ORDER BY display_order, id`, ids),
-    pool.execute(`SELECT pi.product_id, i.name FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
+    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, i.unit AS inventory_unit FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
+    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
   ]);
   const sizes = sizeResult[0];
   const addons = addonResult[0];
@@ -93,6 +104,71 @@ async function saveProduct(connection, body, id = null) {
   const addons = Array.isArray(body.addons) ? body.addons : [];
   const ingredients = Array.isArray(body.ingredients) ? body.ingredients : [];
   if (sizes.length > 20 || addons.length > 50 || ingredients.length > 100) throw httpError(400, "This menu item has too many sizes, add-ons, or ingredients.");
+
+  const recipeInputs = ingredients.map((ingredient) => {
+    const name = String(ingredient?.name || ingredient?.item || "").trim();
+    const quantityUsed = Number(ingredient?.quantityUsed);
+    const unit = String(ingredient?.unit || "pcs").trim();
+    if (!name || name.length > 160 || !unit || unit.length > 40
+      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
+      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
+      throw httpError(400, "Each ingredient needs a name, stock unit, and positive amount with at most 3 decimal places.");
+    }
+    return { name, unit, quantityUsed };
+  });
+  if (new Set(recipeInputs.map((entry) => entry.name.toLocaleLowerCase())).size !== recipeInputs.length) {
+    throw httpError(400, "Each ingredient name can only appear once in a recipe.");
+  }
+  const addonInputs = addons.map((addon) => {
+    const label = String(addon?.label || "").trim();
+    const unit = String(addon?.unit || "pcs").trim();
+    const quantityUsed = Number(addon?.quantityUsed);
+    if (!label || label.length > 100 || !unit || unit.length > 40
+      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
+      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
+      throw httpError(400, "Each add-on needs a name, price, stock unit, and positive usage amount with at most 3 decimal places.");
+    }
+    return { label, unit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
+  });
+  if (new Set(addonInputs.map((entry) => entry.label.toLocaleLowerCase())).size !== addonInputs.length) {
+    throw httpError(400, "Each add-on name can only appear once per menu item.");
+  }
+
+  const ensureInventoryItem = async (itemName, unit, itemCategory) => {
+    let result;
+    try {
+      [result] = await connection.execute(
+        `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu)
+         VALUES (?, ?, 0, ?, 0, TRUE)
+         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
+        [itemName, itemCategory, unit],
+      );
+    } catch (error) {
+      if (error.code === "ER_DUP_ENTRY") throw httpError(409, `Inventory already has “${itemName}” with a different spelling or name conflict. Check its existing entry.`);
+      throw error;
+    }
+    const inventoryItemId = Number(result.insertId);
+    const [[inventoryItem]] = await connection.execute(
+      "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
+    );
+    if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for “${itemName}”.`);
+    if (String(inventoryItem.unit).trim().toLocaleLowerCase() !== unit.toLocaleLowerCase()) {
+      throw httpError(409, `Inventory already has “${inventoryItem.name}” measured in ${inventoryItem.unit}. Use that same unit for this menu item.`);
+    }
+    return inventoryItem;
+  };
+
+  const recipeItems = [];
+  for (const entry of recipeInputs) {
+    const item = await ensureInventoryItem(entry.name, entry.unit, "Supplies");
+    recipeItems.push({ ...entry, inventoryItemId: Number(item.id), unit: item.unit });
+  }
+  const addonInventoryItems = [];
+  for (const entry of addonInputs) {
+    const item = await ensureInventoryItem(entry.label, entry.unit, "Toppings");
+    addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), unit: item.unit });
+  }
+
   await connection.execute("DELETE FROM product_sizes WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_addons WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_ingredients WHERE product_id = ?", [productId]);
@@ -102,20 +178,17 @@ async function saveProduct(connection, body, id = null) {
     if (!label) continue;
     await connection.execute("INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 80), toMoney(size.price, "Size price"), index]);
   }
-  for (const [index, addon] of addons.entries()) {
-    const label = String(addon?.label || "").trim();
-    if (!label) continue;
-    await connection.execute("INSERT INTO product_addons (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 100), toMoney(addon.price ?? 0, "Add-on price"), index]);
-  }
-  const uniqueIngredients = new Map();
-  ingredients.map((name) => String(name || "").trim()).filter(Boolean).forEach((name) => uniqueIngredients.set(name.toLowerCase(), name));
-  for (const entry of uniqueIngredients.values()) {
-    const [result] = await connection.execute(
-      `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu)
-       VALUES (?, 'Supplies', 0, 'pcs', 10, TRUE)
-       ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, [entry.slice(0, 160)],
+  for (const [index, addon] of addonInventoryItems.entries()) {
+    await connection.execute(
+      "INSERT INTO product_addons (product_id, label, price, inventory_item_id, quantity_used, display_order) VALUES (?, ?, ?, ?, ?, ?)",
+      [productId, addon.label, addon.price, addon.inventoryItemId, addon.quantityUsed, index],
     );
-    await connection.execute("INSERT INTO product_ingredients (product_id, inventory_item_id) VALUES (?, ?)", [productId, result.insertId]);
+  }
+  for (const entry of recipeItems) {
+    await connection.execute(
+      "INSERT INTO product_ingredients (product_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
+      [productId, entry.inventoryItemId, entry.quantityUsed, entry.unit],
+    );
   }
   return productId;
 }
