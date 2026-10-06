@@ -64,11 +64,6 @@ function InventoryProvider({ children }) {
     loading: Boolean(user && loadedUserId !== user.id),
     error: user ? error : "",
     refreshInventory,
-    syncIngredientsFromMenu: async () => {
-      const before = new Set(inventory.map((item) => item.item.toLowerCase()));
-      const saved = await refreshInventory();
-      return { added: saved.filter((item) => !before.has(item.item.toLowerCase())).map((item) => item.item), skipped: [] };
-    },
     addInventoryItem: async (item) => {
       const saved = await apiRequest("/inventory", { method: "POST", body: JSON.stringify(item) });
       setInventory((current) => [...current, saved]);

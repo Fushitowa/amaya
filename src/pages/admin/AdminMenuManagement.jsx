@@ -33,23 +33,13 @@ const parseSizes = (raw, fallbackPrice) =>
     })
     .filter((entry) => entry.label && Number.isFinite(entry.price));
 
-// Turns "Extra Pearls: 15" into { label, price } for an add-on tag.
-const parseAddonTag = (raw) => {
-  const [label, price] = String(raw || "").split(":");
-  const parsed = Number(price);
-  return {
-    label: (label || "").trim(),
-    price: Number.isFinite(parsed) ? parsed : 0,
-  };
-};
-
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MENU_PAGE_SIZE = 16;
 
 function AdminMenuManagement() {
 	const { products, addProduct, updateProduct, deleteProduct } = useMenu();
-	const { syncIngredientsFromMenu } = useInventory() || {};
+	const { inventory = [], refreshInventory } = useInventory() || {};
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
@@ -62,7 +52,9 @@ function AdminMenuManagement() {
 
 	const [formValues, setFormValues] = useState(emptyForm());
 	const [sizeInput, setSizeInput] = useState("");
-	const [ingredientInput, setIngredientInput] = useState("");
+	const [ingredientDraft, setIngredientDraft] = useState({ name: "", quantityUsed: "", unit: "pcs" });
+	const [addonDraft, setAddonDraft] = useState({ label: "", price: "", quantityUsed: "1", unit: "pcs" });
+	const [recipeError, setRecipeError] = useState("");
 	const [syncNotice, setSyncNotice] = useState("");
 	const syncTimer = useRef(null);
 
@@ -91,7 +83,6 @@ function AdminMenuManagement() {
     syncTimer.current = setTimeout(() => setSyncNotice(""), 6000);
     return () => clearTimeout(syncTimer.current);
   }, [syncNotice]);
-	const [addonInput, setAddonInput] = useState("");
 	const [imageError, setImageError] = useState("");
 
 	useEffect(() => {
@@ -110,8 +101,9 @@ function AdminMenuManagement() {
 		setEditingProduct(null);
 		setFormValues(emptyForm());
 		setSizeInput("");
-		setIngredientInput("");
-		setAddonInput("");
+		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs" });
+		setRecipeError("");
+		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs" });
 		setImageError("");
 		setShowForm(true);
 	};
@@ -132,39 +124,71 @@ function AdminMenuManagement() {
 	const removeSize = (index) =>
 		setFormValues((current) => ({ ...current, sizes: current.sizes.filter((_, i) => i !== index) }));
 
-	const addIngredients = (raw) => {
-		const tags = parseList(raw);
-		if (!tags.length) return;
-		setFormValues((current) => {
-			const merged = [...current.ingredients];
-			tags.forEach((tag) => {
-				if (!merged.some((existing) => existing.toLowerCase() === tag.toLowerCase())) merged.push(tag);
-			});
-			return { ...current, ingredients: merged };
-		});
-		setIngredientInput("");
+	const addRecipeIngredient = () => {
+		const name = ingredientDraft.name.trim();
+		const quantityUsed = Number(ingredientDraft.quantityUsed);
+		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === name.toLowerCase());
+		const unit = (existingItem?.unit || ingredientDraft.unit || "").trim();
+		if (!name || name.length > 160 || !unit || unit.length > 40) {
+			setRecipeError("Enter an ingredient name and a stock unit.");
+			return;
+		}
+		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
+			setRecipeError("Enter a positive amount with at most 3 decimal places.");
+			return;
+		}
+		if (formValues.ingredients.some((entry) => String(entry.name || entry.item || "").trim().toLowerCase() === name.toLowerCase())) {
+			setRecipeError("That ingredient is already in this recipe.");
+			return;
+		}
+		setFormValues((current) => ({
+			...current,
+			ingredients: [...current.ingredients, { name, quantityUsed, unit }],
+		}));
+		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs" });
+		setRecipeError("");
 	};
 
-	const addAddons = (raw) => {
-		const tags = parseList(raw);
-		if (!tags.length) return;
-		setFormValues((current) => {
-			const merged = [...current.addons];
-			tags.forEach((tag) => {
-				if (!merged.some((existing) => existing.label.toLowerCase() === tag.toLowerCase())) {
-					merged.push(parseAddonTag(tag));
-				}
-			});
-			return { ...current, addons: merged };
-		});
-		setAddonInput("");
+	const addAddon = () => {
+		const label = addonDraft.label.trim();
+		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === label.toLowerCase());
+		const unit = (existingItem?.unit || addonDraft.unit || "").trim();
+		const price = Number(addonDraft.price);
+		const quantityUsed = Number(addonDraft.quantityUsed);
+		if (!label || label.length > 100 || !unit || unit.length > 40 || !Number.isFinite(price) || price < 0) {
+			setRecipeError("Enter a valid add-on name, price, and stock unit.");
+			return;
+		}
+		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
+			setRecipeError("Enter the add-on quantity used per serving (up to 3 decimal places).");
+			return;
+		}
+		if (formValues.addons.some((entry) => entry.label.trim().toLowerCase() === label.toLowerCase())) {
+			setRecipeError("That add-on is already listed for this menu item.");
+			return;
+		}
+		setFormValues((current) => ({ ...current, addons: [...current.addons, { label, price, quantityUsed, unit }] }));
+		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs" });
+		setRecipeError("");
 	};
 
 	const removeIngredient = (index) =>
 		setFormValues((current) => ({ ...current, ingredients: current.ingredients.filter((_, i) => i !== index) }));
 
+	const updateRecipeQuantity = (index, quantityUsed) =>
+		setFormValues((current) => ({
+			...current,
+			ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityUsed } : entry),
+		}));
+
 	const removeAddon = (index) =>
 		setFormValues((current) => ({ ...current, addons: current.addons.filter((_, i) => i !== index) }));
+
+	const updateAddon = (index, key, value) =>
+		setFormValues((current) => ({
+			...current,
+			addons: current.addons.map((addon, addonIndex) => addonIndex === index ? { ...addon, [key]: value } : addon),
+		}));
 
 	const applyImageFile = (file) => {
 		if (!file) return;
@@ -199,8 +223,9 @@ function AdminMenuManagement() {
 		setShowForm(false);
 		setEditingProduct(null);
 		setSizeInput("");
-		setIngredientInput("");
-		setAddonInput("");
+		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs" });
+		setRecipeError("");
+		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs" });
 		setImageError("");
 	};
 
@@ -258,13 +283,23 @@ function AdminMenuManagement() {
 			sizes: (product.sizes || []).map((size) =>
 				size.price === basePrice ? size.label : `${size.label}:${size.price}`
 			),
-			ingredients: product.ingredients || [],
-			addons: product.addons || [],
+			ingredients: (product.ingredients || []).map((ingredient) => {
+				if (typeof ingredient === "string") {
+					const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === ingredient.toLowerCase());
+					return { name: inventoryItem?.item || ingredient, unit: inventoryItem?.unit || "pcs", quantityUsed: "" };
+				}
+				return { ...ingredient, name: ingredient.name || inventory.find((entry) => entry.id === Number(ingredient.inventoryItemId))?.item || "", unit: ingredient.unit || inventory.find((entry) => entry.id === Number(ingredient.inventoryItemId))?.unit || "pcs", quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed) };
+			}),
+			addons: (product.addons || []).map((addon) => {
+				const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase());
+				return { ...addon, quantityUsed: addon.quantityUsed == null ? 1 : addon.quantityUsed, unit: addon.unit || inventoryItem?.unit || "pcs" };
+			}),
 			available: product.available !== false,
 		});
 		setSizeInput("");
-		setIngredientInput("");
-		setAddonInput("");
+		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs" });
+		setRecipeError("");
+		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs" });
 		setImageError("");
 		setShowForm(true);
 	};
@@ -282,17 +317,20 @@ function AdminMenuManagement() {
 			price: `₱${numericPrice.toFixed(2)}`,
 			description,
 			category: formValues.category,
-			image: formValues.image || products[0]?.image,
+			image: formValues.image || "",
 			sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice }],
-			ingredients: formValues.ingredients,
-			addons: formValues.addons,
+			ingredients: formValues.ingredients.map((ingredient) => ({
+				name: String(ingredient.name || "").trim(),
+				quantityUsed: Number(ingredient.quantityUsed),
+				unit: ingredient.unit || "pcs",
+			})),
+			addons: formValues.addons.map((addon) => ({ ...addon, quantityUsed: Number(addon.quantityUsed), unit: addon.unit || "pcs" })),
 		};
 		try {
 			if (editingProduct) await updateProduct(editingProduct.id, productData);
 			else await addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
-			// The API syncs recipe names into inventory in the same database transaction.
-			const { added } = await syncIngredientsFromMenu(formValues.ingredients, { category: formValues.category });
-			if (added.length) setSyncNotice(`${added.length} ingredient${added.length === 1 ? "" : "s"} added to Inventory: ${added.join(", ")}`);
+			await refreshInventory?.().catch(() => null);
+			setSyncNotice(`${name} saved. New ingredients and add-ons were added to Inventory at zero stock; matching names reuse the existing stock item.`);
 			closeForm();
 		} catch (error) {
 			window.alert(error.message);
@@ -301,6 +339,7 @@ function AdminMenuManagement() {
 
 	const availableCount = products.filter((product) => product.available).length;
 	const lowStockCount = products.filter((product) => product.stock > 0 && product.stock <= 7).length;
+	const recipeDraftItem = inventory.find((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase());
 
 	return (
 		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -591,43 +630,36 @@ function AdminMenuManagement() {
 										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
 										Ingredients &amp; Recipe
 									</label>
-									<div className="menu-builder-taginput">
-										<input
-											type="text"
-											value={ingredientInput}
-											onChange={(event) => setIngredientInput(event.target.value)}
-											onKeyDown={(event) => {
-												if (event.key === "Enter") {
-													event.preventDefault();
-													addIngredients(ingredientInput);
-												}
-											}}
-											placeholder="Type an ingredient and press Enter..."
-											aria-label="Add ingredient"
-										/>
-										<button type="button" onClick={() => addIngredients(ingredientInput)} disabled={!ingredientInput.trim()}>
-											<Plus size={14} strokeWidth={2.4} /> Add
-										</button>
-									</div>
-
-									{formValues.ingredients.length ? (
-										<div className="menu-builder-tags">
-											{formValues.ingredients.map((item, index) => (
-												<span className="menu-builder-tag" key={`${item}-${index}`}>
-													{item}
-													<button
-														type="button"
-														onClick={() => removeIngredient(index)}
-														aria-label={`Remove ${item}`}
-													>
-														×
-													</button>
-												</span>
-											))}
+					<p className="menu-recipe-help">Enter how much of each ingredient one serving uses. New names appear in Inventory at zero stock; an existing name reuses its current stock. Keep the same unit.</p>
+					<div className="menu-recipe-entry">
+						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Ingredient name" />
+						<div className="menu-recipe-amount">
+							<input type="number" min="0.001" step="0.001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="Amount per serving" />
+							<input type="text" value={recipeDraftItem?.unit || ingredientDraft.unit} onChange={(event) => { setIngredientDraft((current) => ({ ...current, unit: event.target.value })); setRecipeError(""); }} aria-label="Ingredient stock unit" placeholder="Unit" />
+						</div>
+						<button type="button" onClick={addRecipeIngredient} disabled={!ingredientDraft.name.trim() || !ingredientDraft.quantityUsed}>
+							<Plus size={14} strokeWidth={2.4} /> Add ingredient
+						</button>
+					</div>
+					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={entry.item}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
+									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
+									{formValues.ingredients.length > 0 && (
+										<div className="menu-recipe-list">
+											{formValues.ingredients.map((ingredient, index) => {
+								const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === String(ingredient.name || "").toLowerCase());
+								const ingredientName = inventoryItem?.item || ingredient.name || "Missing inventory item";
+								const unit = inventoryItem?.unit || ingredient.unit || "unit";
+								return (
+									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
+										<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `${inventoryItem.quantity} ${unit} available` : "Will be created in Inventory when saved"}</small></div>
+														<input type="number" min="0.001" step="0.001" value={ingredient.quantityUsed} onChange={(event) => updateRecipeQuantity(index, event.target.value)} aria-label={`${ingredientName} amount per serving`} />
+														<span className="menu-recipe-unit">{unit} / serving</span>
+														<button type="button" onClick={() => removeIngredient(index)} aria-label={`Remove ${ingredientName} from recipe`}>×</button>
+													</div>
+												);
+											})}
 										</div>
-									) : null}
-
-									<small>Press Enter after typing each ingredient to add it to the recipe list.</small>
+									)}
 								</section>
 
 								<section className="menu-builder-card">
@@ -635,44 +667,38 @@ function AdminMenuManagement() {
 										<Sparkles aria-hidden="true" size={13} strokeWidth={2.2} />
 										Add-ons &amp; Customizations
 									</label>
-									<div className="menu-builder-taginput">
-										<input
-											type="text"
-											value={addonInput}
-											onChange={(event) => setAddonInput(event.target.value)}
-											onKeyDown={(event) => {
-												if (event.key === "Enter") {
-													event.preventDefault();
-													addAddons(addonInput);
-												}
-											}}
-											placeholder="e.g. Extra Pearls: 15 (Press Enter to add)"
-											aria-label="Add add-on"
-										/>
-										<button type="button" onClick={() => addAddons(addonInput)} disabled={!addonInput.trim()}>
-											<Plus size={14} strokeWidth={2.4} /> Add
-										</button>
-									</div>
+					<p className="menu-recipe-help">Each selected add-on also consumes its quantity from shared Inventory stock.</p>
+					<div className="menu-recipe-entry menu-addon-entry">
+						<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === label.trim().toLowerCase()); setAddonDraft((current) => ({ ...current, label, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
+						<input type="number" min="0" step="0.01" value={addonDraft.price} onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))} aria-label="Add-on price" placeholder="Price" />
+						<input type="number" min="0.001" step="0.001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on stock used per serving" placeholder="Used / serving" />
+						<input type="text" value={inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.unit} onChange={(event) => setAddonDraft((current) => ({ ...current, unit: event.target.value }))} aria-label="Add-on stock unit" placeholder="Unit" />
+						<button type="button" onClick={addAddon} disabled={!addonDraft.label.trim() || addonDraft.price === "" || !addonDraft.quantityUsed}>
+							<Plus size={14} strokeWidth={2.4} /> Add
+						</button>
+					</div>
 
-									{formValues.addons.length ? (
-										<div className="menu-builder-tags">
-											{formValues.addons.map((addon, index) => (
-												<span className="menu-builder-tag" key={`${addon.label}-${index}`}>
-													{addon.label}
-													{addon.price ? <em>+₱{addon.price}</em> : null}
-													<button
-														type="button"
+					{formValues.addons.length ? (
+						<div className="menu-addon-list">
+							{formValues.addons.map((addon, index) => (
+								<div className="menu-addon-row" key={`${addon.label}-${index}`}>
+									<strong>{addon.label}</strong>
+									<label>Price <input type="number" min="0" step="0.01" value={addon.price} onChange={(event) => updateAddon(index, "price", event.target.value)} aria-label={`${addon.label} price`} /></label>
+									<label>Used / serving <input type="number" min="0.001" step="0.001" value={addon.quantityUsed} onChange={(event) => updateAddon(index, "quantityUsed", event.target.value)} aria-label={`${addon.label} inventory used per serving`} /></label>
+									<label>Unit <input type="text" value={addon.unit || "pcs"} onChange={(event) => updateAddon(index, "unit", event.target.value)} aria-label={`${addon.label} inventory unit`} /></label>
+									<button
+										type="button"
 														onClick={() => removeAddon(index)}
 														aria-label={`Remove ${addon.label}`}
 													>
 														×
 													</button>
-												</span>
+								</div>
 											))}
 										</div>
 									) : null}
 
-									<small>Format as AddonName:Price (e.g., Espresso Shot: 25) and press Enter.</small>
+					<small>New add-ons are added to Inventory at zero stock. Restock them in Inventory before selling.</small>
 								</section>
 
 								<section className="menu-builder-card">

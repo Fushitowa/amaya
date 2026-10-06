@@ -6,7 +6,7 @@ Amaya is a React/Vite cafe ordering and management app with a MySQL-backed Expre
 
 ### 1. Create the database
 
-Create an empty MySQL database named `amaya` in MySQL Workbench. The migration command below creates the tables and starter catalog.
+Create an empty MySQL database named `amaya` in MySQL Workbench. The migration command below creates the tables and menu categories. Add real menu items from Admin Portal → Menu Management.
 
 ### 2. Configure the API
 

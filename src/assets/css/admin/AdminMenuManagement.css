@@ -909,6 +909,215 @@
   }
 }
 
+.menu-recipe-help {
+  margin: -5px 0 12px;
+  color: #897d72;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.menu-recipe-entry {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.2fr) minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.menu-recipe-entry > input,
+.menu-recipe-amount input,
+.menu-recipe-row > input {
+  min-width: 0;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #e5ddd5;
+  border-radius: 10px;
+  background: #fff;
+  color: #3a2618;
+  font: 500 12px "DM Sans", sans-serif;
+}
+
+.menu-recipe-entry > input,
+.menu-recipe-amount input,
+.menu-recipe-row > input {
+  padding: 0 11px;
+}
+
+.menu-addon-entry {
+  grid-template-columns: minmax(130px, 1.4fr) repeat(3, minmax(75px, 0.7fr)) auto;
+}
+
+.menu-recipe-amount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.menu-recipe-amount input {
+  padding: 0 11px;
+}
+
+.menu-recipe-entry > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #70472c;
+  color: #fff;
+  font: 700 11px "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+.menu-recipe-entry > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menu-recipe-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.menu-addon-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.menu-addon-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) repeat(3, minmax(100px, 0.8fr)) 30px;
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #eee5dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.menu-addon-row > strong {
+  align-self: center;
+  color: #493322;
+  font-size: 12px;
+}
+
+.menu-addon-row > label {
+  display: grid;
+  gap: 4px;
+  color: #897d72;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.menu-addon-row input {
+  min-width: 0;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid #e5ddd5;
+  border-radius: 8px;
+  background: #fff;
+  color: #3a2618;
+  font: 500 12px "DM Sans", sans-serif;
+}
+
+.menu-addon-row > button {
+  width: 30px;
+  height: 34px;
+  border: 1px solid #edd6d1;
+  border-radius: 8px;
+  background: #fff;
+  color: #b85e4c;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.menu-recipe-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(80px, 105px) auto 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #eee6df;
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.menu-recipe-name {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.menu-recipe-name strong {
+  overflow: hidden;
+  color: #3a2618;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-recipe-name small,
+.menu-recipe-unit {
+  color: #94877c;
+  font-size: 10px;
+}
+
+.menu-recipe-row > input {
+  min-height: 34px;
+  text-align: right;
+}
+
+.menu-recipe-row > button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #f0d7ce;
+  border-radius: 8px;
+  background: #fff;
+  color: #a14e3d;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.menu-recipe-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed #dacabd;
+  border-radius: 10px;
+  color: #897d72;
+  font-size: 11px;
+}
+
+.menu-recipe-empty a {
+  flex: 0 0 auto;
+  color: #70472c;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.menu-recipe-empty a:hover { text-decoration: underline; }
+
+.menu-recipe-error {
+  margin: 8px 0 0;
+  color: #a33c2c;
+  font-size: 11px;
+}
+
+@media (max-width: 620px) {
+  .menu-recipe-entry { grid-template-columns: 1fr; }
+  .menu-recipe-entry > button { min-height: 40px; }
+  .menu-recipe-row { grid-template-columns: minmax(100px, 1fr) 90px auto 30px; gap: 5px; }
+  .menu-addon-row { grid-template-columns: 1fr 1fr; }
+  .menu-addon-row > strong { grid-column: 1 / -1; }
+  .menu-addon-row > button { justify-self: end; }
+}
+
 /* Lock the catalog controls in place and give the product grid the scroll area. */
 .admin-menu-page {
   position: fixed;

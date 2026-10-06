@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import staffIcon from "../../assets/images/icon/staff.png";
-import defaultProductImage from "../../assets/images/menu/milktea/chocolate.png";
+import MenuProductImage from "../../components/MenuProductImage.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import {
   findProductById,
@@ -84,10 +84,11 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
       <section className="quantity-product-card">
         <div>
           <div className="quantity-product-image-wrap">
-            <img
-              src={catalogProduct?.image || defaultProductImage}
+            <MenuProductImage
+              src={catalogProduct?.image}
               alt={itemName || ""}
               className="quantity-product-image"
+              fallbackStyle={{ width: 220, height: 220, borderRadius: 10 }}
             />
           </div>
           <span className="quantity-product-category">{catalogProduct?.category || "Menu Item"}</span>

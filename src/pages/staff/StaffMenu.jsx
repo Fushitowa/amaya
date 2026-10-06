@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
+import MenuProductImage from "../../components/MenuProductImage.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu, resolveProductSizes } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
@@ -311,11 +312,12 @@ function StaffMenu() {
                   onClick={() => setCustomizingItem(item)}
                   title="Click to customize modifiers"
                 >
-                  <img
+                  <MenuProductImage
                     src={item.image}
                     alt={item.title}
                     className="staff-menu-card-image"
                     style={{ maxHeight: "115px", objectFit: "contain" }}
+                    fallbackStyle={{ width: "100%", height: "100%" }}
                   />
                   <span
                     className="staff-menu-category-pill"

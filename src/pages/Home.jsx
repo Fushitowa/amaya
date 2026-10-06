@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import Header from "../components/Header.jsx";
 import Hero from "../components/Hero.jsx";
 import Footer from "../components/Footer.jsx";
+import MenuProductImage from "../components/MenuProductImage.jsx";
 import { useMenu } from "../context/MenuContext.jsx";
 import "../assets/css/Menu.css";
 
@@ -23,7 +24,12 @@ function Home() {
             <div className="home-menu-preview-grid">
               {availableProducts.slice(0, 6).map((product) => (
                 <article className="home-menu-preview-card" key={product.id}>
-                  <img src={product.image} alt={product.name} />
+                  <MenuProductImage
+                    src={product.image}
+                    alt={product.name}
+                    style={{ width: 82, height: 82, objectFit: "contain", borderRadius: 12 }}
+                    fallbackStyle={{ width: 82, height: 82, borderRadius: 12, flex: "0 0 82px" }}
+                  />
                   <div><span>{product.category}</span><h3>{product.name}</h3><strong>{product.price}</strong></div>
                 </article>
               ))}

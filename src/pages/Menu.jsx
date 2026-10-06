@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import Header from "../components/Header.jsx";
+import MenuProductImage from "../components/MenuProductImage.jsx";
 import { useMenu } from "../context/MenuContext.jsx";
 
 import "../assets/css/Menu.css";
@@ -33,7 +34,7 @@ function Menu() {
   const filteredSections = menuSections.map((section) => ({
     ...section,
     items: section.items.filter((item) => {
-      const text = `${item.title} ${item.description} ${section.label}`;
+      const text = `${item.name} ${item.description} ${section.label}`;
       return text.toLowerCase().includes(searchTerm.toLowerCase());
     }),
   }));
@@ -90,12 +91,12 @@ function Menu() {
                       {section.items.map((item) => (
                         <article className="menu-card" key={item.id}>
                           <div className="menu-card-image-wrap">
-                            <div
+                            <MenuProductImage
+                              src={item.image}
+                              alt={item.title}
                               className="menu-card-image"
-                              style={{ backgroundImage: `url(${item.image})` }}
-                              role="img"
-                              aria-label={item.title}
-                            ></div>
+                              style={{ objectFit: "cover" }}
+                            />
                           </div>
 
                           <div className="menu-card-content">

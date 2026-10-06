@@ -76,21 +76,6 @@ export function resolveProductAddons(product) {
   return addons;
 }
 
-const imageImports = import.meta.glob("../assets/images/menu/**/*.{png,jpg,jpeg,webp}", {
-  eager: true,
-  import: "default",
-});
-
-function titleFromFile(fileName) {
-  return fileName
-    .replace(/\.(png|jpe?g|webp)$/i, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/&/g, " & ")
-    .replace(/\bstawberry\b/gi, "strawberry")
-    .replace(/\bstawberrymilk\b/gi, "strawberry milk")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 export function MenuProvider({ children }) {
   const [products, setProducts] = useState([]);
   const { user } = useAuth();
@@ -98,12 +83,12 @@ export function MenuProvider({ children }) {
   const userRole = user?.role;
 
   const withLocalImage = useCallback((product) => {
-    if (product.image) return product;
-    const imageEntry = Object.entries(imageImports).find(([path]) => {
-      const fileName = path.split("/").at(-1);
-      return titleFromFile(fileName).toLowerCase() === product.name.toLowerCase();
-    });
-    return imageEntry ? { ...product, image: imageEntry[1] } : product;
+    if (!product?.image || !/(?:^|[\\/])(?:src[\\/])?assets[\\/]images[\\/]menu[\\/]/i.test(product.image)) {
+      return product;
+    }
+    // Catalog records can outlive local image files. Treat old local paths as
+    // missing so the UI can render its built-in placeholder instead.
+    return { ...product, image: "" };
   }, []);
 
   const refreshProducts = useCallback(async () => {
