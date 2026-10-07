@@ -15,6 +15,7 @@ import "../../assets/css/sidebar-collapse.css";
 const DEFAULT_STAFF_PREFERENCES = {
   notifications: true,
   orderAlerts: true,
+  inventoryAlerts: true,
   audioChime: true,
   autoPrintReceipt: false,
   printerPaperSize: "80mm",
@@ -36,7 +37,7 @@ function StaffSetting() {
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [preferences, setPreferences] = useState(readStaffPreferences);
-  const { notifications, orderAlerts, audioChime, autoPrintReceipt, printerPaperSize, printLogoOnReceipt, defaultOrderType, stationName } = preferences;
+  const { notifications, orderAlerts, inventoryAlerts, audioChime, autoPrintReceipt, printerPaperSize, printLogoOnReceipt, defaultOrderType, stationName } = preferences;
   const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
@@ -50,6 +51,7 @@ function StaffSetting() {
   const handleSaveSettings = () => {
     try {
       localStorage.setItem("amaya-staff-preferences", JSON.stringify(preferences));
+      window.dispatchEvent(new Event("amaya-staff-preferences"));
       setToastMessage("Staff and printer preferences saved on this device.");
     } catch {
       setToastMessage("Could not save preferences in this browser.");
@@ -338,6 +340,19 @@ function StaffSetting() {
                   />
                 </div>
 
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
+                  <div>
+                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Low Stock Alerts</strong>
+                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Show low and out-of-stock items in the notification bell</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={inventoryAlerts}
+                    onChange={(e) => updatePreference("inventoryAlerts", e.target.checked)}
+                    style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
+                  />
+                </div>
+
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Default Order Type</strong>
@@ -402,6 +417,7 @@ function StaffSetting() {
                       setPreferences(DEFAULT_STAFF_PREFERENCES);
                       try {
                         localStorage.setItem("amaya-staff-preferences", JSON.stringify(DEFAULT_STAFF_PREFERENCES));
+                        window.dispatchEvent(new Event("amaya-staff-preferences"));
                         setToastMessage("Settings restored to defaults and saved.");
                       } catch {
                         setToastMessage("Defaults restored for this session; browser storage is unavailable.");

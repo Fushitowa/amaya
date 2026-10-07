@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../utils/api.js";
+import { notifyInventoryLowStock } from "../utils/notifications.js";
 import { useAuth } from "./AuthContext.jsx";
 
 const InventoryContext = createContext(null);
@@ -58,6 +59,11 @@ function InventoryProvider({ children }) {
     const interval = window.setInterval(load, 30000);
     return () => { active = false; window.clearInterval(interval); };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId || loadedUserId !== userId) return;
+    notifyInventoryLowStock().catch(() => {});
+  }, [inventory, loadedUserId, userId]);
 
   const value = useMemo(() => ({
     inventory: user ? inventory : [],

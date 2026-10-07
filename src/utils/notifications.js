@@ -1,3 +1,5 @@
+import { apiRequest } from "./api.js";
+
 /*
  * Staff notification plumbing.
  *
@@ -22,6 +24,7 @@ export const STAFF_NOTIFICATION_TYPES = {
   receipt_printed: { label: "Receipt printed", tone: "blue" },
   menu_added: { label: "Menu updated", tone: "emerald" },
   menu_deleted: { label: "Menu updated", tone: "red" },
+  inventory_low: { label: "Low stock", tone: "red" },
   info: { label: "Notice", tone: "stone" },
 };
 
@@ -58,6 +61,7 @@ export function notifyStaff(type, { title, message } = {}) {
 
   const entry = {
     id: makeId(),
+    eventKey: makeId(),
     type,
     title: title || definition.label,
     message: message || "",
@@ -71,7 +75,26 @@ export function notifyStaff(type, { title, message } = {}) {
     new CustomEvent(STAFF_NOTIFY_EVENT, { detail: { type, entry, notifications: updated } })
   );
 
+  apiRequest("/notifications", {
+    method: "POST",
+    body: JSON.stringify({ eventKey: entry.eventKey, type: entry.type, title: entry.title, message: entry.message }),
+  }).then(() => window.dispatchEvent(new Event("amaya:notifications-updated"))).catch(() => {});
+
   return entry;
+}
+
+export async function loadNotifications() {
+  const local = readStaffNotifications().map((item) => ({ ...item, source: "local", eventKey: item.eventKey || item.id }));
+  try {
+    const remote = await apiRequest("/notifications");
+    const byEvent = new Map(local.map((item) => [item.eventKey, item]));
+    remote.forEach((item) => byEvent.set(item.eventKey, item));
+    return [...byEvent.values()]
+      .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
+      .slice(0, MAX_STAFF_NOTIFICATIONS);
+  } catch {
+    return local.slice(0, MAX_STAFF_NOTIFICATIONS);
+  }
 }
 
 /* ---- event shorthands used across the app ---- */
@@ -105,6 +128,17 @@ export const notifyMenuDeleted = (product) =>
     title: "Menu item removed",
     message: `Item “${product?.name}” removed from menu`,
   });
+
+/** Notify once when an inventory item enters low/out-of-stock, and again if it
+ * worsens from low to out-of-stock. A shared localStorage state keeps the
+ * admin and staff tabs from generating duplicate alerts during polling. */
+export function notifyInventoryLowStock() {
+  return apiRequest("/notifications/inventory-alerts/check", { method: "POST", body: "{}" })
+    .then((result) => {
+      if (result.alerts) window.dispatchEvent(new Event("amaya:notifications-updated"));
+      return result;
+    });
+}
 
 /* ---- relative time ---- */
 

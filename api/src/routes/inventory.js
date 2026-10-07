@@ -15,6 +15,28 @@ router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, res
   response.json(rows.map(mapItem));
 });
 
+router.get("/:id/movements", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid inventory ID.");
+  const limit = Math.min(100, Math.max(1, Number.parseInt(request.query.limit, 10) || 30));
+  const [[item]] = await pool.execute("SELECT id FROM inventory_items WHERE id = ?", [id]);
+  if (!item) throw httpError(404, "Inventory item not found.");
+  const [rows] = await pool.execute(
+    `SELECT m.id, m.movement_type, m.quantity_change, m.note, m.created_at,
+            u.username AS actor_name
+       FROM inventory_movements m LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.inventory_item_id = ? ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, [id, limit],
+  );
+  response.json(rows.map((row) => ({
+    id: Number(row.id),
+    type: row.movement_type,
+    quantityChange: Number(row.quantity_change),
+    note: row.note || "",
+    actor: row.actor_name || "System",
+    timestamp: new Date(row.created_at).toISOString(),
+  })));
+});
+
 router.post("/", requireAuth, requireRole("admin"), async (request, response) => {
   const { item, category, unit } = request.body || {};
   const name = String(item || "").trim();

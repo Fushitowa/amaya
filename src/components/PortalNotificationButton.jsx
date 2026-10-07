@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import NotificationIcon from "./NotificationIcon.jsx";
+import { apiRequest } from "../utils/api.js";
 import {
   formatRelativeTime,
+  loadNotifications,
   readStaffNotifications,
   STAFF_NOTIFICATIONS_KEY,
   STAFF_NOTIFY_EVENT,
@@ -23,9 +25,9 @@ const palette = {
 
 function readAdminPreferences() {
   try {
-    return { notifications: true, orderAlerts: true, ...JSON.parse(localStorage.getItem("amaya-admin-notifications") || "{}") };
+    return { notifications: true, orderAlerts: true, inventoryAlerts: true, ...JSON.parse(localStorage.getItem("amaya-admin-notifications") || "{}") };
   } catch {
-    return { notifications: true, orderAlerts: true };
+    return { notifications: true, orderAlerts: true, inventoryAlerts: true };
   }
 }
 
@@ -44,10 +46,16 @@ function PortalNotificationButton({
 
   const visibleNotifications = useMemo(() => {
     if (!preferences.notifications) return [];
-    return notifications.filter((item) => preferences.orderAlerts || item.type !== "order_new");
+    return notifications.filter((item) =>
+      (preferences.orderAlerts || item.type !== "order_new")
+      && (preferences.inventoryAlerts !== false || item.type !== "inventory_low"),
+    );
   }, [notifications, preferences]);
   const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);
-  const refresh = () => setNotifications(readStaffNotifications());
+  const refresh = () => {
+    setNotifications(readStaffNotifications());
+    loadNotifications().then(setNotifications);
+  };
   const saveNotifications = (next) => {
     try {
       setNotifications(writeStaffNotifications(next));
@@ -70,22 +78,42 @@ function PortalNotificationButton({
       if (event.key === "Escape") setIsOpen(false);
     };
     window.addEventListener(STAFF_NOTIFY_EVENT, handleNotification);
+    window.addEventListener("amaya:notifications-updated", handleNotification);
     window.addEventListener("amaya-admin-notification-preferences", handlePreferences);
     window.addEventListener("storage", handleStorage);
     document.addEventListener("mousedown", handleOutsideClick);
     document.addEventListener("keydown", handleEscape);
+    const poll = window.setInterval(handleNotification, 12000);
     return () => {
       window.removeEventListener(STAFF_NOTIFY_EVENT, handleNotification);
+      window.removeEventListener("amaya:notifications-updated", handleNotification);
       window.removeEventListener("amaya-admin-notification-preferences", handlePreferences);
       window.removeEventListener("storage", handleStorage);
       document.removeEventListener("mousedown", handleOutsideClick);
       document.removeEventListener("keydown", handleEscape);
+      window.clearInterval(poll);
     };
   }, []);
 
-  const markAllRead = () => saveNotifications(notifications.map((item) => ({ ...item, read: true })));
-  const clearNotifications = () => saveNotifications([]);
-  const markOneRead = (id) => saveNotifications(notifications.map((item) => item.id === id ? { ...item, read: true } : item));
+  const markAllRead = async () => {
+    saveNotifications(notifications.filter((item) => item.source !== "server").map((item) => ({ ...item, read: true })));
+    await apiRequest("/notifications/read-all", { method: "PATCH", body: "{}" }).catch(() => {});
+    refresh();
+  };
+  const clearNotifications = async () => {
+    saveNotifications([]);
+    await apiRequest("/notifications", { method: "DELETE" }).catch(() => {});
+    refresh();
+  };
+  const markOneRead = async (id) => {
+    const selected = notifications.find((item) => item.id === id);
+    if (selected?.source === "server") {
+      await apiRequest(`/notifications/${id}/read`, { method: "PATCH", body: "{}" }).catch(() => {});
+      refresh();
+      return;
+    }
+    saveNotifications(notifications.filter((item) => item.source !== "server").map((item) => item.id === id ? { ...item, read: true } : item));
+  };
   const handleClick = (event) => {
     setIsOpen((current) => !current);
     onClick?.(event);

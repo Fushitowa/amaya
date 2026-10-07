@@ -1285,6 +1285,64 @@
   }
 }
 
+.inventory-history-modal {
+  width: min(720px, 100%);
+  max-height: min(80vh, 760px);
+  overflow: auto;
+}
+
+.inventory-history-modal .admin-inventory-modal-header p {
+  margin: 7px 0 0;
+  color: var(--inventory-muted);
+  font-size: 12px;
+}
+
+.inventory-history-list {
+  display: grid;
+  max-height: 54vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--inventory-line);
+}
+
+.inventory-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 3px;
+  border-bottom: 1px solid var(--inventory-line);
+}
+
+.inventory-history-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inventory-history-row strong {
+  color: var(--inventory-ink);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.inventory-history-row span,
+.inventory-history-row small {
+  color: var(--inventory-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.inventory-history-row b {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.inventory-history-row b.is-increase { color: #4f7559; }
+.inventory-history-row b.is-decrease { color: #a1493a; }
+.inventory-history-empty,
+.inventory-history-error { padding: 20px 0; color: var(--inventory-muted); font-size: 12px; }
+.inventory-history-error { color: var(--inventory-danger); }
+
 /* Polished inventory feedback, sorting and accessible action states. */
 .admin-inventory-notice,
 .admin-inventory-sync-warning {

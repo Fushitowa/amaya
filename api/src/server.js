@@ -9,6 +9,7 @@ import menuRoutes from "./routes/menu.js";
 import orderRoutes from "./routes/orders.js";
 import inventoryRoutes from "./routes/inventory.js";
 import settingsRoutes from "./routes/settings.js";
+import notificationRoutes from "./routes/notifications.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -42,6 +43,7 @@ app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use((request, response) => {
   response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });

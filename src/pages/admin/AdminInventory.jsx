@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  History,
   LayoutGrid,
   List,
   Package,
@@ -22,6 +23,7 @@ import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, INVENTORY_CATEGORIES, useInventory } from "../../context/InventoryContext.jsx";
+import { apiRequest } from "../../utils/api.js";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
@@ -63,6 +65,7 @@ function AdminInventory() {
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState("");
   const [itemToDelete, setItemToDelete] = useState(null);
+  const [movementHistory, setMovementHistory] = useState({ item: null, rows: [], loading: false, error: "" });
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [inventoryAlertsEnabled] = useState(readInventoryAlertPreference);
@@ -128,18 +131,19 @@ function AdminInventory() {
   const soldUnits = orders.reduce((total, order) => total + order.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0), 0);
 
   useEffect(() => {
-    if (!showForm && !restockItem && !itemToDelete) return undefined;
+    if (!showForm && !restockItem && !itemToDelete && !movementHistory.item) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape" || isSaving) return;
       setShowForm(false);
       setEditingItem(null);
       setRestockItem(null);
       setItemToDelete(null);
+      setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showForm, restockItem, itemToDelete, isSaving]);
+  }, [showForm, restockItem, itemToDelete, movementHistory.item, isSaving]);
 
   const resetForm = () => {
     setShowForm(false);
@@ -192,6 +196,16 @@ function AdminInventory() {
     setRestockItem(item);
     setRestockQuantity(String(Math.max(1, item.minimumStock * 2 - item.quantity)));
     setActionError("");
+  };
+
+  const openMovementHistory = async (item) => {
+    setMovementHistory({ item, rows: [], loading: true, error: "" });
+    try {
+      const rows = await apiRequest(`/inventory/${item.id}/movements?limit=50`);
+      setMovementHistory({ item, rows, loading: false, error: "" });
+    } catch (error) {
+      setMovementHistory({ item, rows: [], loading: false, error: error.message || "Could not load stock history." });
+    }
   };
 
   const handleRestock = async (event) => {
@@ -534,6 +548,10 @@ function AdminInventory() {
                     </div>
 
                     <div className="admin-inventory-card-actions">
+                      <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
+                        <History aria-hidden="true" size={13} strokeWidth={2.2} />
+                        <span>History</span>
+                      </button>
                       <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
                         <Pencil aria-hidden="true" size={13} strokeWidth={2.2} />
                         <span>Edit</span>
@@ -576,6 +594,7 @@ function AdminInventory() {
                         </td>
                         <td>
                           <div className="inventory-actions">
+                            <button type="button" onClick={() => openMovementHistory(row)}>History</button>
                             <button type="button" onClick={() => handleEdit(row)}>Edit</button>
                             <button type="button" onClick={() => openRestock(row)}>Restock</button>
                             <button type="button" className="danger" onClick={() => requestDelete(row.id)}>Delete</button>
@@ -672,6 +691,33 @@ function AdminInventory() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {movementHistory.item && (
+        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => setMovementHistory({ item: null, rows: [], loading: false, error: "" })}>
+          <section className="admin-inventory-modal inventory-history-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-history-title" onClick={(event) => event.stopPropagation()}>
+            <div className="admin-inventory-modal-header">
+              <div>
+                <span className="admin-inventory-eyebrow">AUDIT TRAIL</span>
+                <h3 id="inventory-history-title">{movementHistory.item.item} history</h3>
+                <p>Stock changes, quantities, and the account that recorded them.</p>
+              </div>
+              <button type="button" onClick={() => setMovementHistory({ item: null, rows: [], loading: false, error: "" })} aria-label="Close stock history">×</button>
+            </div>
+            {movementHistory.loading ? <p className="inventory-history-empty">Loading stock history…</p>
+              : movementHistory.error ? <p className="inventory-history-error" role="alert">{movementHistory.error}</p>
+                : movementHistory.rows.length ? (
+                  <div className="inventory-history-list">
+                    {movementHistory.rows.map((row) => (
+                      <article className="inventory-history-row" key={row.id}>
+                        <div><strong>{row.type === "usage" ? "Order usage" : row.type === "restock" ? "Restocked" : "Stock adjustment"}</strong><span>{row.note || "Inventory updated"}</span><small>{row.actor} · {new Date(row.timestamp).toLocaleString()}</small></div>
+                        <b className={row.quantityChange > 0 ? "is-increase" : "is-decrease"}>{row.quantityChange > 0 ? "+" : ""}{row.quantityChange} {movementHistory.item.unit}</b>
+                      </article>
+                    ))}
+                  </div>
+                ) : <p className="inventory-history-empty">No stock movements recorded yet.</p>}
+          </section>
         </div>
       )}
 
