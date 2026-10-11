@@ -167,33 +167,29 @@ function AdminReport() {
     const padBottom = 30;
     const innerWidth = width - padLeft - padRight;
     const innerHeight = height - padTop - padBottom;
+    const slotWidth = revenueSeries.length ? innerWidth / revenueSeries.length : innerWidth;
+    const barWidth = Math.min(44, slotWidth * 0.62);
     const ceiling = niceCeil(Math.max(...revenueSeries.map((bucket) => bucket.amount), 0));
     const labelFormat = range.days === 7 && range.bucketDays === 1
       ? { weekday: "short" }
       : { month: "short", day: "numeric" };
 
     const points = revenueSeries.map((bucket, index) => {
-      const x = revenueSeries.length === 1
-        ? padLeft + innerWidth / 2
-        : padLeft + (index / (revenueSeries.length - 1)) * innerWidth;
+      const x = padLeft + (index + 0.5) * slotWidth;
       const y = padTop + innerHeight - (ceiling > 0 ? (bucket.amount / ceiling) * innerHeight : 0);
 
       return {
         ...bucket,
         x,
         y,
+        barX: x - barWidth / 2,
+        barWidth,
+        barHeight: Math.max(0, padTop + innerHeight - y),
         label: bucket.start.toLocaleDateString("en-US", labelFormat),
       };
     });
 
     const baseline = padTop + innerHeight;
-    const linePath = points.map((point, index) => (
-      `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
-    )).join(" ");
-
-    const areaPath = points.length
-      ? `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${baseline} L ${points[0].x.toFixed(2)} ${baseline} Z`
-      : "";
 
     const gridLines = Array.from({ length: 4 }, (_, index) => {
       const ratio = index / 3;
@@ -224,8 +220,6 @@ function AdminReport() {
       ceiling,
       points,
       labelledPoints,
-      linePath,
-      areaPath,
       gridLines,
       best,
     };
@@ -529,13 +523,6 @@ function AdminReport() {
                   role="img"
                   aria-label={`Revenue trend across ${trend.points.length} periods, totalling ${peso(periodSales)} and peaking at ${peso(trend.best?.amount || 0)}`}
                 >
-                  <defs>
-                    <linearGradient id="reportTrendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#8b5e3c" stopOpacity="0.26" />
-                      <stop offset="100%" stopColor="#8b5e3c" stopOpacity="0.02" />
-                    </linearGradient>
-                  </defs>
-
                   {trend.gridLines.map((line) => (
                     <line
                       key={line.y}
@@ -560,19 +547,18 @@ function AdminReport() {
                     </text>
                   ))}
 
-                  <path d={trend.areaPath} fill="url(#reportTrendFill)" />
-                  <path d={trend.linePath} className="report-trend-line" />
-
                   {trend.points.map((point, index) => (
-                    <circle
+                    <rect
                       key={point.start.toISOString()}
-                      cx={point.x}
-                      cy={point.y}
-                      r={index === trend.points.length - 1 ? 4.5 : 3}
-                      className="report-trend-dot"
+                      x={point.barX}
+                      y={point.barHeight > 0 ? point.y : trend.baseline - 2}
+                      width={point.barWidth}
+                      height={Math.max(point.barHeight, 2)}
+                      rx="4"
+                      className={`report-trend-bar${index === trend.points.length - 1 ? " latest" : ""}${point.amount === 0 ? " zero" : ""}`}
                     >
                       <title>{`${point.label} · ${peso(point.amount)} · ${point.orders} order${point.orders === 1 ? "" : "s"}`}</title>
-                    </circle>
+                    </rect>
                   ))}
 
                   {trend.labelledPoints.map((point) => point.showLabel ? (

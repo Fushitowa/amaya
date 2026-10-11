@@ -25,6 +25,7 @@ export const STAFF_NOTIFICATION_TYPES = {
   menu_added: { label: "Menu updated", tone: "emerald" },
   menu_deleted: { label: "Menu updated", tone: "red" },
   inventory_low: { label: "Low stock", tone: "red" },
+  inventory_inactive: { label: "Inactive stock", tone: "amber" },
   info: { label: "Notice", tone: "stone" },
 };
 

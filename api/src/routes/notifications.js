@@ -41,21 +41,30 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
   response.status(201).json({ saved: true, eventKey });
 });
 
-router.post("/inventory-alerts/check", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
+export async function runInventoryAlertCheck() {
   const connection = await pool.getConnection();
   let lockAcquired = false;
+  let transactionStarted = false;
   try {
     const [[lock]] = await connection.execute("SELECT GET_LOCK('amaya_inventory_alert_check', 5) AS acquired");
     if (Number(lock.acquired) !== 1) throw httpError(503, "Inventory alerts are busy. They will retry shortly.");
     lockAcquired = true;
     await connection.beginTransaction();
+    transactionStarted = true;
     const [items] = await connection.execute(
-      `SELECT i.id, i.name, i.quantity, i.unit, i.minimum_stock, s.status AS previous_status
+      `SELECT i.id, i.name, i.quantity, i.unit, i.minimum_stock,
+              s.status AS previous_status,
+              COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) AS last_activity_at,
+              ia.last_activity_at AS previous_activity_at,
+              ia.is_inactive AS was_inactive,
+              (COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) <= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 DAY)) AS inactive_now
          FROM inventory_items i
          LEFT JOIN inventory_alert_states s ON s.inventory_item_id = i.id
+         LEFT JOIN inventory_inactivity_states ia ON ia.inventory_item_id = i.id
         ORDER BY i.id FOR UPDATE`,
     );
     const alerts = [];
+    const inactiveAlerts = [];
     for (const item of items) {
       const quantity = Number(item.quantity);
       const minimumStock = Number(item.minimum_stock);
@@ -72,6 +81,27 @@ router.post("/inventory-alerts/check", requireAuth, requireRole("admin", "staff"
         const message = `${quantity} ${item.unit} remaining${status === "low" ? ` · minimum ${minimumStock} ${item.unit}` : ""}`;
         alerts.push({ itemId: Number(item.id), type: status, title, message });
       }
+
+      const inactive = Boolean(item.inactive_now);
+      const lastActivityAt = new Date(item.last_activity_at).getTime();
+      const previousActivityAt = item.previous_activity_at ? new Date(item.previous_activity_at).getTime() : null;
+      const alreadyAlertedForThisInactivePeriod = Boolean(item.was_inactive)
+        && previousActivityAt === lastActivityAt;
+      if (inactive && !alreadyAlertedForThisInactivePeriod) {
+        const inactiveDays = Math.max(30, Math.floor((Date.now() - lastActivityAt) / 86_400_000));
+        inactiveAlerts.push({
+          itemId: Number(item.id),
+          name: item.name,
+          inactiveDays,
+          lastActivityAt,
+        });
+      }
+      await connection.execute(
+        `INSERT INTO inventory_inactivity_states (inventory_item_id, last_activity_at, is_inactive)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE last_activity_at = VALUES(last_activity_at), is_inactive = VALUES(is_inactive)`,
+        [item.id, item.last_activity_at, inactive ? 1 : 0],
+      );
     }
     if (alerts.length) {
       const title = alerts.length === 1 ? alerts[0].title : `Inventory needs attention · ${alerts.length} items`;
@@ -83,15 +113,34 @@ router.post("/inventory-alerts/check", requireAuth, requireRole("admin", "staff"
         [`inventory-alert-${randomUUID()}`, title, details.join(" · ")],
       );
     }
+    if (inactiveAlerts.length) {
+      const title = inactiveAlerts.length === 1
+        ? `${inactiveAlerts[0].name} has been inactive for 30+ days`
+        : `${inactiveAlerts.length} inventory items inactive for 30+ days`;
+      const details = inactiveAlerts.slice(0, 7).map((item) => {
+        const date = new Date(item.lastActivityAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        return `${item.name} · no stock movement since ${date} (${item.inactiveDays} days)`;
+      });
+      if (inactiveAlerts.length > details.length) details.push(`and ${inactiveAlerts.length - details.length} more item${inactiveAlerts.length - details.length === 1 ? "" : "s"}`);
+      await connection.execute(
+        `INSERT INTO notifications (user_id, event_key, type, title, message)
+         SELECT id, ?, 'inventory_inactive', ?, ? FROM users WHERE is_active = TRUE`,
+        [`inventory-inactive-${randomUUID()}`, title, details.join(" · ").slice(0, 1000)],
+      );
+    }
     await connection.commit();
-    response.json({ checked: items.length, alerts: alerts.length });
+    return { checked: items.length, alerts: alerts.length, inactiveAlerts: inactiveAlerts.length };
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) await connection.rollback();
     throw error;
   } finally {
     if (lockAcquired) await connection.execute("SELECT RELEASE_LOCK('amaya_inventory_alert_check')");
     connection.release();
   }
+}
+
+router.post("/inventory-alerts/check", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
+  response.json(await runInventoryAlertCheck());
 });
 
 router.patch("/read-all", requireAuth, requireRole("admin", "staff"), async (request, response) => {

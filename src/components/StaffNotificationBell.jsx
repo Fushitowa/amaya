@@ -24,6 +24,7 @@ import "../assets/css/staff-notifications.css";
 
 const ICONS = {
   inventory_low: AlertTriangle,
+  inventory_inactive: AlertTriangle,
   order_new: ShoppingBag,
   order_completed: CheckCircle2,
   receipt_printed: Printer,
@@ -110,7 +111,7 @@ function StaffNotificationBell() {
     };
   }, [load]);
 
-  const visibleNotifications = useMemo(() => notifications.filter((item) => inventoryAlertsEnabled || item.type !== "inventory_low"), [inventoryAlertsEnabled, notifications]);
+  const visibleNotifications = useMemo(() => notifications.filter((item) => inventoryAlertsEnabled || !["inventory_low", "inventory_inactive"].includes(item.type)), [inventoryAlertsEnabled, notifications]);
   const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);
 
   const commit = (next) => {

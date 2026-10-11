@@ -48,7 +48,7 @@ function PortalNotificationButton({
     if (!preferences.notifications) return [];
     return notifications.filter((item) =>
       (preferences.orderAlerts || item.type !== "order_new")
-      && (preferences.inventoryAlerts !== false || item.type !== "inventory_low"),
+      && (preferences.inventoryAlerts !== false || !["inventory_low", "inventory_inactive"].includes(item.type)),
     );
   }, [notifications, preferences]);
   const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);

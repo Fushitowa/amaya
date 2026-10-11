@@ -9,7 +9,7 @@ import menuRoutes from "./routes/menu.js";
 import orderRoutes from "./routes/orders.js";
 import inventoryRoutes from "./routes/inventory.js";
 import settingsRoutes from "./routes/settings.js";
-import notificationRoutes from "./routes/notifications.js";
+import notificationRoutes, { runInventoryAlertCheck } from "./routes/notifications.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -57,6 +57,14 @@ app.use((error, _request, response, _next) => {
 
 app.listen(port, () => {
   console.log(`Amaya API listening at http://localhost:${port}`);
+  const checkInventoryInactivity = () => runInventoryAlertCheck()
+    .then(({ inactiveAlerts }) => {
+      if (inactiveAlerts) console.log(`Inventory inactivity monitor found ${inactiveAlerts} newly inactive item(s).`);
+    })
+    .catch((error) => console.warn("Inventory inactivity monitor check failed:", error.message));
+  checkInventoryInactivity();
+  const inventoryMonitor = setInterval(checkInventoryInactivity, 60_000);
+  inventoryMonitor.unref();
 });
 
 async function closeDatabasePool() {
