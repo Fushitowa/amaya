@@ -51,7 +51,7 @@ export function resolveProductSizes(product) {
     const key = label.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    sizes.push({ label, price: parseMenuPrice(size?.price) });
+    sizes.push({ label, price: parseMenuPrice(size?.price), ingredients: Array.isArray(size?.ingredients) ? size.ingredients : [] });
   });
 
   // No configured variants: one default priced at the item's own base price.
@@ -70,7 +70,14 @@ export function resolveProductAddons(product) {
     const key = label.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    addons.push({ label, price: parseMenuPrice(addon?.price) });
+    addons.push({
+      ...addon,
+      label,
+      price: parseMenuPrice(addon?.price),
+      quantityUsed: Number(addon?.quantityUsed || 0),
+      unit: addon?.unit || addon?.stockUnit || "pcs",
+      stockUnit: addon?.stockUnit || "pcs",
+    });
   });
 
   return addons;

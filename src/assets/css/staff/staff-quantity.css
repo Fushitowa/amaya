@@ -884,6 +884,20 @@
   overflow: hidden;
 }
 
+.quantity-stock-panel { display: grid; gap: 9px; margin-top: 14px; padding: 12px; border: 1px solid #eee5dc; border-radius: 12px; background: #fcfaf7; }
+.quantity-stock-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #493322; font-size: 11px; }
+.quantity-stock-heading span { color: #8b7767; font-size: 10px; font-weight: 600; }
+.quantity-stock-list { display: grid; gap: 7px; }
+.quantity-stock-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 7px; border-top: 1px solid #eee5dc; color: #38734d; font-size: 10px; }
+.quantity-stock-row > span { display: grid; gap: 3px; min-width: 0; }
+.quantity-stock-row strong { overflow: hidden; color: #493322; text-overflow: ellipsis; white-space: nowrap; }
+.quantity-stock-row small { color: #887c72; font-size: 9px; }
+.quantity-stock-row b { flex: 0 0 auto; font-size: 9px; }
+.quantity-stock-row.short { color: #ad4535; }
+.quantity-stock-row.short b { padding: 4px 7px; border-radius: 999px; background: #fff0ed; }
+.quantity-stock-empty { margin: 0; color: #897d72; font-size: 10px; line-height: 1.45; }
+.quantity-stock-warning { margin: 0; padding: 8px 9px; border-radius: 8px; background: #fff0ed; color: #9f3d2f; font-size: 10px; line-height: 1.45; }
+
 .quantity-product-meta {
   display: flex;
   align-items: baseline;
@@ -1234,6 +1248,8 @@
 .quantity-actions .confirm-button:hover {
   background: #2a1b10;
 }
+
+.quantity-actions .confirm-button:disabled { background: #cfc6bd; color: #fff; box-shadow: none; cursor: not-allowed; }
 
 @media (max-width: 1080px) {
   .staff-quantity-workspace {

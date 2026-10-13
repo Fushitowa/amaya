@@ -90,7 +90,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       if (Number(product.stock_quantity) < quantity) throw httpError(409, `${product.name} does not have enough stock for this order.`);
 
       const sizeLabel = String(item.size || "Regular").trim().slice(0, 80);
-      const [[size]] = await connection.execute("SELECT price FROM product_sizes WHERE product_id = ? AND label = ?", [productId, sizeLabel]);
+      const [[size]] = await connection.execute("SELECT id, price FROM product_sizes WHERE product_id = ? AND label = ?", [productId, sizeLabel]);
       if (!size) throw httpError(400, `The selected size for ${product.name} is no longer available.`);
       const addonNames = Array.isArray(item.addons) ? [...new Set(item.addons.map((addon) => String(addon).trim()).filter(Boolean))] : [];
       const addonPrices = [];
@@ -117,7 +117,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       }
       const unitPrice = Number((Number(size.price) + addonPrices.reduce((sum, addon) => sum + addon.price, 0)).toFixed(2));
       total = Math.round((total + unitPrice * quantity) * 100) / 100;
-      lineItems.push({ product, quantity, sizeLabel, unitPrice, addonPrices, sugarLevel: String(item.sugarLevel || "").slice(0, 40) || null, instructions: String(item.instructions || "").slice(0, 500) || null });
+      lineItems.push({ product, quantity, sizeId: Number(size.id), sizeLabel, unitPrice, addonPrices, sugarLevel: String(item.sugarLevel || "").slice(0, 40) || null, instructions: String(item.instructions || "").slice(0, 500) || null });
     }
 
     const productIds = [...new Set(lineItems.map((line) => Number(line.product.id)))];
@@ -131,7 +131,19 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         ORDER BY pi.inventory_item_id, pi.product_id`,
       productIds,
     );
+    const selectedSizeIds = [...new Set(lineItems.map((line) => line.sizeId))];
+    const sizeMarks = selectedSizeIds.map(() => "?").join(",");
+    const [sizeRecipeRows] = await connection.execute(
+      `SELECT psi.product_size_id, psi.inventory_item_id, psi.quantity_used, psi.unit AS recipe_unit,
+              i.name AS inventory_name, i.unit AS inventory_unit
+         FROM product_size_ingredients psi
+         JOIN inventory_items i ON i.id = psi.inventory_item_id
+        WHERE psi.product_size_id IN (${sizeMarks})
+        ORDER BY psi.inventory_item_id, psi.product_size_id`,
+      selectedSizeIds,
+    );
     const recipesByProduct = new Map();
+    const recipesBySize = new Map();
     const inventoryNeeds = new Map();
     recipeRows.forEach((ingredient) => {
       const productId = Number(ingredient.product_id);
@@ -157,6 +169,17 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         required: 0,
       });
     });
+    sizeRecipeRows.forEach((ingredient) => {
+      const sizeId = Number(ingredient.product_size_id);
+      const entries = recipesBySize.get(sizeId) || [];
+      entries.push({
+        inventoryItemId: Number(ingredient.inventory_item_id),
+        inventoryName: ingredient.inventory_name,
+        unit: ingredient.inventory_unit,
+        quantityPerServing: toInventoryQuantity(ingredient.quantity_used, ingredient.recipe_unit, ingredient.inventory_unit),
+      });
+      recipesBySize.set(sizeId, entries);
+    });
 
     for (const line of lineItems) {
       const perItem = new Map();
@@ -175,7 +198,16 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         perItem.set(inventoryItemId, current);
         if (!inventoryNeeds.has(inventoryItemId)) inventoryNeeds.set(inventoryItemId, { inventoryName: usage.inventoryName, unit: usage.unit, required: 0 });
       };
-      for (const ingredient of recipesByProduct.get(Number(line.product.id)) || []) addUsage(ingredient);
+      const baseRecipe = recipesByProduct.get(Number(line.product.id)) || [];
+      const sizeRecipe = recipesBySize.get(line.sizeId) || [];
+      const sizeIngredientIds = new Set(sizeRecipe.map((ingredient) => ingredient.inventoryItemId));
+      for (const ingredient of baseRecipe) {
+        if (!sizeIngredientIds.has(ingredient.inventoryItemId)) addUsage(ingredient);
+      }
+      for (const ingredient of sizeRecipe) {
+        if (!ingredient.quantityPerServing) throw httpError(409, `The ${line.sizeLabel} recipe for ${line.product.name} has an invalid inventory unit conversion.`);
+        addUsage(ingredient);
+      }
       for (const addon of line.addonPrices) addUsage(addon);
       line.inventoryConsumptions = [...perItem.values()];
       for (const usage of line.inventoryConsumptions) {

@@ -16,7 +16,40 @@ const idFrom = (value) => {
   return id;
 };
 
-function toProduct(row, sizes, addons, ingredients) {
+function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInventory) {
+  const productIngredients = ingredients
+    .filter((entry) => Number(entry.product_id) === Number(row.id))
+    .map((entry) => ({
+      inventoryItemId: Number(entry.inventory_item_id),
+      name: entry.name,
+      quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
+      unit: entry.unit || entry.inventory_unit,
+      stockUnit: entry.inventory_unit,
+      quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit),
+      ...(includeInventory ? {
+        inventoryQuantity: Number(entry.inventory_quantity),
+        minimumStock: Number(entry.minimum_stock),
+      } : {}),
+    }));
+  const productSizes = sizes
+    .filter((entry) => Number(entry.product_id) === Number(row.id))
+    .map((size) => {
+      const overrides = sizeIngredients.filter((entry) => Number(entry.product_size_id) === Number(size.id));
+      const recipes = productIngredients.map((base) => {
+        const override = overrides.find((entry) => Number(entry.inventory_item_id) === base.inventoryItemId);
+        return override ? {
+          ...base,
+          quantityUsed: Number(override.quantity_used),
+          unit: override.unit,
+          quantityInStockUnit: toInventoryQuantity(override.quantity_used, override.unit, base.stockUnit),
+        } : base;
+      });
+      return {
+        label: size.label,
+        price: Number(size.price),
+        ingredients: recipes,
+      };
+    });
   return {
     id: Number(row.id),
     name: row.name,
@@ -27,7 +60,7 @@ function toProduct(row, sizes, addons, ingredients) {
     stock: Number(row.stock_quantity),
     available: Boolean(row.is_available),
     featured: Boolean(row.is_featured),
-    sizes: sizes.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({ label: entry.label, price: Number(entry.price) })),
+    sizes: productSizes,
     addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
       label: entry.label,
       price: Number(entry.price),
@@ -35,18 +68,17 @@ function toProduct(row, sizes, addons, ingredients) {
       quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
       unit: entry.usage_unit || entry.inventory_unit || "pcs",
       stockUnit: entry.inventory_unit || "pcs",
+      quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit),
+      ...(includeInventory ? {
+        inventoryQuantity: Number(entry.inventory_quantity || 0),
+        minimumStock: Number(entry.minimum_stock || 0),
+      } : {}),
     })),
-    ingredients: ingredients.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
-      inventoryItemId: Number(entry.inventory_item_id),
-      name: entry.name,
-      quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
-      unit: entry.unit || entry.inventory_unit,
-      stockUnit: entry.inventory_unit,
-    })),
+    ingredients: productIngredients,
   };
 }
 
-async function listProducts(includeUnavailable = false) {
+async function listProducts(includeUnavailable = false, includeInventory = false) {
   const [products] = await pool.execute(
     `SELECT p.*, c.name AS category
        FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
@@ -56,15 +88,49 @@ async function listProducts(includeUnavailable = false) {
   if (!products.length) return [];
   const ids = products.map((product) => product.id);
   const marks = ids.map(() => "?").join(",");
-  const [sizeResult, addonResult, ingredientResult] = await Promise.all([
-    pool.execute(`SELECT product_id, label, price FROM product_sizes WHERE product_id IN (${marks}) ORDER BY display_order, id`, ids),
-    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
-    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
+  const [addonResult, ingredientResult, sizeResult] = await Promise.all([
+    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.minimum_stock FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
+    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.minimum_stock FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
+    pool.execute(`SELECT ps.product_id, ps.id, ps.label, ps.price FROM product_sizes ps WHERE ps.product_id IN (${marks}) ORDER BY ps.display_order, ps.id`, ids),
   ]);
-  const sizes = sizeResult[0];
-  const addons = addonResult[0];
-  const ingredients = ingredientResult[0];
-  return products.map((product) => toProduct(product, sizes, addons, ingredients));
+  const addonRows = addonResult[0];
+  const ingredientRows = ingredientResult[0];
+  const sizeRows = sizeResult[0];
+  const sizeIds = sizeRows.map((size) => size.id);
+  let sizeIngredients = [];
+  if (sizeIds.length) {
+    const sizeMarks = sizeIds.map(() => "?").join(",");
+    const [rows] = await pool.execute(
+      `SELECT psi.product_size_id, psi.inventory_item_id, psi.quantity_used, psi.unit
+         FROM product_size_ingredients psi WHERE psi.product_size_id IN (${sizeMarks})`, sizeIds,
+    );
+    sizeIngredients = rows;
+  }
+  const sizes = sizeRows;
+  const addons = addonRows;
+  const ingredients = ingredientRows;
+  return products.map((product) => toProduct(product, sizes, addons, ingredients, sizeIngredients, includeInventory));
+}
+
+function normalizeRecipeEntries(entries, description) {
+  return (Array.isArray(entries) ? entries : []).map((ingredient) => {
+    const name = String(ingredient?.name || ingredient?.item || "").trim();
+    const quantityUsed = Number(ingredient?.quantityUsed);
+    const unit = String(ingredient?.unit || "pcs").trim();
+    const stockUnit = String(ingredient?.stockUnit || unit).trim();
+    if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
+      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
+      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
+      throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount with at most 3 decimal places.`);
+    }
+    return { name, unit, stockUnit, quantityUsed };
+  });
+}
+
+function assertNoDuplicateRecipeNames(entries, description) {
+  if (new Set(entries.map((entry) => entry.name.toLocaleLowerCase())).size !== entries.length) {
+    throw httpError(400, `${description} ingredient names can only appear once.`);
+  }
 }
 
 async function saveProduct(connection, body, id = null) {
@@ -103,26 +169,35 @@ async function saveProduct(connection, body, id = null) {
     );
   }
 
-  const sizes = Array.isArray(body.sizes) && body.sizes.length ? body.sizes : [{ label: "Regular", price: basePrice }];
+  const rawSizes = Array.isArray(body.sizes) && body.sizes.length ? body.sizes : [{ label: "Regular", price: basePrice }];
+  const sizes = rawSizes.map((size) => {
+    if (typeof size === "string") {
+      const [label, rawPrice] = size.split(":");
+      return { label, price: rawPrice?.trim() ? rawPrice : basePrice, ingredients: undefined };
+    }
+    return size;
+  });
   const addons = Array.isArray(body.addons) ? body.addons : [];
   const ingredients = Array.isArray(body.ingredients) ? body.ingredients : [];
   if (sizes.length > 20 || addons.length > 50 || ingredients.length > 100) throw httpError(400, "This menu item has too many sizes, add-ons, or ingredients.");
-
-  const recipeInputs = ingredients.map((ingredient) => {
-    const name = String(ingredient?.name || ingredient?.item || "").trim();
-    const quantityUsed = Number(ingredient?.quantityUsed);
-    const unit = String(ingredient?.unit || "pcs").trim();
-    const stockUnit = String(ingredient?.stockUnit || unit).trim();
-    if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
-      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
-      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-      throw httpError(400, "Each ingredient needs a name, stock unit, recipe unit, and positive amount with at most 3 decimal places.");
-    }
-    return { name, unit, stockUnit, quantityUsed };
+  const seenSizeLabels = new Set();
+  sizes.forEach((size) => {
+    const label = String(size?.label || "").trim();
+    if (!label || label.length > 80 || seenSizeLabels.has(label.toLocaleLowerCase())) throw httpError(400, "Each serving size needs a unique label (up to 80 characters).");
+    seenSizeLabels.add(label.toLocaleLowerCase());
+    toMoney(size.price ?? basePrice, `Price for ${label}`);
   });
-  if (new Set(recipeInputs.map((entry) => entry.name.toLocaleLowerCase())).size !== recipeInputs.length) {
-    throw httpError(400, "Each ingredient name can only appear once in a recipe.");
-  }
+
+  const recipeInputs = normalizeRecipeEntries(ingredients, "Each default recipe ingredient");
+  assertNoDuplicateRecipeNames(recipeInputs, "Default recipe");
+  const sizeRecipeInputs = sizes.map((size) => {
+    const entries = size.ingredients === undefined ? recipeInputs : normalizeRecipeEntries(size.ingredients, `The ${String(size.label).trim()} recipe`);
+    assertNoDuplicateRecipeNames(entries, `The ${String(size.label).trim()} recipe`);
+    if (entries.length !== recipeInputs.length || entries.some((entry) => !recipeInputs.some((base) => base.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()))) {
+      throw httpError(400, `Each serving size must use the same ingredient list as the default recipe.`);
+    }
+    return entries;
+  });
   const addonInputs = addons.map((addon) => {
     const label = String(addon?.label || "").trim();
     const unit = String(addon?.unit || "pcs").trim();
@@ -181,10 +256,22 @@ async function saveProduct(connection, body, id = null) {
   await connection.execute("DELETE FROM product_addons WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_ingredients WHERE product_id = ?", [productId]);
 
+  const recipeByName = new Map(recipeItems.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
   for (const [index, size] of sizes.entries()) {
     const label = String(size?.label || "").trim();
     if (!label) continue;
-    await connection.execute("INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 80), toMoney(size.price, "Size price"), index]);
+    const [createdSize] = await connection.execute("INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 80), toMoney(size.price ?? basePrice, `Price for ${label}`), index]);
+    const sizeIngredients = sizeRecipeInputs[index] || [];
+    for (const entry of sizeIngredients) {
+      const base = recipeByName.get(entry.name.toLocaleLowerCase());
+      if (!base) throw httpError(400, `The ${label} recipe contains an ingredient missing from the default recipe.`);
+      const quantityUsed = toInventoryQuantity(entry.quantityUsed, entry.unit, base.stockUnit);
+      if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit “${base.stockUnit}”.`);
+      await connection.execute(
+        "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
+        [createdSize.insertId, base.inventoryItemId, entry.quantityUsed, entry.unit],
+      );
+    }
   }
   for (const [index, addon] of addonInventoryItems.entries()) {
     await connection.execute(
@@ -204,7 +291,8 @@ async function saveProduct(connection, body, id = null) {
 router.get("/", optionalAuth, async (request, response) => {
   const includeUnavailable = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))
     && request.query.all === "true";
-  response.json(await listProducts(includeUnavailable));
+  const includeInventory = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role));
+  response.json(await listProducts(includeUnavailable, includeInventory));
 });
 
 router.post("/", requireAuth, requireRole("admin"), async (request, response) => {
@@ -213,7 +301,7 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await connection.beginTransaction();
     const id = await saveProduct(connection, request.body);
     await connection.commit();
-    response.status(201).json((await listProducts(true)).find((product) => product.id === Number(id)));
+    response.status(201).json((await listProducts(true, true)).find((product) => product.id === Number(id)));
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -229,7 +317,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     await connection.beginTransaction();
     await saveProduct(connection, request.body, id);
     await connection.commit();
-    response.json((await listProducts(true)).find((product) => product.id === id));
+    response.json((await listProducts(true, true)).find((product) => product.id === id));
   } catch (error) {
     await connection.rollback();
     throw error;

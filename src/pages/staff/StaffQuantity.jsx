@@ -44,6 +44,39 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
     return sizeOptions.find((size) => size.label === selectedSize) || sizeOptions[0];
   }, [sizeOptions, selectedSize]);
 
+  const ingredientStockLines = useMemo(() => {
+    const combined = new Map();
+    const entries = [
+      ...(currentSizeObj?.ingredients || catalogProduct?.ingredients || []),
+      ...selectedAddons.map((label) => addonOptions.find((addon) => addon.label === label)).filter(Boolean),
+    ];
+    entries.forEach((entry) => {
+      const itemId = Number(entry.inventoryItemId);
+      const perServing = Number(entry.quantityInStockUnit);
+      const key = Number.isFinite(itemId) && itemId > 0 ? String(itemId) : `missing:${entry.name || entry.label}`;
+      const current = combined.get(key) || {
+        id: Number.isFinite(itemId) && itemId > 0 ? itemId : null,
+        name: entry.name || entry.label || "Inventory item",
+        unit: entry.stockUnit || "pcs",
+        inventoryQuantity: Number(entry.inventoryQuantity || 0),
+        perServing: 0,
+        configured: Number.isFinite(itemId) && itemId > 0 && Number.isFinite(perServing) && perServing > 0,
+      };
+      current.perServing += Number.isFinite(perServing) && perServing > 0 ? perServing : 0;
+      combined.set(key, current);
+    });
+    return [...combined.values()].map((entry) => ({
+      ...entry,
+      required: Number((entry.perServing * quantity).toFixed(3)),
+      availableAfter: Number((entry.inventoryQuantity - entry.perServing * quantity).toFixed(3)),
+    }));
+  }, [addonOptions, catalogProduct, currentSizeObj, quantity, selectedAddons]);
+
+  const ingredientShortages = ingredientStockLines.filter((entry) => !entry.configured || entry.availableAfter < 0);
+  const canAddToOrder = ingredientShortages.length === 0;
+
+  const formatStock = (value) => Number(value || 0).toFixed(3).replace(/\.?0+$/, "");
+
   const addonsTotal = useMemo(() => {
     return selectedAddons.reduce((sum, label) => {
       const addon = addonOptions.find((option) => option.label === label);
@@ -96,6 +129,30 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
           <p className="quantity-product-description">
             {catalogProduct?.description || "Freshly crafted favorite from Amaya Drinks & Bites."}
           </p>
+          <section className="quantity-stock-panel" aria-live="polite" aria-label="Ingredient stock check">
+            <div className="quantity-stock-heading">
+              <strong>Ingredient stock</strong>
+              <span>{selectedSize} × {quantity}</span>
+            </div>
+            {ingredientStockLines.length ? (
+              <div className="quantity-stock-list">
+                {ingredientStockLines.map((entry) => {
+                  const short = !entry.configured || entry.availableAfter < 0;
+                  return (
+                    <div className={`quantity-stock-row ${short ? "short" : ""}`} key={entry.id || entry.name}>
+                      <span><strong>{entry.name}</strong><small>{entry.configured ? `Uses ${formatStock(entry.required)} ${entry.unit} · ${formatStock(entry.inventoryQuantity)} ${entry.unit} on hand` : "Inventory recipe link needs setup"}</small></span>
+                      <b>{short ? "Short" : `${formatStock(entry.availableAfter)} left`}</b>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="quantity-stock-empty">No ingredients or tracked add-ons are linked to this item.</p>
+            )}
+            {ingredientShortages.length > 0 && (
+              <p className="quantity-stock-warning" role="alert">Not enough stock for: {ingredientShortages.map((entry) => entry.name).join(", ")}. Reduce the quantity or restock first.</p>
+            )}
+          </section>
         </div>
 
         <div className="quantity-product-meta">
@@ -227,8 +284,8 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
           <button type="button" className="cancel-button" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="confirm-button" onClick={handleAdd}>
-            Add to Order · ₱{grandTotal.toFixed(2)}
+          <button type="button" className="confirm-button" onClick={handleAdd} disabled={!canAddToOrder}>
+            {canAddToOrder ? `Add to Order · ₱${grandTotal.toFixed(2)}` : "Insufficient stock"}
           </button>
         </div>
       </section>

@@ -24,11 +24,13 @@ const parseList = (raw) =>
 const parseSizes = (raw, fallbackPrice) =>
   (Array.isArray(raw) ? raw : parseList(raw))
     .map((entry) => {
-      const [label, price] = String(entry).split(":");
+      const [label, price] = typeof entry === "object" && entry !== null
+        ? [entry.label, entry.price]
+        : String(entry).split(":");
       const parsed = Number(price);
       return {
         label: (label || "").trim(),
-        price: Number.isFinite(parsed) && String(price).trim() !== "" ? parsed : fallbackPrice,
+        price: Number.isFinite(parsed) && String(price).trim() !== "" ? parsed : Number(fallbackPrice) || 0,
       };
     })
     .filter((entry) => entry.label && Number.isFinite(entry.price));
@@ -48,7 +50,7 @@ function AdminMenuManagement() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
-	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: ["Regular"], ingredients: [], addons: [], available: true });
+	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: [{ label: "Regular", price: "" }], ingredients: [], addons: [], available: true });
 
 	const [formValues, setFormValues] = useState(emptyForm());
 	const [sizeInput, setSizeInput] = useState("");
@@ -114,15 +116,54 @@ function AdminMenuManagement() {
 		setFormValues((current) => {
 			const merged = [...current.sizes];
 			tags.forEach((tag) => {
-				if (!merged.some((existing) => existing.toLowerCase() === tag.toLowerCase())) merged.push(tag);
+				const [rawLabel, rawPrice] = tag.split(":");
+				const label = rawLabel.trim();
+				if (!label || merged.some((existing) => existing.label.toLowerCase() === label.toLowerCase())) return;
+				merged.push({ label, price: rawPrice?.trim() || current.price || "" });
 			});
-			return { ...current, sizes: merged };
+			const ingredients = current.ingredients.map((ingredient) => ({
+				...ingredient,
+				quantityBySize: Object.fromEntries(merged.map((size) => [
+					size.label,
+					ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? "",
+				])),
+			}));
+			return { ...current, sizes: merged, ingredients };
 		});
 		setSizeInput("");
 	};
 
+	const updateSize = (index, key, value) =>
+		setFormValues((current) => ({
+			...current,
+			...(key === "price" && (current.sizes[index]?.label.toLowerCase() === "regular" || index === 0) ? { price: value } : {}),
+			sizes: current.sizes.map((size, sizeIndex) => sizeIndex === index ? { ...size, [key]: value } : size),
+		}));
+
+	const updateBasePrice = (value) =>
+		setFormValues((current) => {
+			const regularIndex = current.sizes.findIndex((size) => size.label.toLowerCase() === "regular");
+			const priceIndex = regularIndex >= 0 ? regularIndex : current.sizes.length ? 0 : -1;
+			return {
+				...current,
+				price: value,
+				sizes: priceIndex < 0 ? current.sizes : current.sizes.map((size, index) => index === priceIndex ? { ...size, price: value } : size),
+			};
+		});
+
 	const removeSize = (index) =>
-		setFormValues((current) => ({ ...current, sizes: current.sizes.filter((_, i) => i !== index) }));
+		setFormValues((current) => {
+			const removedLabel = current.sizes[index]?.label;
+			return {
+				...current,
+				sizes: current.sizes.filter((_, i) => i !== index),
+				ingredients: current.ingredients.map((ingredient) => {
+					const quantityBySize = { ...(ingredient.quantityBySize || {}) };
+					delete quantityBySize[removedLabel];
+					return { ...ingredient, quantityBySize };
+				}),
+			};
+		});
 
 	const addRecipeIngredient = () => {
 		const name = ingredientDraft.name.trim();
@@ -144,7 +185,13 @@ function AdminMenuManagement() {
 		}
 		setFormValues((current) => ({
 			...current,
-			ingredients: [...current.ingredients, { name, quantityUsed, unit, stockUnit }],
+			ingredients: [...current.ingredients, {
+				name,
+				quantityUsed,
+				unit,
+				stockUnit,
+				quantityBySize: Object.fromEntries(current.sizes.map((size) => [size.label, String(quantityUsed)])),
+			}],
 		}));
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
@@ -177,10 +224,12 @@ function AdminMenuManagement() {
 	const removeIngredient = (index) =>
 		setFormValues((current) => ({ ...current, ingredients: current.ingredients.filter((_, i) => i !== index) }));
 
-	const updateRecipeQuantity = (index, quantityUsed) =>
+	const updateSizeRecipeQuantity = (ingredientIndex, sizeLabel, quantityUsed) =>
 		setFormValues((current) => ({
 			...current,
-			ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityUsed } : entry),
+			ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === ingredientIndex
+				? { ...entry, quantityBySize: { ...(entry.quantityBySize || {}), [sizeLabel]: quantityUsed } }
+				: entry),
 		}));
 
 	const updateRecipeUnit = (index, unit) =>
@@ -279,7 +328,6 @@ function AdminMenuManagement() {
 	};
 
 	const openEditForm = (product) => {
-		const basePrice = Number(String(product.price || "").replace("₱", "")) || 0;
 		setEditingProduct(product);
 		setFormValues({
 			name: product.name,
@@ -288,16 +336,18 @@ function AdminMenuManagement() {
 			category: product.category,
 			image: product.image,
 			// A size priced at the base price round-trips as a bare label.
-			sizes: (product.sizes || []).map((size) =>
-				size.price === basePrice ? size.label : `${size.label}:${size.price}`
-			),
+			sizes: (product.sizes || []).map((size) => ({ label: size.label, price: String(size.price) })),
 			ingredients: (product.ingredients || []).map((ingredient) => {
 				if (typeof ingredient === "string") {
 					const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === ingredient.toLowerCase());
-				return { name: inventoryItem?.item || ingredient, unit: inventoryItem?.unit || "pcs", stockUnit: inventoryItem?.unit || "pcs", quantityUsed: "" };
+				return { name: inventoryItem?.item || ingredient, unit: inventoryItem?.unit || "pcs", stockUnit: inventoryItem?.unit || "pcs", quantityUsed: "", quantityBySize: {} };
 				}
 				const inventoryItem = inventory.find((entry) => entry.id === Number(ingredient.inventoryItemId));
-				return { ...ingredient, name: ingredient.name || inventoryItem?.item || "", unit: ingredient.unit || inventoryItem?.unit || "pcs", stockUnit: ingredient.stockUnit || inventoryItem?.unit || ingredient.unit || "pcs", quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed) };
+				const quantityBySize = Object.fromEntries((product.sizes || []).map((size) => {
+					const sizedIngredient = size.ingredients?.find((entry) => Number(entry.inventoryItemId) === Number(ingredient.inventoryItemId));
+					return [size.label, String(sizedIngredient?.quantityUsed ?? ingredient.quantityUsed ?? "")];
+				}));
+				return { ...ingredient, name: ingredient.name || inventoryItem?.item || "", unit: ingredient.unit || inventoryItem?.unit || "pcs", stockUnit: ingredient.stockUnit || inventoryItem?.unit || ingredient.unit || "pcs", quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed), quantityBySize };
 			}),
 			addons: (product.addons || []).map((addon) => {
 				const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase());
@@ -318,19 +368,32 @@ function AdminMenuManagement() {
 		const name = formValues.name.trim();
 		const description = formValues.description.trim();
 		const numericPrice = Number(formValues.price);
-		const sizes = parseSizes(formValues.sizes, numericPrice);
+		const sizes = parseSizes(formValues.sizes, numericPrice).map((size) => ({
+			...size,
+			ingredients: formValues.ingredients.map((ingredient) => ({
+				name: String(ingredient.name || "").trim(),
+				quantityUsed: Number(ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed),
+				unit: ingredient.unit || "pcs",
+				stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
+			})),
+		}));
 
 		if (!name || !description || !Number.isFinite(numericPrice) || numericPrice < 0) return;
+		if (sizes.some((size) => !Number.isFinite(size.price) || size.price < 0 || size.ingredients.some((ingredient) => !Number.isFinite(ingredient.quantityUsed) || ingredient.quantityUsed <= 0))) {
+			setRecipeError("Enter a valid price and a positive ingredient amount for every serving size.");
+			return;
+		}
+		const productBasePrice = sizes.find((size) => size.label.trim().toLowerCase() === "regular")?.price ?? sizes[0]?.price ?? numericPrice;
 		const productData = {
 			name,
-			price: `₱${numericPrice.toFixed(2)}`,
+			price: `₱${productBasePrice.toFixed(2)}`,
 			description,
 			category: formValues.category,
 			image: formValues.image || "",
-			sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice }],
+			sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice, ingredients: [] }],
 			ingredients: formValues.ingredients.map((ingredient) => ({
 				name: String(ingredient.name || "").trim(),
-				quantityUsed: Number(ingredient.quantityUsed),
+				quantityUsed: Number(ingredient.quantityBySize?.[sizes[0]?.label] ?? ingredient.quantityUsed),
 				unit: ingredient.unit || "pcs",
 				stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
 			})),
@@ -560,7 +623,7 @@ function AdminMenuManagement() {
 												<input
 													type="number"
 													value={formValues.price}
-													onChange={(event) => setFormValues({ ...formValues, price: event.target.value })}
+																														onChange={(event) => updateBasePrice(event.target.value)}
 													inputMode="decimal"
 													placeholder="0.00"
 													min="0"
@@ -607,7 +670,7 @@ function AdminMenuManagement() {
 													addSizes(sizeInput);
 												}
 											}}
-											placeholder="e.g. Large: 59 or Regular"
+											placeholder="e.g. Large: 59 or Medium"
 											aria-label="Add size"
 										/>
 										<button type="button" onClick={() => addSizes(sizeInput)} disabled={!sizeInput.trim()}>
@@ -616,23 +679,18 @@ function AdminMenuManagement() {
 									</div>
 
 									{formValues.sizes.length ? (
-										<div className="menu-builder-tags">
+										<div className="menu-builder-size-list">
 											{formValues.sizes.map((size, index) => (
-												<span className="menu-builder-tag" key={`${size}-${index}`}>
-													{size}
-													<button
-														type="button"
-														onClick={() => removeSize(index)}
-														aria-label={`Remove ${size}`}
-													>
-														×
-													</button>
-												</span>
+												<div className="menu-builder-size-row" key={`${size.label}-${index}`}>
+													<strong>{size.label}</strong>
+													<label>Serving price <span>₱</span><input type="number" min="0" step="0.01" value={size.price ?? ""} placeholder={formValues.price || "0.00"} onChange={(event) => updateSize(index, "price", event.target.value)} aria-label={`${size.label} serving price`} /></label>
+													<button type="button" onClick={() => removeSize(index)} aria-label={`Remove ${size.label}`}>×</button>
+												</div>
 											))}
 										</div>
 									) : null}
 
-									<small>Type a size label (e.g. Regular or Large:59) and press Enter to add.</small>
+									<small>Set a price for each size. Enter a size as “Large: 59” to add it with a price, or edit the price after adding.</small>
 								</section>
 
 								<section className="menu-builder-card">
@@ -640,7 +698,7 @@ function AdminMenuManagement() {
 										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
 										Ingredients &amp; Recipe
 									</label>
-					<p className="menu-recipe-help">Enter the amount used per serving and the unit you stock. Supported conversions include g/kg, ml/L, and piece/dozen. New ingredients start at zero stock.</p>
+					<p className="menu-recipe-help">Enter each ingredient's amount for every serving size. Stock is stored in the inventory unit; compatible units such as g/kg and ml/L convert automatically. New ingredients start at zero stock.</p>
 					<div className="menu-recipe-entry menu-conversion-entry">
 						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Ingredient name" />
 						<div className="menu-recipe-amount">
@@ -656,14 +714,18 @@ function AdminMenuManagement() {
 									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
 									{formValues.ingredients.length > 0 && (
 										<div className="menu-recipe-list">
-											{formValues.ingredients.map((ingredient, index) => {
+										{formValues.ingredients.map((ingredient, index) => {
 								const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === String(ingredient.name || "").toLowerCase());
 								const ingredientName = inventoryItem?.item || ingredient.name || "Missing inventory item";
 								return (
 									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
-														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `Stock: ${inventoryItem.quantity} ${inventoryItem.unit} · used per serving below` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small></div>
-														<input type="number" min="0.001" step="0.001" value={ingredient.quantityUsed} onChange={(event) => updateRecipeQuantity(index, event.target.value)} aria-label={`${ingredientName} amount per serving`} />
-														<input type="text" value={ingredient.unit || "pcs"} onChange={(event) => updateRecipeUnit(index, event.target.value)} aria-label={`${ingredientName} recipe unit`} placeholder="Recipe unit" />
+														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small></div>
+														<label className="menu-recipe-unit">Used unit<input type="text" value={ingredient.unit || "pcs"} onChange={(event) => updateRecipeUnit(index, event.target.value)} aria-label={`${ingredientName} recipe unit`} placeholder="g" /></label>
+														<div className="menu-recipe-size-grid">
+															{formValues.sizes.map((size) => (
+																<label key={size.label}>{size.label}<input type="number" min="0.001" step="0.001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label}`} /></label>
+															))}
+														</div>
 														<button type="button" onClick={() => removeIngredient(index)} aria-label={`Remove ${ingredientName} from recipe`}>×</button>
 													</div>
 												);
