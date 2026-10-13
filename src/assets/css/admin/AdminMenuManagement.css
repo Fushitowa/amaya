@@ -931,7 +931,7 @@
 }
 
 .menu-recipe-entry.menu-conversion-entry {
-  grid-template-columns: minmax(130px, 1.15fr) minmax(175px, 1fr) minmax(92px, 0.7fr) auto;
+  grid-template-columns: minmax(130px, 1.15fr) repeat(3, minmax(90px, 0.72fr)) auto;
 }
 
 .menu-recipe-entry > input,
@@ -958,7 +958,7 @@
 }
 
 .menu-addon-entry.menu-conversion-entry {
-  grid-template-columns: minmax(120px, 1.25fr) repeat(4, minmax(72px, 0.7fr)) auto;
+  grid-template-columns: minmax(120px, 1.25fr) minmax(80px, 0.65fr) repeat(3, minmax(78px, 0.7fr)) auto;
 }
 
 .menu-recipe-amount {
@@ -969,6 +969,50 @@
 
 .menu-recipe-amount input {
   padding: 0 11px;
+}
+
+.menu-recipe-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: #76685d;
+  font: 700 9px "DM Sans", sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.menu-recipe-field input,
+.menu-recipe-field select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #e5ddd5;
+  border-radius: 10px;
+  background: #fff;
+  color: #3a2618;
+  font: 500 12px "DM Sans", sans-serif;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.menu-recipe-field input:disabled,
+.menu-recipe-field select:disabled {
+  background: #f6f2ee;
+  color: #76685d;
+  cursor: not-allowed;
+}
+
+.menu-recipe-field select,
+.menu-recipe-unit select,
+.menu-addon-row select {
+  padding: 0 9px;
+  border: 1px solid #e5ddd5;
+  border-radius: 8px;
+  background: #fff;
+  color: #3a2618;
+  font: 500 12px "DM Sans", sans-serif;
 }
 
 .menu-recipe-entry > button {
@@ -1039,7 +1083,8 @@
   font-weight: 700;
 }
 
-.menu-addon-row input {
+.menu-addon-row input,
+.menu-addon-row select {
   min-width: 0;
   width: 100%;
   min-height: 34px;
@@ -1077,7 +1122,8 @@
 .menu-recipe-size-grid label,
 .menu-recipe-unit { display: grid; gap: 4px; color: #897d72; font-size: 10px; font-weight: 700; }
 .menu-recipe-size-grid input,
-.menu-recipe-unit input { min-width: 0; width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid #e5ddd5; border-radius: 8px; background: #fff; color: #3a2618; font: 500 12px "DM Sans", sans-serif; }
+.menu-recipe-unit input,
+.menu-recipe-unit select { min-width: 0; width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid #e5ddd5; border-radius: 8px; background: #fff; color: #3a2618; font: 500 12px "DM Sans", sans-serif; }
 
 .menu-recipe-name {
   display: grid;

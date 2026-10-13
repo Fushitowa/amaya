@@ -15,6 +15,14 @@ const idFrom = (value) => {
   if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid menu item ID.");
   return id;
 };
+const explainPackedUnit = (name, value, fieldName) => {
+	const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
+	if (!match) return null;
+	if (fieldName === "stock") {
+		return `For “${name}”, the Inventory stock unit is “${value}”. Edit the inventory item and enter ${match[1]} as its stock quantity and “${match[2]}” as its unit.`;
+	}
+	return `For “${name}”, put ${match[1]} in Amount per serving and “${match[2]}” in Recipe unit. Keep the amount and unit in separate fields.`;
+};
 
 function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInventory) {
   const productIngredients = ingredients
@@ -115,9 +123,15 @@ async function listProducts(includeUnavailable = false, includeInventory = false
 function normalizeRecipeEntries(entries, description) {
   return (Array.isArray(entries) ? entries : []).map((ingredient) => {
     const name = String(ingredient?.name || ingredient?.item || "").trim();
+    const rawQuantity = String(ingredient?.quantityUsed ?? "").trim();
+    const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
+    if (attachedAmount) throw httpError(400, `For “${name || "this ingredient"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
     const quantityUsed = Number(ingredient?.quantityUsed);
     const unit = String(ingredient?.unit || "pcs").trim();
     const stockUnit = String(ingredient?.stockUnit || unit).trim();
+    const packedUnitError = explainPackedUnit(name || "this ingredient", unit, "recipe")
+      || explainPackedUnit(name || "this ingredient", stockUnit, "stock");
+    if (packedUnitError) throw httpError(400, packedUnitError);
     if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
       || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
@@ -202,7 +216,13 @@ async function saveProduct(connection, body, id = null) {
     const label = String(addon?.label || "").trim();
     const unit = String(addon?.unit || "pcs").trim();
     const stockUnit = String(addon?.stockUnit || unit).trim();
+    const rawQuantity = String(addon?.quantityUsed ?? "").trim();
+    const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
+    if (attachedAmount) throw httpError(400, `For “${label || "this add-on"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
     const quantityUsed = Number(addon?.quantityUsed);
+    const packedUnitError = explainPackedUnit(label || "this add-on", unit, "recipe")
+      || explainPackedUnit(label || "this add-on", stockUnit, "stock");
+    if (packedUnitError) throw httpError(400, packedUnitError);
     if (!label || label.length > 100 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
       || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
@@ -232,6 +252,8 @@ async function saveProduct(connection, body, id = null) {
       "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
     );
     if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for “${itemName}”.`);
+    const packedStockUnitError = explainPackedUnit(itemName, inventoryItem.unit, "stock");
+    if (packedStockUnitError) throw httpError(400, packedStockUnitError);
     return inventoryItem;
   };
 

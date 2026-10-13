@@ -9,6 +9,12 @@ const mapItem = (row) => ({
   minimumStock: Number(row.minimum_stock), addedFromMenu: Boolean(row.added_from_menu),
   lastUpdated: new Date(row.updated_at).toISOString(),
 });
+const unitWithAmountError = (unit) => {
+  const match = String(unit || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
+  return match
+    ? `Keep amount and unit separate. Enter ${match[1]} in the stock quantity field and “${match[2]}” as the unit (for example, quantity 5 and unit kg).`
+    : null;
+};
 
 router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
   const [rows] = await pool.execute("SELECT * FROM inventory_items ORDER BY category, name");
@@ -44,6 +50,8 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
   const cleanUnit = String(unit || "pcs").trim();
   const quantity = Number(request.body.quantity || 0);
   const minimumStock = Number(request.body.minimumStock || 0);
+  const packedUnitError = unitWithAmountError(cleanUnit);
+  if (packedUnitError) throw httpError(400, packedUnitError);
   if (!name || name.length > 160 || !cleanCategory || !cleanUnit || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minimumStock) || minimumStock < 0) {
     throw httpError(400, "Enter a valid inventory name, category, unit, and non-negative quantities.");
   }
@@ -76,6 +84,8 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
   const cleanUnit = String(unit || "").trim();
   const quantity = Number(request.body.quantity);
   const minimumStock = Number(request.body.minimumStock);
+  const packedUnitError = unitWithAmountError(cleanUnit);
+  if (packedUnitError) throw httpError(400, packedUnitError);
   if (!Number.isSafeInteger(id) || id <= 0 || !name || !cleanCategory || !cleanUnit || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minimumStock) || minimumStock < 0) {
     throw httpError(400, "Enter valid inventory values.");
   }
