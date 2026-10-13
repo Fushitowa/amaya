@@ -923,6 +923,10 @@
   align-items: stretch;
 }
 
+.menu-recipe-entry.menu-conversion-entry {
+  grid-template-columns: minmax(130px, 1.15fr) minmax(175px, 1fr) minmax(92px, 0.7fr) auto;
+}
+
 .menu-recipe-entry > input,
 .menu-recipe-amount input,
 .menu-recipe-row > input {
@@ -944,6 +948,10 @@
 
 .menu-addon-entry {
   grid-template-columns: minmax(130px, 1.4fr) repeat(3, minmax(75px, 0.7fr)) auto;
+}
+
+.menu-addon-entry.menu-conversion-entry {
+  grid-template-columns: minmax(120px, 1.25fr) repeat(4, minmax(72px, 0.7fr)) auto;
 }
 
 .menu-recipe-amount {
@@ -1002,6 +1010,18 @@
   align-self: center;
   color: #493322;
   font-size: 12px;
+}
+
+.menu-addon-name {
+  display: grid;
+  gap: 3px;
+  align-self: center;
+  min-width: 0;
+}
+
+.menu-addon-name small {
+  color: #94877c;
+  font-size: 10px;
 }
 
 .menu-addon-row > label {
@@ -1111,10 +1131,13 @@
 
 @media (max-width: 620px) {
   .menu-recipe-entry { grid-template-columns: 1fr; }
+  .menu-recipe-entry.menu-conversion-entry,
+  .menu-addon-entry.menu-conversion-entry { grid-template-columns: 1fr; }
   .menu-recipe-entry > button { min-height: 40px; }
-  .menu-recipe-row { grid-template-columns: minmax(100px, 1fr) 90px auto 30px; gap: 5px; }
+  .menu-recipe-row { grid-template-columns: minmax(100px, 1fr) minmax(70px, 90px) minmax(70px, 90px) 30px; gap: 5px; }
   .menu-addon-row { grid-template-columns: 1fr 1fr; }
   .menu-addon-row > strong { grid-column: 1 / -1; }
+  .menu-addon-name { grid-column: 1 / -1; }
   .menu-addon-row > button { justify-self: end; }
 }
 

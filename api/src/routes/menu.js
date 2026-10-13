@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
+import { toInventoryQuantity } from "../utils/inventoryUnits.js";
 
 const router = Router();
 const toMoney = (value, label) => {
@@ -32,13 +33,15 @@ function toProduct(row, sizes, addons, ingredients) {
       price: Number(entry.price),
       inventoryItemId: entry.inventory_item_id == null ? null : Number(entry.inventory_item_id),
       quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
-      unit: entry.inventory_unit || "pcs",
+      unit: entry.usage_unit || entry.inventory_unit || "pcs",
+      stockUnit: entry.inventory_unit || "pcs",
     })),
     ingredients: ingredients.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
       inventoryItemId: Number(entry.inventory_item_id),
       name: entry.name,
       quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
       unit: entry.unit || entry.inventory_unit,
+      stockUnit: entry.inventory_unit,
     })),
   };
 }
@@ -55,7 +58,7 @@ async function listProducts(includeUnavailable = false) {
   const marks = ids.map(() => "?").join(",");
   const [sizeResult, addonResult, ingredientResult] = await Promise.all([
     pool.execute(`SELECT product_id, label, price FROM product_sizes WHERE product_id IN (${marks}) ORDER BY display_order, id`, ids),
-    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, i.unit AS inventory_unit FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
+    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
     pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
   ]);
   const sizes = sizeResult[0];
@@ -109,12 +112,13 @@ async function saveProduct(connection, body, id = null) {
     const name = String(ingredient?.name || ingredient?.item || "").trim();
     const quantityUsed = Number(ingredient?.quantityUsed);
     const unit = String(ingredient?.unit || "pcs").trim();
-    if (!name || name.length > 160 || !unit || unit.length > 40
+    const stockUnit = String(ingredient?.stockUnit || unit).trim();
+    if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
       || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-      throw httpError(400, "Each ingredient needs a name, stock unit, and positive amount with at most 3 decimal places.");
+      throw httpError(400, "Each ingredient needs a name, stock unit, recipe unit, and positive amount with at most 3 decimal places.");
     }
-    return { name, unit, quantityUsed };
+    return { name, unit, stockUnit, quantityUsed };
   });
   if (new Set(recipeInputs.map((entry) => entry.name.toLocaleLowerCase())).size !== recipeInputs.length) {
     throw httpError(400, "Each ingredient name can only appear once in a recipe.");
@@ -122,26 +126,27 @@ async function saveProduct(connection, body, id = null) {
   const addonInputs = addons.map((addon) => {
     const label = String(addon?.label || "").trim();
     const unit = String(addon?.unit || "pcs").trim();
+    const stockUnit = String(addon?.stockUnit || unit).trim();
     const quantityUsed = Number(addon?.quantityUsed);
-    if (!label || label.length > 100 || !unit || unit.length > 40
+    if (!label || label.length > 100 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
       || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-      throw httpError(400, "Each add-on needs a name, price, stock unit, and positive usage amount with at most 3 decimal places.");
+      throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount with at most 3 decimal places.");
     }
-    return { label, unit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
+    return { label, unit, stockUnit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
   });
   if (new Set(addonInputs.map((entry) => entry.label.toLocaleLowerCase())).size !== addonInputs.length) {
     throw httpError(400, "Each add-on name can only appear once per menu item.");
   }
 
-  const ensureInventoryItem = async (itemName, unit, itemCategory) => {
+  const ensureInventoryItem = async (itemName, stockUnit, itemCategory) => {
     let result;
     try {
       [result] = await connection.execute(
         `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu)
          VALUES (?, ?, 0, ?, 0, TRUE)
          ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
-        [itemName, itemCategory, unit],
+        [itemName, itemCategory, stockUnit],
       );
     } catch (error) {
       if (error.code === "ER_DUP_ENTRY") throw httpError(409, `Inventory already has “${itemName}” with a different spelling or name conflict. Check its existing entry.`);
@@ -152,21 +157,24 @@ async function saveProduct(connection, body, id = null) {
       "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
     );
     if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for “${itemName}”.`);
-    if (String(inventoryItem.unit).trim().toLocaleLowerCase() !== unit.toLocaleLowerCase()) {
-      throw httpError(409, `Inventory already has “${inventoryItem.name}” measured in ${inventoryItem.unit}. Use that same unit for this menu item.`);
-    }
     return inventoryItem;
   };
 
   const recipeItems = [];
   for (const entry of recipeInputs) {
-    const item = await ensureInventoryItem(entry.name, entry.unit, "Supplies");
-    recipeItems.push({ ...entry, inventoryItemId: Number(item.id), unit: item.unit });
+    const item = await ensureInventoryItem(entry.name, entry.stockUnit, "Supplies");
+    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
+      throw httpError(400, `Recipe unit “${entry.unit}” for ${entry.name} cannot be converted to its Inventory stock unit “${item.unit}”. Use compatible units such as g and kg, or keep the same unit.`);
+    }
+    recipeItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }
   const addonInventoryItems = [];
   for (const entry of addonInputs) {
-    const item = await ensureInventoryItem(entry.label, entry.unit, "Toppings");
-    addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), unit: item.unit });
+    const item = await ensureInventoryItem(entry.label, entry.stockUnit, "Toppings");
+    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
+      throw httpError(400, `Recipe unit “${entry.unit}” for ${entry.label} cannot be converted to its Inventory stock unit “${item.unit}”. Use compatible units such as g and kg, or keep the same unit.`);
+    }
+    addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }
 
   await connection.execute("DELETE FROM product_sizes WHERE product_id = ?", [productId]);
@@ -180,8 +188,8 @@ async function saveProduct(connection, body, id = null) {
   }
   for (const [index, addon] of addonInventoryItems.entries()) {
     await connection.execute(
-      "INSERT INTO product_addons (product_id, label, price, inventory_item_id, quantity_used, display_order) VALUES (?, ?, ?, ?, ?, ?)",
-      [productId, addon.label, addon.price, addon.inventoryItemId, addon.quantityUsed, index],
+      "INSERT INTO product_addons (product_id, label, price, inventory_item_id, quantity_used, usage_unit, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [productId, addon.label, addon.price, addon.inventoryItemId, addon.quantityUsed, addon.unit, index],
     );
   }
   for (const entry of recipeItems) {

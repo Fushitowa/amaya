@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { toInventoryQuantity } from "../utils/inventoryUnits.js";
 
 const router = Router();
 const orderFlow = ["Pending", "Preparing", "Ready", "Completed"];
@@ -95,13 +96,14 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       const addonPrices = [];
       for (const addonName of addonNames) {
         const [[addon]] = await connection.execute(
-          `SELECT pa.label, pa.price, pa.inventory_item_id, pa.quantity_used,
+          `SELECT pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit,
                   i.name AS inventory_name, i.unit AS inventory_unit
              FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id
             WHERE pa.product_id = ? AND pa.label = ?`, [productId, addonName],
         );
         if (!addon) throw httpError(400, `An add-on for ${product.name} is no longer available.`);
-        if (!addon.inventory_item_id || !Number.isFinite(Number(addon.quantity_used)) || Number(addon.quantity_used) <= 0 || !addon.inventory_unit) {
+        const stockQuantityPerServing = toInventoryQuantity(addon.quantity_used, addon.usage_unit || addon.inventory_unit, addon.inventory_unit);
+        if (!addon.inventory_item_id || !stockQuantityPerServing || !addon.inventory_unit) {
           throw httpError(409, `${addon.label} needs Inventory setup. Ask an admin to edit and save ${product.name} in Menu Management first.`);
         }
         addonPrices.push({
@@ -110,7 +112,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
           inventoryItemId: Number(addon.inventory_item_id),
           inventoryName: addon.inventory_name,
           unit: addon.inventory_unit,
-          quantityPerServing: Number(addon.quantity_used),
+          quantityPerServing: stockQuantityPerServing,
         });
       }
       const unitPrice = Number((Number(size.price) + addonPrices.reduce((sum, addon) => sum + addon.price, 0)).toFixed(2));
@@ -137,17 +139,16 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       const quantityPerServing = Number(ingredient.quantity_used);
       const recipeUnit = String(ingredient.recipe_unit || "").trim();
       const inventoryUnit = String(ingredient.inventory_unit || "").trim();
-      if (!Number.isFinite(quantityPerServing) || quantityPerServing <= 0 || !recipeUnit
-        || recipeUnit.toLowerCase() !== inventoryUnit.toLowerCase()) {
-        throw httpError(409, `The recipe for ${lineItems.find((line) => Number(line.product.id) === productId)?.product.name || "a menu item"} is incomplete or uses a different unit than Inventory. Update its recipe before ordering.`);
+      const stockQuantityPerServing = toInventoryQuantity(quantityPerServing, recipeUnit, inventoryUnit);
+      if (!stockQuantityPerServing) {
+        throw httpError(409, `The recipe for ${lineItems.find((line) => Number(line.product.id) === productId)?.product.name || "a menu item"} is incomplete or its units cannot be converted to Inventory. Update its recipe before ordering.`);
       }
-      const amount = Math.round(quantityPerServing * 1000) / 1000;
       const entries = recipesByProduct.get(productId) || [];
       entries.push({
         inventoryItemId,
         inventoryName: ingredient.inventory_name,
         unit: inventoryUnit,
-        quantityPerServing: amount,
+        quantityPerServing: stockQuantityPerServing,
       });
       recipesByProduct.set(productId, entries);
       inventoryNeeds.set(inventoryItemId, {

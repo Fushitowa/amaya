@@ -10,6 +10,7 @@ const migrations = [
   "004_inventory_tracked_addons.sql",
   "005_persistent_notifications.sql",
   "006_inventory_inactivity_alerts.sql",
+  "007_recipe_unit_conversions.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",
