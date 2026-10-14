@@ -1,5 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  ArrowUpRight,
+  ChartNoAxesColumnIncreasing,
+  CircleDollarSign,
+  ClipboardList,
+  Clock3,
+  Package,
+  Plus,
+  ReceiptText,
+} from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
@@ -131,11 +141,8 @@ function AdminDashboard() {
           <section className="admin-stats">
 
             
-            <div className="admin-stat-card">
-
-              <div className="stat-icon">
-                ₱
-              </div>
+            <div className="admin-stat-card stat-card-sales">
+              <div className="stat-icon"><CircleDollarSign size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
                 <span>Total Sales</span>
@@ -149,11 +156,8 @@ function AdminDashboard() {
 
 
             
-            <div className="admin-stat-card">
-
-              <div className="stat-icon">
-                ▤
-              </div>
+            <div className="admin-stat-card stat-card-orders">
+              <div className="stat-icon"><ClipboardList size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
                 <span>Today's Orders</span>
@@ -167,11 +171,8 @@ function AdminDashboard() {
 
 
             
-            <div className="admin-stat-card">
-
-              <div className="stat-icon">
-                ◷
-              </div>
+            <div className="admin-stat-card stat-card-pending">
+              <div className="stat-icon"><Clock3 size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
                 <span>Pending Orders</span>
@@ -185,16 +186,13 @@ function AdminDashboard() {
 
 
             
-            <div className="admin-stat-card">
-
-              <div className="stat-icon">
-                ☷
-              </div>
+            <div className="admin-stat-card stat-card-products">
+              <div className="stat-icon"><Package size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
                 <span>Total Products</span>
                 <h3>{products.length}</h3>
-                <small>
+                <small className={lowStockProducts.length ? "metric-note is-alert" : "metric-note"}>
                   {lowStockProducts.length} low-stock items
                 </small>
               </div>
@@ -210,38 +208,30 @@ function AdminDashboard() {
             
             <div className="admin-panel sales-panel">
 
-              <div className="panel-header">
+              <div className="panel-header sales-panel-header">
 
                 <div>
                   <h3>Sales Overview</h3>
                   <p>Sales performance for {chartRangeLabel}</p>
                 </div>
 
-                <select
-                  className="sales-filter"
-                  value={salesRange}
-                  onChange={(event) => setSalesRange(event.target.value)}
-                >
-                  <option value="week">
-                    This Week
-                  </option>
-
-                  <option value="month">
-                    This Month
-                  </option>
-
-                  <option value="year">
-                    This Year
-                  </option>
-                </select>
+                <div className="sales-header-controls">
+                  <span className="sales-total"><ChartNoAxesColumnIncreasing size={14} /> ₱{periodSales.toFixed(2)}</span>
+                  <select
+                    className="sales-filter"
+                    value={salesRange}
+                    onChange={(event) => setSalesRange(event.target.value)}
+                    aria-label="Sales chart date range"
+                  >
+                    <option value="week">Last 7 days</option>
+                    <option value="month">Last 30 days</option>
+                    <option value="year">This year</option>
+                  </select>
+                </div>
 
               </div>
 
               <div className="sales-chart">
-                <div className="chart-value">
-                  ₱{periodSales.toFixed(2)}
-                </div>
-
                 <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
                   {salesBuckets.map((bucket) => (
                     <div className="chart-column" key={`${salesRange}-${bucket.start.toISOString()}`}>
@@ -271,18 +261,14 @@ function AdminDashboard() {
                   to="/admin/menu"
                   className="quick-action"
                 >
-                  <span className="quick-icon">
-                    +
-                  </span>
+                  <span className="quick-icon"><Plus size={19} /></span>
 
                   <div>
                     <strong>Add Product</strong>
                     <span>Add a new menu item</span>
                   </div>
 
-                  <span className="quick-arrow">
-                    →
-                  </span>
+                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
                 </Link>
 
 
@@ -290,18 +276,14 @@ function AdminDashboard() {
                   to="/admin/orders"
                   className="quick-action"
                 >
-                  <span className="quick-icon">
-                    ▤
-                  </span>
+                  <span className="quick-icon"><ReceiptText size={18} /></span>
 
                   <div>
                     <strong>View Orders</strong>
                     <span>Manage customer orders</span>
                   </div>
 
-                  <span className="quick-arrow">
-                    →
-                  </span>
+                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
                 </Link>
 
 
@@ -309,18 +291,14 @@ function AdminDashboard() {
                   to="/admin/reports"
                   className="quick-action"
                 >
-                  <span className="quick-icon">
-                    ▥
-                  </span>
+                  <span className="quick-icon"><ChartNoAxesColumnIncreasing size={18} /></span>
 
                   <div>
                     <strong>View Reports</strong>
                     <span>Check sales reports</span>
                   </div>
 
-                  <span className="quick-arrow">
-                    →
-                  </span>
+                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
                 </Link>
 
               </div>

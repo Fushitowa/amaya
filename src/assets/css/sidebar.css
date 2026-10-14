@@ -73,6 +73,8 @@
 }
 
 .amaya-sidebar-link {
+  position: relative;
+  overflow: visible;
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -92,6 +94,12 @@
   background: rgba(90, 62, 43, 0.07);
   color: #5a3e2b;
   transform: translateX(2px);
+}
+
+.amaya-sidebar-link:not(.active):hover {
+  background-image: linear-gradient(105deg, rgba(90, 62, 43, 0.045) 0%, rgba(226, 173, 119, 0.2) 48%, rgba(90, 62, 43, 0.06) 100%);
+  background-size: 220% 100%;
+  animation: amaya-nav-cream-sweep 520ms ease-out;
 }
 
 .amaya-sidebar-link:focus-visible {
@@ -133,10 +141,38 @@
 }
 
 .amaya-sidebar-link.active {
-  background: #5a3e2b;
+  background: linear-gradient(105deg, #5a3e2b 0%, #5a3e2b 39%, #805b3e 50%, #5a3e2b 61%, #5a3e2b 100%);
+  background-size: 220% 100%;
+  background-position: 0 0;
   color: #ffffff;
   font-weight: 700;
   box-shadow: 0 10px 22px rgba(90, 62, 43, 0.22);
+  animation: amaya-nav-caramel-sweep 720ms ease-out;
+}
+
+.amaya-sidebar-link.nav-clicked:not(.active) {
+  background-image: linear-gradient(105deg, rgba(90, 62, 43, 0.04) 0%, rgba(226, 173, 119, 0.24) 48%, rgba(90, 62, 43, 0.06) 100%);
+  background-size: 220% 100%;
+  animation: amaya-nav-cream-sweep 620ms ease-out;
+}
+
+.amaya-sidebar-link.active.nav-clicked {
+  animation: amaya-nav-caramel-click 720ms ease-out;
+}
+
+@keyframes amaya-nav-caramel-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@keyframes amaya-nav-caramel-click {
+  from { background-position: 100% 0; box-shadow: 0 4px 12px rgba(90, 62, 43, 0.12); }
+  to { background-position: 0 0; box-shadow: 0 10px 22px rgba(90, 62, 43, 0.22); }
+}
+
+@keyframes amaya-nav-cream-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
 }
 
 .amaya-sidebar-link.active svg {
@@ -146,6 +182,62 @@
 .amaya-sidebar-link.active .amaya-sidebar-link-count {
   background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
+}
+
+/* A small serving-inspired steam and lift cue for portal navigation clicks. */
+.amaya-sidebar-link.active svg,
+.amaya-sidebar-link.nav-clicked svg {
+  animation: amaya-nav-serve 560ms cubic-bezier(.2, .8, .25, 1);
+  transform-origin: 50% 85%;
+}
+
+.amaya-sidebar-link.active::before,
+.amaya-sidebar-link.active::after,
+.amaya-sidebar-link.nav-clicked::before,
+.amaya-sidebar-link.nav-clicked::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  width: 4px;
+  height: 7px;
+  border-left: 1.5px solid #f4d5ad;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  animation: amaya-nav-steam 620ms ease-out;
+}
+
+.amaya-sidebar-link.active::before,
+.amaya-sidebar-link.nav-clicked::before { left: 22px; }
+.amaya-sidebar-link.active::after,
+.amaya-sidebar-link.nav-clicked::after { left: 30px; animation-delay: 90ms; }
+
+@keyframes amaya-nav-serve {
+  0% { transform: translateY(0) rotate(0) scale(1); }
+  35% { transform: translateY(-4px) rotate(-9deg) scale(1.12); }
+  68% { transform: translateY(1px) rotate(5deg) scale(.96); }
+  100% { transform: translateY(0) rotate(0) scale(1); }
+}
+
+@keyframes amaya-nav-steam {
+  0% { opacity: 0; transform: translateY(5px) rotate(10deg) scale(.7); }
+  35% { opacity: .95; }
+  100% { opacity: 0; transform: translateY(-7px) rotate(-12deg) scale(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amaya-sidebar-link.active svg,
+  .amaya-sidebar-link.nav-clicked svg,
+  .amaya-sidebar-link.active::before,
+  .amaya-sidebar-link.active::after,
+  .amaya-sidebar-link.nav-clicked::before,
+  .amaya-sidebar-link.nav-clicked::after,
+  .amaya-sidebar-link.active,
+  .amaya-sidebar-link.nav-clicked,
+  .amaya-sidebar-link:not(.active):hover {
+    animation: none;
+  }
 }
 
 .amaya-sidebar-bottom {

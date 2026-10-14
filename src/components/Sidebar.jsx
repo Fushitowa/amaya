@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import {
   ArrowLeft,
   BarChart2,
@@ -62,8 +63,14 @@ function Sidebar({
   className = "",
 }) {
   const { logout } = useAuth();
+  const [animatedItem, setAnimatedItem] = useState("");
   const resolvedSections = sections || NAV_BY_ROLE.admin;
   const portalLabel = role === "staff" ? "Staff Portal" : "Admin Portal";
+
+  const replayNavMotion = (itemKey) => {
+    setAnimatedItem("");
+    window.requestAnimationFrame(() => setAnimatedItem(itemKey));
+  };
 
   return (
     <aside className={`amaya-sidebar ${className}`.trim()}>
@@ -93,8 +100,9 @@ function Sidebar({
                 <Link
                   key={item.key}
                   to={item.to}
-                  className={`amaya-sidebar-link${isActive ? " active" : ""}`}
+                  className={`amaya-sidebar-link${isActive ? " active" : ""}${animatedItem === item.key ? " nav-clicked" : ""}`}
                   aria-current={isActive ? "page" : undefined}
+                  onClick={() => replayNavMotion(item.key)}
                 >
                   <item.Icon aria-hidden="true" />
                   <span className="amaya-sidebar-link-label">{item.label}</span>
@@ -107,10 +115,10 @@ function Sidebar({
       </nav>
 
       <div className="amaya-sidebar-bottom">
-        <Link to="/" className="amaya-sidebar-link">
+        <a href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"} className="amaya-sidebar-link">
           <ArrowLeft aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Back to Website</span>
-        </Link>
+        </a>
         <Link to="/login" className="amaya-sidebar-link amaya-sidebar-link--logout" onClick={logout}>
           <LogOut aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Log Out</span>
