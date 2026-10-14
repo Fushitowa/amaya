@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import amayaLogo from "../assets/images/amayalogo.png";
 import "../assets/css/login.css";
@@ -131,12 +131,9 @@ function Login() {
         </div>
 
         
-        <Link
-          to="/"
-          className="back-home"
-        >
-          ← Back to Amaya
-        </Link>
+        <a href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"} className="back-home">
+          ← Visit customer website
+        </a>
 
       </div>
     </main>

@@ -11,6 +11,8 @@ import { OrdersProvider } from "./context/OrdersContext.jsx";
 import InventoryProvider from "./context/InventoryContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 
+document.title = import.meta.env.MODE === "portal" ? "Amaya Admin & Staff Portal" : "Amaya | Drinks & Bites";
+
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <AuthProvider>

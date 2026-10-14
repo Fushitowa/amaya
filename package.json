@@ -4,8 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite --mode customer",
+    "dev:customer": "vite --mode customer",
+    "dev:portal": "vite --mode portal",
+    "build": "vite build --mode customer",
+    "build:customer": "vite build --mode customer",
+    "build:portal": "vite build --mode portal",
     "lint": "eslint .",
     "preview": "vite preview"
   },

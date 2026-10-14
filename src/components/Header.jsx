@@ -20,10 +20,6 @@ function Header() {
         </nav>
 
         
-        <Link to="/login" className="header-button">
-          Log In
-        </Link>
-
       </div>
     </header>
   );
