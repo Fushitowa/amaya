@@ -187,3 +187,310 @@
   outline: 3px solid rgba(139, 94, 60, 0.35);
   outline-offset: 2px;
 }
+
+.admin-settings-save-state.is-dirty,
+.admin-settings-save-state.is-saving {
+  border-color: #ead9bd;
+  background: #fff9ed;
+  color: #946522;
+}
+
+.admin-settings-save-state.is-dirty .settings-status-dot,
+.admin-settings-save-state.is-saving .settings-status-dot {
+  background: #c48a3a;
+  box-shadow: 0 0 0 4px rgba(196, 138, 58, .12);
+}
+
+.admin-settings-save-state.is-error {
+  border-color: #efd4ce;
+  background: #fff6f3;
+  color: #a64f40;
+}
+
+.admin-settings-save-state.is-error .settings-status-dot {
+  background: #b85f50;
+  box-shadow: 0 0 0 4px rgba(184, 95, 80, .12);
+}
+
+.admin-settings-hours-note.is-closed {
+  background: #fbf3ed;
+  color: #986144;
+}
+
+.admin-settings-hours-note.is-closed > span {
+  color: #b66b50;
+}
+
+/* Admin settings visual polish */
+.admin-settings-page {
+	min-height: 100vh;
+	background:
+		radial-gradient(ellipse at 88% 0%, rgba(139, 94, 60, 0.075), transparent 34rem),
+		linear-gradient(180deg, #fbf7f3 0%, #f5efea 100%);
+}
+
+.admin-settings-topbar {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	min-height: 82px;
+	padding-inline: clamp(20px, 3vw, 42px);
+	box-shadow: 0 1px 0 rgba(52, 39, 29, 0.04);
+}
+
+.admin-settings-topbar h1 {
+	font-size: 24px;
+	letter-spacing: -0.7px;
+}
+
+.admin-settings-content {
+	width: 100%;
+	padding: clamp(24px, 4vw, 48px);
+}
+
+.admin-settings-heading {
+	position: relative;
+	align-items: center;
+	margin-bottom: 26px;
+	padding: clamp(22px, 3vw, 32px);
+	border: 1px solid rgba(139, 94, 60, 0.11);
+	border-radius: 18px;
+	background: linear-gradient(118deg, rgba(255, 253, 251, 0.98), rgba(250, 243, 237, 0.94));
+	box-shadow: 0 12px 32px rgba(60, 42, 30, 0.045);
+}
+
+.admin-settings-heading h2 {
+	font-size: clamp(25px, 2.5vw, 32px);
+	letter-spacing: -0.6px;
+}
+
+.admin-settings-heading p {
+	max-width: 620px;
+	line-height: 1.65;
+}
+
+.admin-settings-save-state {
+	min-height: 38px;
+	padding: 9px 13px;
+	border-radius: 999px;
+}
+
+.admin-settings-layout {
+	grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+	gap: 22px;
+}
+
+.admin-settings-primary-column,
+.admin-settings-secondary-column {
+	gap: 22px;
+}
+
+.admin-settings-card {
+	padding: clamp(20px, 2.5vw, 28px);
+	border-color: rgba(92, 67, 50, 0.12);
+	border-radius: 16px;
+	background: rgba(255, 255, 255, 0.94);
+	box-shadow: 0 8px 24px rgba(60, 42, 30, 0.045);
+	transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.admin-settings-card:hover {
+	border-color: rgba(139, 94, 60, 0.22);
+	box-shadow: 0 12px 30px rgba(60, 42, 30, 0.07);
+}
+
+.admin-settings-card-header {
+	align-items: center;
+	margin-bottom: 20px;
+}
+
+.admin-settings-card-icon {
+	width: 42px;
+	height: 42px;
+	flex-basis: 42px;
+	border: 1px solid rgba(139, 94, 60, 0.1);
+	border-radius: 12px;
+	background: linear-gradient(145deg, #fbf3eb, #f4e8dc);
+}
+
+.admin-settings-card-header h3 {
+	font-size: 18px;
+	letter-spacing: -0.2px;
+}
+
+.admin-settings-card-header p {
+	margin-top: 4px;
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.admin-settings-fields {
+	gap: 18px;
+}
+
+.admin-settings-fields label {
+	gap: 8px;
+	color: #59483e;
+	font-size: 12px;
+}
+
+.admin-settings-fields input {
+	min-height: 46px;
+	padding-inline: 14px;
+	border-color: #e8ded6;
+	border-radius: 10px;
+	background: #fffefd;
+	font-size: 13px;
+}
+
+.admin-settings-fields input:hover {
+	border-color: #cdb9a8;
+}
+
+.admin-settings-hours-note {
+	min-height: 44px;
+	margin-top: 18px;
+	padding: 12px 14px;
+	border: 1px solid #e2ede1;
+	border-radius: 10px;
+	font-size: 11px;
+}
+
+.admin-settings-hours-note.is-closed {
+	border-color: #f0dfd2;
+}
+
+.admin-settings-toggle-row,
+.security-row {
+	padding-block: 17px;
+	border-color: #f0e9e3;
+}
+
+.admin-settings-toggle-row strong,
+.security-row strong {
+	font-size: 13px;
+}
+
+.admin-settings-toggle-row p,
+.security-row span {
+	max-width: 290px;
+	font-size: 11px;
+	line-height: 1.55;
+}
+
+.admin-settings-toggle {
+	width: 42px;
+	height: 24px;
+	flex-basis: 42px;
+}
+
+.admin-settings-toggle span {
+	top: 3px;
+	left: 3px;
+	width: 18px;
+	height: 18px;
+}
+
+.admin-settings-toggle.is-active span {
+	transform: translateX(18px);
+}
+
+.admin-settings-toggle:focus-visible,
+.settings-secondary-button:focus-visible,
+.admin-settings-save-button:focus-visible {
+	outline: 3px solid rgba(139, 94, 60, 0.27);
+	outline-offset: 3px;
+}
+
+.settings-secondary-button,
+.security-badge {
+	min-height: 34px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding-inline: 12px;
+	border-radius: 8px;
+	font-size: 11px !important;
+}
+
+.settings-secondary-button:hover {
+	border-color: var(--settings-accent);
+	background: #fbf6f1;
+	color: var(--settings-accent-dark);
+}
+
+.admin-settings-footer {
+	margin-top: 24px;
+	padding: 18px 20px;
+	border: 1px solid var(--settings-line);
+	border-radius: 14px;
+	background: rgba(255, 253, 251, 0.9);
+}
+
+.admin-settings-save-button {
+	min-height: 44px;
+	min-width: 156px;
+	border-radius: 10px;
+	font-size: 12px;
+}
+
+.settings-save-error,
+.settings-password-feedback {
+	padding: 13px 15px;
+	border-radius: 10px;
+	line-height: 1.5;
+}
+
+.admin-settings-password-modal {
+	border-radius: 18px;
+}
+
+@media (max-width: 1100px) {
+	.admin-settings-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.admin-settings-secondary-column {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 820px) {
+	.admin-settings-content {
+		padding: 28px 24px;
+	}
+
+	.admin-settings-heading {
+		align-items: flex-start;
+	}
+}
+
+@media (max-width: 620px) {
+	.admin-settings-secondary-column {
+		grid-template-columns: 1fr;
+	}
+
+	.admin-settings-heading {
+		padding: 21px;
+		border-radius: 14px;
+	}
+
+	.admin-settings-card {
+		padding: 19px;
+		border-radius: 13px;
+	}
+
+	.admin-settings-footer {
+		padding: 16px;
+		border-radius: 12px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.admin-settings-card,
+	.admin-settings-toggle,
+	.admin-settings-toggle span,
+	.admin-settings-save-button {
+		transition: none;
+	}
+}

@@ -33,17 +33,31 @@ const ICONS = {
   info: Bell,
 };
 
+const DEFAULT_STAFF_ALERT_PREFERENCES = {
+  notifications: true,
+  orderAlerts: true,
+  inventoryAlerts: true,
+  audioChime: true,
+};
+
+function readStaffAlertPreferences() {
+  try {
+    return {
+      ...DEFAULT_STAFF_ALERT_PREFERENCES,
+      ...JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}"),
+    };
+  } catch {
+    return DEFAULT_STAFF_ALERT_PREFERENCES;
+  }
+}
+
 function StaffNotificationBell() {
   // Read straight from storage on first render; the effect below only
   // subscribes to external changes, so no cascading setState on mount.
   const [notifications, setNotifications] = useState(readStaffNotifications);
   const [isOpen, setIsOpen] = useState(false);
   const [isRinging, setIsRinging] = useState(false);
-  const [inventoryAlertsEnabled, setInventoryAlertsEnabled] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}").inventoryAlerts !== false;
-    } catch { return true; }
-  });
+  const [alertPreferences, setAlertPreferences] = useState(readStaffAlertPreferences);
   const rootRef = useRef(null);
   const ringTimer = useRef(null);
 
@@ -56,13 +70,15 @@ function StaffNotificationBell() {
     // Newest arrival: chime, flash, and re-read (the notifier is the writer).
     const handleNotification = (event) => {
       load();
-      let preferences = {};
-      try {
-        preferences = JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}");
-      } catch { /* Keep default alert behavior when browser storage is unavailable. */ }
+      const type = event?.detail?.type;
+      // Polling refreshes the feed only. Alert effects should run only for a real notification event.
+      if (!type) return;
+      const preferences = readStaffAlertPreferences();
+      setAlertPreferences(preferences);
+      const isInventoryAlert = ["inventory_low", "inventory_inactive"].includes(type);
       const alertEnabled = preferences.notifications !== false
-        && !(event.detail?.type === "order_new" && preferences.orderAlerts === false)
-        && !(event.detail?.type === "inventory_low" && preferences.inventoryAlerts === false);
+        && !(type === "order_new" && preferences.orderAlerts === false)
+        && !(isInventoryAlert && preferences.inventoryAlerts === false);
       if (!alertEnabled) return;
       if (preferences.audioChime !== false) playNotificationChime();
       setIsRinging(true);
@@ -73,15 +89,9 @@ function StaffNotificationBell() {
     // Cross-tab sync so an admin action lands on an already-open staff till.
     const handleStorage = (event) => {
       if (event.key === STAFF_NOTIFICATIONS_KEY) load();
-      if (event.key === "amaya-staff-preferences") {
-        try { setInventoryAlertsEnabled(JSON.parse(event.newValue || "{}").inventoryAlerts !== false); }
-        catch { setInventoryAlertsEnabled(true); }
-      }
+      if (event.key === "amaya-staff-preferences") setAlertPreferences(readStaffAlertPreferences());
     };
-    const handlePreferenceChange = () => {
-      try { setInventoryAlertsEnabled(JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}").inventoryAlerts !== false); }
-      catch { setInventoryAlertsEnabled(true); }
-    };
+    const handlePreferenceChange = () => setAlertPreferences(readStaffAlertPreferences());
 
     const handleClickOutside = (event) => {
       if (rootRef.current && !rootRef.current.contains(event.target)) setIsOpen(false);
@@ -94,7 +104,7 @@ function StaffNotificationBell() {
     window.addEventListener(STAFF_NOTIFY_EVENT, handleNotification);
     window.addEventListener("amaya:notifications-updated", load);
     window.addEventListener("storage", handleStorage);
-    const poll = window.setInterval(handleNotification, 12000);
+    const poll = window.setInterval(load, 12000);
     window.addEventListener("amaya-staff-preferences", handlePreferenceChange);
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
@@ -111,7 +121,11 @@ function StaffNotificationBell() {
     };
   }, [load]);
 
-  const visibleNotifications = useMemo(() => notifications.filter((item) => inventoryAlertsEnabled || !["inventory_low", "inventory_inactive"].includes(item.type)), [inventoryAlertsEnabled, notifications]);
+  const visibleNotifications = useMemo(() => notifications.filter((item) =>
+    alertPreferences.notifications !== false
+    && !(item.type === "order_new" && alertPreferences.orderAlerts === false)
+    && !(["inventory_low", "inventory_inactive"].includes(item.type) && alertPreferences.inventoryAlerts === false),
+  ), [alertPreferences, notifications]);
   const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);
 
   const commit = (next) => {

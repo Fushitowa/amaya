@@ -5,7 +5,7 @@ import PortalNotificationButton from "../../components/PortalNotificationButton.
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { useBusiness } from "../../context/BusinessContext.jsx";
+import { formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 
 import "../../assets/css/admin/AdminSettings.css";
@@ -21,6 +21,19 @@ const initialSettings = {
 	openingTime: "09:00",
 	closingTime: "21:00",
 };
+
+function isStoreOpen(openingTime, closingTime, currentDate) {
+	const parseTime = (time) => {
+		const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(time || ""));
+		return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+	};
+	const opening = parseTime(openingTime);
+	const closing = parseTime(closingTime);
+	if (opening === null || closing === null) return false;
+	if (opening === closing) return true;
+	const now = currentDate.getHours() * 60 + currentDate.getMinutes();
+	return closing > opening ? now >= opening && now < closing : now >= opening || now < closing;
+}
 
 function readNotificationPreferences() {
 	try {
@@ -40,6 +53,8 @@ function AdminSettings() {
 	const [saveState, setSaveState] = useState("idle");
 	const [saveError, setSaveError] = useState("");
 	const [lastSaved, setLastSaved] = useState(null);
+	const [statusClock, setStatusClock] = useState(() => new Date());
+	const storeOpen = isStoreOpen(settings.openingTime, settings.closingTime, statusClock);
 	const [showPasswordForm, setShowPasswordForm] = useState(false);
 	const [passwordValues, setPasswordValues] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
 	const [passwordSaving, setPasswordSaving] = useState(false);
@@ -47,6 +62,10 @@ function AdminSettings() {
 	const saveTimers = useRef([]);
 
 	useEffect(() => () => saveTimers.current.forEach((timer) => clearTimeout(timer)), []);
+	useEffect(() => {
+		const timer = window.setInterval(() => setStatusClock(new Date()), 60_000);
+		return () => window.clearInterval(timer);
+	}, []);
 	useEffect(() => {
 		try {
 			localStorage.setItem("amaya-admin-notifications", JSON.stringify(preferences));
@@ -68,7 +87,7 @@ function AdminSettings() {
 		const { name, value } = event.target;
 		setSettingsDraft((current) => ({ ...current, [name]: value }));
 		setSaveError("");
-		if (saveState !== "saving") setSaveState("idle");
+		if (saveState !== "saving") setSaveState("dirty");
 	};
 
 	const handleSave = async (event) => {
@@ -144,7 +163,7 @@ function AdminSettings() {
 							<h2>Keep Amaya running smoothly.</h2>
 							<p>Manage your cafe profile, operating hours, and admin alerts from one place.</p>
 						</div>
-						<div className="admin-settings-save-state"><span className="settings-status-dot"></span>{saveState === "success" ? "Changes saved" : "All systems operational"}</div>
+						<div className={`admin-settings-save-state is-${saveState}`}><span className="settings-status-dot"></span>{saveState === "success" ? "Changes saved" : saveState === "saving" ? "Saving changes" : saveState === "error" ? "Save failed" : saveState === "dirty" ? "Unsaved changes" : lastSaved ? "Settings saved" : "Ready to configure"}</div>
 					</section>
 
 					<form className="admin-settings-form" onSubmit={handleSave}>
@@ -166,7 +185,7 @@ function AdminSettings() {
 										<label>Opening time<input type="time" name="openingTime" value={settings.openingTime} onChange={updateSetting} /></label>
 										<label>Closing time<input type="time" name="closingTime" value={settings.closingTime} onChange={updateSetting} /></label>
 									</div>
-									<div className="admin-settings-hours-note"><span>●</span> Store is currently open <strong>Today, 9:00 AM - 9:00 PM</strong></div>
+									<div className={`admin-settings-hours-note ${storeOpen ? "is-open" : "is-closed"}`}><span aria-hidden="true">●</span> Store is currently {storeOpen ? "open" : "closed"}<strong>Today, {formatBusinessTime(settings.openingTime)} - {formatBusinessTime(settings.closingTime)}</strong></div>
 								</section>
 							</div>
 
