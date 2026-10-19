@@ -269,7 +269,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         [created.insertId, line.product.id, line.product.name, line.product.category || "Menu item", line.quantity, line.sizeLabel, line.sugarLevel, line.unitPrice, line.instructions],
       );
       for (const ingredient of line.inventoryConsumptions) {
-        const quantityUsed = Math.round(ingredient.quantityPerServing * line.quantity * 1000) / 1000;
+        const quantityUsed = Math.round(ingredient.quantityPerServing * line.quantity * 1000000) / 1000000;
         await connection.execute(
           `INSERT INTO order_inventory_consumptions
              (order_id, order_item_id, order_number, product_name_snapshot, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit)

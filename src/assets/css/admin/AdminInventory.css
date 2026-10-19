@@ -362,7 +362,7 @@
   color: var(--inventory-success);
 }
 
-.inventory-status.low-stock {
+.inventory-status.over-maximum {
   background: var(--inventory-warning-bg);
   color: var(--inventory-warning);
 }
@@ -463,6 +463,26 @@
   color: var(--inventory-ink);
   font-weight: 600;
   font-size: 13px;
+}
+
+.inventory-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.inventory-optional-label {
+  color: var(--inventory-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.inventory-field-hint {
+  color: var(--inventory-muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 .admin-inventory-form-grid input,
@@ -842,7 +862,7 @@
   color: #047857;
 }
 
-.admin-inventory-badge.low-stock {
+.admin-inventory-badge.over-maximum {
   background: #fffbeb;
   border-color: #fde68a;
   color: #92400e;
@@ -891,11 +911,11 @@
   letter-spacing: normal;
 }
 
-.admin-inventory-card-min {
+.admin-inventory-card-max {
   text-align: right;
 }
 
-.admin-inventory-card-min p {
+.admin-inventory-card-max p {
   margin: 3px 0 0;
   font-size: 12.5px;
   font-weight: 700;
@@ -921,7 +941,7 @@
   background: linear-gradient(90deg, #34d399, #059669);
 }
 
-.admin-inventory-progress > span.low-stock {
+.admin-inventory-progress > span.over-maximum {
   background: linear-gradient(90deg, #fbbf24, #d97706);
 }
 

@@ -342,8 +342,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Low Stock Alerts</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Show low and out-of-stock items in the notification bell</span>
+                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Inventory Limit Alerts</strong>
+                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Show out-of-stock and above-maximum items in the notification bell</span>
                   </div>
                   <input
                     type="checkbox"

@@ -282,15 +282,15 @@ function AdminReport() {
 
   const stockReport = useMemo(() => {
     return inventory.map((entry) => {
-      const status = getInventoryStatus(entry.quantity, entry.minimumStock);
+      const status = getInventoryStatus(entry.quantity, entry.maximumStock);
       return {
         id: entry.id,
         item: entry.item,
         category: entry.category,
         quantity: entry.quantity,
         unit: entry.unit,
-        minimumStock: entry.minimumStock,
-        tone: status === "In Stock" ? "available" : status === "Low Stock" ? "low" : "critical",
+        maximumStock: entry.maximumStock,
+        tone: status === "In Stock" ? "available" : status === "Over Maximum" ? "over" : "critical",
         label: status,
       };
     });
@@ -298,7 +298,7 @@ function AdminReport() {
 
   const stockBreakdown = useMemo(() => ({
     total: stockReport.length,
-    low: stockReport.filter((item) => item.tone === "low").length,
+    over: stockReport.filter((item) => item.tone === "over").length,
     critical: stockReport.filter((item) => item.tone === "critical").length,
   }), [stockReport]);
 
@@ -342,11 +342,11 @@ function AdminReport() {
       });
     }
 
-    if (stockBreakdown.critical || stockBreakdown.low) {
+    if (stockBreakdown.critical || stockBreakdown.over) {
       notes.push({
         tone: "warning",
         label: "Stock alerts",
-        value: `${stockBreakdown.critical + stockBreakdown.low} item${stockBreakdown.critical + stockBreakdown.low === 1 ? "" : "s"} need restocking`,
+        value: `${stockBreakdown.critical + stockBreakdown.over} item${stockBreakdown.critical + stockBreakdown.over === 1 ? "" : "s"} need review`,
       });
     }
 
@@ -714,7 +714,7 @@ function AdminReport() {
                 <h3>Stock health</h3>
               </div>
               <span className="inventory-count">
-                {stockBreakdown.critical} critical · {stockBreakdown.low} low
+                {stockBreakdown.critical} out of stock · {stockBreakdown.over} above maximum
               </span>
             </div>
 
@@ -723,8 +723,8 @@ function AdminReport() {
                 const count = filter === "all"
                   ? stockReport.length
                   : filter === "attention"
-                    ? stockBreakdown.critical + stockBreakdown.low
-                    : stockReport.length - stockBreakdown.critical - stockBreakdown.low;
+                    ? stockBreakdown.critical + stockBreakdown.over
+                    : stockReport.length - stockBreakdown.critical - stockBreakdown.over;
 
                 return (
                   <button
@@ -754,7 +754,7 @@ function AdminReport() {
                       <th scope="col">Inventory item</th>
                       <th scope="col">Category</th>
                       <th scope="col">Current quantity</th>
-                      <th scope="col">Minimum stock</th>
+                      <th scope="col">Maximum stock</th>
                       <th scope="col">Status</th>
                     </tr>
                   </thead>
@@ -764,7 +764,7 @@ function AdminReport() {
                         <td>{item.item}</td>
                         <td>{item.category}</td>
                         <td>{item.quantity} {item.unit}</td>
-                        <td>{item.minimumStock} {item.unit}</td>
+                        <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock} ${item.unit}`}</td>
                         <td>
                           <span className={`inventory-status ${item.tone}`}>{item.label}</span>
                         </td>

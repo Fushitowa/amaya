@@ -36,7 +36,7 @@ function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInve
       quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit),
       ...(includeInventory ? {
         inventoryQuantity: Number(entry.inventory_quantity),
-        minimumStock: Number(entry.minimum_stock),
+        maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
       } : {}),
     }));
   const productSizes = sizes
@@ -79,7 +79,7 @@ function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInve
       quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit),
       ...(includeInventory ? {
         inventoryQuantity: Number(entry.inventory_quantity || 0),
-        minimumStock: Number(entry.minimum_stock || 0),
+        maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
       } : {}),
     })),
     ingredients: productIngredients,
@@ -97,8 +97,8 @@ async function listProducts(includeUnavailable = false, includeInventory = false
   const ids = products.map((product) => product.id);
   const marks = ids.map(() => "?").join(",");
   const [addonResult, ingredientResult, sizeResult] = await Promise.all([
-    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.minimum_stock FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
-    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.minimum_stock FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
+    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
+    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
     pool.execute(`SELECT ps.product_id, ps.id, ps.label, ps.price FROM product_sizes ps WHERE ps.product_id IN (${marks}) ORDER BY ps.display_order, ps.id`, ids),
   ]);
   const addonRows = addonResult[0];
@@ -134,8 +134,8 @@ function normalizeRecipeEntries(entries, description) {
     if (packedUnitError) throw httpError(400, packedUnitError);
     if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
-      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-      throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount with at most 3 decimal places.`);
+      || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
+		throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount with at most 6 decimal places.`);
     }
     return { name, unit, stockUnit, quantityUsed };
   });
@@ -225,8 +225,8 @@ async function saveProduct(connection, body, id = null) {
     if (packedUnitError) throw httpError(400, packedUnitError);
     if (!label || label.length > 100 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
       || !Number.isFinite(quantityUsed) || quantityUsed <= 0
-      || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-      throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount with at most 3 decimal places.");
+      || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
+		throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount with at most 6 decimal places.");
     }
     return { label, unit, stockUnit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
   });
@@ -238,8 +238,8 @@ async function saveProduct(connection, body, id = null) {
     let result;
     try {
       [result] = await connection.execute(
-        `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu)
-         VALUES (?, ?, 0, ?, 0, TRUE)
+        `INSERT INTO inventory_items (name, category, quantity, unit, maximum_stock, added_from_menu)
+         VALUES (?, ?, 0, ?, NULL, TRUE)
          ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
         [itemName, itemCategory, stockUnit],
       );
@@ -249,7 +249,7 @@ async function saveProduct(connection, body, id = null) {
     }
     const inventoryItemId = Number(result.insertId);
     const [[inventoryItem]] = await connection.execute(
-      "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
+      "SELECT id, name, unit FROM inventory_items WHERE id = ? AND archived_at IS NULL FOR UPDATE", [inventoryItemId],
     );
     if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for “${itemName}”.`);
     const packedStockUnitError = explainPackedUnit(itemName, inventoryItem.unit, "stock");
@@ -261,7 +261,7 @@ async function saveProduct(connection, body, id = null) {
   for (const entry of recipeInputs) {
     const item = await ensureInventoryItem(entry.name, entry.stockUnit, "Supplies");
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `Recipe unit “${entry.unit}” for ${entry.name} cannot be converted to its Inventory stock unit “${item.unit}”. Use compatible units such as g and kg, or keep the same unit.`);
+      throw httpError(400, `“${entry.unit}” for ${entry.name} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
     }
     recipeItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }
@@ -269,7 +269,7 @@ async function saveProduct(connection, body, id = null) {
   for (const entry of addonInputs) {
     const item = await ensureInventoryItem(entry.label, entry.stockUnit, "Toppings");
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `Recipe unit “${entry.unit}” for ${entry.label} cannot be converted to its Inventory stock unit “${item.unit}”. Use compatible units such as g and kg, or keep the same unit.`);
+      throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
     }
     addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }

@@ -12,6 +12,9 @@ const migrations = [
   "006_inventory_inactivity_alerts.sql",
   "007_recipe_unit_conversions.sql",
   "008_size_specific_recipes.sql",
+  "009_replace_minimum_with_maximum_stock.sql",
+  "010_archive_inventory_items.sql",
+  "011_inventory_unit_precision.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",

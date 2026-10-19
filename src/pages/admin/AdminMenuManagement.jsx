@@ -39,21 +39,61 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MENU_PAGE_SIZE = 16;
 const supportedUnits = [
-	{ group: "Weight", units: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
-	{ group: "Volume", units: [["ml", "Milliliters (ml)"], ["L", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["cup", "Cups"], ["fl oz", "Fluid ounces (fl oz)"]] },
-	{ group: "Count", units: [["pcs", "Pieces (pcs)"], ["dozen", "Dozen"]] },
+	{ group: "Weight", units: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
+	{ group: "Volume", units: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["L", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
+	{ group: "Count", units: [["pcs", "Pieces (pcs)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
 ];
+const unitFactors = new Map();
+const registerUnit = (dimension, factorToBase, units) => units.forEach((unit) => unitFactors.set(unit.toLowerCase(), { dimension, factorToBase }));
+registerUnit("mass", 0.000001, ["µg", "μg", "ug", "mcg", "microgram", "micrograms"]);
+registerUnit("mass", 0.001, ["mg", "milligram", "milligrams"]);
+registerUnit("mass", 1, ["g", "gram", "grams"]);
+registerUnit("mass", 100, ["hg", "hectogram", "hectograms"]);
+registerUnit("mass", 1000, ["kg", "kilogram", "kilograms"]);
+registerUnit("mass", 1000000, ["t", "tonne", "tonnes", "metric ton", "metric tons"]);
+registerUnit("mass", 28.349523125, ["oz", "ounce", "ounces"]);
+registerUnit("mass", 453.59237, ["lb", "lbs", "pound", "pounds"]);
+registerUnit("volume", 1, ["ml", "milliliter", "milliliters", "millilitre", "millilitres", "cc", "cm3", "cm³"]);
+registerUnit("volume", 10, ["cl", "centiliter", "centiliters", "centilitre", "centilitres"]);
+registerUnit("volume", 100, ["dl", "deciliter", "deciliters", "decilitre", "decilitres"]);
+registerUnit("volume", 1000, ["l", "liter", "liters", "litre", "litres"]);
+registerUnit("volume", 4.92892159375, ["tsp", "teaspoon", "teaspoons"]);
+registerUnit("volume", 14.78676478125, ["tbsp", "tablespoon", "tablespoons"]);
+registerUnit("volume", 236.5882365, ["cup", "cups"]);
+registerUnit("volume", 29.5735295625, ["fl oz", "fluid ounce", "fluid ounces"]);
+registerUnit("volume", 473.176473, ["pt", "pint", "pints"]);
+registerUnit("volume", 946.352946, ["qt", "quart", "quarts"]);
+registerUnit("volume", 3785.411784, ["gal", "gallon", "gallons"]);
+registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
+registerUnit("count", 2, ["pair", "pairs"]);
+registerUnit("count", 12, ["dozen", "doz"]);
+const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
+	const sourceName = String(recipeUnit || "").trim().toLowerCase();
+	const targetName = String(stockUnit || "").trim().toLowerCase();
+	const quantity = Number(amount);
+	const source = unitFactors.get(sourceName);
+	const target = unitFactors.get(targetName);
+	if (!Number.isFinite(quantity) || quantity <= 0) return null;
+	if (!source && !target && sourceName === targetName) return quantity;
+	if (!source || !target || source.dimension !== target.dimension) return null;
+	const converted = Number((quantity * source.factorToBase / target.factorToBase).toFixed(6));
+	return converted > 0 ? converted : null;
+};
 const amountAttachedToUnit = (unit) => /^\s*\d+(?:\.\d+)?\s*[a-z]/i.test(String(unit || ""));
 
-function UnitSelect({ value, onChange, ariaLabel, disabled = false }) {
+function UnitSelect({ value, onChange, ariaLabel, disabled = false, compatibleWith }) {
 	const currentUnit = String(value || "pcs");
 	const knownUnits = supportedUnits.flatMap((group) => group.units.map(([unit]) => unit.toLowerCase()));
+	const compatibleUnit = unitFactors.get(String(compatibleWith || "").trim().toLowerCase());
 	return (
 		<select value={currentUnit} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} disabled={disabled}>
 			{!knownUnits.includes(currentUnit.toLowerCase()) && <option value={currentUnit}>{currentUnit} (current unit)</option>}
 			{supportedUnits.map((group) => (
 				<optgroup key={group.group} label={group.group}>
-					{group.units.map(([unit, label]) => <option key={unit} value={unit}>{label}</option>)}
+				{group.units.map(([unit, label]) => {
+					const definition = unitFactors.get(unit.toLowerCase());
+					return <option key={unit} value={unit} disabled={Boolean(compatibleUnit && definition?.dimension !== compatibleUnit.dimension)}>{label}</option>;
+				})}
 				</optgroup>
 			))}
 		</select>
@@ -211,8 +251,12 @@ function AdminMenuManagement() {
 			setRecipeError("Enter an ingredient name, stock unit, and recipe unit.");
 			return;
 		}
-		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-			setRecipeError("Enter a positive amount with at most 3 decimal places.");
+		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
+			setRecipeError("Enter a positive amount with at most 6 decimal places.");
+			return;
+		}
+		if (!convertRecipeAmount(quantityUsed, unit, stockUnit)) {
+			setRecipeError(`“${unit}” and “${stockUnit}” cannot be converted automatically. Choose units from the same group (weight, volume, or count).`);
 			return;
 		}
 		if (formValues.ingredients.some((entry) => String(entry.name || entry.item || "").trim().toLowerCase() === name.toLowerCase())) {
@@ -249,8 +293,12 @@ function AdminMenuManagement() {
 			setRecipeError("Enter a valid add-on name, price, stock unit, and recipe unit.");
 			return;
 		}
-		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(3)) !== quantityUsed) {
-			setRecipeError("Enter the add-on quantity used per serving (up to 3 decimal places).");
+		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
+			setRecipeError("Enter the add-on quantity used per serving (up to 6 decimal places).");
+			return;
+		}
+		if (!convertRecipeAmount(quantityUsed, unit, stockUnit)) {
+			setRecipeError(`“${unit}” and “${stockUnit}” cannot be converted automatically. Choose units from the same group (weight, volume, or count).`);
 			return;
 		}
 		if (formValues.addons.some((entry) => entry.label.trim().toLowerCase() === label.toLowerCase())) {
@@ -739,16 +787,17 @@ function AdminMenuManagement() {
 										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
 										Ingredients &amp; Recipe
 									</label>
-					<p className="menu-recipe-help">Set the amount used for one serving. Enter the number and unit in separate fields—for example, amount <strong>5</strong>, recipe unit <strong>g</strong>, stock unit <strong>kg</strong>. The system converts g to kg automatically. New ingredients start at zero stock.</p>
+					<p className="menu-recipe-help">Set the amount used for one serving. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically (for example, 5 g to kg); weight and volume cannot mix without a density conversion. New ingredients start at zero stock.</p>
 					<div className="menu-recipe-entry menu-conversion-entry">
 						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Ingredient name" />
-						<label className="menu-recipe-field"><span>Amount per serving</span><input type="number" min="0.001" step="0.001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="e.g. 5" /></label>
-						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={ingredientDraft.unit} onChange={(unit) => { setIngredientDraft((current) => ({ ...current, unit })); setRecipeError(""); }} ariaLabel="Ingredient recipe unit" /></label>
+						<label className="menu-recipe-field"><span>Amount per serving</span><input type="number" min="0.000001" step="0.000001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="e.g. 5" /></label>
+						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={ingredientDraft.unit} compatibleWith={recipeDraftItem?.unit || ingredientDraft.stockUnit} onChange={(unit) => { setIngredientDraft((current) => ({ ...current, unit })); setRecipeError(""); }} ariaLabel="Ingredient recipe unit" /></label>
 						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={recipeDraftItem?.unit || ingredientDraft.stockUnit} disabled={Boolean(recipeDraftItem)} onChange={(stockUnit) => { setIngredientDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit })); setRecipeError(""); }} ariaLabel="Ingredient stock unit" /></label>
 						<button type="button" onClick={addRecipeIngredient} disabled={!ingredientDraft.name.trim() || !ingredientDraft.quantityUsed}>
 							<Plus size={14} strokeWidth={2.4} /> Add ingredient
 						</button>
 					</div>
+					{convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {recipeDraftItem?.unit || ingredientDraft.stockUnit} from inventory per serving.</p>}
 					{inventory.some((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
 					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={entry.item}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
 									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
@@ -760,10 +809,10 @@ function AdminMenuManagement() {
 								return (
 									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
 														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small></div>
-										<label className="menu-recipe-unit">Recipe unit<UnitSelect value={ingredient.unit || "pcs"} onChange={(unit) => updateRecipeUnit(index, unit)} ariaLabel={`${ingredientName} recipe unit`} /></label>
+										<label className="menu-recipe-unit">Recipe unit<UnitSelect value={ingredient.unit || "pcs"} compatibleWith={inventoryItem?.unit || ingredient.stockUnit || "pcs"} onChange={(unit) => updateRecipeUnit(index, unit)} ariaLabel={`${ingredientName} recipe unit`} /></label>
 														<div className="menu-recipe-size-grid">
 															{formValues.sizes.map((size) => (
-																<label key={size.label}>{size.label}<input type="number" min="0.001" step="0.001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label}`} /></label>
+																		<label key={size.label}>{size.label}<input type="number" min="0.000001" step="0.000001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label}`} /></label>
 															))}
 														</div>
 														<button type="button" onClick={() => removeIngredient(index)} aria-label={`Remove ${ingredientName} from recipe`}>×</button>
@@ -779,17 +828,18 @@ function AdminMenuManagement() {
 										<Sparkles aria-hidden="true" size={13} strokeWidth={2.2} />
 										Add-ons &amp; Customizations
 									</label>
-					<p className="menu-recipe-help">The add-on amount is what one serving consumes. Enter the number, recipe unit, and stock unit separately—for example, 5 | g | kg.</p>
+					<p className="menu-recipe-help">The add-on amount is what one serving consumes. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically; weight and volume need a density conversion and cannot be mixed directly.</p>
 					<div className="menu-recipe-entry menu-addon-entry menu-conversion-entry">
 						<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === label.trim().toLowerCase()); setAddonDraft((current) => ({ ...current, label, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
 						<input type="number" min="0" step="0.01" value={addonDraft.price} onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))} aria-label="Add-on price" placeholder="Price" />
-						<label className="menu-recipe-field"><span>Amount / serving</span><input type="number" min="0.001" step="0.001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on amount used per serving" placeholder="e.g. 5" /></label>
-						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
+						<label className="menu-recipe-field"><span>Amount / serving</span><input type="number" min="0.000001" step="0.000001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on amount used per serving" placeholder="e.g. 5" /></label>
+						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} compatibleWith={inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
 						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} disabled={Boolean(inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase()))} onChange={(stockUnit) => setAddonDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit }))} ariaLabel="Add-on stock unit" /></label>
 						<button type="button" onClick={addAddon} disabled={!addonDraft.label.trim() || addonDraft.price === "" || !addonDraft.quantityUsed}>
 							<Plus size={14} strokeWidth={2.4} /> Add
 						</button>
 					</div>
+					{convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} from inventory per serving.</p>}
 					{inventory.some((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
 
 					{formValues.addons.length ? (
@@ -798,8 +848,8 @@ function AdminMenuManagement() {
 								<div className="menu-addon-row" key={`${addon.label}-${index}`}>
 									<div className="menu-addon-name"><strong>{addon.label}</strong><small>Stock: {inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase())?.quantity ?? 0} {addon.stockUnit || "pcs"}</small></div>
 									<label>Price <input type="number" min="0" step="0.01" value={addon.price} onChange={(event) => updateAddon(index, "price", event.target.value)} aria-label={`${addon.label} price`} /></label>
-									<label>Used / serving <input type="number" min="0.001" step="0.001" value={addon.quantityUsed} onChange={(event) => updateAddon(index, "quantityUsed", event.target.value)} aria-label={`${addon.label} inventory used per serving`} /></label>
-									<label>Recipe unit <UnitSelect value={addon.unit || "pcs"} onChange={(unit) => updateAddon(index, "unit", unit)} ariaLabel={`${addon.label} recipe unit`} /></label>
+									<label>Used / serving <input type="number" min="0.000001" step="0.000001" value={addon.quantityUsed} onChange={(event) => updateAddon(index, "quantityUsed", event.target.value)} aria-label={`${addon.label} inventory used per serving`} /></label>
+									<label>Recipe unit <UnitSelect value={addon.unit || "pcs"} compatibleWith={inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase())?.unit || addon.stockUnit || "pcs"} onChange={(unit) => updateAddon(index, "unit", unit)} ariaLabel={`${addon.label} recipe unit`} /></label>
 									<button
 										type="button"
 														onClick={() => removeAddon(index)}

@@ -24,7 +24,8 @@ export const STAFF_NOTIFICATION_TYPES = {
   receipt_printed: { label: "Receipt printed", tone: "blue" },
   menu_added: { label: "Menu updated", tone: "emerald" },
   menu_deleted: { label: "Menu updated", tone: "red" },
-  inventory_low: { label: "Low stock", tone: "red" },
+  inventory_stock: { label: "Stock limit", tone: "red" },
+  inventory_low: { label: "Stock alert", tone: "red" },
   inventory_inactive: { label: "Inactive stock", tone: "amber" },
   info: { label: "Notice", tone: "stone" },
 };
@@ -130,10 +131,9 @@ export const notifyMenuDeleted = (product) =>
     message: `Item “${product?.name}” removed from menu`,
   });
 
-/** Notify once when an inventory item enters low/out-of-stock, and again if it
- * worsens from low to out-of-stock. A shared localStorage state keeps the
- * admin and staff tabs from generating duplicate alerts during polling. */
-export function notifyInventoryLowStock() {
+/** Notify when an inventory item exceeds its maximum or reaches zero stock.
+ * A shared server-side state prevents duplicate alerts during polling. */
+export function notifyInventoryLevels() {
   return apiRequest("/notifications/inventory-alerts/check", { method: "POST", body: "{}" })
     .then((result) => {
       if (result.alerts) window.dispatchEvent(new Event("amaya:notifications-updated"));

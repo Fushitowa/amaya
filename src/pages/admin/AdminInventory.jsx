@@ -30,6 +30,12 @@ import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const categories = INVENTORY_CATEGORIES;
+const inventoryUnitGroups = [
+	{ label: "Weight", units: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
+	{ label: "Volume", units: [["ml", "Milliliters (mL)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["L", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
+	{ label: "Count", units: [["pcs", "Pieces (pcs)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
+];
+const knownInventoryUnits = inventoryUnitGroups.flatMap(({ units }) => units.map(([unit]) => unit.toLowerCase()));
 
 // Stable reference so the memo dependencies below don't change every render.
 const EMPTY_INVENTORY = [];
@@ -75,7 +81,7 @@ function AdminInventory() {
     category: "Soft Drinks",
     quantity: "",
     unit: "",
-    minimumStock: "",
+    maximumStock: "",
   });
 
   // Persistence now lives in InventoryContext, shared with Menu Management.
@@ -95,22 +101,22 @@ function AdminInventory() {
 
   // One row shape shared by both the grid and list views.
   const rows = useMemo(() => filteredInventory.map((entry) => {
-    const status = getInventoryStatus(entry.quantity, entry.minimumStock);
-    // The bar reads "how comfortably stocked are we": full at 2x the minimum.
-    const healthyTarget = entry.minimumStock * 2;
-    const ratio = healthyTarget > 0 ? Math.max(0, Math.min(1, entry.quantity / healthyTarget)) : entry.quantity > 0 ? 1 : 0;
+    const status = getInventoryStatus(entry.quantity, entry.maximumStock);
+    const ratio = Number(entry.maximumStock) > 0
+      ? Math.max(0, Math.min(1, entry.quantity / Number(entry.maximumStock)))
+      : entry.quantity > 0 ? 1 : 0;
 
     return {
       ...entry,
       status,
-      statusKey: status === "In Stock" ? "in-stock" : status === "Low Stock" ? "low-stock" : "out-of-stock",
+      statusKey: status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
       stockRatio: Math.round(ratio * 100),
     };
   }).sort((left, right) => {
     if (sortBy === "quantity-asc") return left.quantity - right.quantity || left.item.localeCompare(right.item);
     if (sortBy === "quantity-desc") return right.quantity - left.quantity || left.item.localeCompare(right.item);
     if (sortBy === "status") {
-      const order = { "Out of Stock": 0, "Low Stock": 1, "In Stock": 2 };
+      const order = { "Out of Stock": 0, "Over Maximum": 1, "In Stock": 2 };
       return order[left.status] - order[right.status] || left.item.localeCompare(right.item);
     }
     return left.item.localeCompare(right.item);
@@ -125,9 +131,9 @@ function AdminInventory() {
   }, [inventory]);
 
   const totalItems = inventory.length;
-  const lowStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "Low Stock").length;
-  const outOfStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "Out of Stock").length;
-  const inStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.minimumStock) === "In Stock").length;
+  const overMaximumCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.maximumStock) === "Over Maximum").length;
+  const outOfStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.maximumStock) === "Out of Stock").length;
+  const inStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.maximumStock) === "In Stock").length;
   const soldUnits = orders.reduce((total, order) => total + order.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0), 0);
 
   useEffect(() => {
@@ -155,7 +161,7 @@ function AdminInventory() {
       category: "Soft Drinks",
       quantity: "",
       unit: "",
-      minimumStock: "",
+      maximumStock: "",
     });
   };
 
@@ -167,7 +173,7 @@ function AdminInventory() {
       category: item.category,
       quantity: String(item.quantity),
       unit: item.unit,
-      minimumStock: String(item.minimumStock),
+      maximumStock: item.maximumStock == null ? "" : String(item.maximumStock),
     });
     setShowForm(true);
   };
@@ -194,7 +200,8 @@ function AdminInventory() {
 
   const openRestock = (item) => {
     setRestockItem(item);
-    setRestockQuantity(String(Math.max(1, item.minimumStock * 2 - item.quantity)));
+    const restockTarget = Number(item.maximumStock) > item.quantity ? Number(item.maximumStock) : item.quantity + 1;
+    setRestockQuantity(String(Math.max(1, restockTarget - item.quantity)));
     setActionError("");
   };
 
@@ -235,17 +242,17 @@ function AdminInventory() {
     const category = formValues.category.trim();
     const unit = formValues.unit.trim();
     const quantity = Number(formValues.quantity);
-    const minimumStock = Number(formValues.minimumStock);
+    const maximumStock = formValues.maximumStock === "" ? null : Number(formValues.maximumStock);
 
-    if (!itemName || !category || !unit || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minimumStock) || minimumStock < 0) {
-      setActionError("Complete all fields with non-negative quantities.");
+    if (!itemName || !category || !unit || !Number.isFinite(quantity) || quantity < 0 || (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0))) {
+      setActionError("Enter a valid item, category, unit, and quantity. Maximum stock must be above zero or left blank.");
       return;
     }
 
     setIsSaving(true);
     setActionError("");
     try {
-      const values = { item: itemName, category, quantity, unit, minimumStock };
+      const values = { item: itemName, category, quantity, unit, maximumStock };
       if (editingItem) await updateInventoryItem(editingItem.id, values);
       else await addInventoryItem(values);
     } catch (error) {
@@ -303,13 +310,13 @@ function AdminInventory() {
               </button>
             </div>
           )}
-          {inventoryAlertsEnabled && lowStockCount + outOfStockCount > 0 && (
+          {inventoryAlertsEnabled && overMaximumCount + outOfStockCount > 0 && (
             <div className="admin-inventory-stock-alert" role="status">
               <AlertTriangle size={17} aria-hidden="true" />
               <span>
-                <strong>{outOfStockCount + lowStockCount} item{outOfStockCount + lowStockCount === 1 ? "" : "s"} need attention.</strong>
+                <strong>{outOfStockCount + overMaximumCount} item{outOfStockCount + overMaximumCount === 1 ? "" : "s"} need attention.</strong>
                 {outOfStockCount > 0 && ` ${outOfStockCount} out of stock.`}
-                {lowStockCount > 0 && ` ${lowStockCount} running low.`}
+                {overMaximumCount > 0 && ` ${overMaximumCount} above maximum.`}
               </span>
               <Link to="/admin/reports">Review stock report <span aria-hidden="true">→</span></Link>
             </div>
@@ -362,12 +369,12 @@ function AdminInventory() {
                 <span className="metric-icon amber">
                   <Clock size={18} strokeWidth={2} aria-hidden="true" />
                 </span>
-                <span className="metric-badge amber">Restock</span>
+                <span className="metric-badge amber">Review</span>
               </div>
               <div className="metric-body">
-                <span className="metric-label">Low Stock</span>
-                <strong className="metric-value">{lowStockCount}</strong>
-                <span className="metric-hint">Restock soon</span>
+                <span className="metric-label">Above Maximum</span>
+                <strong className="metric-value">{overMaximumCount}</strong>
+                <span className="metric-hint">Review stock levels</span>
               </div>
             </article>
 
@@ -529,9 +536,9 @@ function AdminInventory() {
                             <span>{row.unit}</span>
                           </p>
                         </div>
-                        <div className="admin-inventory-card-min">
-                          <span className="admin-inventory-card-label">Minimum stock</span>
-                          <p>{row.minimumStock} {row.unit}</p>
+                        <div className="admin-inventory-card-max">
+                          <span className="admin-inventory-card-label">Maximum stock</span>
+                          <p>{row.maximumStock == null ? "Not set" : `${row.maximumStock} ${row.unit}`}</p>
                         </div>
                       </div>
 
@@ -576,7 +583,7 @@ function AdminInventory() {
                       <th>Category</th>
                       <th>Quantity</th>
                       <th>Unit</th>
-                      <th>Minimum Stock</th>
+                      <th>Maximum Stock</th>
                       <th>Status</th>
                       <th>Actions</th>
                     </tr>
@@ -588,7 +595,7 @@ function AdminInventory() {
                         <td>{row.category}</td>
                         <td>{row.quantity}</td>
                         <td>{row.unit}</td>
-                        <td>{row.minimumStock}</td>
+                        <td>{row.maximumStock == null ? "—" : row.maximumStock}</td>
                         <td>
                           <span className={`inventory-status ${row.statusKey}`}>{row.status}</span>
                         </td>
@@ -660,25 +667,34 @@ function AdminInventory() {
 
               <label>
                 Unit
-                <input
-                  type="text"
+                <select
                   value={formValues.unit}
                   onChange={(event) => setFormValues({ ...formValues, unit: event.target.value })}
-                  placeholder="e.g. liters, pcs, kg"
                   required
-                />
+                >
+                  <option value="" disabled>Choose a unit</option>
+                  {formValues.unit && !knownInventoryUnits.includes(formValues.unit.toLowerCase()) && (
+                    <option value={formValues.unit}>{formValues.unit} (current unit)</option>
+                  )}
+                  {inventoryUnitGroups.map(({ label, units }) => (
+                    <optgroup key={label} label={label}>
+                      {units.map(([unit, unitLabel]) => <option key={unit} value={unit}>{unitLabel}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
               </label>
 
               <label>
-                Minimum Stock
+                <span className="inventory-field-label">Maximum Stock <small className="inventory-optional-label">Optional</small></span>
                 <input
                   type="number"
-                  value={formValues.minimumStock}
-                  onChange={(event) => setFormValues({ ...formValues, minimumStock: event.target.value })}
-                  min="0"
-                  step="any"
-                  required
+                  value={formValues.maximumStock}
+                  onChange={(event) => setFormValues({ ...formValues, maximumStock: event.target.value })}
+                  min="0.001"
+                  step="0.000001"
+                  placeholder="No maximum set"
                 />
+                <small className="inventory-field-hint">Set the highest quantity you want to keep. Leave blank for no limit.</small>
               </label>
             </div>
 
@@ -728,7 +744,7 @@ function AdminInventory() {
               <div>
                 <span className="admin-inventory-eyebrow">STOCK MOVEMENT</span>
                 <h3 id="restock-dialog-title">Restock {restockItem.item}</h3>
-                <p>Current: {restockItem.quantity} {restockItem.unit} · Minimum: {restockItem.minimumStock} {restockItem.unit}</p>
+                <p>Current: {restockItem.quantity} {restockItem.unit} · Maximum: {restockItem.maximumStock == null ? "Not set" : `${restockItem.maximumStock} ${restockItem.unit}`}</p>
               </div>
               <button type="button" onClick={() => setRestockItem(null)} disabled={isSaving} aria-label="Close restock form">×</button>
             </div>
@@ -752,15 +768,15 @@ function AdminInventory() {
             <div className="admin-inventory-modal-header">
               <div>
                 <span className="admin-inventory-eyebrow">REMOVE INVENTORY ITEM</span>
-                <h3 id="delete-dialog-title">Delete {itemToDelete.item}?</h3>
-                <p>This can’t be undone. Items used in recipes or with stock history are protected.</p>
+                <h3 id="delete-dialog-title">Remove {itemToDelete.item}?</h3>
+                <p>This item will leave active inventory. Its remaining quantity and stock history will be kept for your records. Items used in menu recipes or add-ons must be unlinked first.</p>
               </div>
             </div>
             {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
             <div className="admin-inventory-modal-actions">
               <button type="button" className="modal-cancel" onClick={() => { setItemToDelete(null); setActionError(""); }} disabled={isSaving}>Keep item</button>
               <button type="button" className="inventory-delete-confirm" onClick={confirmDelete} disabled={isSaving}>
-                {isSaving ? "Deleting…" : "Delete item"}
+                {isSaving ? "Removing…" : "Remove item"}
               </button>
             </div>
           </section>

@@ -194,7 +194,7 @@ function AdminSettings() {
 									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div></div>
 									<SettingToggle label="Admin notifications" description="Receive important updates from this browser." enabled={notifications} onToggle={() => setPreferences((current) => ({ ...current, notifications: !current.notifications }))} />
 									<SettingToggle label="New order alerts" description="Show an alert when a customer order arrives." enabled={orderAlerts} onToggle={() => setPreferences((current) => ({ ...current, orderAlerts: !current.orderAlerts }))} />
-									<SettingToggle label="Low stock alerts" description="Show an alert when inventory needs attention." enabled={inventoryAlerts} onToggle={() => setPreferences((current) => ({ ...current, inventoryAlerts: !current.inventoryAlerts }))} />
+									<SettingToggle label="Inventory limit alerts" description="Show alerts when stock is out or above its maximum." enabled={inventoryAlerts} onToggle={() => setPreferences((current) => ({ ...current, inventoryAlerts: !current.inventoryAlerts }))} />
 								</section>
 
 								<section className="admin-settings-card security-card">

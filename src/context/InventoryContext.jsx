@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../utils/api.js";
-import { notifyInventoryLowStock } from "../utils/notifications.js";
+import { notifyInventoryLevels } from "../utils/notifications.js";
 import { useAuth } from "./AuthContext.jsx";
 
 const InventoryContext = createContext(null);
@@ -12,9 +12,9 @@ export const INVENTORY_CATEGORIES = [
 ];
 export const DEFAULT_INGREDIENT_CATEGORY = "Supplies";
 
-export function getInventoryStatus(quantity, minimumStock) {
+export function getInventoryStatus(quantity, maximumStock) {
   if (Number(quantity) <= 0) return "Out of Stock";
-  if (Number(quantity) <= Number(minimumStock)) return "Low Stock";
+  if (Number(maximumStock) > 0 && Number(quantity) > Number(maximumStock)) return "Over Maximum";
   return "In Stock";
 }
 
@@ -62,7 +62,7 @@ function InventoryProvider({ children }) {
 
   useEffect(() => {
     if (!userId || loadedUserId !== userId) return;
-    notifyInventoryLowStock().catch(() => {});
+    notifyInventoryLevels().catch(() => {});
   }, [inventory, loadedUserId, userId]);
 
   const value = useMemo(() => ({

@@ -52,7 +52,7 @@ export async function runInventoryAlertCheck() {
     await connection.beginTransaction();
     transactionStarted = true;
     const [items] = await connection.execute(
-      `SELECT i.id, i.name, i.quantity, i.unit, i.minimum_stock,
+      `SELECT i.id, i.name, i.quantity, i.unit, i.maximum_stock,
               s.status AS previous_status,
               COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) AS last_activity_at,
               ia.last_activity_at AS previous_activity_at,
@@ -61,24 +61,27 @@ export async function runInventoryAlertCheck() {
          FROM inventory_items i
          LEFT JOIN inventory_alert_states s ON s.inventory_item_id = i.id
          LEFT JOIN inventory_inactivity_states ia ON ia.inventory_item_id = i.id
+        WHERE i.archived_at IS NULL
         ORDER BY i.id FOR UPDATE`,
     );
     const alerts = [];
     const inactiveAlerts = [];
     for (const item of items) {
       const quantity = Number(item.quantity);
-      const minimumStock = Number(item.minimum_stock);
-      const status = quantity <= 0 ? "out" : minimumStock > 0 && quantity <= minimumStock ? "low" : "healthy";
+      const maximumStock = item.maximum_stock == null ? null : Number(item.maximum_stock);
+      const status = quantity <= 0 ? "out" : maximumStock !== null && maximumStock > 0 && quantity > maximumStock ? "over" : "healthy";
       const previous = item.previous_status;
       await connection.execute(
         `INSERT INTO inventory_alert_states (inventory_item_id, status) VALUES (?, ?)
          ON DUPLICATE KEY UPDATE status = VALUES(status)`, [item.id, status],
       );
-      const enteredLow = status === "low" && previous !== "low" && previous !== "out";
+      const enteredOver = status === "over" && previous !== "over";
       const enteredOut = status === "out" && previous !== "out";
-      if (enteredLow || enteredOut) {
-        const title = enteredOut ? `${item.name} is out of stock` : `${item.name} is low`;
-        const message = `${quantity} ${item.unit} remaining${status === "low" ? ` · minimum ${minimumStock} ${item.unit}` : ""}`;
+      if (enteredOver || enteredOut) {
+        const title = enteredOut ? `${item.name} is out of stock` : `${item.name} is above maximum stock`;
+        const message = enteredOut
+          ? `No stock remaining${maximumStock !== null ? ` · maximum ${maximumStock} ${item.unit}` : ""}`
+          : `${quantity} ${item.unit} on hand · maximum ${maximumStock} ${item.unit}`;
         alerts.push({ itemId: Number(item.id), type: status, title, message });
       }
 
@@ -104,12 +107,12 @@ export async function runInventoryAlertCheck() {
       );
     }
     if (alerts.length) {
-      const title = alerts.length === 1 ? alerts[0].title : `Inventory needs attention · ${alerts.length} items`;
+      const title = alerts.length === 1 ? alerts[0].title : `Inventory stock limits · ${alerts.length} items`;
       const details = alerts.slice(0, 4).map((alert) => `${alert.title}: ${alert.message}`);
       if (alerts.length > details.length) details.push(`and ${alerts.length - details.length} more`);
       await connection.execute(
         `INSERT INTO notifications (user_id, event_key, type, title, message)
-         SELECT id, ?, 'inventory_low', ?, ? FROM users WHERE is_active = TRUE`,
+         SELECT id, ?, 'inventory_stock', ?, ? FROM users WHERE is_active = TRUE`,
         [`inventory-alert-${randomUUID()}`, title, details.join(" · ")],
       );
     }

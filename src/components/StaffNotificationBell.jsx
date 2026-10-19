@@ -23,6 +23,7 @@ import {
 import "../assets/css/staff-notifications.css";
 
 const ICONS = {
+  inventory_stock: AlertTriangle,
   inventory_low: AlertTriangle,
   inventory_inactive: AlertTriangle,
   order_new: ShoppingBag,
@@ -75,7 +76,7 @@ function StaffNotificationBell() {
       if (!type) return;
       const preferences = readStaffAlertPreferences();
       setAlertPreferences(preferences);
-      const isInventoryAlert = ["inventory_low", "inventory_inactive"].includes(type);
+      const isInventoryAlert = ["inventory_stock", "inventory_low", "inventory_inactive"].includes(type);
       const alertEnabled = preferences.notifications !== false
         && !(type === "order_new" && preferences.orderAlerts === false)
         && !(isInventoryAlert && preferences.inventoryAlerts === false);
@@ -124,7 +125,7 @@ function StaffNotificationBell() {
   const visibleNotifications = useMemo(() => notifications.filter((item) =>
     alertPreferences.notifications !== false
     && !(item.type === "order_new" && alertPreferences.orderAlerts === false)
-    && !(["inventory_low", "inventory_inactive"].includes(item.type) && alertPreferences.inventoryAlerts === false),
+    && !(["inventory_stock", "inventory_low", "inventory_inactive"].includes(item.type) && alertPreferences.inventoryAlerts === false),
   ), [alertPreferences, notifications]);
   const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);
 
