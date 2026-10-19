@@ -85,6 +85,7 @@ export function resolveProductAddons(product) {
 
 export function MenuProvider({ children }) {
   const [products, setProducts] = useState([]);
+  const [menuError, setMenuError] = useState("");
   const { user } = useAuth();
   const isSignedIn = Boolean(user);
   const userRole = user?.role;
@@ -101,6 +102,7 @@ export function MenuProvider({ children }) {
   const refreshProducts = useCallback(async () => {
     const query = isSignedIn ? "?all=true" : "";
     const saved = await apiRequest(`/menu${query}`);
+    setMenuError("");
     setProducts(saved.map(withLocalImage));
     return saved.map(withLocalImage);
   }, [isSignedIn, withLocalImage]);
@@ -108,8 +110,16 @@ export function MenuProvider({ children }) {
   useEffect(() => {
     let current = true;
     const load = () => apiRequest(`/menu${isSignedIn ? "?all=true" : ""}`)
-      .then((saved) => { if (current) setProducts(saved.map(withLocalImage)); })
-      .catch((error) => console.error("Could not load menu:", error.message));
+      .then((saved) => {
+        if (current) {
+          setMenuError("");
+          setProducts(saved.map(withLocalImage));
+        }
+      })
+      .catch((error) => {
+        console.error("Could not load menu:", error.message);
+        if (current) setMenuError(error.message || "Could not load menu items from server.");
+      });
     load();
     const interval = window.setInterval(load, 30000);
     return () => { current = false; window.clearInterval(interval); };
@@ -117,6 +127,7 @@ export function MenuProvider({ children }) {
 
   const value = useMemo(() => ({
     products: isSignedIn ? products : products.filter((product) => product.available),
+    menuError,
     refreshProducts,
     addProduct: async (product) => {
       const created = withLocalImage(await apiRequest("/menu", { method: "POST", body: JSON.stringify(product) }));
@@ -135,7 +146,7 @@ export function MenuProvider({ children }) {
       setProducts((current) => current.filter((entry) => entry.id !== id));
       if (product) notifyMenuDeleted(product);
     },
-  }), [isSignedIn, products, refreshProducts, withLocalImage]);
+  }), [isSignedIn, menuError, products, refreshProducts, withLocalImage]);
 
   return <MenuContext.Provider value={value}>{children}</MenuContext.Provider>;
 }

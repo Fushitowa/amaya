@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import {
+  Archive,
   ArrowLeft,
   BarChart2,
   LayoutGrid,
@@ -30,6 +31,7 @@ const NAV_BY_ROLE = {
       label: "MANAGEMENT",
       items: [
         { key: "reports", to: "/admin/reports", label: "Reports", Icon: BarChart2 },
+        { key: "archive", to: "/admin/archive", label: "Archive / Trash", Icon: Archive },
         { key: "settings", to: "/admin/settings", label: "Settings", Icon: Settings },
       ],
     },

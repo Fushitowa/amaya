@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import { AlertTriangle, Beaker, ClipboardList, FolderOpen, ImageOff, ImagePlus, List, Plus, Sparkles } from "lucide-react";
+import { AlertTriangle, Archive, Beaker, ChevronRight, ClipboardList, FolderOpen, ImageOff, ImagePlus, List, Plus, Sparkles } from "lucide-react";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
@@ -14,26 +15,6 @@ import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const categories = ["All items", "Milk Tea", "Drinks", "Snacks", "Desserts"];
-
-const parseList = (raw) =>
-  String(raw || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-const parseSizes = (raw, fallbackPrice) =>
-  (Array.isArray(raw) ? raw : parseList(raw))
-    .map((entry) => {
-      const [label, price] = typeof entry === "object" && entry !== null
-        ? [entry.label, entry.price]
-        : String(entry).split(":");
-      const parsed = Number(price);
-      return {
-        label: (label || "").trim(),
-        price: Number.isFinite(parsed) && String(price).trim() !== "" ? parsed : Number(fallbackPrice) || 0,
-      };
-    })
-    .filter((entry) => entry.label && Number.isFinite(entry.price));
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -111,7 +92,7 @@ function separateAmountHint(amount, unit, stockUnit, itemName) {
 }
 
 function AdminMenuManagement() {
-	const { products, addProduct, updateProduct, deleteProduct } = useMenu();
+	const { products, menuError, addProduct, updateProduct, deleteProduct } = useMenu();
 	const { inventory = [], refreshInventory } = useInventory() || {};
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const [activeCategory, setActiveCategory] = useState("All items");
@@ -121,10 +102,11 @@ function AdminMenuManagement() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
-	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: [{ label: "Regular", price: "" }], ingredients: [], addons: [], available: true });
+	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: [], ingredients: [], addons: [], available: true });
 
 	const [formValues, setFormValues] = useState(emptyForm());
-	const [sizeInput, setSizeInput] = useState("");
+	const [editingSizeIndex, setEditingSizeIndex] = useState(null);
+	const editingSizeRef = useRef(null);
 	const [ingredientDraft, setIngredientDraft] = useState({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 	const [addonDraft, setAddonDraft] = useState({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 	const [recipeError, setRecipeError] = useState("");
@@ -165,15 +147,27 @@ function AdminMenuManagement() {
 			setItemToDelete(null);
 			setShowForm(false);
 			setEditingProduct(null);
+			setEditingSizeIndex(null);
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [itemToDelete, showForm]);
 
+	useEffect(() => {
+		if (editingSizeIndex === null) return;
+		const handleOutsideClick = (event) => {
+			if (editingSizeRef.current && !editingSizeRef.current.contains(event.target)) {
+				setEditingSizeIndex(null);
+			}
+		};
+		document.addEventListener("mousedown", handleOutsideClick);
+		return () => document.removeEventListener("mousedown", handleOutsideClick);
+	}, [editingSizeIndex]);
+
 	const openAddForm = () => {
 		setEditingProduct(null);
 		setFormValues(emptyForm());
-		setSizeInput("");
+		setEditingSizeIndex(null);
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
@@ -181,48 +175,51 @@ function AdminMenuManagement() {
 		setShowForm(true);
 	};
 
-	const addSizes = (raw) => {
-		const tags = parseList(raw);
-		if (!tags.length) return;
+	const addVariation = () => {
 		setFormValues((current) => {
-			const merged = [...current.sizes];
-			tags.forEach((tag) => {
-				const [rawLabel, rawPrice] = tag.split(":");
-				const label = rawLabel.trim();
-				if (!label || merged.some((existing) => existing.label.toLowerCase() === label.toLowerCase())) return;
-				merged.push({ label, price: rawPrice?.trim() || current.price || "" });
-			});
-			const ingredients = current.ingredients.map((ingredient) => ({
-				...ingredient,
-				quantityBySize: Object.fromEntries(merged.map((size) => [
-					size.label,
-					ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? "",
-				])),
-			}));
-			return { ...current, sizes: merged, ingredients };
+			const newSizes = [...current.sizes, { label: "", price: "" }];
+			return { ...current, sizes: newSizes };
 		});
-		setSizeInput("");
+		setEditingSizeIndex(formValues.sizes.length);
 	};
 
-	const updateSize = (index, key, value) =>
+	const updateSizeLabel = (index, newLabel) => {
+		setFormValues((current) => {
+			const oldLabel = current.sizes[index]?.label;
+			const updatedSizes = current.sizes.map((s, i) => i === index ? { ...s, label: newLabel } : s);
+			const updatedIngredients = current.ingredients.map((ing) => {
+				const qMap = { ...(ing.quantityBySize || {}) };
+				if (oldLabel && oldLabel in qMap) {
+					qMap[newLabel] = qMap[oldLabel];
+					delete qMap[oldLabel];
+				} else if (newLabel && !(newLabel in qMap)) {
+					qMap[newLabel] = ing.quantityUsed ?? "";
+				}
+				return { ...ing, quantityBySize: qMap };
+			});
+			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
+		});
+	};
+
+	const updateSizePrice = (index, newPrice) => {
 		setFormValues((current) => ({
 			...current,
-			...(key === "price" && (current.sizes[index]?.label.toLowerCase() === "regular" || index === 0) ? { price: value } : {}),
-			sizes: current.sizes.map((size, sizeIndex) => sizeIndex === index ? { ...size, [key]: value } : size),
+			sizes: current.sizes.map((s, i) => i === index ? { ...s, price: newPrice } : s),
 		}));
+	};
 
 	const updateBasePrice = (value) =>
-		setFormValues((current) => {
-			const regularIndex = current.sizes.findIndex((size) => size.label.toLowerCase() === "regular");
-			const priceIndex = regularIndex >= 0 ? regularIndex : current.sizes.length ? 0 : -1;
-			return {
-				...current,
-				price: value,
-				sizes: priceIndex < 0 ? current.sizes : current.sizes.map((size, index) => index === priceIndex ? { ...size, price: value } : size),
-			};
-		});
+		setFormValues((current) => ({
+			...current,
+			price: value,
+		}));
 
-	const removeSize = (index) =>
+	const removeSize = (index) => {
+		if (editingSizeIndex === index) {
+			setEditingSizeIndex(null);
+		} else if (editingSizeIndex !== null && editingSizeIndex > index) {
+			setEditingSizeIndex(editingSizeIndex - 1);
+		}
 		setFormValues((current) => {
 			const removedLabel = current.sizes[index]?.label;
 			return {
@@ -230,11 +227,12 @@ function AdminMenuManagement() {
 				sizes: current.sizes.filter((_, i) => i !== index),
 				ingredients: current.ingredients.map((ingredient) => {
 					const quantityBySize = { ...(ingredient.quantityBySize || {}) };
-					delete quantityBySize[removedLabel];
+					if (removedLabel) delete quantityBySize[removedLabel];
 					return { ...ingredient, quantityBySize };
 				}),
 			};
 		});
+	};
 
 	const addRecipeIngredient = () => {
 		const name = ingredientDraft.name.trim();
@@ -368,7 +366,7 @@ function AdminMenuManagement() {
 	const closeForm = () => {
 		setShowForm(false);
 		setEditingProduct(null);
-		setSizeInput("");
+		setEditingSizeIndex(null);
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
@@ -418,6 +416,7 @@ function AdminMenuManagement() {
 
 	const openEditForm = (product) => {
 		setEditingProduct(product);
+		setEditingSizeIndex(null);
 		setFormValues({
 			name: product.name,
 			price: String(product.price || "").replace("₱", ""),
@@ -444,7 +443,6 @@ function AdminMenuManagement() {
 			}),
 			available: product.available !== false,
 		});
-		setSizeInput("");
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
@@ -457,37 +455,69 @@ function AdminMenuManagement() {
 		const name = formValues.name.trim();
 		const description = formValues.description.trim();
 		const numericPrice = Number(formValues.price);
-		const sizes = parseSizes(formValues.sizes, numericPrice).map((size) => ({
-			...size,
-			ingredients: formValues.ingredients.map((ingredient) => ({
-				name: String(ingredient.name || "").trim(),
-				quantityUsed: Number(ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed),
-				unit: ingredient.unit || "pcs",
-				stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
-			})),
-		}));
 
 		if (!name || !description || !Number.isFinite(numericPrice) || numericPrice < 0) return;
-		if (sizes.some((size) => !Number.isFinite(size.price) || size.price < 0 || size.ingredients.some((ingredient) => !Number.isFinite(ingredient.quantityUsed) || ingredient.quantityUsed <= 0))) {
+
+		// Clean and validate variation sizes
+		const cleanSizes = formValues.sizes
+			.map((s) => ({ label: String(s.label || "").trim(), price: s.price }))
+			.filter((s) => s.label || (s.price !== "" && s.price !== null && s.price !== undefined));
+
+		if (cleanSizes.length > 0) {
+			for (const s of cleanSizes) {
+				if (!s.label) {
+					setRecipeError("Each variation must have a name (e.g. Large, Medium).");
+					return;
+				}
+				const p = Number(s.price);
+				if (s.price === "" || !Number.isFinite(p) || p < 0) {
+					setRecipeError(`Please enter a valid price for variation "${s.label}".`);
+					return;
+				}
+			}
+			const lowerLabels = cleanSizes.map((s) => s.label.toLowerCase());
+			if (new Set(lowerLabels).size !== lowerLabels.length) {
+				setRecipeError("Each variation must have a unique name.");
+				return;
+			}
+		}
+
+		const finalSizes = cleanSizes.length
+			? cleanSizes.map((size) => ({
+					label: size.label,
+					price: Number(size.price),
+					ingredients: formValues.ingredients.map((ingredient) => ({
+						name: String(ingredient.name || "").trim(),
+						quantityUsed: Number(ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed),
+						unit: ingredient.unit || "pcs",
+						stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
+					})),
+				}))
+			: [{ label: "Regular", price: numericPrice, ingredients: [] }];
+
+		if (finalSizes.some((size) => !Number.isFinite(size.price) || size.price < 0 || size.ingredients.some((ingredient) => !Number.isFinite(ingredient.quantityUsed) || ingredient.quantityUsed <= 0))) {
 			setRecipeError("Enter a valid price and a positive ingredient amount for every serving size.");
 			return;
 		}
-		const productBasePrice = sizes.find((size) => size.label.trim().toLowerCase() === "regular")?.price ?? sizes[0]?.price ?? numericPrice;
+
+		const productBasePrice = finalSizes.find((size) => size.label.trim().toLowerCase() === "regular")?.price ?? finalSizes[0]?.price ?? numericPrice;
 		const productData = {
 			name,
 			price: `₱${productBasePrice.toFixed(2)}`,
 			description,
 			category: formValues.category,
 			image: formValues.image || "",
-			sizes: sizes.length ? sizes : [{ label: "Regular", price: numericPrice, ingredients: [] }],
+			available: formValues.available !== false,
+			sizes: finalSizes,
 			ingredients: formValues.ingredients.map((ingredient) => ({
 				name: String(ingredient.name || "").trim(),
-				quantityUsed: Number(ingredient.quantityBySize?.[sizes[0]?.label] ?? ingredient.quantityUsed),
+				quantityUsed: Number(ingredient.quantityBySize?.[finalSizes[0]?.label] ?? ingredient.quantityUsed),
 				unit: ingredient.unit || "pcs",
 				stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
 			})),
 			addons: formValues.addons.map((addon) => ({ ...addon, quantityUsed: Number(addon.quantityUsed), unit: addon.unit || "pcs", stockUnit: addon.stockUnit || addon.unit || "pcs" })),
 		};
+
 		try {
 			if (editingProduct) await updateProduct(editingProduct.id, productData);
 			else await addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
@@ -495,6 +525,7 @@ function AdminMenuManagement() {
 			setSyncNotice(`${name} saved. New ingredients and add-ons were added to Inventory at zero stock; matching names reuse the existing stock item.`);
 			closeForm();
 		} catch (error) {
+			setRecipeError(error.message);
 			window.alert(error.message);
 		}
 	};
@@ -517,7 +548,36 @@ function AdminMenuManagement() {
 
 				<div className="admin-menu-content custom-menu-scrollbar">
 					<div className="admin-menu-controls">
-					<section className="admin-menu-heading"><div><span className="admin-menu-eyebrow">PRODUCT CATALOG</span><h2>Everything on the menu</h2><p>Keep your offerings fresh, organized, and ready for every customer.</p></div><button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button></section>
+					<section className="admin-menu-heading">
+						<div>
+							<span className="admin-menu-eyebrow">PRODUCT CATALOG</span>
+							<h2>Everything on the menu</h2>
+							<p>Keep your offerings fresh, organized, and ready for every customer.</p>
+						</div>
+						<div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+							<Link
+								to="/admin/archive"
+								className="admin-menu-archive-button"
+								style={{
+									display: "inline-flex",
+									alignItems: "center",
+									gap: "0.4rem",
+									padding: "0.65rem 1rem",
+									borderRadius: "10px",
+									background: "#ffffff",
+									color: "#2e261f",
+									fontWeight: "600",
+									fontSize: "0.88rem",
+									textDecoration: "none",
+									border: "1px solid #ece4df",
+									boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+								}}
+							>
+								<Archive size={16} /> View Archive
+							</Link>
+							<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
+						</div>
+					</section>
 
 					<section className="admin-menu-stats" aria-label="Menu summary">
 						<div><span className="menu-stat-icon amber">☷</span><div><small>Total items</small><strong>{products.length}</strong><span>Across 4 categories</span></div></div>
@@ -536,7 +596,12 @@ function AdminMenuManagement() {
 							<div className="admin-product-image"><img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />{product.featured && <span className="featured-label">★ Featured</span>}<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button></div>
 							<div className="admin-product-body"><div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div><h4>{product.name}</h4><p>{product.description}</p><div className="admin-product-footer"><span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}</span><label className="availability-toggle"><input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} /><span></span><small>{product.available ? "Available" : "Hidden"}</small></label><button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button></div></div>
 						</article>)}
-						{!visibleProducts.length && <div className="admin-menu-empty"><strong>No menu items found</strong><span>Try another category or search term.</span></div>}
+						{!visibleProducts.length && (
+							<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
+								<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
+								<span>{menuError || "Try another category or search term."}</span>
+							</div>
+						)}
 					</section>
 					{visibleProducts.length > 0 && <nav className="admin-menu-pagination" aria-label="Menu catalog pages">
 						<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
@@ -568,10 +633,9 @@ function AdminMenuManagement() {
 						</div>
 
 						<div className="delete-confirm-text">
-							<h3 id="delete-item-title">Delete Menu Item?</h3>
+							<h3 id="delete-item-title">Move to Archive?</h3>
 							<p id="delete-item-message">
-								Are you sure you want to delete <strong>{itemToDelete.name}</strong>? This item
-								will be permanently removed from the customer menu and POS catalog.
+								Are you sure you want to archive <strong>{itemToDelete.name}</strong>? It will be safely moved to the <strong>Archive</strong> for 30 days before permanent deletion. You can restore it anytime!
 							</p>
 						</div>
 
@@ -595,7 +659,7 @@ function AdminMenuManagement() {
 								Cancel
 							</button>
 							<button type="button" className="delete-confirm-submit" onClick={confirmDelete}>
-								Confirm Delete
+								Move to Archive
 							</button>
 						</div>
 					</div>
@@ -727,10 +791,10 @@ function AdminMenuManagement() {
 										<div className="menu-builder-toggle-row">
 											<button
 												type="button"
-												className={`menu-builder-toggle ${formValues.available ? "on" : ""}`}
+												className={`menu-builder-toggle ${formValues.available ? "on" : "off"}`}
 												role="switch"
 												aria-checked={formValues.available}
-												onClick={() => setFormValues({ ...formValues, available: !formValues.available })}
+												onClick={() => setFormValues((prev) => ({ ...prev, available: !prev.available }))}
 											>
 												<span className="menu-builder-toggle-track" aria-hidden="true">
 													<span className="menu-builder-toggle-thumb" />
@@ -744,42 +808,125 @@ function AdminMenuManagement() {
 								</section>
 
 								<section className="menu-builder-card">
-									<label className="menu-builder-legend with-icon">
-										<List aria-hidden="true" size={13} strokeWidth={2.2} />
-										Item Variations &amp; Sizes
-									</label>
-									<div className="menu-builder-taginput">
-										<input
-											type="text"
-											value={sizeInput}
-											onChange={(event) => setSizeInput(event.target.value)}
-											onKeyDown={(event) => {
-												if (event.key === "Enter") {
-													event.preventDefault();
-													addSizes(sizeInput);
-												}
-											}}
-											placeholder="e.g. Large: 59 or Medium"
-											aria-label="Add size"
-										/>
-										<button type="button" onClick={() => addSizes(sizeInput)} disabled={!sizeInput.trim()}>
-											<Plus size={14} strokeWidth={2.4} /> Add
+									<div className="menu-builder-section-header">
+										<label className="menu-builder-legend with-icon">
+											<List aria-hidden="true" size={13} strokeWidth={2.2} />
+											Item Variations &amp; Sizes
+										</label>
+										<button
+											type="button"
+											className="menu-builder-add-btn"
+											onClick={addVariation}
+											title="Add a new variation"
+										>
+											<Plus size={14} strokeWidth={2.4} /> Add Variation
 										</button>
 									</div>
 
 									{formValues.sizes.length ? (
 										<div className="menu-builder-size-list">
-											{formValues.sizes.map((size, index) => (
-												<div className="menu-builder-size-row" key={`${size.label}-${index}`}>
-													<strong>{size.label}</strong>
-													<label>Serving price <span>₱</span><input type="number" min="0" step="0.01" value={size.price ?? ""} placeholder={formValues.price || "0.00"} onChange={(event) => updateSize(index, "price", event.target.value)} aria-label={`${size.label} serving price`} /></label>
-													<button type="button" onClick={() => removeSize(index)} aria-label={`Remove ${size.label}`}>×</button>
-												</div>
-											))}
-										</div>
-									) : null}
+											{formValues.sizes.map((size, index) => {
+												const isEditing = editingSizeIndex === index;
+												return (
+													<div
+														className={`menu-builder-size-row ${isEditing ? "editing" : "normal"}`}
+														key={index}
+														ref={isEditing ? editingSizeRef : null}
+													>
+														{isEditing ? (
+															<div className="size-row-edit-content">
+																<input
+																	type="text"
+																	className="size-label-input"
+																	value={size.label}
+																	placeholder="Variation name (e.g. Large, Medium)"
+																	onChange={(e) => updateSizeLabel(index, e.target.value)}
+																	autoFocus
+																	onKeyDown={(e) => {
+																		if (e.key === "Enter") {
+																			e.preventDefault();
+																			setEditingSizeIndex(null);
+																		}
+																	}}
+																	aria-label="Variation name"
+																/>
+																<div className="size-price-input-wrap">
+																	<span className="size-currency-sign">₱</span>
+																	<input
+																		type="number"
+																		min="0"
+																		step="0.01"
+																		className="size-price-input"
+																		value={size.price ?? ""}
+																		placeholder={formValues.price || "0.00"}
+																		onChange={(e) => updateSizePrice(index, e.target.value)}
+																		onKeyDown={(e) => {
+																			if (e.key === "Enter") {
+																				e.preventDefault();
+																				setEditingSizeIndex(null);
+																			}
+																		}}
+																		aria-label={`${size.label || "Variation"} price`}
+																	/>
+																</div>
+															</div>
+														) : (
+															<div className="size-row-display-content">
+																<button
+																	type="button"
+																	className="size-name-btn"
+																	onClick={() => setEditingSizeIndex(index)}
+																	title="Click to edit variation name"
+																>
+																	<strong className={size.label.trim() ? "" : "empty-placeholder"}>
+																		{size.label.trim() ? size.label : "Untitled Variation"}
+																	</strong>
+																</button>
+																<div
+																	className="size-price-display"
+																	onClick={() => setEditingSizeIndex(index)}
+																	title="Click to edit price"
+																>
+																	<span className="price-caption">Serving price</span>
+																	<strong className="price-tag">
+																		₱{size.price !== "" && !isNaN(Number(size.price)) ? Number(size.price).toFixed(2) : formValues.price ? Number(formValues.price).toFixed(2) : "0.00"}
+																	</strong>
+																</div>
+															</div>
+														)}
 
-									<small>Set a price for each size. Enter a size as “Large: 59” to add it with a price, or edit the price after adding.</small>
+														<button
+															type="button"
+															className={`size-toggle-chevron-btn ${isEditing ? "active" : ""}`}
+															onClick={() => setEditingSizeIndex(isEditing ? null : index)}
+															aria-label={isEditing ? "Close variation editor" : "Edit variation"}
+															title={isEditing ? "Close editor" : "Edit name & price"}
+														>
+															<ChevronRight size={15} strokeWidth={2.4} className={`chevron-icon ${isEditing ? "rotated" : ""}`} />
+														</button>
+
+														<button
+															type="button"
+															className="size-delete-btn"
+															onClick={() => removeSize(index)}
+															aria-label={`Remove ${size.label || "variation"}`}
+															title="Remove variation"
+														>
+															×
+														</button>
+													</div>
+												);
+											})}
+										</div>
+									) : (
+										<div className="menu-builder-empty-variations">
+											<span>No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large.</span>
+										</div>
+									)}
+
+									<p className="menu-recipe-help">
+										Set a price for each size. Click &ldquo;+ Add Variation&rdquo; to add sizes. Click the variation button or the (&gt;) control to edit its name and price.
+									</p>
 								</section>
 
 								<section className="menu-builder-card">

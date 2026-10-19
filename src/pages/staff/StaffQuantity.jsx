@@ -67,15 +67,15 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
     });
     return [...combined.values()].map((entry) => ({
       ...entry,
-      required: Number((entry.perServing * quantity).toFixed(3)),
-      availableAfter: Number((entry.inventoryQuantity - entry.perServing * quantity).toFixed(3)),
+      required: Number((entry.perServing * quantity).toFixed(6)),
+      availableAfter: Number((entry.inventoryQuantity - entry.perServing * quantity).toFixed(6)),
     }));
   }, [addonOptions, catalogProduct, currentSizeObj, quantity, selectedAddons]);
 
   const ingredientShortages = ingredientStockLines.filter((entry) => !entry.configured || entry.availableAfter < 0);
   const canAddToOrder = ingredientShortages.length === 0;
 
-  const formatStock = (value) => Number(value || 0).toFixed(3).replace(/\.?0+$/, "");
+  const formatStock = (value) => Number(value || 0).toFixed(6).replace(/\.?0+$/, "");
 
   const addonsTotal = useMemo(() => {
     return selectedAddons.reduce((sum, label) => {

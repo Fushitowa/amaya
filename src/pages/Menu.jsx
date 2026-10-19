@@ -13,7 +13,7 @@ function Menu() {
   const categoryTitles = {
     drinks: "Drinks",
     snacks: "Snacks",
-    milktea: "Milktea",
+    milktea: "Milk Tea",
     dessert: "Desserts",
   };
 

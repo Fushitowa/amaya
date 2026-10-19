@@ -7,10 +7,17 @@ import { useAuth } from "./AuthContext.jsx";
 const InventoryContext = createContext(null);
 
 export const INVENTORY_CATEGORIES = [
-  "All", "Soft Drinks", "Syrup", "Tea", "Dairy", "Frozen Food", "Meat", "Bakery",
-  "Supplies", "Condiments", "Toppings", "Packaging", "Dessert Ingredients", "Fruit", "Cooking Supplies",
+  "All",
+  "Tea Bases",
+  "Dairy & Creamers",
+  "Syrups & Sweeteners",
+  "Toppings & Add-ons",
+  "Snack Ingredients",
+  "Powders & Seasonings",
+  "Packaging & Disposables",
+  "Store & Cleaning Supplies",
 ];
-export const DEFAULT_INGREDIENT_CATEGORY = "Supplies";
+export const DEFAULT_INGREDIENT_CATEGORY = "Tea Bases";
 
 export function getInventoryStatus(quantity, maximumStock) {
   if (Number(quantity) <= 0) return "Out of Stock";
@@ -70,6 +77,10 @@ function InventoryProvider({ children }) {
     loading: Boolean(user && loadedUserId !== user.id),
     error: user ? error : "",
     refreshInventory,
+    totalInventoryValue: inventory.reduce(
+      (sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)),
+      0,
+    ),
     addInventoryItem: async (item) => {
       const saved = await apiRequest("/inventory", { method: "POST", body: JSON.stringify(item) });
       setInventory((current) => [...current, saved]);

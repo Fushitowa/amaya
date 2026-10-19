@@ -10,6 +10,7 @@ import orderRoutes from "./routes/orders.js";
 import inventoryRoutes from "./routes/inventory.js";
 import settingsRoutes from "./routes/settings.js";
 import notificationRoutes, { runInventoryAlertCheck } from "./routes/notifications.js";
+import archiveRoutes, { runArchivePurgeCheck } from "./routes/archive.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -46,6 +47,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/archive", archiveRoutes);
 
 app.use((request, response) => {
   response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });
@@ -59,14 +61,22 @@ app.use((error, _request, response, _next) => {
 
 app.listen(port, () => {
   console.log(`Amaya API listening at http://localhost:${port}`);
-  const checkInventoryInactivity = () => runInventoryAlertCheck()
-    .then(({ inactiveAlerts }) => {
-      if (inactiveAlerts) console.log(`Inventory inactivity monitor found ${inactiveAlerts} newly inactive item(s).`);
-    })
-    .catch((error) => console.warn("Inventory inactivity monitor check failed:", error.message));
-  checkInventoryInactivity();
-  const inventoryMonitor = setInterval(checkInventoryInactivity, 60_000);
-  inventoryMonitor.unref();
+  const runBackgroundMonitors = () => {
+    runInventoryAlertCheck()
+      .then(({ inactiveAlerts }) => {
+        if (inactiveAlerts) console.log(`Inventory inactivity monitor found ${inactiveAlerts} newly inactive item(s).`);
+      })
+      .catch((error) => console.warn("Inventory inactivity monitor check failed:", error.message));
+    runArchivePurgeCheck()
+      .then(({ purgedMenuCount = 0, purgedInventoryCount = 0 } = {}) => {
+        const purgedCount = purgedMenuCount + purgedInventoryCount;
+        if (purgedCount) console.log(`Archive auto-purge removed ${purgedCount} expired item(s) older than 30 days.`);
+      })
+      .catch((error) => console.warn("Archive auto-purge check failed:", error.message));
+  };
+  runBackgroundMonitors();
+  const monitorInterval = setInterval(runBackgroundMonitors, 60_000);
+  monitorInterval.unref();
 });
 
 async function closeDatabasePool() {
