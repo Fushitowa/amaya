@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../database.js";
 import { httpError, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
+import { recordArchiveAudit } from "./archive.js";
 
 const router = Router();
 const toMoney = (value, label) => {
@@ -90,7 +91,7 @@ async function listProducts(includeUnavailable = false, includeInventory = false
   const [products] = await pool.execute(
     `SELECT p.*, c.name AS category
        FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
-      ${includeUnavailable ? "" : "WHERE p.is_available = TRUE"}
+      WHERE p.is_archived = FALSE ${includeUnavailable ? "" : "AND p.is_available = TRUE"}
       ORDER BY p.display_order, p.name`,
   );
   if (!products.length) return [];
@@ -175,7 +176,7 @@ async function saveProduct(connection, body, id = null) {
     );
     productId = result.insertId;
   } else {
-    const [existing] = await connection.execute("SELECT id FROM menu_products WHERE id = ?", [id]);
+    const [existing] = await connection.execute("SELECT id FROM menu_products WHERE id = ? AND is_archived = FALSE", [id]);
     if (!existing.length) throw httpError(404, "Menu item not found.");
     await connection.execute(
       `UPDATE menu_products SET category_id = ?, name = ?, description = ?, image_url = ?, base_price = ?, stock_quantity = ?, is_available = ?, is_featured = ? WHERE id = ?`,
@@ -238,9 +239,9 @@ async function saveProduct(connection, body, id = null) {
     let result;
     try {
       [result] = await connection.execute(
-        `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu)
-         VALUES (?, ?, 0, ?, 0, TRUE)
-         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
+        `INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock, added_from_menu, is_archived, archived_at, archived_by)
+         VALUES (?, ?, 0, ?, 0, TRUE, FALSE, NULL, NULL)
+         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), is_archived = FALSE, archived_at = NULL, archived_by = NULL`,
         [itemName, itemCategory, stockUnit],
       );
     } catch (error) {
@@ -350,8 +351,27 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
 
 router.delete("/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const id = idFrom(request.params.id);
-  const [result] = await pool.execute("DELETE FROM menu_products WHERE id = ?", [id]);
-  if (!result.affectedRows) throw httpError(404, "Menu item not found.");
+  const [[existing]] = await pool.execute(
+    `SELECT p.id, p.name, p.base_price, c.name AS category
+       FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
+      WHERE p.id = ? AND p.is_archived = FALSE`,
+    [id],
+  );
+  if (!existing) throw httpError(404, "Menu item not found.");
+  await pool.execute(
+    "UPDATE menu_products SET is_archived = TRUE, archived_at = NOW(), archived_by = ? WHERE id = ?",
+    [request.authUser?.sub || null, id],
+  );
+  await recordArchiveAudit(pool, {
+    entityType: "menu_product",
+    entityId: id,
+    entityName: existing.name,
+    action: "archived",
+    actorId: request.authUser?.sub || null,
+    actorName: request.authUser?.username || "Admin",
+    note: "Moved to 30-day Archive from Menu Management",
+    metadata: { category: existing.category || "Uncategorized", basePrice: Number(existing.base_price) },
+  });
   response.status(204).end();
 });
 

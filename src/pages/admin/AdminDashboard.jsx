@@ -4,11 +4,11 @@ import {
   ArrowUpRight,
   ChartNoAxesColumnIncreasing,
   CircleDollarSign,
-  ClipboardList,
-  Clock3,
-  Package,
+  Coins,
   Plus,
   ReceiptText,
+  ShoppingBag,
+  Warehouse,
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
@@ -16,7 +16,7 @@ import PortalNotificationButton from "../../components/PortalNotificationButton.
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
-import { useMenu } from "../../context/MenuContext.jsx";
+import { useInventory } from "../../context/InventoryContext.jsx";
 import "../../assets/css/admin/AdminDashboard.css";
 import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
@@ -26,12 +26,41 @@ import "../../assets/css/sidebar-collapse.css";
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
-  const { products } = useMenu();
+  const { inventory } = useInventory() || { inventory: [] };
   const [salesRange, setSalesRange] = useState("week");
-  const todaysOrders = orders.filter((order) => isToday(order.createdAt));
-  const todaysSales = todaysOrders.reduce((sum, order) => sum + order.total, 0);
-  const pendingOrders = orders.filter((order) => order.status === "Pending");
-  const lowStockProducts = products.filter((product) => Number(product.stock || 0) <= 5);
+
+  // 1. Total Sales (strictly from verified Paid orders)
+  const paidOrders = useMemo(() => orders.filter((order) => order.payment === "Paid"), [orders]);
+  const allTimeSales = useMemo(() => paidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [paidOrders]);
+  const todaysPaidOrders = useMemo(() => paidOrders.filter((order) => isToday(order.createdAt)), [paidOrders]);
+  const todaysSales = useMemo(() => todaysPaidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [todaysPaidOrders]);
+
+  // 2. Products Sold (distinguishing completed orders count vs actual unit count)
+  const allTimeUnitsSold = useMemo(
+    () => paidOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0),
+    [paidOrders],
+  );
+  const todaysUnitsSold = useMemo(
+    () => todaysPaidOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0),
+    [todaysPaidOrders],
+  );
+
+  // 3. Inventory Value (Total remaining stock asset value = SUM(quantity * unitCost))
+  const inventoryAssetValue = useMemo(() => {
+    return (inventory || []).reduce(
+      (sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)),
+      0,
+    );
+  }, [inventory]);
+
+  // 4. Current Budget / Cash Drawer Float
+  // Note: Operating cash float requires End-of-Day cash reconciliation record. We report real cash collected today.
+  const todaysCashCollected = useMemo(() => {
+    return todaysPaidOrders
+      .filter((order) => (order.paymentMethod || "Cash").toLowerCase() === "cash")
+      .reduce((sum, order) => sum + Number(order.total || 0), 0);
+  }, [todaysPaidOrders]);
+
   const liveDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -71,6 +100,7 @@ function AdminDashboard() {
     return buckets.map((bucket) => ({
       ...bucket,
       total: orders.reduce((sum, order) => {
+        if (order.payment !== "Paid") return sum;
         const createdAt = new Date(order.createdAt);
         return createdAt >= bucket.start && createdAt < bucket.end ? sum + Number(order.total || 0) : sum;
       }, 0),
@@ -82,8 +112,6 @@ function AdminDashboard() {
 
   return (
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-
-      
       <Sidebar
         role="admin"
         activeTab="dashboard" orderCount={orders.length}
@@ -91,42 +119,28 @@ function AdminDashboard() {
         onToggle={toggleSidebar}
       />
 
-
-      
       <main className="admin-main">
-
-        
         <header className="admin-topbar">
-
           <div className="admin-page-title">
             <h1>Dashboard</h1>
             <p>Overview of your Amaya business</p>
           </div>
 
           <div className="admin-topbar-right">
-
             <PortalNotificationButton />
 
             <div className="admin-user">
-
               <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
 
               <div className="admin-user-info">
                 <strong>Administrator</strong>
                 <span>Admin</span>
               </div>
-
             </div>
-
           </div>
-
         </header>
 
-
-        
         <div className="admin-content">
-
-          
           <PortalHero
             label="Administrator"
             greeting="Welcome back"
@@ -136,69 +150,62 @@ function AdminDashboard() {
             statusTitle="System active"
           />
 
-
-          
           <section className="admin-stats">
-
-            
             <div className="admin-stat-card stat-card-sales">
               <div className="stat-icon"><CircleDollarSign size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Total Sales</span>
-                <h3>₱{todaysSales.toFixed(2)}</h3>
+                <span>Total Sales (Paid)</span>
+                <h3>₱{allTimeSales.toFixed(2)}</h3>
                 <small>
-                  {todaysOrders.length ? "Updated from today's orders" : "No sales recorded yet"}
+                  {todaysPaidOrders.length
+                    ? `₱${todaysSales.toFixed(2)} from ${todaysPaidOrders.length} paid today`
+                    : "No paid sales recorded today"}
                 </small>
               </div>
-
             </div>
 
-
-            
             <div className="admin-stat-card stat-card-orders">
-              <div className="stat-icon"><ClipboardList size={21} strokeWidth={1.8} /></div>
+              <div className="stat-icon"><ShoppingBag size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Today's Orders</span>
-                <h3>{todaysOrders.length}</h3>
+                <span>Products Sold</span>
+                <h3>{allTimeUnitsSold} units</h3>
                 <small>
-                  {todaysOrders.length ? "Orders recorded today" : "No orders yet"}
+                  {paidOrders.length
+                    ? `Across ${paidOrders.length} orders (${todaysUnitsSold} units today)`
+                    : "No sales transactions completed"}
                 </small>
               </div>
-
             </div>
 
-
-            
             <div className="admin-stat-card stat-card-pending">
-              <div className="stat-icon"><Clock3 size={21} strokeWidth={1.8} /></div>
+              <div className="stat-icon"><Warehouse size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Pending Orders</span>
-                <h3>{pendingOrders.length}</h3>
+                <span>Inventory Value</span>
+                <h3>₱{inventoryAssetValue.toFixed(2)}</h3>
                 <small>
-                  {pendingOrders.length ? "Awaiting preparation" : "No pending orders"}
+                  {(inventory || []).length
+                    ? `Asset value across ${inventory.length} ingredients`
+                    : "No inventory stock recorded"}
                 </small>
               </div>
-
             </div>
 
-
-            
             <div className="admin-stat-card stat-card-products">
-              <div className="stat-icon"><Package size={21} strokeWidth={1.8} /></div>
+              <div className="stat-icon"><Coins size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Total Products</span>
-                <h3>{products.length}</h3>
-                <small className={lowStockProducts.length ? "metric-note is-alert" : "metric-note"}>
-                  {lowStockProducts.length} low-stock items
+                <span>Cash Drawer / Float</span>
+                <h3>Float Unset</h3>
+                <small className="metric-note">
+                  {todaysCashCollected > 0
+                    ? `₱${todaysCashCollected.toFixed(2)} cash collected today`
+                    : "Awaiting End-of-Day reconciliation"}
                 </small>
               </div>
-
             </div>
-
           </section>
 
 
@@ -344,14 +351,29 @@ function AdminDashboard() {
                   </thead>
 
                   <tbody>
-                    <tr>
-                      <td colSpan="4" className="empty-orders-cell">
-                        <div className="empty-orders-state">
-                          <strong>No orders yet</strong>
-                          <span>New customer orders will appear here.</span>
-                        </div>
-                      </td>
-                    </tr>
+                    {orders.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="empty-orders-cell">
+                          <div className="empty-orders-state">
+                            <strong>No orders yet</strong>
+                            <span>New customer orders will appear here.</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      orders.slice(0, 5).map((order) => (
+                        <tr key={order.id}>
+                          <td><strong>{order.id}</strong></td>
+                          <td>{order.customer || "Walk-in Customer"}</td>
+                          <td>₱{Number(order.total || 0).toFixed(2)}</td>
+                          <td>
+                            <span className={`order-status-pill status-${String(order.status || "pending").toLowerCase()}`}>
+                              {order.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
 
                 </table>

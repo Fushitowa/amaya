@@ -25,3 +25,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python cache and artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+
+# Local database dumps and backups (keep migrations tracked)
+database/*.sql
+!database/migrations/*.sql
+*.backup.sql
+*_backup.sql

@@ -1,14 +1,33 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { recordArchiveAudit } from "./archive.js";
 
 const router = Router();
-const mapItem = (row) => ({
-  id: Number(row.id), item: row.name, category: row.category,
-  quantity: Number(row.quantity), unit: row.unit,
-  minimumStock: Number(row.minimum_stock), addedFromMenu: Boolean(row.added_from_menu),
-  lastUpdated: new Date(row.updated_at).toISOString(),
-});
+const mapItem = (row) => {
+  const quantity = Number(row.quantity || 0);
+  const unitCost = Number(row.unit_cost || 0);
+  const purchasePrice = Number(row.purchase_price || 0);
+  const packageQuantity = Number(row.package_quantity || 1);
+  const contentsPerPackage = Number(row.contents_per_package || 1);
+  return {
+    id: Number(row.id),
+    item: row.name,
+    category: row.category,
+    quantity,
+    unit: row.unit,
+    minimumStock: Number(row.minimum_stock || 0),
+    addedFromMenu: Boolean(row.added_from_menu),
+    purchasePrice,
+    packageQuantity,
+    packageUnit: row.package_unit || "pack",
+    contentsPerPackage,
+    unitCost,
+    inventoryValue: Number((quantity * unitCost).toFixed(2)),
+    lastUpdated: new Date(row.updated_at).toISOString(),
+  };
+};
+
 const unitWithAmountError = (unit) => {
   const match = String(unit || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
   return match
@@ -16,8 +35,28 @@ const unitWithAmountError = (unit) => {
     : null;
 };
 
+router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
+  const [rows] = await pool.execute(
+    `SELECT
+       COUNT(*) AS total_items,
+       COALESCE(SUM(quantity * unit_cost), 0) AS total_value,
+       COALESCE(SUM(CASE WHEN quantity <= 0 THEN 1 ELSE 0 END), 0) AS out_of_stock_count,
+       COALESCE(SUM(CASE WHEN quantity > 0 AND quantity <= minimum_stock THEN 1 ELSE 0 END), 0) AS low_stock_count,
+       COALESCE(SUM(CASE WHEN quantity > minimum_stock THEN 1 ELSE 0 END), 0) AS in_stock_count
+     FROM inventory_items WHERE is_archived = FALSE`,
+  );
+  const row = rows[0] || {};
+  response.json({
+    totalItems: Number(row.total_items || 0),
+    totalValue: Number(Number(row.total_value || 0).toFixed(2)),
+    outOfStockCount: Number(row.out_of_stock_count || 0),
+    lowStockCount: Number(row.low_stock_count || 0),
+    inStockCount: Number(row.in_stock_count || 0),
+  });
+});
+
 router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
-  const [rows] = await pool.execute("SELECT * FROM inventory_items ORDER BY category, name");
+  const [rows] = await pool.execute("SELECT * FROM inventory_items WHERE is_archived = FALSE ORDER BY category, name");
   response.json(rows.map(mapItem));
 });
 
@@ -55,12 +94,27 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
   if (!name || name.length > 160 || !cleanCategory || !cleanUnit || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minimumStock) || minimumStock < 0) {
     throw httpError(400, "Enter a valid inventory name, category, unit, and non-negative quantities.");
   }
+  const purchasePrice = Math.max(0, Number(request.body.purchasePrice || 0));
+  const packageQuantity = Math.max(0.001, Number(request.body.packageQuantity || 1));
+  const packageUnit = String(request.body.packageUnit || "pack").trim().slice(0, 40) || "pack";
+  const contentsPerPackage = Math.max(0.001, Number(request.body.contentsPerPackage || 1));
+  let calculatedUnitCost = 0;
+  if (purchasePrice > 0 && packageQuantity > 0 && contentsPerPackage > 0) {
+    calculatedUnitCost = purchasePrice / (packageQuantity * contentsPerPackage);
+  } else if (Number(request.body.unitCost) > 0) {
+    calculatedUnitCost = Number(request.body.unitCost);
+  }
+  const unitCost = Number(calculatedUnitCost.toFixed(4));
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const [created] = await connection.execute(
-      "INSERT INTO inventory_items (name, category, quantity, unit, minimum_stock) VALUES (?, ?, 0, ?, ?)",
-      [name, cleanCategory, cleanUnit, minimumStock],
+      `INSERT INTO inventory_items (
+         name, category, quantity, unit, minimum_stock,
+         purchase_price, package_quantity, package_unit, contents_per_package, unit_cost
+       ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, cleanCategory, cleanUnit, minimumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost],
     );
     if (quantity > 0) {
       await connection.execute("UPDATE inventory_items SET quantity = ? WHERE id = ?", [quantity, created.insertId]);
@@ -69,7 +123,7 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await connection.commit();
   } catch (error) {
     await connection.rollback();
-    if (error.code === "ER_DUP_ENTRY") throw httpError(409, "An inventory item with that name already exists.");
+    if (error.code === "ER_DUP_ENTRY") throw httpError(409, "An inventory item with that name already exists (check active inventory or the 30-day Archive).");
     throw error;
   } finally { connection.release(); }
   const [[row]] = await pool.execute("SELECT * FROM inventory_items WHERE name = ?", [name]);
@@ -92,15 +146,48 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[current]] = await connection.execute("SELECT quantity, unit FROM inventory_items WHERE id = ? FOR UPDATE", [id]);
+    const [[current]] = await connection.execute("SELECT * FROM inventory_items WHERE id = ? AND is_archived = FALSE FOR UPDATE", [id]);
     if (!current) throw httpError(404, "Inventory item not found.");
     if (String(current.unit).trim().toLowerCase() !== cleanUnit.toLowerCase()) {
-      const [[recipeUsage]] = await connection.execute(
-        "SELECT (SELECT COUNT(*) FROM product_ingredients WHERE inventory_item_id = ?) + (SELECT COUNT(*) FROM product_addons WHERE inventory_item_id = ?) AS total", [id, id],
+      const [linkedRows] = await connection.execute(
+        `SELECT DISTINCT mp.name FROM menu_products mp
+           JOIN product_ingredients pi ON pi.product_id = mp.id WHERE pi.inventory_item_id = ? AND mp.is_archived = FALSE
+         UNION
+         SELECT DISTINCT mp.name FROM menu_products mp
+           JOIN product_sizes ps ON ps.product_id = mp.id
+           JOIN product_size_ingredients psi ON psi.product_size_id = ps.id WHERE psi.inventory_item_id = ? AND mp.is_archived = FALSE
+         UNION
+         SELECT DISTINCT mp.name FROM menu_products mp
+           JOIN product_addons pa ON pa.product_id = mp.id WHERE pa.inventory_item_id = ? AND mp.is_archived = FALSE`,
+        [id, id, id],
       );
-      if (Number(recipeUsage.total) > 0) throw httpError(409, "This unit is used by a menu ingredient or add-on. Remove it from those menu items before changing the inventory unit.");
+      if (linkedRows.length > 0) {
+        const productNames = linkedRows.map((row) => row.name).join(", ");
+        throw httpError(409, `This unit is used in recipes/add-ons for: ${productNames}. Remove it from those menu items before changing the inventory unit.`);
+      }
     }
-    await connection.execute("UPDATE inventory_items SET name = ?, category = ?, quantity = ?, unit = ?, minimum_stock = ? WHERE id = ?", [name, cleanCategory, quantity, cleanUnit, minimumStock, id]);
+
+    const purchasePrice = Math.max(0, Number(request.body.purchasePrice !== undefined ? request.body.purchasePrice : current.purchase_price || 0));
+    const packageQuantity = Math.max(0.001, Number(request.body.packageQuantity || current.package_quantity || 1));
+    const packageUnit = String(request.body.packageUnit || current.package_unit || "pack").trim().slice(0, 40) || "pack";
+    const contentsPerPackage = Math.max(0.001, Number(request.body.contentsPerPackage || current.contents_per_package || 1));
+    let calculatedUnitCost = 0;
+    if (purchasePrice > 0 && packageQuantity > 0 && contentsPerPackage > 0) {
+      calculatedUnitCost = purchasePrice / (packageQuantity * contentsPerPackage);
+    } else if (Number(request.body.unitCost) > 0) {
+      calculatedUnitCost = Number(request.body.unitCost);
+    } else {
+      calculatedUnitCost = Number(current.unit_cost || 0);
+    }
+    const unitCost = Number(calculatedUnitCost.toFixed(4));
+
+    await connection.execute(
+      `UPDATE inventory_items SET
+         name = ?, category = ?, quantity = ?, unit = ?, minimum_stock = ?,
+         purchase_price = ?, package_quantity = ?, package_unit = ?, contents_per_package = ?, unit_cost = ?
+       WHERE id = ?`,
+      [name, cleanCategory, quantity, cleanUnit, minimumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost, id],
+    );
     const delta = quantity - Number(current.quantity);
     if (delta !== 0) await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'adjustment', ?, 'Manual inventory adjustment')", [id, request.authUser.sub, delta]);
     await connection.commit();
@@ -120,7 +207,7 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [result] = await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?", [quantity, id]);
+    const [result] = await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ? AND is_archived = FALSE", [quantity, id]);
     if (!result.affectedRows) throw httpError(404, "Inventory item not found.");
     await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'restock', ?, 'Inventory restock')", [id, request.authUser.sub, quantity]);
     await connection.commit();
@@ -133,17 +220,44 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
 router.delete("/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const id = Number(request.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid inventory ID.");
-  const [[usage]] = await pool.execute("SELECT (SELECT COUNT(*) FROM product_ingredients WHERE inventory_item_id = ?) AS recipes, (SELECT COUNT(*) FROM product_addons WHERE inventory_item_id = ?) AS addons, (SELECT COUNT(*) FROM inventory_movements WHERE inventory_item_id = ?) AS movements", [id, id, id]);
-  if (Number(usage.recipes) > 0 || Number(usage.addons) > 0) throw httpError(409, "This inventory item is used by a menu ingredient or add-on. Remove it from those menu items before deleting it.");
-  if (Number(usage.movements) > 0) throw httpError(409, "This item has stock history and cannot be deleted.");
-  try {
-    const [result] = await pool.execute("DELETE FROM inventory_items WHERE id = ?", [id]);
-    if (!result.affectedRows) throw httpError(404, "Inventory item not found.");
-    response.status(204).end();
-  } catch (error) {
-    if (error.code === "ER_ROW_IS_REFERENCED_2") throw httpError(409, "This item has related stock history and cannot be deleted.");
-    throw error;
+  const [[existing]] = await pool.execute(
+    "SELECT id, name, category, quantity, unit FROM inventory_items WHERE id = ? AND is_archived = FALSE",
+    [id],
+  );
+  if (!existing) throw httpError(404, "Inventory item not found.");
+
+  const [linkedRows] = await pool.execute(
+    `SELECT DISTINCT mp.name FROM menu_products mp
+       JOIN product_ingredients pi ON pi.product_id = mp.id WHERE pi.inventory_item_id = ? AND mp.is_archived = FALSE
+     UNION
+     SELECT DISTINCT mp.name FROM menu_products mp
+       JOIN product_sizes ps ON ps.product_id = mp.id
+       JOIN product_size_ingredients psi ON psi.product_size_id = ps.id WHERE psi.inventory_item_id = ? AND mp.is_archived = FALSE
+     UNION
+     SELECT DISTINCT mp.name FROM menu_products mp
+       JOIN product_addons pa ON pa.product_id = mp.id WHERE pa.inventory_item_id = ? AND mp.is_archived = FALSE`,
+    [id, id, id],
+  );
+  if (linkedRows.length > 0) {
+    const productNames = linkedRows.map((row) => row.name).join(", ");
+    throw httpError(409, `This inventory item is used in recipes/add-ons for active menu item(s): ${productNames}. Archive or remove it from those menu items in Menu Management first.`);
   }
+
+  await pool.execute(
+    "UPDATE inventory_items SET is_archived = TRUE, archived_at = NOW(), archived_by = ? WHERE id = ?",
+    [request.authUser?.sub || null, id],
+  );
+  await recordArchiveAudit(pool, {
+    entityType: "inventory_item",
+    entityId: id,
+    entityName: existing.name,
+    action: "archived",
+    actorId: request.authUser?.sub || null,
+    actorName: request.authUser?.username || "Admin",
+    note: "Moved to 30-day Archive from Inventory Management",
+    metadata: { category: existing.category, quantity: Number(existing.quantity), unit: existing.unit },
+  });
+  response.status(204).end();
 });
 
 export default router;

@@ -58,6 +58,41 @@ async function findUnusedOrderNumber(connection) {
   throw httpError(503, "Could not allocate an order number. Please try again.");
 }
 
+router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
+  const [salesRows] = await pool.execute(
+    `SELECT
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' THEN total ELSE 0 END), 0) AS all_time_sales,
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND DATE(created_at) = CURDATE() THEN total ELSE 0 END), 0) AS today_sales,
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' THEN 1 ELSE 0 END), 0) AS all_time_paid_orders,
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END), 0) AS today_paid_orders,
+       COALESCE(SUM(CASE WHEN order_status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_orders,
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND payment_method = 'Cash' AND DATE(created_at) = CURDATE() THEN total ELSE 0 END), 0) AS today_cash_collected,
+       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND payment_method = 'Cash' THEN total ELSE 0 END), 0) AS all_time_cash_collected
+     FROM orders`,
+  );
+  const [itemRows] = await pool.execute(
+    `SELECT
+       COALESCE(SUM(oi.quantity), 0) AS all_time_units_sold,
+       COALESCE(SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN oi.quantity ELSE 0 END), 0) AS today_units_sold
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE o.payment_status = 'Paid'`,
+  );
+  const s = salesRows[0] || {};
+  const it = itemRows[0] || {};
+  response.json({
+    allTimeSales: Number(Number(s.all_time_sales || 0).toFixed(2)),
+    todaySales: Number(Number(s.today_sales || 0).toFixed(2)),
+    allTimePaidOrders: Number(s.all_time_paid_orders || 0),
+    todayPaidOrders: Number(s.today_paid_orders || 0),
+    allTimeUnitsSold: Number(it.all_time_units_sold || 0),
+    todayUnitsSold: Number(it.today_units_sold || 0),
+    pendingOrders: Number(s.pending_orders || 0),
+    todayCashCollected: Number(Number(s.today_cash_collected || 0).toFixed(2)),
+    allTimeCashCollected: Number(Number(s.all_time_cash_collected || 0).toFixed(2)),
+  });
+});
+
 router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
   response.json(await loadOrders());
 });
