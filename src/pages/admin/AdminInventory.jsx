@@ -26,7 +26,7 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const categories = INVENTORY_CATEGORIES;
+const fallbackCategories = INVENTORY_CATEGORIES;
 const inventoryUnitGroups = [
   { label: "Weight", options: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
   { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
@@ -148,6 +148,7 @@ function AdminInventory() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const {
     inventory: storedInventory,
+    categoryNames = [],
     loading: inventoryLoading,
     error: inventoryError,
     refreshInventory,
@@ -156,6 +157,7 @@ function AdminInventory() {
     removeInventoryItem,
     restockInventoryItem,
   } = useInventory() || {};
+  const categories = (categoryNames && categoryNames.length) ? categoryNames : fallbackCategories;
   const inventory = storedInventory || EMPTY_INVENTORY;
   const [activeCategory, setActiveCategory] = useState("All");
   const [viewMode, setViewMode] = useState("grid");
@@ -524,7 +526,12 @@ function AdminInventory() {
 
                 <div className="admin-inventory-toolbar-center">
                   <label className="admin-inventory-filter">
-                    <span>Category</span>
+                    <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      Category
+                      <Link to="/admin/categories" style={{ fontSize: "0.75rem", color: "#5a3d28", fontWeight: "600", textDecoration: "underline", marginLeft: "6px" }} title="Manage Categories">
+                        ⚙ Manage
+                      </Link>
+                    </span>
                     <select
                       value={activeCategory}
                       onChange={(event) => setActiveCategory(event.target.value)}
@@ -865,6 +872,9 @@ function AdminInventory() {
               <label>
                 <span className="inventory-field-label-text">
                   Category
+                  <Link to="/admin/categories" style={{ fontSize: "0.75rem", color: "#5a3d28", fontWeight: "600", textDecoration: "underline", marginLeft: "auto", marginRight: "6px" }} title="Manage Categories">
+                    ⚙ Manage
+                  </Link>
                   <FieldHelpTooltip
                     title="Category"
                     text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Cups' | Straws/Bags = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"

@@ -1132,6 +1132,25 @@ function AdminMenuManagement() {
 											<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span>
 										</button>
 									))}
+									<Link
+										to="/admin/categories"
+										style={{
+											display: "inline-flex",
+											alignItems: "center",
+											gap: "4px",
+											padding: "6px 12px",
+											fontSize: "0.78rem",
+											fontWeight: "600",
+											color: "#5a3d28",
+											background: "#f5ece5",
+											borderRadius: "8px",
+											textDecoration: "none",
+											marginLeft: "4px"
+										}}
+										title="Manage Categories in Database"
+									>
+										⚙ Manage
+									</Link>
 								</div>
 								<label className="admin-menu-search">
 									<span>⌕</span>

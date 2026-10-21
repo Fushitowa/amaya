@@ -29,10 +29,23 @@ export function getInventoryStatus(quantity, maximumStock) {
 
 function InventoryProvider({ children }) {
   const [inventory, setInventory] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loadedUserId, setLoadedUserId] = useState(null);
   const [error, setError] = useState("");
   const { user } = useAuth();
   const userId = user?.id;
+
+  const refreshCategories = useCallback(async () => {
+    if (!user) return [];
+    try {
+      const saved = await apiRequest("/inventory/categories?all=true");
+      setCategories(saved);
+      return saved;
+    } catch (requestError) {
+      console.warn("Could not load inventory categories:", requestError.message);
+      return [];
+    }
+  }, [user]);
 
   const refreshInventory = useCallback(async () => {
     if (!user) return [];
@@ -52,18 +65,21 @@ function InventoryProvider({ children }) {
   useEffect(() => {
     if (!userId) return undefined;
     let active = true;
-    const load = () => apiRequest("/inventory")
-      .then((saved) => {
-        if (!active) return;
-        setInventory(saved);
-        setLoadedUserId(userId);
-        setError("");
-      })
-      .catch((requestError) => {
-        if (!active) return;
-        setLoadedUserId(userId);
-        setError(requestError.message || "Could not load inventory.");
-      });
+    const load = () => {
+      apiRequest("/inventory")
+        .then((saved) => {
+          if (!active) return;
+          setInventory(saved);
+          setLoadedUserId(userId);
+          setError("");
+        })
+        .catch((requestError) => {
+          if (!active) return;
+          setLoadedUserId(userId);
+          setError(requestError.message || "Could not load inventory.");
+        });
+      refreshCategories();
+    };
     load();
     const interval = window.setInterval(load, 30000);
     window.addEventListener("amaya:stock-mutated", load);
@@ -72,7 +88,7 @@ function InventoryProvider({ children }) {
       window.clearInterval(interval);
       window.removeEventListener("amaya:stock-mutated", load);
     };
-  }, [userId]);
+  }, [refreshCategories, userId]);
 
   useEffect(() => {
     if (!userId || loadedUserId !== userId) return;
@@ -81,9 +97,33 @@ function InventoryProvider({ children }) {
 
   const value = useMemo(() => ({
     inventory: user ? inventory : [],
+    categories: categories.length ? categories : INVENTORY_CATEGORIES.filter((c) => c !== "All").map((c, i) => ({ id: i + 1, name: c, isCupCategory: c === "Cups" || c === "Cups & Lids", isSystem: true, displayOrder: i + 1, isActive: true, itemCount: 0 })),
+    categoryNames: ["All", ...(categories.length ? categories.filter((c) => c.isActive !== false).map((c) => c.name) : INVENTORY_CATEGORIES.filter((c) => c !== "All"))],
     loading: Boolean(user && loadedUserId !== user.id),
     error: user ? error : "",
     refreshInventory,
+    refreshCategories,
+    addCategory: async (categoryData) => {
+      const saved = await apiRequest("/inventory/categories", {
+        method: "POST",
+        body: JSON.stringify(categoryData),
+      });
+      setCategories((current) => [...current, saved]);
+      return saved;
+    },
+    updateCategory: async (id, categoryData) => {
+      const saved = await apiRequest(`/inventory/categories/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(categoryData),
+      });
+      setCategories((current) => current.map((c) => c.id === id ? saved : c));
+      await refreshInventory();
+      return saved;
+    },
+    deleteCategory: async (id) => {
+      await apiRequest(`/inventory/categories/${id}`, { method: "DELETE" });
+      setCategories((current) => current.filter((c) => c.id !== id));
+    },
     totalInventoryValue: inventory.reduce(
       (sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)),
       0,

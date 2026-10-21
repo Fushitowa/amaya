@@ -85,6 +85,7 @@ export function resolveProductAddons(product) {
 
 export function MenuProvider({ children }) {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [menuError, setMenuError] = useState("");
   const { user } = useAuth();
   const isSignedIn = Boolean(user);
@@ -99,6 +100,18 @@ export function MenuProvider({ children }) {
     return { ...product, image: "" };
   }, []);
 
+  const refreshCategories = useCallback(async () => {
+    try {
+      const query = isSignedIn ? "?all=true" : "";
+      const saved = await apiRequest(`/menu/categories${query}`);
+      setCategories(saved);
+      return saved;
+    } catch (error) {
+      console.warn("Could not load menu categories:", error.message);
+      return [];
+    }
+  }, [isSignedIn]);
+
   const refreshProducts = useCallback(async () => {
     const query = isSignedIn ? "?all=true" : "";
     const saved = await apiRequest(`/menu${query}`);
@@ -109,17 +122,20 @@ export function MenuProvider({ children }) {
 
   useEffect(() => {
     let current = true;
-    const load = () => apiRequest(`/menu${isSignedIn ? "?all=true" : ""}`)
-      .then((saved) => {
-        if (current) {
-          setMenuError("");
-          setProducts(saved.map(withLocalImage));
-        }
-      })
-      .catch((error) => {
-        console.error("Could not load menu:", error.message);
-        if (current) setMenuError(error.message || "Could not load menu items from server.");
-      });
+    const load = () => {
+      apiRequest(`/menu${isSignedIn ? "?all=true" : ""}`)
+        .then((saved) => {
+          if (current) {
+            setMenuError("");
+            setProducts(saved.map(withLocalImage));
+          }
+        })
+        .catch((error) => {
+          console.error("Could not load menu:", error.message);
+          if (current) setMenuError(error.message || "Could not load menu items from server.");
+        });
+      refreshCategories();
+    };
     load();
     const interval = window.setInterval(load, 30000);
     window.addEventListener("amaya:stock-mutated", load);
@@ -128,12 +144,36 @@ export function MenuProvider({ children }) {
       window.clearInterval(interval);
       window.removeEventListener("amaya:stock-mutated", load);
     };
-  }, [isSignedIn, userRole, withLocalImage]);
+  }, [isSignedIn, refreshCategories, userRole, withLocalImage]);
 
   const value = useMemo(() => ({
     products: isSignedIn ? products : products.filter((product) => product.available),
+    categories,
+    categoryNames: ["All items", ...categories.filter((c) => c.isActive !== false).map((c) => c.name)],
     menuError,
     refreshProducts,
+    refreshCategories,
+    addCategory: async (categoryData) => {
+      const saved = await apiRequest("/menu/categories", {
+        method: "POST",
+        body: JSON.stringify(categoryData),
+      });
+      setCategories((current) => [...current, saved]);
+      return saved;
+    },
+    updateCategory: async (id, categoryData) => {
+      const saved = await apiRequest(`/menu/categories/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(categoryData),
+      });
+      setCategories((current) => current.map((c) => c.id === id ? saved : c));
+      await refreshProducts();
+      return saved;
+    },
+    deleteCategory: async (id) => {
+      await apiRequest(`/menu/categories/${id}`, { method: "DELETE" });
+      setCategories((current) => current.filter((c) => c.id !== id));
+    },
     addProduct: async (product) => {
       const created = withLocalImage(await apiRequest("/menu", { method: "POST", body: JSON.stringify(product) }));
       setProducts((current) => [...current, created]);
@@ -151,7 +191,7 @@ export function MenuProvider({ children }) {
       setProducts((current) => current.filter((entry) => entry.id !== id));
       if (product) notifyMenuDeleted(product);
     },
-  }), [isSignedIn, menuError, products, refreshProducts, withLocalImage]);
+  }), [categories, isSignedIn, menuError, products, refreshCategories, refreshProducts, withLocalImage]);
 
   return <MenuContext.Provider value={value}>{children}</MenuContext.Provider>;
 }

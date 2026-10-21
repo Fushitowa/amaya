@@ -440,11 +440,134 @@ async function saveProduct(connection, body, id = null) {
   return productId;
 }
 
-router.get("/categories", optionalAuth, async (_request, response) => {
+const VALID_OPERATIONAL_FAMILIES = ["drink", "fries", "snack_pieces", "single_fixed", "general"];
+
+router.get("/categories", optionalAuth, async (request, response) => {
+  const showAll = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))
+    && request.query.all === "true";
+
   const [rows] = await pool.execute(
-    "SELECT id, name, description, display_order AS displayOrder FROM menu_categories WHERE is_active = TRUE ORDER BY display_order, name",
+    `SELECT c.id, c.name, c.description, c.operational_family AS operationalFamily,
+            c.display_order AS displayOrder, c.is_active AS isActive,
+            COUNT(p.id) AS productCount
+       FROM menu_categories c
+       LEFT JOIN menu_products p ON p.category_id = c.id AND p.is_archived = FALSE
+      WHERE (? = 1 OR c.is_active = TRUE)
+      GROUP BY c.id
+      ORDER BY c.display_order ASC, c.name ASC`,
+    [showAll ? 1 : 0],
   );
-  response.json(rows);
+  response.json(rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    description: row.description || "",
+    operationalFamily: row.operationalFamily || "general",
+    displayOrder: Number(row.displayOrder || 0),
+    isActive: Boolean(row.isActive),
+    productCount: Number(row.productCount || 0),
+  })));
+});
+
+router.post("/categories", requireAuth, requireRole("admin"), async (request, response) => {
+  const name = String(request.body?.name || "").trim().slice(0, 100);
+  if (!name) throw httpError(400, "Category name is required.");
+
+  const description = String(request.body?.description || "").trim().slice(0, 500) || null;
+  const rawFamily = String(request.body?.operationalFamily || "general").trim().toLowerCase();
+  const operationalFamily = VALID_OPERATIONAL_FAMILIES.includes(rawFamily) ? rawFamily : "general";
+  const displayOrder = Number.isInteger(Number(request.body?.displayOrder)) && Number(request.body?.displayOrder) >= 0
+    ? Number(request.body.displayOrder)
+    : 0;
+  const isActive = request.body?.isActive === false ? 0 : 1;
+
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO menu_categories (name, description, operational_family, display_order, is_active)
+       VALUES (?, ?, ?, ?, ?)`,
+      [name, description, operationalFamily, displayOrder, isActive],
+    );
+
+    response.status(201).json({
+      id: Number(result.insertId),
+      name,
+      description: description || "",
+      operationalFamily,
+      displayOrder,
+      isActive: Boolean(isActive),
+      productCount: 0,
+    });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      throw httpError(409, `A menu category named “${name}” already exists.`);
+    }
+    throw error;
+  }
+});
+
+router.put("/categories/:id", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = idFrom(request.params.id);
+  const name = String(request.body?.name || "").trim().slice(0, 100);
+  if (!name) throw httpError(400, "Category name cannot be empty.");
+
+  const [[existing]] = await pool.execute("SELECT id, name FROM menu_categories WHERE id = ?", [id]);
+  if (!existing) throw httpError(404, "Menu category not found.");
+
+  const description = request.body?.description !== undefined
+    ? (String(request.body.description || "").trim().slice(0, 500) || null)
+    : null;
+  const rawFamily = String(request.body?.operationalFamily || "general").trim().toLowerCase();
+  const operationalFamily = VALID_OPERATIONAL_FAMILIES.includes(rawFamily) ? rawFamily : "general";
+  const displayOrder = Number.isInteger(Number(request.body?.displayOrder)) && Number(request.body?.displayOrder) >= 0
+    ? Number(request.body.displayOrder)
+    : 0;
+  const isActive = request.body?.isActive === false ? 0 : 1;
+
+  try {
+    await pool.execute(
+      `UPDATE menu_categories
+          SET name = ?, description = ?, operational_family = ?, display_order = ?, is_active = ?
+        WHERE id = ?`,
+      [name, description, operationalFamily, displayOrder, isActive, id],
+    );
+
+    const [[countRow]] = await pool.execute(
+      "SELECT COUNT(*) AS total FROM menu_products WHERE category_id = ? AND is_archived = FALSE",
+      [id],
+    );
+
+    response.json({
+      id,
+      name,
+      description: description || "",
+      operationalFamily,
+      displayOrder,
+      isActive: Boolean(isActive),
+      productCount: Number(countRow?.total || 0),
+    });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      throw httpError(409, `A menu category named “${name}” already exists.`);
+    }
+    throw error;
+  }
+});
+
+router.delete("/categories/:id", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = idFrom(request.params.id);
+  const [[category]] = await pool.execute("SELECT id, name FROM menu_categories WHERE id = ?", [id]);
+  if (!category) throw httpError(404, "Menu category not found.");
+
+  // Charlotte's Zero-Trust Referential Integrity Guard (checks active and archived products)
+  const [[usage]] = await pool.execute(
+    "SELECT COUNT(*) AS total FROM menu_products WHERE category_id = ?",
+    [id],
+  );
+  if (usage.total > 0) {
+    throw httpError(409, `Cannot delete category “${category.name}”: ${usage.total} product(s) (including archived items) are assigned to it. Reassign or remove them first.`);
+  }
+
+  await pool.execute("DELETE FROM menu_categories WHERE id = ?", [id]);
+  response.json({ message: `Menu category “${category.name}” deleted successfully.`, id });
 });
 
 router.get("/", optionalAuth, async (request, response) => {

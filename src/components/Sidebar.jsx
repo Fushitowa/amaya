@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   ShoppingBag,
+  Tags,
   Utensils,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ const NAV_BY_ROLE = {
     {
       label: "MANAGEMENT",
       items: [
+        { key: "categories", to: "/admin/categories", label: "Categories", Icon: Tags },
         { key: "reports", to: "/admin/reports", label: "Reports", Icon: BarChart2 },
         { key: "archive", to: "/admin/archive", label: "Archive / Trash", Icon: Archive },
         { key: "settings", to: "/admin/settings", label: "Settings", Icon: Settings },

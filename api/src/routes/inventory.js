@@ -61,9 +61,23 @@ const resolveCosting = (body = {}, current = {}) => {
   return { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost };
 };
 
-// Keep inventory_cups in step with the "Cups" / "Cups & Lids" category: cups get a row, anything else loses it.
+// Keep inventory_cups in step with cup categories: cups get a row, anything else loses it.
 const syncCupRow = async (connection, itemId, category, name) => {
-  const isCupCategory = category === "Cups" || category === "Cups & Lids";
+  let isCupCategory = false;
+  try {
+    const [[catRow]] = await connection.execute(
+      "SELECT is_cup_category FROM inventory_categories WHERE name = ? LIMIT 1",
+      [category],
+    );
+    if (catRow) {
+      isCupCategory = Boolean(catRow.is_cup_category);
+    } else {
+      isCupCategory = category === "Cups" || category === "Cups & Lids";
+    }
+  } catch {
+    isCupCategory = category === "Cups" || category === "Cups & Lids";
+  }
+
   if (!isCupCategory) {
     await connection.execute("DELETE FROM inventory_cups WHERE inventory_item_id = ?", [itemId]);
     return;
@@ -74,6 +88,171 @@ const syncCupRow = async (connection, itemId, category, name) => {
     [itemId, oz ? Number(oz[1]) : null],
   );
 };
+
+// --- Inventory Category Endpoints ---
+
+router.get("/categories", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const showAll = Boolean(request.authUser && request.authUser.role === "admin")
+    && request.query.all === "true";
+
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.name, c.description, c.is_cup_category AS isCupCategory,
+            c.is_system AS isSystem, c.display_order AS displayOrder,
+            c.is_active AS isActive,
+            COUNT(i.id) AS itemCount
+       FROM inventory_categories c
+       LEFT JOIN inventory_items i ON i.category = c.name AND i.is_archived = FALSE
+      WHERE (? = 1 OR c.is_active = TRUE)
+      GROUP BY c.id
+      ORDER BY c.display_order ASC, c.name ASC`,
+    [showAll ? 1 : 0],
+  );
+
+  response.json(rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    description: row.description || "",
+    isCupCategory: Boolean(row.isCupCategory),
+    isSystem: Boolean(row.isSystem),
+    displayOrder: Number(row.displayOrder || 0),
+    isActive: Boolean(row.isActive),
+    itemCount: Number(row.itemCount || 0),
+  })));
+});
+
+router.post("/categories", requireAuth, requireRole("admin"), async (request, response) => {
+  const name = String(request.body?.name || "").trim().slice(0, 100);
+  if (!name) throw httpError(400, "Inventory category name is required.");
+
+  const description = String(request.body?.description || "").trim().slice(0, 500) || null;
+  const isCupCategory = Boolean(request.body?.isCupCategory);
+  const displayOrder = Number.isInteger(Number(request.body?.displayOrder)) && Number(request.body?.displayOrder) >= 0
+    ? Number(request.body.displayOrder)
+    : 0;
+  const isActive = request.body?.isActive === false ? 0 : 1;
+
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO inventory_categories (name, description, is_cup_category, is_system, display_order, is_active)
+       VALUES (?, ?, ?, FALSE, ?, ?)`,
+      [name, description, isCupCategory ? 1 : 0, displayOrder, isActive],
+    );
+
+    response.status(201).json({
+      id: Number(result.insertId),
+      name,
+      description: description || "",
+      isCupCategory,
+      isSystem: false,
+      displayOrder,
+      isActive: Boolean(isActive),
+      itemCount: 0,
+    });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      throw httpError(409, `An inventory category named “${name}” already exists.`);
+    }
+    throw error;
+  }
+});
+
+router.put("/categories/:id", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid category ID.");
+
+  const name = String(request.body?.name || "").trim().slice(0, 100);
+  if (!name) throw httpError(400, "Category name cannot be empty.");
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[existing]] = await connection.execute(
+      "SELECT id, name, is_system, is_cup_category FROM inventory_categories WHERE id = ? FOR UPDATE",
+      [id],
+    );
+    if (!existing) throw httpError(404, "Inventory category not found.");
+
+    const description = request.body?.description !== undefined
+      ? (String(request.body.description || "").trim().slice(0, 500) || null)
+      : null;
+    const isCupCategory = request.body?.isCupCategory !== undefined
+      ? Boolean(request.body.isCupCategory)
+      : Boolean(existing.is_cup_category);
+    const displayOrder = Number.isInteger(Number(request.body?.displayOrder)) && Number(request.body?.displayOrder) >= 0
+      ? Number(request.body.displayOrder)
+      : 0;
+    const isActive = request.body?.isActive === false ? 0 : 1;
+
+    // Update the category record
+    await connection.execute(
+      `UPDATE inventory_categories
+          SET name = ?, description = ?, is_cup_category = ?, display_order = ?, is_active = ?
+        WHERE id = ?`,
+      [name, description, isCupCategory ? 1 : 0, displayOrder, isActive, id],
+    );
+
+    // Cascading update: update inventory_items when name changes
+    if (existing.name !== name) {
+      await connection.execute(
+        "UPDATE inventory_items SET category = ? WHERE category = ?",
+        [name, existing.name],
+      );
+    }
+
+    await connection.commit();
+
+    const [[countRow]] = await pool.execute(
+      "SELECT COUNT(*) AS total FROM inventory_items WHERE category = ? AND is_archived = FALSE",
+      [name],
+    );
+
+    response.json({
+      id,
+      name,
+      description: description || "",
+      isCupCategory,
+      isSystem: Boolean(existing.is_system),
+      displayOrder,
+      isActive: Boolean(isActive),
+      itemCount: Number(countRow?.total || 0),
+    });
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === "ER_DUP_ENTRY") {
+      throw httpError(409, `An inventory category named “${name}” already exists.`);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+router.delete("/categories/:id", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid category ID.");
+
+  const [[category]] = await pool.execute(
+    "SELECT id, name, is_system, is_cup_category FROM inventory_categories WHERE id = ?",
+    [id],
+  );
+  if (!category) throw httpError(404, "Inventory category not found.");
+
+  if (Boolean(category.is_system)) {
+    throw httpError(403, `“${category.name}” is a protected core operational category and cannot be deleted.`);
+  }
+
+  // Charlotte's Zero-Trust Check: block deletion if items (active or archived) are assigned
+  const [[usage]] = await pool.execute(
+    "SELECT COUNT(*) AS total FROM inventory_items WHERE category = ?",
+    [category.name],
+  );
+  if (usage.total > 0) {
+    throw httpError(409, `Cannot delete category “${category.name}”: ${usage.total} inventory item(s) are assigned to it. Reassign or remove them first.`);
+  }
+
+  await pool.execute("DELETE FROM inventory_categories WHERE id = ?", [id]);
+  response.json({ message: `Inventory category “${category.name}” deleted successfully.`, id });
+});
 
 router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
   const [rows] = await pool.execute(

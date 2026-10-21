@@ -46,6 +46,7 @@
 .admin-report-main,
 .admin-archive-main,
 .admin-settings-main,
+.admin-categories-main,
 .staff-main,
 .staff-orders-main,
 .staff-settings-main {
@@ -58,6 +59,7 @@
 .admin-orders-page.sidebar-collapsed .admin-orders-sidebar,
 .admin-report-page.sidebar-collapsed .admin-report-sidebar,
 .admin-settings-page.sidebar-collapsed .admin-settings-sidebar,
+.admin-categories-page.sidebar-collapsed .amaya-sidebar,
 .staff-dashboard.sidebar-collapsed .staff-sidebar,
 .staff-orders-page.sidebar-collapsed .staff-sidebar,
 .staff-settings-page.sidebar-collapsed .staff-sidebar,
