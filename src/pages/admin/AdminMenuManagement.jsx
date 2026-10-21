@@ -3,18 +3,29 @@ import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import { AlertTriangle, Archive, Beaker, ChevronRight, ClipboardList, FolderOpen, ImageOff, ImagePlus, List, Plus, Sparkles } from "lucide-react";
+import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, FolderOpen, ImagePlus, List, Package, Plus, Sparkles, Trash2, Utensils } from "lucide-react";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
+import { apiRequest } from "../../utils/api.js";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const categories = ["All items", "Milk Tea", "Drinks", "Snacks", "Desserts"];
+const DEFAULT_MENU_CATEGORIES = [
+	"Foods / Snacks",
+	"Fries & Sip",
+	"Burgers and Hotdogs",
+	"Desserts",
+	"Milktea",
+	"Float Series",
+	"Fruity Soda",
+	"Fruity Milk",
+	"Iced Coffee",
+];
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -91,10 +102,156 @@ function separateAmountHint(amount, unit, stockUnit, itemName) {
 	return "";
 }
 
+const STANDARD_SIZES = [
+	{ label: "Regular (16oz)", factor: 1.0 },
+	{ label: "Medium (18oz)", factor: 1.25 },
+	{ label: "Large (22oz)", factor: 1.5 },
+];
+
+const VARIATION_PRESETS = {
+	drink: [
+		{ label: "Regular (16oz)", factor: 1.0 },
+		{ label: "Large (22oz)", factor: 1.35 },
+	],
+	fries: [
+		{ label: "Regular", factor: 1.0 },
+		{ label: "Large", factor: 1.5 },
+		{ label: "Jumbo / Party", factor: 2.2 },
+	],
+	snack_pieces: [
+		{ label: "4 pcs (Solo)", factor: 1.0 },
+		{ label: "6 pcs (Sharing)", factor: 1.5 },
+		{ label: "12 pcs (Party)", factor: 3.0 },
+	],
+};
+
+const getCategoryFamily = (category) => {
+	const cat = String(category || "").toLowerCase();
+	if (cat.includes("milktea") || cat.includes("float") || cat.includes("soda") || cat.includes("milk") || cat.includes("coffee") || cat.includes("drink")) {
+		return "drink";
+	}
+	if (cat.includes("fries")) {
+		return "fries";
+	}
+	if (cat.includes("foods") || cat.includes("snack")) {
+		return "snack_pieces";
+	}
+	if (cat.includes("burger") || cat.includes("hotdog") || cat.includes("dessert")) {
+		return "single_fixed";
+	}
+	return "general";
+};
+
+const getCupVariationInfo = (cupItem, index = 0) => {
+	const name = String(cupItem?.item || "").trim();
+	const ozMatch = name.match(/(\d+(?:\.\d+)?)\s*oz/i);
+	const oz = ozMatch ? `${ozMatch[1]}oz` : "";
+	const lower = name.toLowerCase();
+	let tier;
+	let factor;
+	if (oz === "8oz" || lower.includes("8oz")) {
+		tier = "Small";
+		factor = 1.0;
+	} else if (oz === "12oz" || lower.includes("12oz")) {
+		tier = "Large";
+		factor = 1.35;
+	} else if (lower.includes("regular") || lower.includes("small") || oz === "16oz") {
+		tier = "Regular";
+		factor = 1.0;
+	} else if (lower.includes("medium") || oz === "18oz" || oz === "20oz") {
+		tier = "Medium";
+		factor = 1.25;
+	} else if (lower.includes("large") || oz === "22oz") {
+		tier = "Large";
+		factor = 1.5;
+	} else if (lower.includes("xl") || oz === "24oz") {
+		tier = "Extra Large";
+		factor = 1.75;
+	} else {
+		tier = name.replace(/cup/i, "").replace(/[()]/g, "").trim() || `Size ${index + 1}`;
+		factor = Number((1.0 + index * 0.25).toFixed(2));
+	}
+	const label = oz ? `${tier} (${oz})` : (tier || name);
+	return { label, factor, cupItem };
+};
+
+const getSizeScaleFactor = (label = "", index = 0) => {
+	const clean = String(label || "").toLowerCase().trim();
+	if (clean.includes("24oz") || clean.includes("xl") || clean.includes("extra large")) return 1.75;
+	if (clean.includes("22oz")) return 1.5;
+	if (clean.includes("12oz")) return 1.35;
+	if (clean.includes("large") || clean.includes("venti")) return 1.35;
+	if (clean.includes("medium") || clean.includes("18oz") || clean.includes("20oz") || clean.includes("grande")) return 1.25;
+	if (clean.includes("regular") || clean.includes("16oz") || clean.includes("small") || clean.includes("8oz") || clean.includes("tall")) return 1.0;
+	if (clean.includes("party") || clean.includes("12 pcs") || clean.includes("jumbo")) return 2.2;
+	if (clean.includes("sharing") || clean.includes("6 pcs")) return 1.5;
+	if (clean.includes("solo") || clean.includes("4 pcs")) return 1.0;
+	if (index === 0) return 1.0;
+	if (index === 1) return 1.25;
+	if (index === 2) return 1.5;
+	return Number((1.0 + index * 0.25).toFixed(2));
+};
+
+const scaleIngredientAmount = (baseQty, factor, unit) => {
+	const numQty = Number(baseQty);
+	if (!Number.isFinite(numQty) || numQty <= 0) return "";
+	const unitDef = unitFactors.get(String(unit || "").toLowerCase());
+	if (unitDef?.dimension === "count" || ["pcs", "pc", "piece", "pieces", "ea", "each", "unit", "units", "cup", "cups"].includes(String(unit || "").toLowerCase())) {
+		return String(numQty);
+	}
+	const scaled = Number((numQty * factor).toFixed(2));
+	return String(scaled);
+};
+
+// Volume key (oz) for a cup name or size label, e.g. "22oz Cup (Large)" / "Large (22oz)" -> 22. null = unknown.
+const cupSizeKey = (text) => {
+	const value = String(text || "").toLowerCase();
+	const oz = value.match(/(\d+(?:\.\d+)?)\s*oz/);
+	if (oz) return Number(oz[1]);
+	if (/\b(xl|extra large)\b/.test(value)) return 24;
+	if (/\blarge\b/.test(value)) return 12;
+	if (/\bmedium\b/.test(value)) return 18;
+	if (/\b(small|regular)\b/.test(value)) return 8;
+	return null;
+};
+// Mirrors the backend guard in api/src/routes/menu.js: a cup only belongs to the size with the same volume.
+const cupMatchesSize = (cupName, sizeLabel) => {
+	const cup = cupSizeKey(cupName);
+	const size = cupSizeKey(sizeLabel);
+	return cup == null || size == null || cup === size;
+};
+
+const computeInventoryBasedSizePrice = (sizeCost, baseCost, basePrice, factor, index = 0) => {
+	const numBasePrice = Number(basePrice);
+	if (Number.isFinite(numBasePrice) && numBasePrice > 0 && baseCost > 0 && sizeCost > 0) {
+		if (factor === 1.0) {
+			return numBasePrice.toFixed(2);
+		}
+		const ratio = baseCost / numBasePrice;
+		if (ratio > 0) {
+			const calculatedPrice = Math.ceil((sizeCost / ratio) / 5) * 5;
+			return Number(calculatedPrice).toFixed(2);
+		}
+	}
+	const fallbackBase = Number.isFinite(numBasePrice) && numBasePrice > 0 ? numBasePrice : 40;
+	const fallback = fallbackBase + (index * 10);
+	return Number(fallback).toFixed(2);
+};
+
 function AdminMenuManagement() {
 	const { products, menuError, addProduct, updateProduct, deleteProduct } = useMenu();
 	const { inventory = [], refreshInventory } = useInventory() || {};
+	const cupInventoryItems = useMemo(() => {
+		return (inventory || [])
+			.filter((item) => (item.category === "Cups & Lids" || item.category === "Cups" || String(item.item || "").toLowerCase().includes("cup")) && !item.isArchived)
+			.sort((a, b) => {
+				const ozA = Number(String(a.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
+				const ozB = Number(String(b.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
+				return ozA - ozB || a.item.localeCompare(b.item);
+			});
+	}, [inventory]);
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
+	const [categories, setCategories] = useState(["All items", ...DEFAULT_MENU_CATEGORIES]);
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
 	const [sortBy, setSortBy] = useState("popular");
@@ -102,7 +259,25 @@ function AdminMenuManagement() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
-	const emptyForm = () => ({ name: "", price: "", description: "", category: "Milk Tea", image: "", sizes: [], ingredients: [], addons: [], available: true });
+	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: "Foods / Snacks", image: "", sizes: [], ingredients: [], addons: [], available: true });
+
+	useEffect(() => {
+		let isMounted = true;
+		apiRequest("/menu/categories")
+			.then((data) => {
+				if (!isMounted || !Array.isArray(data) || !data.length) return;
+				const categoryNames = data.map((cat) => (typeof cat === "string" ? cat : cat.name)).filter(Boolean);
+				if (categoryNames.length) {
+					setCategories(["All items", ...categoryNames]);
+				}
+			})
+			.catch((err) => {
+				console.warn("Failed to fetch menu categories:", err);
+			});
+		return () => {
+			isMounted = false;
+		};
+	}, []);
 
 	const [formValues, setFormValues] = useState(emptyForm());
 	const [editingSizeIndex, setEditingSizeIndex] = useState(null);
@@ -175,28 +350,281 @@ function AdminMenuManagement() {
 		setShowForm(true);
 	};
 
+	const isCupIngredient = (ing) => {
+		const name = String(ing?.name || "").trim().toLowerCase();
+		const invItem = inventory.find((entry) => Number(entry.id) === Number(ing?.inventoryItemId) || entry.item.toLowerCase() === name);
+		return invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || name.includes("cup");
+	};
+
+	// Per-size amount: cups are 1 only on their matching size (never cloned), everything else scales.
+	const amountForSize = (ing, sizeLabel, factor) => {
+		if (isCupIngredient(ing)) return cupMatchesSize(ing.name, sizeLabel) ? "1" : "0";
+		return scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+	};
+
+	const calculateCostForFactor = (factor, ingredients = formValues.ingredients) => {
+		let rawCost = 0;
+		for (const ing of ingredients) {
+			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
+			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
+			const recipeUnit = ing.unit || stockUnit;
+			const scaledQty = Number(scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit));
+			const stockQty = convertRecipeAmount(scaledQty, recipeUnit, stockUnit);
+			if (stockQty && unitCost > 0) {
+				rawCost += stockQty * unitCost;
+			}
+		}
+		return Number(rawCost.toFixed(2));
+	};
+
 	const addVariation = () => {
+		const family = getCategoryFamily(formValues.category);
+		const presets = VARIATION_PRESETS[family] || STANDARD_SIZES;
+		const existingLabels = formValues.sizes.map((s) => String(s.label || "").toLowerCase());
+		const nextStandard = presets.find((std) => !existingLabels.some((lbl) => lbl.includes(std.label.toLowerCase().slice(0, 5))))
+			|| { label: `Size ${formValues.sizes.length + 1}`, factor: Number((1.0 + formValues.sizes.length * 0.25).toFixed(2)) };
+
+		const newIndex = formValues.sizes.length;
+		const factor = nextStandard.factor || getSizeScaleFactor(nextStandard.label, newIndex);
+		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
+		const baseCost = calculateCostForFactor(1.0);
+		const sizeCost = calculateCostForFactor(factor);
+		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
+
 		setFormValues((current) => {
-			const newSizes = [...current.sizes, { label: "", price: "" }];
-			return { ...current, sizes: newSizes };
+			const newSizes = [...current.sizes, { label: nextStandard.label, price }];
+			const updatedIngredients = current.ingredients.map((ing) => {
+				const qMap = { ...(ing.quantityBySize || {}) };
+				qMap[nextStandard.label] = amountForSize(ing, nextStandard.label, factor);
+				return { ...ing, quantityBySize: qMap };
+			});
+			return { ...current, sizes: newSizes, ingredients: updatedIngredients };
 		});
-		setEditingSizeIndex(formValues.sizes.length);
+		setEditingSizeIndex(newIndex);
+	};
+
+	const handleApplyVariationPreset = (presetList) => {
+		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
+		const baseCost = calculateCostForFactor(1.0);
+
+		const newSizes = presetList.map((preset, index) => {
+			const sizeCost = calculateCostForFactor(preset.factor);
+			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, preset.factor, index);
+			return {
+				label: preset.label,
+				price,
+			};
+		});
+
+		const updatedIngredients = formValues.ingredients.map((ing) => {
+			const qMap = { ...(ing.quantityBySize || {}) };
+			presetList.forEach((preset) => {
+				qMap[preset.label] = amountForSize(ing, preset.label, preset.factor);
+			});
+			return { ...ing, quantityBySize: qMap };
+		});
+
+		setFormValues((current) => ({
+			...current,
+			price: String(basePrice),
+			sizes: newSizes,
+			ingredients: updatedIngredients,
+		}));
+		setEditingSizeIndex(null);
+	};
+
+	const handleClearVariations = () => {
+		setFormValues((current) => ({
+			...current,
+			sizes: [],
+			ingredients: current.ingredients.map((ing) => ({
+				...ing,
+				quantityBySize: {},
+			})),
+		}));
+		setEditingSizeIndex(null);
+	};
+
+	const handleAutoSetStandardSizes = () => {
+		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
+		const baseCost = calculateCostForFactor(1.0);
+
+		const newSizes = STANDARD_SIZES.map((std, index) => {
+			const sizeCost = calculateCostForFactor(std.factor);
+			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, std.factor, index);
+			return {
+				label: std.label,
+				price,
+			};
+		});
+
+		const updatedIngredients = formValues.ingredients.map((ing) => {
+			const qMap = { ...(ing.quantityBySize || {}) };
+			STANDARD_SIZES.forEach((std) => {
+				qMap[std.label] = amountForSize(ing, std.label, std.factor);
+			});
+			return { ...ing, quantityBySize: qMap };
+		});
+
+		setFormValues((current) => ({
+			...current,
+			price: String(basePrice),
+			sizes: newSizes,
+			ingredients: updatedIngredients,
+		}));
+		setEditingSizeIndex(null);
+	};
+
+	const handleAutoSetFromCups = () => {
+		const cupsToUse = cupInventoryItems.length ? cupInventoryItems : null;
+		if (!cupsToUse || cupsToUse.length === 0) {
+			handleAutoSetStandardSizes();
+			return;
+		}
+
+		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
+		const baseCost = calculateCostForFactor(1.0);
+
+		const newSizes = cupsToUse.map((cup, index) => {
+			const info = getCupVariationInfo(cup, index);
+			const sizeCost = calculateCostForFactor(info.factor);
+			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, info.factor, index);
+			return {
+				label: info.label,
+				price,
+			};
+		});
+
+		// Separate non-cup ingredients from cup ingredients
+		const nonCupIngredients = formValues.ingredients.filter((ing) => {
+			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+			return !(invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || String(ing.name || "").toLowerCase().includes("cup"));
+		});
+
+		// Scale non-cup ingredients across sizes
+		const scaledNonCupIngredients = nonCupIngredients.map((ing) => {
+			const qMap = {};
+			cupsToUse.forEach((cup, idx) => {
+				const info = getCupVariationInfo(cup, idx);
+				qMap[info.label] = scaleIngredientAmount(ing.quantityUsed, info.factor, ing.unit);
+			});
+			return { ...ing, quantityBySize: qMap };
+		});
+
+		// For each cup in cupsToUse, create an ingredient with quantity 1 for that size and 0 for others
+		const cupIngredients = cupsToUse.map((cup, cupIdx) => {
+			const qMap = {};
+			cupsToUse.forEach((otherCup, otherIdx) => {
+				const otherInfo = getCupVariationInfo(otherCup, otherIdx);
+				qMap[otherInfo.label] = cupIdx === otherIdx ? "1" : "0";
+			});
+			return {
+				inventoryItemId: cup.id,
+				name: cup.item,
+				unit: cup.unit || "pcs",
+				stockUnit: cup.unit || "pcs",
+				quantityUsed: cupIdx === 0 ? "1" : "0",
+				quantityBySize: qMap,
+			};
+		});
+
+		setFormValues((current) => ({
+			...current,
+			price: String(basePrice),
+			sizes: newSizes,
+			ingredients: [...scaledNonCupIngredients, ...cupIngredients],
+		}));
+		setEditingSizeIndex(null);
+	};
+
+	const addSingleCupVariation = (cup) => {
+		const info = getCupVariationInfo(cup, formValues.sizes.length);
+		const existingLabels = formValues.sizes.map((s) => String(s.label || "").toLowerCase());
+		if (existingLabels.includes(info.label.toLowerCase())) {
+			return;
+		}
+
+		const newIndex = formValues.sizes.length;
+		const factor = info.factor;
+		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
+		const baseCost = calculateCostForFactor(1.0);
+		const sizeCost = calculateCostForFactor(factor);
+		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
+
+		setFormValues((current) => {
+			const newSizes = [...current.sizes, { label: info.label, price }];
+			let hasThisCup = false;
+
+			const updatedIngredients = current.ingredients.map((ing) => {
+				const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+				const isCup = invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || String(ing.name || "").toLowerCase().includes("cup");
+				const isThisCup = (invItem && invItem.id === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
+				if (isThisCup) hasThisCup = true;
+
+				const qMap = { ...(ing.quantityBySize || {}) };
+				if (isCup) {
+					qMap[info.label] = isThisCup ? "1" : "0";
+				} else {
+					qMap[info.label] = scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+				}
+				return { ...ing, quantityBySize: qMap };
+			});
+
+			if (!hasThisCup) {
+				const qMap = {};
+				newSizes.forEach((s) => {
+					qMap[s.label] = s.label.toLowerCase() === info.label.toLowerCase() ? "1" : "0";
+				});
+				updatedIngredients.push({
+					inventoryItemId: cup.id,
+					name: cup.item,
+					unit: cup.unit || "pcs",
+					stockUnit: cup.unit || "pcs",
+					quantityUsed: current.sizes.length === 0 ? "1" : "0",
+					quantityBySize: qMap,
+				});
+			}
+
+			return { ...current, sizes: newSizes, ingredients: updatedIngredients };
+		});
+		setEditingSizeIndex(newIndex);
 	};
 
 	const updateSizeLabel = (index, newLabel) => {
 		setFormValues((current) => {
-			const oldLabel = current.sizes[index]?.label;
-			const updatedSizes = current.sizes.map((s, i) => i === index ? { ...s, label: newLabel } : s);
+			const oldSize = current.sizes[index];
+			const oldLabel = oldSize?.label;
+			const factor = getSizeScaleFactor(newLabel, index);
+			const basePrice = Number(current.price) > 0 ? Number(current.price) : 40;
+			const baseCost = calculateCostForFactor(1.0, current.ingredients);
+			const sizeCost = calculateCostForFactor(factor, current.ingredients);
+			const suggestedPrice = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, index);
+
+			const currentPriceNum = Number(oldSize?.price);
+			const shouldAutoUpdatePrice =
+				oldSize?.price === "" ||
+				oldSize?.price === null ||
+				oldSize?.price === undefined ||
+				(Number.isFinite(currentPriceNum) && currentPriceNum === basePrice && factor !== 1.0);
+
+			const updatedPrice = shouldAutoUpdatePrice ? suggestedPrice : oldSize?.price;
+
+			const updatedSizes = current.sizes.map((s, i) =>
+				i === index ? { ...s, label: newLabel, price: updatedPrice } : s
+			);
+
 			const updatedIngredients = current.ingredients.map((ing) => {
 				const qMap = { ...(ing.quantityBySize || {}) };
-				if (oldLabel && oldLabel in qMap) {
-					qMap[newLabel] = qMap[oldLabel];
+				if (oldLabel && oldLabel in qMap && oldLabel !== newLabel) {
 					delete qMap[oldLabel];
-				} else if (newLabel && !(newLabel in qMap)) {
-					qMap[newLabel] = ing.quantityUsed ?? "";
+				}
+				if (newLabel) {
+					qMap[newLabel] = amountForSize(ing, newLabel, factor);
 				}
 				return { ...ing, quantityBySize: qMap };
 			});
+
 			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
 		});
 	};
@@ -268,7 +696,12 @@ function AdminMenuManagement() {
 				quantityUsed,
 				unit,
 				stockUnit,
-				quantityBySize: Object.fromEntries(current.sizes.map((size) => [size.label, String(quantityUsed)])),
+				quantityBySize: Object.fromEntries(
+					current.sizes.map((size, idx) => [
+						size.label,
+						amountForSize({ name, quantityUsed, unit }, size.label, getSizeScaleFactor(size.label, idx)),
+					])
+				),
 			}],
 		}));
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
@@ -419,13 +852,21 @@ function AdminMenuManagement() {
 		setEditingSizeIndex(null);
 		setFormValues({
 			name: product.name,
-			price: String(product.price || "").replace("₱", ""),
+			price: String(product.price || "").replace(/[^0-9.]/g, ""),
+			stock: product.stock != null ? String(product.stock) : "",
 			description: product.description,
 			category: product.category,
 			image: product.image,
 			// A size priced at the base price round-trips as a bare label.
 			sizes: (product.sizes || []).map((size) => ({ label: size.label, price: String(size.price) })),
-			ingredients: (product.ingredients || []).map((ingredient) => {
+			// Default recipe plus any ingredient that only some sizes use (e.g. a size-specific cup).
+			ingredients: [
+				...(product.ingredients || []),
+				...(product.sizes || []).flatMap((size) => size.ingredients || []).filter((entry, index, all) =>
+					typeof entry !== "string"
+					&& !(product.ingredients || []).some((base) => Number(base.inventoryItemId) === Number(entry.inventoryItemId))
+					&& all.findIndex((other) => Number(other.inventoryItemId) === Number(entry.inventoryItemId)) === index),
+			].map((ingredient) => {
 				if (typeof ingredient === "string") {
 					const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === ingredient.toLowerCase());
 				return { name: inventoryItem?.item || ingredient, unit: inventoryItem?.unit || "pcs", stockUnit: inventoryItem?.unit || "pcs", quantityUsed: "", quantityBySize: {} };
@@ -433,12 +874,12 @@ function AdminMenuManagement() {
 				const inventoryItem = inventory.find((entry) => entry.id === Number(ingredient.inventoryItemId));
 				const quantityBySize = Object.fromEntries((product.sizes || []).map((size) => {
 					const sizedIngredient = size.ingredients?.find((entry) => Number(entry.inventoryItemId) === Number(ingredient.inventoryItemId));
-					return [size.label, String(sizedIngredient?.quantityUsed ?? ingredient.quantityUsed ?? "")];
+					return [size.label, sizedIngredient ? String(sizedIngredient.quantityUsed) : "0"];
 				}));
 				return { ...ingredient, name: ingredient.name || inventoryItem?.item || "", unit: ingredient.unit || inventoryItem?.unit || "pcs", stockUnit: ingredient.stockUnit || inventoryItem?.unit || ingredient.unit || "pcs", quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed), quantityBySize };
 			}),
 			addons: (product.addons || []).map((addon) => {
-				const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase());
+				const inventoryItem = inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId) || entry.item.toLowerCase() === addon.label.toLowerCase());
 				return { ...addon, quantityUsed: addon.quantityUsed == null ? 1 : addon.quantityUsed, unit: addon.unit || inventoryItem?.unit || "pcs", stockUnit: addon.stockUnit || inventoryItem?.unit || addon.unit || "pcs" };
 			}),
 			available: product.available !== false,
@@ -448,6 +889,16 @@ function AdminMenuManagement() {
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
 		setShowForm(true);
+	};
+
+	// Amount an ingredient uses in one size; blank or 0 means "not used in this size".
+	const sizeQty = (ing, label) => {
+		const explicit = ing.quantityBySize?.[label];
+		// A cup with no explicit amount for this size only falls back to its base amount on its matching size.
+		const fallback = isCupIngredient(ing) && !cupMatchesSize(ing.name, label) ? 0 : ing.quantityUsed;
+		const raw = explicit ?? fallback;
+		const amount = Number(raw);
+		return raw !== "" && raw != null && Number.isFinite(amount) && amount > 0 ? amount : 0;
 	};
 
 	const saveProduct = async (event) => {
@@ -479,28 +930,76 @@ function AdminMenuManagement() {
 			if (new Set(lowerLabels).size !== lowerLabels.length) {
 				setRecipeError("Each variation must have a unique name.");
 				return;
-			}
+				}
 		}
 
 		const finalSizes = cleanSizes.length
 			? cleanSizes.map((size) => ({
 					label: size.label,
 					price: Number(size.price),
-					ingredients: formValues.ingredients.map((ingredient) => ({
-						name: String(ingredient.name || "").trim(),
-						quantityUsed: Number(ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed),
-						unit: ingredient.unit || "pcs",
-						stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
-					})),
+					ingredients: formValues.ingredients
+						.map((ingredient) => ({
+							...(ingredient.inventoryItemId ? { inventoryItemId: Number(ingredient.inventoryItemId) } : {}),
+							name: String(ingredient.name || "").trim(),
+							quantityUsed: sizeQty(ingredient, size.label),
+							unit: ingredient.unit || "pcs",
+							stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
+						}))
+						.filter((ingredient) => ingredient.quantityUsed > 0),
 				}))
-			: [{ label: "Regular", price: numericPrice, ingredients: [] }];
+			: [{
+					label: "Regular",
+					price: numericPrice,
+					ingredients: (formValues.ingredients || [])
+						.map((ing) => ({
+							...(ing.inventoryItemId ? { inventoryItemId: Number(ing.inventoryItemId) } : {}),
+							name: String(ing.name || "").trim(),
+							quantityUsed: Number(ing.quantityUsed ?? ing.quantityBySize?.Regular ?? 0),
+							unit: ing.unit || "pcs",
+							stockUnit: ing.stockUnit || ing.unit || "pcs",
+						}))
+						.filter((ing) => (ing.inventoryItemId || ing.name) && ing.quantityUsed > 0),
+				}];
 
-		if (finalSizes.some((size) => !Number.isFinite(size.price) || size.price < 0 || size.ingredients.some((ingredient) => !Number.isFinite(ingredient.quantityUsed) || ingredient.quantityUsed <= 0))) {
-			setRecipeError("Enter a valid price and a positive ingredient amount for every serving size.");
+		if (finalSizes.some((size) => !Number.isFinite(size.price) || size.price < 0)) {
+			setRecipeError("Enter a valid price for every serving size.");
+			return;
+		}
+		const emptySize = formValues.ingredients.length > 0 ? finalSizes.find((size) => !size.ingredients.length) : null;
+		if (emptySize) {
+			setRecipeError(`The ${emptySize.label} size has no ingredients. Enter an amount above 0 for at least one ingredient.`);
 			return;
 		}
 
+		for (const addon of formValues.addons || []) {
+			const addonLabel = String(addon.label || "").trim();
+			const addonPrice = Number(addon.price);
+			const addonQty = Number(addon.quantityUsed);
+			const matchedInv = addon.inventoryItemId
+				? inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId))
+				: inventory.find((entry) => entry.item.toLowerCase() === addonLabel.toLowerCase());
+			const addonUnit = String(addon.unit || matchedInv?.unit || "pcs").trim();
+			const addonStockUnit = String(matchedInv?.unit || addon.stockUnit || addonUnit || "pcs").trim();
+
+			if (!addonLabel || addon.price === "" || !Number.isFinite(addonPrice) || addonPrice < 0) {
+				setRecipeError(`Enter a valid non-negative price for add-on "${addonLabel || "unnamed"}".`);
+				return;
+			}
+			if ((addon.inventoryItemId || addon.quantityUsed != null) && (!Number.isFinite(addonQty) || addonQty <= 0)) {
+				setRecipeError(`Enter a positive quantity used for add-on "${addonLabel}".`);
+				return;
+			}
+			if (Number.isFinite(addonQty) && addonQty > 0 && !convertRecipeAmount(addonQty, addonUnit, addonStockUnit)) {
+				setRecipeError(`Add-on "${addonLabel}" unit "${addonUnit}" is not compatible with stock unit "${addonStockUnit}".`);
+				return;
+			}
+		}
+
 		const productBasePrice = finalSizes.find((size) => size.label.trim().toLowerCase() === "regular")?.price ?? finalSizes[0]?.price ?? numericPrice;
+		const cleanStock = formValues.stock !== "" && !Number.isNaN(Number(formValues.stock))
+			? Math.max(0, parseInt(formValues.stock, 10))
+			: 0;
+
 		const productData = {
 			name,
 			price: `₱${productBasePrice.toFixed(2)}`,
@@ -509,18 +1008,14 @@ function AdminMenuManagement() {
 			image: formValues.image || "",
 			available: formValues.available !== false,
 			sizes: finalSizes,
-			ingredients: formValues.ingredients.map((ingredient) => ({
-				name: String(ingredient.name || "").trim(),
-				quantityUsed: Number(ingredient.quantityBySize?.[finalSizes[0]?.label] ?? ingredient.quantityUsed),
-				unit: ingredient.unit || "pcs",
-				stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
-			})),
-			addons: formValues.addons.map((addon) => ({ ...addon, quantityUsed: Number(addon.quantityUsed), unit: addon.unit || "pcs", stockUnit: addon.stockUnit || addon.unit || "pcs" })),
+			// Default recipe = the first size's recipe; every size also sends its own list.
+			ingredients: finalSizes[0].ingredients,
+			addons: formValues.addons.map((addon) => ({ ...addon, price: Number(addon.price), quantityUsed: Number(addon.quantityUsed), unit: addon.unit || "pcs", stockUnit: addon.stockUnit || addon.unit || "pcs" })),
 		};
 
 		try {
-			if (editingProduct) await updateProduct(editingProduct.id, productData);
-			else await addProduct({ ...productData, stock: 20, available: formValues.available !== false, featured: false });
+			if (editingProduct) await updateProduct(editingProduct.id, { ...productData, stock: cleanStock });
+			else await addProduct({ ...productData, stock: cleanStock, available: formValues.available !== false, featured: false });
 			await refreshInventory?.().catch(() => null);
 			setSyncNotice(`${name} saved. New ingredients and add-ons were added to Inventory at zero stock; matching names reuse the existing stock item.`);
 			closeForm();
@@ -533,6 +1028,50 @@ function AdminMenuManagement() {
 	const availableCount = products.filter((product) => product.available).length;
 	const lowStockCount = products.filter((product) => product.stock > 0 && product.stock <= 7).length;
 	const recipeDraftItem = inventory.find((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase());
+
+	const computeSizeCosting = (sizeLabel, rawSizePrice) => {
+		const numericPrice = rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
+			? Number(rawSizePrice)
+			: (Number(formValues.price) || 0);
+		let rawCost = 0;
+		let costComplete = formValues.ingredients.length > 0;
+		for (const ing of formValues.ingredients) {
+			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
+			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
+			const recipeUnit = ing.unit || stockUnit;
+			const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
+			if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue; // unused in this size
+			const factor = sizeLabel ? getSizeScaleFactor(sizeLabel) : 1.0;
+			const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
+			const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
+			if (!stockQty || !(unitCost > 0)) {
+				costComplete = false;
+			} else {
+				rawCost += stockQty * unitCost;
+			}
+		}
+		const cost = Number(rawCost.toFixed(2));
+		const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : null;
+		const margin = numericPrice > 0 ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
+		const foodCostPercent = numericPrice > 0 ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
+		const suggestedPrice = rawCost > 0 ? Math.ceil((rawCost / 0.30) / 5) * 5 : null;
+		return { cost, costComplete, grossProfit, margin, foodCostPercent, suggestedPrice };
+	};
+
+	const applySuggestedSizePrice = (index, suggestedPrice) => {
+		if (suggestedPrice == null) return;
+		const nextPrice = String(suggestedPrice);
+		setFormValues((current) => {
+			const targetLabel = String(current.sizes[index]?.label || "").toLowerCase();
+			const shouldUpdateBase = index === 0 || targetLabel.includes("regular");
+			return {
+				...current,
+				price: shouldUpdateBase ? nextPrice : current.price,
+				sizes: current.sizes.map((s, i) => (i === index ? { ...s, price: nextPrice } : s)),
+			};
+		});
+	};
 
 	return (
 		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -547,70 +1086,189 @@ function AdminMenuManagement() {
 				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><PortalNotificationButton /><div className="admin-menu-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
 
 				<div className="admin-menu-content custom-menu-scrollbar">
-					<div className="admin-menu-controls">
-					<section className="admin-menu-heading">
-						<div>
-							<span className="admin-menu-eyebrow">PRODUCT CATALOG</span>
-							<h2>Everything on the menu</h2>
-							<p>Keep your offerings fresh, organized, and ready for every customer.</p>
+					<div className="admin-menu-workspace">
+						<div className="admin-menu-main-pane">
+							<section className="admin-menu-heading">
+								<div>
+									<span className="admin-menu-eyebrow">PRODUCT CATALOG</span>
+									<h2>Everything on the menu</h2>
+									<p>Keep your offerings fresh, organized, and ready for every customer.</p>
+								</div>
+								<div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+									<Link
+										to="/admin/archive"
+										className="admin-menu-archive-button"
+										style={{
+											display: "inline-flex",
+											alignItems: "center",
+											gap: "0.4rem",
+											padding: "0.65rem 1rem",
+											borderRadius: "10px",
+											background: "#ffffff",
+											color: "#2e261f",
+											fontWeight: "600",
+											fontSize: "0.88rem",
+											textDecoration: "none",
+											border: "1px solid #ece4df",
+											boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+										}}
+									>
+										<Archive size={16} /> View Archive
+									</Link>
+									<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
+								</div>
+							</section>
+
+							<section className="admin-menu-toolbar">
+								<div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">
+									{categories.map((category) => (
+										<button
+											type="button"
+											key={category}
+											className={activeCategory === category ? "active" : ""}
+											onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
+										>
+											{category}
+											<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span>
+										</button>
+									))}
+								</div>
+								<label className="admin-menu-search">
+									<span>⌕</span>
+									<input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" />
+								</label>
+							</section>
+
+							<section className="admin-menu-list-header">
+								<div>
+									<h3>{activeCategory}</h3>
+									<span>{visibleProducts.length} items in this view</span>
+								</div>
+								<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
+									<option value="popular">Sort: Featured first</option>
+									<option value="name">Sort: Name A–Z</option>
+									<option value="price">Sort: Price low to high</option>
+								</select>
+							</section>
+
+							<section className="admin-menu-grid">
+								{pageProducts.map((product) => (
+									<article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
+										<div className="admin-product-image">
+											<img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />
+											{product.featured && <span className="featured-label">★ Featured</span>}
+											<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button>
+										</div>
+										<div className="admin-product-body">
+											<div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div>
+											<h4>{product.name}</h4>
+											{Number(product.cost) > 0 && (
+												<div className="admin-product-cost-badge">
+													COGS ₱{Number(product.cost).toFixed(2)}{product.margin != null ? ` · ${Number(product.margin).toFixed(1)}% margin` : ""}
+												</div>
+											)}
+											<p>{product.description}</p>
+											<div className="admin-product-footer">
+												<span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
+													{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
+												</span>
+												<label className="availability-toggle">
+													<input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} />
+													<span></span>
+													<small>{product.available ? "Available" : "Hidden"}</small>
+												</label>
+												<button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button>
+											</div>
+										</div>
+									</article>
+								))}
+								{!visibleProducts.length && (
+									<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
+										<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
+										<span>{menuError || "Try another category or search term."}</span>
+									</div>
+								)}
+							</section>
+
+							{visibleProducts.length > 0 && (
+								<nav className="admin-menu-pagination" aria-label="Menu catalog pages">
+									<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
+									<div>
+										<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
+										<span>Page {safePage} of {pageCount}</span>
+										<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+									</div>
+								</nav>
+							)}
 						</div>
-						<div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-							<Link
-								to="/admin/archive"
-								className="admin-menu-archive-button"
-								style={{
-									display: "inline-flex",
-									alignItems: "center",
-									gap: "0.4rem",
-									padding: "0.65rem 1rem",
-									borderRadius: "10px",
-									background: "#ffffff",
-									color: "#2e261f",
-									fontWeight: "600",
-									fontSize: "0.88rem",
-									textDecoration: "none",
-									border: "1px solid #ece4df",
-									boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-								}}
-							>
-								<Archive size={16} /> View Archive
-							</Link>
-							<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
-						</div>
-					</section>
 
-					<section className="admin-menu-stats" aria-label="Menu summary">
-						<div><span className="menu-stat-icon amber">☷</span><div><small>Total items</small><strong>{products.length}</strong><span>Across 4 categories</span></div></div>
-						<div><span className="menu-stat-icon green">✓</span><div><small>Available now</small><strong>{availableCount}</strong><span className="positive">Ready to order</span></div></div>
-						<div><span className="menu-stat-icon orange">◷</span><div><small>Low stock</small><strong>{lowStockCount}</strong><span className="warning">Needs restocking</span></div></div>
-						<div><span className="menu-stat-icon plum">★</span><div><small>Featured items</small><strong>{products.filter((product) => product.featured).length}</strong><span>Shown on the homepage</span></div></div>
-					</section>
-					</div>
+						<aside className="admin-menu-side-rail" aria-label="Menu overview and statistics">
+							<div className="admin-menu-side-rail-sticky">
+								<div className="admin-menu-side-rail-title">
+									<Utensils size={15} aria-hidden="true" />
+									<span>Menu Overview</span>
+								</div>
 
-					<section className="admin-menu-toolbar"><div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">{categories.map((category) => <button type="button" key={category} className={activeCategory === category ? "active" : ""} onClick={() => { setActiveCategory(category); setCurrentPage(1); }}>{category}<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span></button>)}</div><label className="admin-menu-search"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" /></label></section>
+								<div className="admin-menu-metrics">
+									<article className="metric-card">
+										<div className="metric-card-head">
+											<span className="metric-icon amber">
+												<Package size={17} strokeWidth={1.9} aria-hidden="true" />
+											</span>
+											<span className="metric-badge neutral">Total</span>
+										</div>
+										<div className="metric-body">
+											<span className="metric-label">Total Items</span>
+											<strong className="metric-value">{products.length}</strong>
+											<span className="metric-hint">Across {categories.length - 1} categories</span>
+										</div>
+									</article>
 
-					<section className="admin-menu-list-header"><div><h3>{activeCategory}</h3><span>{visibleProducts.length} items in this view</span></div><select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}><option value="popular">Sort: Featured first</option><option value="name">Sort: Name A–Z</option><option value="price">Sort: Price low to high</option></select></section>
+									<article className="metric-card">
+										<div className="metric-card-head">
+											<span className="metric-icon emerald">
+												<CheckCircle2 size={17} strokeWidth={2} aria-hidden="true" />
+											</span>
+											<span className="metric-badge emerald">Ready</span>
+										</div>
+										<div className="metric-body">
+											<span className="metric-label">Available Now</span>
+											<strong className="metric-value">{availableCount}</strong>
+											<span className="metric-hint">Ready to order</span>
+										</div>
+									</article>
 
-					<section className="admin-menu-grid">
-						{pageProducts.map((product) => <article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
-							<div className="admin-product-image"><img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />{product.featured && <span className="featured-label">★ Featured</span>}<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button></div>
-							<div className="admin-product-body"><div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div><h4>{product.name}</h4><p>{product.description}</p><div className="admin-product-footer"><span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}</span><label className="availability-toggle"><input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} /><span></span><small>{product.available ? "Available" : "Hidden"}</small></label><button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button></div></div>
-						</article>)}
-						{!visibleProducts.length && (
-							<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
-								<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
-								<span>{menuError || "Try another category or search term."}</span>
+									<article className="metric-card">
+										<div className="metric-card-head">
+											<span className="metric-icon orange">
+												<Clock size={17} strokeWidth={2} aria-hidden="true" />
+											</span>
+											<span className="metric-badge amber">Review</span>
+										</div>
+										<div className="metric-body">
+											<span className="metric-label">Low Stock</span>
+											<strong className="metric-value">{lowStockCount}</strong>
+											<span className="metric-hint">Needs restocking</span>
+										</div>
+									</article>
+
+									<article className="metric-card">
+										<div className="metric-card-head">
+											<span className="metric-icon plum">
+												<Sparkles size={17} strokeWidth={2} aria-hidden="true" />
+											</span>
+											<span className="metric-badge plum">Featured</span>
+										</div>
+										<div className="metric-body">
+											<span className="metric-label">Featured Items</span>
+											<strong className="metric-value">{products.filter((product) => product.featured).length}</strong>
+											<span className="metric-hint">Shown on homepage</span>
+										</div>
+									</article>
+								</div>
 							</div>
-						)}
-					</section>
-					{visibleProducts.length > 0 && <nav className="admin-menu-pagination" aria-label="Menu catalog pages">
-						<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
-						<div>
-							<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
-							<span>Page {safePage} of {pageCount}</span>
-							<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
-						</div>
-					</nav>}
+						</aside>
+					</div>
 				</div>
 			</main>
 
@@ -700,42 +1358,61 @@ function AdminMenuManagement() {
 								<h4 className="menu-builder-legend">Product Image</h4>
 								<p className="menu-builder-hint">Upload an image of the menu item.</p>
 
-								<label
-									className="menu-builder-dropzone"
-									onDragOver={(event) => event.preventDefault()}
-									onDrop={handleImageDrop}
-								>
-									<input
-										type="file"
-										accept="image/png,image/jpeg,image/webp"
-										onChange={handleImageUpload}
-										aria-label="Upload product image"
-									/>
-									<span className="menu-builder-dropzone-icon" aria-hidden="true">
-										<ImagePlus size={22} strokeWidth={1.8} />
-									</span>
-									<strong>Click to upload or drag and drop</strong>
-									<small>PNG, JPG, JPEG, WEBP (Max 5MB)</small>
-									<span className="menu-builder-dropzone-cta">
-										<FolderOpen size={14} strokeWidth={2} /> Choose File
-									</span>
-								</label>
+								{formValues.image ? (
+									<div className="menu-builder-active-image-card">
+										<div className="menu-builder-image-wrap">
+											<img src={formValues.image} alt="Menu item preview" />
+											<span className="menu-builder-active-badge">Active Image</span>
+										</div>
+										<div className="menu-builder-image-actions">
+											<label className="menu-builder-change-btn" title="Choose a new file to replace this image">
+												<input
+													type="file"
+													accept="image/png,image/jpeg,image/webp"
+													onChange={handleImageUpload}
+													aria-label="Change product image"
+												/>
+												<FolderOpen size={13} strokeWidth={2.2} />
+												<span>Change Image</span>
+											</label>
+											<button
+												type="button"
+												className="menu-builder-remove-btn"
+												onClick={() => {
+													setFormValues((prev) => ({ ...prev, image: "" }));
+													setImageError("");
+												}}
+												title="Remove this image"
+											>
+												<Trash2 size={13} strokeWidth={2} />
+												<span>Remove</span>
+											</button>
+										</div>
+									</div>
+								) : (
+									<label
+										className="menu-builder-dropzone"
+										onDragOver={(event) => event.preventDefault()}
+										onDrop={handleImageDrop}
+									>
+										<input
+											type="file"
+											accept="image/png,image/jpeg,image/webp"
+											onChange={handleImageUpload}
+											aria-label="Upload product image"
+										/>
+										<span className="menu-builder-dropzone-icon" aria-hidden="true">
+											<ImagePlus size={22} strokeWidth={1.8} />
+										</span>
+										<strong>Click to upload or drag and drop</strong>
+										<small>PNG, JPG, JPEG, WEBP (Max 5MB)</small>
+										<span className="menu-builder-dropzone-cta">
+											<FolderOpen size={14} strokeWidth={2} /> Choose File
+										</span>
+									</label>
+								)}
 
 								{imageError ? <p className="menu-builder-error" role="alert">{imageError}</p> : null}
-
-								<div className="menu-builder-preview-card">
-									{formValues.image ? (
-										<>
-											<img src={formValues.image} alt="" />
-											<span>Image preview</span>
-										</>
-									) : (
-										<span className="menu-builder-preview-empty">
-											<ImageOff size={18} strokeWidth={1.7} />
-											No image selected - Your image will appear here.
-										</span>
-									)}
-								</div>
 							</aside>
 
 							{/* ---------------- Right: form sections ---------------- */}
@@ -776,13 +1453,32 @@ function AdminMenuManagement() {
 												<input
 													type="number"
 													value={formValues.price}
-																														onChange={(event) => updateBasePrice(event.target.value)}
+													onChange={(event) => updateBasePrice(event.target.value)}
 													inputMode="decimal"
 													placeholder="0.00"
 													min="0"
 													required
 												/>
 											</div>
+										</label>
+
+										<label className="menu-builder-field">
+											Stock Quantity
+											<div className="menu-builder-price">
+												<input
+													type="number"
+													value={formValues.stock}
+													onChange={(e) => setFormValues({ ...formValues, stock: e.target.value })}
+													placeholder={formValues.ingredients.length > 0 ? "Calculated from Recipe" : "0"}
+													min="0"
+													step="1"
+												/>
+											</div>
+											<small className="menu-field-hint" style={{ fontSize: "0.75rem", color: "#8a7a6e", marginTop: "2px" }}>
+												{formValues.ingredients.length > 0
+													? "Auto-calculated from ingredients on hand"
+													: "Direct stock balance for retail/prepared items"}
+											</small>
 										</label>
 									</div>
 
@@ -813,20 +1509,122 @@ function AdminMenuManagement() {
 											<List aria-hidden="true" size={13} strokeWidth={2.2} />
 											Item Variations &amp; Sizes
 										</label>
-										<button
-											type="button"
-											className="menu-builder-add-btn"
-											onClick={addVariation}
-											title="Add a new variation"
-										>
-											<Plus size={14} strokeWidth={2.4} /> Add Variation
-										</button>
+										<div className="menu-builder-variations-actions">
+											{getCategoryFamily(formValues.category) === "drink" && (
+												<button
+													type="button"
+													className="menu-builder-auto-size-btn"
+													onClick={cupInventoryItems.length ? handleAutoSetFromCups : handleAutoSetStandardSizes}
+													title={cupInventoryItems.length ? `Auto-detect ${cupInventoryItems.length} cups in inventory and configure size variations with 1-per-size stock deduction` : "Auto-generate Regular (16oz), Medium (18oz), and Large (22oz) with scaled recipes & prices"}
+												>
+													<Sparkles size={13} strokeWidth={2.2} /> {cupInventoryItems.length ? `Auto-set from Cups & Lids (${cupInventoryItems.length})` : "Standard R / M / L"}
+												</button>
+											)}
+
+											{getCategoryFamily(formValues.category) === "fries" && (
+												<button
+													type="button"
+													className="menu-builder-auto-size-btn"
+													onClick={() => handleApplyVariationPreset(VARIATION_PRESETS.fries)}
+													title="Auto-generate Regular, Large, and Jumbo / Party portions"
+												>
+													<Sparkles size={13} strokeWidth={2.2} /> Auto-set Portion Sizes (R/L/Jumbo)
+												</button>
+											)}
+
+											{getCategoryFamily(formValues.category) === "snack_pieces" && (
+												<button
+													type="button"
+													className="menu-builder-auto-size-btn"
+													onClick={() => handleApplyVariationPreset(VARIATION_PRESETS.snack_pieces)}
+													title="Auto-generate 4 pcs (Solo), 6 pcs (Sharing), and 12 pcs (Party)"
+												>
+													<Sparkles size={13} strokeWidth={2.2} /> Auto-set Piece Counts (4/6/12s)
+												</button>
+											)}
+
+											{getCategoryFamily(formValues.category) === "single_fixed" && formValues.sizes.length > 0 && (
+												<button
+													type="button"
+													className="menu-builder-auto-size-btn"
+													onClick={handleClearVariations}
+													title="Clear all variations to sell at the single base price"
+												>
+													<Archive size={13} strokeWidth={2.2} /> Clear Variations (Single Price)
+												</button>
+											)}
+
+											<button
+												type="button"
+												className="menu-builder-add-btn"
+												onClick={addVariation}
+												title="Add a new variation"
+											>
+												<Plus size={14} strokeWidth={2.4} /> Add Variation
+											</button>
+										</div>
 									</div>
+
+									{getCategoryFamily(formValues.category) === "single_fixed" && formValues.sizes.length === 0 && (
+										<div className="menu-builder-cups-detection" style={{ background: "#f8f6f2", borderColor: "#e6e0d8", color: "#5a4d41" }}>
+											<div className="menu-builder-cups-title">
+												<Utensils size={13} strokeWidth={2.2} />
+												<span>Fixed Price Item: No size variations needed. Base price (₱{Number(formValues.price || 0).toFixed(2)}) is the customer price. Click &ldquo;+ Add Variation&rdquo; only if offering special sizes or combo portions.</span>
+											</div>
+										</div>
+									)}
+
+									{getCategoryFamily(formValues.category) === "drink" && cupInventoryItems.length > 0 && (
+										<div className="menu-builder-cups-detection">
+											<div className="menu-builder-cups-title">
+												<Coffee size={13} strokeWidth={2.2} />
+												<span>Available Cups in Inventory (Category: Cups &amp; Lids):</span>
+											</div>
+											<div className="menu-builder-cups-chips">
+												{cupInventoryItems.map((cup, idx) => {
+													const info = getCupVariationInfo(cup, idx);
+													const isAdded = formValues.sizes.some((s) => s.label.toLowerCase() === info.label.toLowerCase());
+													return (
+														<button
+															key={cup.id}
+															type="button"
+															className={`menu-cup-chip ${isAdded ? "is-added" : ""}`}
+															onClick={() => addSingleCupVariation(cup)}
+															title={isAdded ? `${info.label} is already in the variations list` : `Click to add ${info.label} variation (${cup.quantity} pcs in stock)`}
+														>
+															<span className="cup-chip-label">{info.label}</span>
+															<span className="cup-chip-name">{cup.item}</span>
+															<span className="cup-chip-stock">{Number(cup.quantity)} pcs</span>
+															{isAdded ? <Check size={12} strokeWidth={2.4} /> : <Plus size={12} strokeWidth={2.4} />}
+														</button>
+													);
+												})}
+											</div>
+										</div>
+									)}
 
 									{formValues.sizes.length ? (
 										<div className="menu-builder-size-list">
 											{formValues.sizes.map((size, index) => {
 												const isEditing = editingSizeIndex === index;
+												const sizeCosting = computeSizeCosting(size.label, size.price);
+												const factor = getSizeScaleFactor(size.label, index);
+												const recipeSummary = formValues.ingredients
+													.map((ing) => {
+														const rawQty = ing.quantityBySize?.[size.label];
+																		if (rawQty !== undefined && !(Number(rawQty) > 0)) return "";
+																		const qty = rawQty ?? scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+														return `${qty}${ing.unit || ""} ${ing.name}`.trim();
+													})
+													.filter(Boolean)
+													.join(", ");
+												const marginTone = sizeCosting.margin == null
+													? "neutral"
+													: sizeCosting.margin >= 50
+														? "good"
+														: sizeCosting.margin >= 30
+															? "warn"
+															: "low";
 												return (
 													<div
 														className={`menu-builder-size-row ${isEditing ? "editing" : "normal"}`}
@@ -914,13 +1712,60 @@ function AdminMenuManagement() {
 														>
 															×
 														</button>
+
+														<div className="size-costing-strip">
+															{formValues.ingredients.length === 0 ? (
+																<span className="size-costing-note">Add recipe ingredients below to calculate COGS &amp; suggested price</span>
+															) : (
+																<>
+																	<span className="size-recipe-pill" title={`${factor}x Recipe (${recipeSummary})`}>
+																		<Beaker size={11} strokeWidth={2} />
+																		{factor}x Recipe{recipeSummary ? ` (${recipeSummary})` : ""}
+																	</span>
+																	<span>COGS <strong>₱{sizeCosting.cost.toFixed(2)}</strong></span>
+																	<span>·</span>
+																	<span>Profit <strong>₱{(sizeCosting.grossProfit ?? 0).toFixed(2)}</strong></span>
+																	<span className={`size-margin-badge ${marginTone}`}>
+																		Margin {sizeCosting.margin != null ? `${sizeCosting.margin.toFixed(1)}%` : "—"}
+																	</span>
+																	{sizeCosting.suggestedPrice != null && (
+																		<>
+																			<span>Suggested <strong>₱{sizeCosting.suggestedPrice}</strong> (30% food cost)</span>
+																			<button
+																				type="button"
+																				className="size-apply-suggested-btn"
+																				onClick={() => applySuggestedSizePrice(index, sizeCosting.suggestedPrice)}
+																			>
+																				Apply ₱{sizeCosting.suggestedPrice}
+																			</button>
+																		</>
+																	)}
+																	{!sizeCosting.costComplete && (
+																		<span className="size-costing-warning">Some ingredients have ₱0 unit cost in Inventory</span>
+																	)}
+																</>
+															)}
+														</div>
 													</div>
 												);
 											})}
 										</div>
 									) : (
 										<div className="menu-builder-empty-variations">
-											<span>No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large.</span>
+											<div className="empty-variations-msg">
+												No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large, or populate from detected cups in inventory:
+											</div>
+											{cupInventoryItems.length > 0 && (
+												<div className="empty-variations-cups-actions">
+													<button
+														type="button"
+														className="empty-variations-all-cups-btn"
+														onClick={handleAutoSetFromCups}
+													>
+														<Sparkles size={13} strokeWidth={2.2} /> Auto-Generate All {cupInventoryItems.length} Cup Sizes ({cupInventoryItems.map((c) => getCupVariationInfo(c).label).join(", ")})
+													</button>
+												</div>
+											)}
 										</div>
 									)}
 
@@ -948,6 +1793,45 @@ function AdminMenuManagement() {
 					{inventory.some((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
 					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={entry.item}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
 									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
+									{formValues.ingredients.length > 0 && formValues.sizes.length > 0 && (
+										<div className="menu-size-recipe-summary-card">
+											<div className="menu-size-recipe-summary-header">
+												<div>
+													<h4>Recipe Breakdown by Size</h4>
+													<p>Live portion preview per cup based on your configured amounts.</p>
+												</div>
+												<span className="summary-size-count">
+													{formValues.sizes.length} {formValues.sizes.length === 1 ? "Size" : "Sizes"}
+												</span>
+											</div>
+											<ul className="menu-size-recipe-summary" aria-label="Ingredients per size">
+												{formValues.sizes.map((size) => {
+													const used = formValues.ingredients.filter((ing) => sizeQty(ing, size.label) > 0);
+													return (
+														<li key={size.label} className={`menu-size-recipe-item ${used.length ? "" : "is-empty"}`}>
+															<div className="size-summary-row">
+																<span className="size-summary-badge">{size.label || "Unnamed size"}</span>
+																<div className="size-ingredients-wrap">
+																	{used.length ? (
+																		used.map((ing, i) => (
+																			<span className="size-ingredient-chip" key={`${ing.name}-${i}`}>
+																				<span className="chip-name">{ing.name}</span>
+																				<strong className="chip-qty">{sizeQty(ing, size.label)} {ing.unit || ""}</strong>
+																			</span>
+																		))
+																	) : (
+																		<span className="size-empty-warning" role="alert">
+																			No ingredients configured. Enter an amount above 0 for this size.
+																		</span>
+																	)}
+																</div>
+															</div>
+														</li>
+													);
+												})}
+											</ul>
+										</div>
+									)}
 									{formValues.ingredients.length > 0 && (
 										<div className="menu-recipe-list">
 										{formValues.ingredients.map((ingredient, index) => {
@@ -955,11 +1839,11 @@ function AdminMenuManagement() {
 								const ingredientName = inventoryItem?.item || ingredient.name || "Missing inventory item";
 								return (
 									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
-														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small></div>
+														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small>{(formValues.sizes.length ? formValues.sizes.every((size) => sizeQty(ingredient, size.label) === 0) : sizeQty(ingredient) === 0) && <small className="menu-recipe-error" role="alert">Amount is 0 for every size, so this ingredient will be removed when you save.</small>}</div>
 										<label className="menu-recipe-unit">Recipe unit<UnitSelect value={ingredient.unit || "pcs"} compatibleWith={inventoryItem?.unit || ingredient.stockUnit || "pcs"} onChange={(unit) => updateRecipeUnit(index, unit)} ariaLabel={`${ingredientName} recipe unit`} /></label>
 														<div className="menu-recipe-size-grid">
 															{formValues.sizes.map((size) => (
-																		<label key={size.label}>{size.label}<input type="number" min="0.000001" step="0.000001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label}`} /></label>
+																		<label key={size.label}>{size.label}<input type="number" min="0" step="0.000001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label} (0 or blank if not used)`} /></label>
 															))}
 														</div>
 														<button type="button" onClick={() => removeIngredient(index)} aria-label={`Remove ${ingredientName} from recipe`}>×</button>
@@ -991,23 +1875,38 @@ function AdminMenuManagement() {
 
 					{formValues.addons.length ? (
 						<div className="menu-addon-list">
-							{formValues.addons.map((addon, index) => (
-								<div className="menu-addon-row" key={`${addon.label}-${index}`}>
-									<div className="menu-addon-name"><strong>{addon.label}</strong><small>Stock: {inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase())?.quantity ?? 0} {addon.stockUnit || "pcs"}</small></div>
-									<label>Price <input type="number" min="0" step="0.01" value={addon.price} onChange={(event) => updateAddon(index, "price", event.target.value)} aria-label={`${addon.label} price`} /></label>
-									<label>Used / serving <input type="number" min="0.000001" step="0.000001" value={addon.quantityUsed} onChange={(event) => updateAddon(index, "quantityUsed", event.target.value)} aria-label={`${addon.label} inventory used per serving`} /></label>
-									<label>Recipe unit <UnitSelect value={addon.unit || "pcs"} compatibleWith={inventory.find((entry) => entry.item.toLowerCase() === addon.label.toLowerCase())?.unit || addon.stockUnit || "pcs"} onChange={(unit) => updateAddon(index, "unit", unit)} ariaLabel={`${addon.label} recipe unit`} /></label>
-									<button
-										type="button"
-														onClick={() => removeAddon(index)}
-														aria-label={`Remove ${addon.label}`}
-													>
-														×
-													</button>
-								</div>
-											))}
+							{formValues.addons.map((addon, index) => {
+								const addonInv = inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId) || entry.item.toLowerCase() === addon.label.toLowerCase());
+								const addonStockUnit = addonInv?.unit || addon.stockUnit || "pcs";
+								const addonUnitCost = Number(addonInv?.unitCost ?? addonInv?.unit_cost ?? addon.unitCost ?? 0);
+								const addonStockQty = convertRecipeAmount(addon.quantityUsed, addon.unit || addonStockUnit, addonStockUnit);
+								const addonCost = addonStockQty && addonUnitCost > 0 ? Number((addonStockQty * addonUnitCost).toFixed(2)) : 0;
+								const addonPriceNum = Number(addon.price || 0);
+								const addonMargin = addonPriceNum > 0 ? Number((((addonPriceNum - addonCost) / addonPriceNum) * 100).toFixed(1)) : null;
+								return (
+									<div className="menu-addon-row" key={`${addon.label}-${index}`}>
+										<div className="menu-addon-name">
+											<strong>{addon.label}</strong>
+											<small>Stock: {addonInv?.quantity ?? 0} {addonStockUnit}</small>
+											<span className="addon-cost-pill">
+												COGS ₱{addonCost.toFixed(2)} · {addonMargin != null ? `${addonMargin.toFixed(1)}% margin` : "—"}
+											</span>
 										</div>
-									) : null}
+										<label>Price <input type="number" min="0" step="0.01" value={addon.price} onChange={(event) => updateAddon(index, "price", event.target.value)} aria-label={`${addon.label} price`} /></label>
+										<label>Used / serving <input type="number" min="0.000001" step="0.000001" value={addon.quantityUsed} onChange={(event) => updateAddon(index, "quantityUsed", event.target.value)} aria-label={`${addon.label} inventory used per serving`} /></label>
+										<label>Recipe unit <UnitSelect value={addon.unit || "pcs"} compatibleWith={addonStockUnit} onChange={(unit) => updateAddon(index, "unit", unit)} ariaLabel={`${addon.label} recipe unit`} /></label>
+										<button
+											type="button"
+											onClick={() => removeAddon(index)}
+											aria-label={`Remove ${addon.label}`}
+										>
+											×
+										</button>
+									</div>
+								);
+							})}
+						</div>
+					) : null}
 
 					<small>New add-ons are added to Inventory at zero stock. Restock them in Inventory before selling.</small>
 								</section>

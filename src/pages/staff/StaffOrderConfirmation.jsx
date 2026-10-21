@@ -70,27 +70,54 @@ function StaffOrderConfirmation() {
     );
   }, [order]);
 
-  const tenderedAmount = Number(cashTendered) || 0;
-  const changeDue = Math.max(0, tenderedAmount - subtotal);
-  const isShort = selectedPayment === "Cash" && cashTendered !== "" && tenderedAmount < subtotal;
+  const totalItems = useMemo(() => {
+    return order.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  }, [order]);
+
   const isCash = selectedPayment === "Cash";
+  const hasTypedCash = String(cashTendered).trim() !== "";
+  const tenderedAmount = isCash
+    ? (hasTypedCash ? Number(cashTendered) : subtotal)
+    : subtotal;
+  const changeDue = Math.max(0, (Number.isFinite(tenderedAmount) ? tenderedAmount : 0) - subtotal);
+  const isShort = isCash && hasTypedCash && (Number.isNaN(tenderedAmount) || tenderedAmount < subtotal);
+
+  const itemInstructionsSummary = useMemo(() => {
+    return order
+      .map((item) => {
+        const noteText = String(item.instructions || item.notes || "").trim();
+        return noteText ? `${item.title}: ${noteText}` : null;
+      })
+      .filter(Boolean)
+      .join("; ");
+  }, [order]);
 
   const handleConfirmOrder = async () => {
     if (order.length === 0) {
       navigate("/staff/menu");
       return;
     }
+    if (isShort) return;
+
+    const baseNotes = String(location.state?.notes || "").trim();
+    const combinedNotes = [
+      baseNotes,
+      itemInstructionsSummary && !baseNotes.includes(itemInstructionsSummary) ? itemInstructionsSummary : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
 
     let savedOrder;
     if (addOrder) {
       try {
         savedOrder = await addOrder({
-        items: order,
-        customerName: customerName.trim() || "Walk-in Customer",
-        type: orderType,
-        paymentMethod: selectedPayment,
-        cashTendered: isCash ? tenderedAmount : subtotal,
-        changeDue: isCash ? changeDue : 0,
+          items: order,
+          customerName: customerName.trim() || "Walk-in Customer",
+          type: orderType,
+          paymentMethod: selectedPayment,
+          cashTendered: isCash ? tenderedAmount : subtotal,
+          changeDue: isCash ? changeDue : 0,
+          notes: combinedNotes || undefined,
         });
       } catch (error) {
         window.alert(error.message);
@@ -115,6 +142,7 @@ function StaffOrderConfirmation() {
         subtotal,
         total: subtotal,
         orderId,
+        notes: combinedNotes || undefined,
       },
     });
   };
@@ -424,41 +452,53 @@ function StaffOrderConfirmation() {
                   </div>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                    <button
-                      type="button"
-                      onClick={() => setCashTendered(String(subtotal))}
-                      style={{
-                        padding: "7px 12px",
-                        borderRadius: "9px",
-                        border: "none",
-                        background: theme.earth,
-                        color: "#fff",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Exact
-                    </button>
-                    {cashPresets.map((amount) => (
-                      <button
-                        key={amount}
-                        type="button"
-                        onClick={() => setCashTendered(String(amount))}
-                        style={{
-                          padding: "7px 12px",
-                          borderRadius: "9px",
-                          border: `1px solid ${theme.border}`,
-                          background: theme.card,
-                          color: theme.earthMid,
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        ₱{amount}
-                      </button>
-                    ))}
+                    {(() => {
+                      const isExactSelected = !hasTypedCash || Math.abs(tenderedAmount - subtotal) < 0.01;
+                      return (
+                        <button
+                          type="button"
+                          aria-pressed={isExactSelected}
+                          onClick={() => setCashTendered(String(subtotal))}
+                          style={{
+                            padding: "7px 12px",
+                            borderRadius: "9px",
+                            border: isExactSelected ? `1px solid ${theme.earth}` : `1px solid ${theme.border}`,
+                            background: isExactSelected ? theme.earth : theme.card,
+                            color: isExactSelected ? "#fff" : theme.earthMid,
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          Exact
+                        </button>
+                      );
+                    })()}
+                    {cashPresets.map((amount) => {
+                      const isPresetSelected = hasTypedCash && Math.abs(tenderedAmount - amount) < 0.01;
+                      return (
+                        <button
+                          key={amount}
+                          type="button"
+                          aria-pressed={isPresetSelected}
+                          onClick={() => setCashTendered(String(amount))}
+                          style={{
+                            padding: "7px 12px",
+                            borderRadius: "9px",
+                            border: isPresetSelected ? `1px solid ${theme.earth}` : `1px solid ${theme.border}`,
+                            background: isPresetSelected ? theme.earth : theme.card,
+                            color: isPresetSelected ? "#fff" : theme.earthMid,
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          ₱{amount}
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               ) : (
@@ -571,7 +611,7 @@ function StaffOrderConfirmation() {
                   Order items
                 </h2>
                 <span style={{ fontSize: "10.5px", color: theme.textMuted }}>
-                  {order.length} item{order.length === 1 ? "" : "s"}
+                  {totalItems} item{totalItems === 1 ? "" : "s"}
                 </span>
               </div>
 
@@ -615,6 +655,11 @@ function StaffOrderConfirmation() {
                             {item.size || "Regular"}
                             {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
                             {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
+                          </span>
+                        ) : null}
+                        {(item.instructions || item.notes) ? (
+                          <span style={{ display: "block", marginTop: "2px", fontSize: "10px", color: theme.earthMid, fontStyle: "italic", lineHeight: 1.35 }}>
+                            Note: {item.instructions || item.notes}
                           </span>
                         ) : null}
                       </div>

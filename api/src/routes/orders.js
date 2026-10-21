@@ -4,23 +4,24 @@ import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
 
+// A size with its own recipe rows uses them exclusively; only a size with none falls back to the base recipe.
+export const selectRecipe = (sizeRecipe, baseRecipe) => (sizeRecipe.length ? sizeRecipe : baseRecipe);
+
 const router = Router();
-const orderFlow = ["Pending", "Preparing", "Ready", "Completed"];
+const orderFlow = ["Pending", "Preparing", "Completed"];
 const paymentMethods = ["Cash", "GCash", "Card"];
 const orderTypes = ["Counter", "Takeout", "Dine-in"];
 
-async function loadOrders() {
-  const [orders] = await pool.execute("SELECT * FROM orders ORDER BY created_at DESC, id DESC");
-  if (!orders.length) return [];
-  const ids = orders.map((order) => order.id);
-  const marks = ids.map(() => "?").join(",");
-  const [itemResult, addonResult] = await Promise.all([
-    pool.execute("SELECT oi.*, p.name AS current_product_name FROM order_items oi LEFT JOIN menu_products p ON p.id = oi.product_id WHERE oi.order_id IN (" + marks + ") ORDER BY oi.id", ids),
-    pool.execute("SELECT oia.*, oi.order_id FROM order_item_addons oia JOIN order_items oi ON oi.id = oia.order_item_id WHERE oi.order_id IN (" + marks + ") ORDER BY oia.id", ids),
-  ]);
-  const items = itemResult[0];
-  const addons = addonResult[0];
-  return orders.map((order) => ({
+function normalizeBaseSizeLabel(label) {
+  const cleaned = String(label || "Regular")
+    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:fl\s*)?oz\s*\)\s*$/i, "")
+    .trim()
+    .toLowerCase();
+  return cleaned || "regular";
+}
+
+function mapOrderRecord(order, items, addons) {
+  return {
     id: order.order_number,
     customer: order.customer_name,
     items: items.filter((item) => Number(item.order_id) === Number(order.id)).map((item) => ({
@@ -28,11 +29,13 @@ async function loadOrders() {
       title: item.product_name_snapshot || item.current_product_name,
       quantity: Number(item.quantity),
       price: Number(item.unit_price),
+      unitCost: item.unit_cost_snapshot == null ? null : Number(item.unit_cost_snapshot),
       size: item.size_label,
       category: item.category_name_snapshot || "Menu item",
       sugarLevel: item.sugar_level,
       addons: addons.filter((addon) => Number(addon.order_item_id) === Number(item.id)).map((addon) => addon.addon_name_snapshot),
       instructions: item.instructions,
+      notes: item.instructions,
     })),
     total: Number(order.total),
     status: order.order_status,
@@ -45,7 +48,33 @@ async function loadOrders() {
     cashTendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
     changeDue: order.change_due == null ? null : Number(order.change_due),
     createdAt: new Date(order.created_at).toISOString(),
-  }));
+  };
+}
+
+async function loadOrders(limit = 500) {
+  const safeLimit = Math.min(Math.max(1, Number(limit || 500)), 5000);
+  const [orders] = await pool.query("SELECT * FROM orders ORDER BY created_at DESC, id DESC LIMIT ?", [safeLimit]);
+  if (!orders.length) return [];
+  const ids = orders.map((order) => order.id);
+  const marks = ids.map(() => "?").join(",");
+  const [itemResult, addonResult] = await Promise.all([
+    pool.execute("SELECT oi.*, p.name AS current_product_name FROM order_items oi LEFT JOIN menu_products p ON p.id = oi.product_id WHERE oi.order_id IN (" + marks + ") ORDER BY oi.id", ids),
+    pool.execute("SELECT oia.*, oi.order_id FROM order_item_addons oia JOIN order_items oi ON oi.id = oia.order_item_id WHERE oi.order_id IN (" + marks + ") ORDER BY oia.id", ids),
+  ]);
+  const items = itemResult[0];
+  const addons = addonResult[0];
+  return orders.map((order) => mapOrderRecord(order, items, addons));
+}
+
+async function loadOrderByNumber(orderNumber) {
+  const [orders] = await pool.execute("SELECT * FROM orders WHERE order_number = ? LIMIT 1", [orderNumber]);
+  const order = orders[0];
+  if (!order) return null;
+  const [itemResult, addonResult] = await Promise.all([
+    pool.execute("SELECT oi.*, p.name AS current_product_name FROM order_items oi LEFT JOIN menu_products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id", [order.id]),
+    pool.execute("SELECT oia.*, oi.order_id FROM order_item_addons oia JOIN order_items oi ON oi.id = oia.order_item_id WHERE oi.order_id = ? ORDER BY oia.id", [order.id]),
+  ]);
+  return mapOrderRecord(order, itemResult[0], addonResult[0]);
 }
 
 async function findUnusedOrderNumber(connection) {
@@ -73,16 +102,26 @@ router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_reque
   const [itemRows] = await pool.execute(
     `SELECT
        COALESCE(SUM(oi.quantity), 0) AS all_time_units_sold,
-       COALESCE(SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN oi.quantity ELSE 0 END), 0) AS today_units_sold
+       COALESCE(SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN oi.quantity ELSE 0 END), 0) AS today_units_sold,
+       COALESCE(SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0)), 0) AS all_time_cogs,
+       COALESCE(SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN oi.quantity * COALESCE(oi.unit_cost_snapshot, 0) ELSE 0 END), 0) AS today_cogs
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE o.payment_status = 'Paid'`,
   );
   const s = salesRows[0] || {};
   const it = itemRows[0] || {};
+  const allTimeSales = Number(Number(s.all_time_sales || 0).toFixed(2));
+  const todaySales = Number(Number(s.today_sales || 0).toFixed(2));
+  const allTimeCogs = Number(Number(it.all_time_cogs || 0).toFixed(2));
+  const todayCogs = Number(Number(it.today_cogs || 0).toFixed(2));
   response.json({
-    allTimeSales: Number(Number(s.all_time_sales || 0).toFixed(2)),
-    todaySales: Number(Number(s.today_sales || 0).toFixed(2)),
+    allTimeSales,
+    todaySales,
+    allTimeCogs,
+    todayCogs,
+    allTimeGrossProfit: Number((allTimeSales - allTimeCogs).toFixed(2)),
+    todayGrossProfit: Number((todaySales - todayCogs).toFixed(2)),
     allTimePaidOrders: Number(s.all_time_paid_orders || 0),
     todayPaidOrders: Number(s.today_paid_orders || 0),
     allTimeUnitsSold: Number(it.all_time_units_sold || 0),
@@ -93,8 +132,9 @@ router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_reque
   });
 });
 
-router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
-  response.json(await loadOrders());
+router.get("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const limit = Math.min(Math.max(1, Number(request.query?.limit || 500)), 5000);
+  response.json(await loadOrders(limit));
 });
 
 router.post("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -122,11 +162,24 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
            FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id WHERE p.id = ? AND p.is_archived = FALSE FOR UPDATE`, [productId],
       );
       if (!product || !product.is_available) throw httpError(409, "A selected menu item is unavailable.");
-      if (Number(product.stock_quantity) < quantity) throw httpError(409, `${product.name} does not have enough stock for this order.`);
 
-      const sizeLabel = String(item.size || "Regular").trim().slice(0, 80);
-      const [[size]] = await connection.execute("SELECT id, price FROM product_sizes WHERE product_id = ? AND label = ?", [productId, sizeLabel]);
+      const requestedSizeLabel = String(item.size || "Regular").trim().slice(0, 80);
+      const [productSizes] = await connection.execute(
+        "SELECT id, label, price FROM product_sizes WHERE product_id = ? ORDER BY display_order ASC, id ASC",
+        [productId],
+      );
+      let size = productSizes.find(
+        (s) => String(s.label || "").trim().toLowerCase() === requestedSizeLabel.toLowerCase(),
+      );
+      if (!size) {
+        const targetBase = normalizeBaseSizeLabel(requestedSizeLabel);
+        const baseMatches = productSizes.filter((s) => normalizeBaseSizeLabel(s.label) === targetBase);
+        if (baseMatches.length === 1) {
+          size = baseMatches[0];
+        }
+      }
       if (!size) throw httpError(400, `The selected size for ${product.name} is no longer available.`);
+      const canonicalSizeLabel = String(size.label).trim().slice(0, 80);
       const addonNames = Array.isArray(item.addons) ? [...new Set(item.addons.map((addon) => String(addon).trim()).filter(Boolean))] : [];
       const addonPrices = [];
       for (const addonName of addonNames) {
@@ -151,8 +204,16 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         });
       }
       const unitPrice = Number((Number(size.price) + addonPrices.reduce((sum, addon) => sum + addon.price, 0)).toFixed(2));
+      const clientUnitPrice = item.expectedUnitPrice ?? item.price;
+      if (clientUnitPrice !== undefined && clientUnitPrice !== null && clientUnitPrice !== "") {
+        const expectedPrice = Number(clientUnitPrice);
+        if (!Number.isFinite(expectedPrice) || Math.abs(unitPrice - expectedPrice) > 0.01) {
+          throw httpError(400, `The price for ${product.name} (${canonicalSizeLabel}) does not match the current menu price.`);
+        }
+      }
       total = Math.round((total + unitPrice * quantity) * 100) / 100;
-      lineItems.push({ product, quantity, sizeId: Number(size.id), sizeLabel, unitPrice, addonPrices, sugarLevel: String(item.sugarLevel || "").slice(0, 40) || null, instructions: String(item.instructions || "").slice(0, 500) || null });
+      const itemInstructions = String(item.instructions || item.notes || "").trim().slice(0, 500) || null;
+      lineItems.push({ product, quantity, sizeId: Number(size.id), sizeLabel: canonicalSizeLabel, unitPrice, addonPrices, sugarLevel: String(item.sugarLevel || "").slice(0, 40) || null, instructions: itemInstructions });
     }
 
     const productIds = [...new Set(lineItems.map((line) => Number(line.product.id)))];
@@ -233,13 +294,9 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         perItem.set(inventoryItemId, current);
         if (!inventoryNeeds.has(inventoryItemId)) inventoryNeeds.set(inventoryItemId, { inventoryName: usage.inventoryName, unit: usage.unit, required: 0 });
       };
-      const baseRecipe = recipesByProduct.get(Number(line.product.id)) || [];
       const sizeRecipe = recipesBySize.get(line.sizeId) || [];
-      const sizeIngredientIds = new Set(sizeRecipe.map((ingredient) => ingredient.inventoryItemId));
-      for (const ingredient of baseRecipe) {
-        if (!sizeIngredientIds.has(ingredient.inventoryItemId)) addUsage(ingredient);
-      }
-      for (const ingredient of sizeRecipe) {
+      const activeRecipe = selectRecipe(sizeRecipe, recipesByProduct.get(Number(line.product.id)) || []);
+      for (const ingredient of activeRecipe) {
         if (!ingredient.quantityPerServing) throw httpError(409, `The ${line.sizeLabel} recipe for ${line.product.name} has an invalid inventory unit conversion.`);
         addUsage(ingredient);
       }
@@ -251,11 +308,26 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       }
     }
 
+    // Enforce cumulative product stock_quantity for non-recipe products (recipe-backed products enforce inventory_items stock below)
+    const productQuantityTotals = new Map();
+    for (const line of lineItems) {
+      const pid = Number(line.product.id);
+      const existing = productQuantityTotals.get(pid) || { product: line.product, totalQty: 0 };
+      existing.totalQty += line.quantity;
+      productQuantityTotals.set(pid, existing);
+    }
+    for (const [pid, entry] of productQuantityTotals) {
+      const hasRecipe = (recipesByProduct.get(pid) || []).length > 0;
+      if (!hasRecipe && Number(entry.product.stock_quantity) < entry.totalQty) {
+        throw httpError(409, `${entry.product.name} does not have enough stock for this order.`);
+      }
+    }
+
     const inventoryIds = [...inventoryNeeds.keys()].sort((left, right) => left - right);
     if (inventoryIds.length) {
       const marks = inventoryIds.map(() => "?").join(",");
       const [lockedInventory] = await connection.execute(
-        `SELECT id, name, unit, quantity FROM inventory_items WHERE id IN (${marks}) ORDER BY id FOR UPDATE`, inventoryIds,
+        `SELECT id, name, unit, quantity, unit_cost FROM inventory_items WHERE id IN (${marks}) ORDER BY id FOR UPDATE`, inventoryIds,
       );
       const inventoryById = new Map(lockedInventory.map((item) => [Number(item.id), item]));
       if (inventoryById.size !== inventoryIds.length) throw httpError(409, "A recipe ingredient or add-on is missing from Inventory. Update the menu item before ordering.");
@@ -266,6 +338,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         }
         needed.inventoryName = item.name;
         needed.quantity = Number(item.quantity);
+        needed.unitCost = Number(item.unit_cost || 0);
         if (needed.quantity < needed.required) {
           throw httpError(409, `Not enough ${needed.inventoryName} in Inventory. Need ${needed.required} ${needed.unit}, have ${needed.quantity} ${needed.unit}.`);
         }
@@ -293,27 +366,52 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
     }
 
     for (const line of lineItems) {
-      const [stockResult] = await connection.execute(
-        "UPDATE menu_products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?",
-        [line.quantity, line.product.id, line.quantity],
-      );
-      if (!stockResult.affectedRows) throw httpError(409, `${line.product.name} stock changed while the order was being placed. Please try again.`);
-      const [createdItem] = await connection.execute(
-        `INSERT INTO order_items (order_id, product_id, product_name_snapshot, category_name_snapshot, quantity, size_label, sugar_level, unit_price, instructions)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [created.insertId, line.product.id, line.product.name, line.product.category || "Menu item", line.quantity, line.sizeLabel, line.sugarLevel, line.unitPrice, line.instructions],
-      );
-      for (const ingredient of line.inventoryConsumptions) {
+      const hasRecipe = (recipesByProduct.get(Number(line.product.id)) || []).length > 0;
+      if (hasRecipe) {
+        await connection.execute(
+          "UPDATE menu_products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?",
+          [line.quantity, line.product.id],
+        );
+      } else {
+        const [stockResult] = await connection.execute(
+          "UPDATE menu_products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?",
+          [line.quantity, line.product.id, line.quantity],
+        );
+        if (!stockResult.affectedRows) throw httpError(409, `${line.product.name} stock changed while the order was being placed. Please try again.`);
+      }
+
+      const lineConsumptions = line.inventoryConsumptions.map((ingredient) => {
         const quantityUsed = Math.round(ingredient.quantityPerServing * line.quantity * 1000000) / 1000000;
+        const unitCostSnapshot = Number(inventoryNeeds.get(ingredient.inventoryItemId)?.unitCost || 0);
+        const lineCost = Number((quantityUsed * unitCostSnapshot).toFixed(4));
+        return {
+          ...ingredient,
+          quantityUsed,
+          unitCostSnapshot,
+          lineCost,
+        };
+      });
+      const totalLineCost = lineConsumptions.reduce((sum, c) => sum + c.lineCost, 0);
+      let itemUnitCostSnapshot = line.quantity > 0 ? Number((totalLineCost / line.quantity).toFixed(4)) : 0;
+      if (itemUnitCostSnapshot === 0 && line.product.cost != null && Number(line.product.cost) > 0) {
+        itemUnitCostSnapshot = Number(Number(line.product.cost).toFixed(4));
+      }
+
+      const [createdItem] = await connection.execute(
+        `INSERT INTO order_items (order_id, product_id, product_name_snapshot, category_name_snapshot, quantity, size_label, sugar_level, unit_price, unit_cost_snapshot, instructions)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.insertId, line.product.id, line.product.name, line.product.category || "Menu item", line.quantity, line.sizeLabel, line.sugarLevel, line.unitPrice, itemUnitCostSnapshot, line.instructions],
+      );
+      for (const ingredient of lineConsumptions) {
         await connection.execute(
           `INSERT INTO order_inventory_consumptions
-             (order_id, order_item_id, order_number, product_name_snapshot, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [created.insertId, createdItem.insertId, orderNumber, line.product.name, ingredient.inventoryItemId, ingredient.inventoryName, quantityUsed, ingredient.unit],
+             (order_id, order_item_id, order_number, product_name_snapshot, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, unit_cost_snapshot, line_cost)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [created.insertId, createdItem.insertId, orderNumber, line.product.name, ingredient.inventoryItemId, ingredient.inventoryName, ingredient.quantityUsed, ingredient.unit, ingredient.unitCostSnapshot, ingredient.lineCost],
         );
         await connection.execute(
           "INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'usage', ?, ?)",
-          [ingredient.inventoryItemId, request.authUser.sub, -quantityUsed, `Order ${orderNumber}: ${line.product.name} × ${line.quantity}`],
+          [ingredient.inventoryItemId, request.authUser.sub, -ingredient.quantityUsed, `Order ${orderNumber}: ${line.product.name} × ${line.quantity}`],
         );
       }
       for (const addon of line.addonPrices) {
@@ -327,7 +425,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
   } finally {
     connection.release();
   }
-  response.status(201).json((await loadOrders()).find((order) => order.id === orderNumber));
+  response.status(201).json(await loadOrderByNumber(orderNumber));
 });
 
 router.patch("/:orderNumber/status", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -338,14 +436,14 @@ router.patch("/:orderNumber/status", requireAuth, requireRole("admin", "staff"),
   if (current < 0 || request.body?.status !== orderFlow[current + 1]) throw httpError(409, "Orders can only advance one step at a time.");
   const [updatedRows] = await pool.execute("UPDATE orders SET order_status = ? WHERE id = ? AND order_status = ?", [request.body.status, order.id, order.order_status]);
   if (!updatedRows.affectedRows) throw httpError(409, "This order was updated elsewhere. Refresh and try again.");
-  response.json((await loadOrders()).find((entry) => entry.id === request.params.orderNumber));
+  response.json(await loadOrderByNumber(request.params.orderNumber));
 });
 
 router.patch("/:orderNumber/confirm", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const [rows] = await pool.execute("SELECT id FROM orders WHERE order_number = ?", [request.params.orderNumber]);
   if (!rows.length) throw httpError(404, "Order not found.");
   await pool.execute("UPDATE orders SET confirmed_at = COALESCE(confirmed_at, CURRENT_TIMESTAMP) WHERE id = ?", [rows[0].id]);
-  response.json((await loadOrders()).find((entry) => entry.id === request.params.orderNumber));
+  response.json(await loadOrderByNumber(request.params.orderNumber));
 });
 
 router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -356,7 +454,7 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
     `UPDATE orders SET payment_status = 'Paid', payment_method = COALESCE(?, payment_method), paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP) WHERE id = ?`,
     [method || null, rows[0].id],
   );
-  response.json((await loadOrders()).find((entry) => entry.id === request.params.orderNumber));
+  response.json(await loadOrderByNumber(request.params.orderNumber));
 });
 
 router.delete("/:orderNumber", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -365,6 +463,9 @@ router.delete("/:orderNumber", requireAuth, requireRole("admin", "staff"), async
     await connection.beginTransaction();
     const [[order]] = await connection.execute("SELECT id, order_number, order_status FROM orders WHERE order_number = ? FOR UPDATE", [request.params.orderNumber]);
     if (!order) throw httpError(404, "Order not found.");
+    if (order.order_status === "Completed" && request.authUser.role !== "admin") {
+      throw httpError(403, "Completed orders are locked and can only be deleted by an administrator.");
+    }
     const [items] = await connection.execute("SELECT product_id, SUM(quantity) AS quantity FROM order_items WHERE order_id = ? GROUP BY product_id", [order.id]);
     if (order.order_status !== "Completed") {
       for (const item of items) {

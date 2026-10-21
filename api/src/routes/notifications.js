@@ -26,10 +26,15 @@ router.get("/", requireAuth, requireRole("admin", "staff"), async (request, resp
   response.json(rows.map(mapNotification));
 });
 
+const STAFF_PERMITTED_EVENTS = new Set(["order_new", "order_completed", "receipt_printed"]);
+
 router.post("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const type = String(request.body?.type || "info").trim().slice(0, 40);
-  const title = String(request.body?.title || "Notice").trim().slice(0, 180);
-  const message = String(request.body?.message || "").trim().slice(0, 1000);
+  if (request.authUser.role === "staff" && !STAFF_PERMITTED_EVENTS.has(type)) {
+    throw httpError(403, "Staff members are restricted to transaction event notifications.");
+  }
+  const title = String(request.body?.title || "Notice").trim().slice(0, 80);
+  const message = String(request.body?.message || "").trim().slice(0, 200);
   const eventKey = String(request.body?.eventKey || randomUUID()).trim().slice(0, 120);
   if (!type || !title || !eventKey) throw httpError(400, "Notification type, title, and event key are required.");
   await pool.execute(

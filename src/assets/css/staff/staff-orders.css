@@ -686,9 +686,10 @@
   color: #756e62;
 }
 
-.order-stat-icon.ready {
+.order-stat-icon.ready,
+.order-stat-icon.completed {
   background: #e5ebe3;
-  color: #63735d;
+  color: #38734d;
 }
 
 .order-stat-info span {

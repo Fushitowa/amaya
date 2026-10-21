@@ -38,16 +38,18 @@
 .admin-settings-sidebar,
 .staff-sidebar,
 .staff-menu-sidebar,
+.amaya-sidebar,
 .admin-main,
 .admin-inventory-main,
 .admin-menu-main,
 .admin-orders-main,
 .admin-report-main,
+.admin-archive-main,
 .admin-settings-main,
 .staff-main,
 .staff-orders-main,
 .staff-settings-main {
-  transition: width 300ms ease, min-width 300ms ease, flex-basis 300ms ease, margin-left 300ms ease;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), min-width 240ms cubic-bezier(0.4, 0, 0.2, 1), flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .admin-dashboard.sidebar-collapsed .admin-sidebar,
@@ -258,51 +260,150 @@
    Shared <Sidebar /> component (.amaya-sidebar)
    ========================================================================== */
 
+.amaya-sidebar.amaya-sidebar--collapsed,
 .sidebar-collapsed .amaya-sidebar,
 .admin-dashboard.sidebar-collapsed .amaya-sidebar,
 .admin-inventory-page.sidebar-collapsed .amaya-sidebar,
 .admin-menu-page.sidebar-collapsed .amaya-sidebar,
 .admin-orders-page.sidebar-collapsed .amaya-sidebar,
 .admin-report-page.sidebar-collapsed .amaya-sidebar,
+.admin-archive-page.sidebar-collapsed .amaya-sidebar,
 .admin-settings-page.sidebar-collapsed .amaya-sidebar,
 .staff-dashboard.sidebar-collapsed .amaya-sidebar,
+.staff-menu-page.sidebar-collapsed .amaya-sidebar,
 .staff-orders-page.sidebar-collapsed .amaya-sidebar,
 .staff-settings-page.sidebar-collapsed .amaya-sidebar {
-  width: 88px;
-  flex-basis: 88px;
-  min-width: 88px;
+  width: 88px !important;
+  flex: 0 0 88px !important;
+  flex-basis: 88px !important;
+  min-width: 88px !important;
+  max-width: 88px !important;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1), min-width 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-brand,
 .sidebar-collapsed .amaya-sidebar-brand,
 .admin-orders-page.sidebar-collapsed .amaya-sidebar-brand {
-  justify-content: center;
-  padding-left: 18px;
-  padding-right: 18px;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 98px !important;
+  padding: 16px 10px 14px !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .sidebar-logo-button,
+.sidebar-collapsed .sidebar-logo-button {
+  margin: 0 auto !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-brand-text,
 .sidebar-collapsed .amaya-sidebar-brand-text,
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-section-label,
 .sidebar-collapsed .amaya-sidebar-section-label {
-  display: none;
+  display: none !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-toggle-btn,
+.sidebar-collapsed .amaya-sidebar-toggle-btn {
+  margin: 0 auto !important;
+  width: 28px !important;
+  height: 28px !important;
+  flex: 0 0 28px !important;
+  border-radius: 8px !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-nav,
 .sidebar-collapsed .amaya-sidebar-nav {
-  padding-left: 12px;
-  padding-right: 12px;
+  padding: 16px 10px !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-section + .amaya-sidebar-section,
+.sidebar-collapsed .amaya-sidebar-section + .amaya-sidebar-section {
+  margin-top: 14px !important;
+  padding-top: 14px !important;
+  border-top: 1px solid #ece2d8 !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link,
 .sidebar-collapsed .amaya-sidebar-link {
-  justify-content: center;
-  gap: 0;
-  padding-left: 0;
-  padding-right: 0;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  padding: 0 !important;
+  margin: 6px auto !important;
+  gap: 0 !important;
+  border-radius: 12px !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link:hover,
+.sidebar-collapsed .amaya-sidebar-link:hover {
+  transform: scale(1.08) !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link svg,
+.sidebar-collapsed .amaya-sidebar-link svg {
+  margin: 0 auto !important;
+  width: 20px !important;
+  height: 20px !important;
+  flex: 0 0 20px !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link-label,
 .sidebar-collapsed .amaya-sidebar-link-label,
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link-count,
 .sidebar-collapsed .amaya-sidebar-link-count {
-  display: none;
+  display: none !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link::before,
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link::after,
+.sidebar-collapsed .amaya-sidebar-link::before,
+.sidebar-collapsed .amaya-sidebar-link::after {
+  display: none !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-bottom,
 .sidebar-collapsed .amaya-sidebar-bottom {
-  align-items: center;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 14px 10px !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-bottom .amaya-sidebar-link,
+.sidebar-collapsed .amaya-sidebar-bottom .amaya-sidebar-link {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  padding: 0 !important;
+  margin: 0 auto !important;
+}
+
+/* Normalize and smoothly adjust main content area across all admin and staff pages */
+.admin-dashboard.sidebar-collapsed .admin-main,
+.admin-inventory-page.sidebar-collapsed .admin-inventory-main,
+.admin-menu-page.sidebar-collapsed .admin-menu-main,
+.admin-orders-page.sidebar-collapsed .admin-orders-main,
+.admin-report-page.sidebar-collapsed .admin-report-main,
+.admin-archive-page.sidebar-collapsed .admin-archive-main,
+.admin-settings-page.sidebar-collapsed .admin-settings-main,
+.staff-dashboard.sidebar-collapsed .staff-main,
+.staff-menu-page.sidebar-collapsed .staff-menu-main,
+.staff-orders-page.sidebar-collapsed .staff-orders-main,
+.staff-settings-page.sidebar-collapsed .staff-settings-main {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  margin-left: 0 !important;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 

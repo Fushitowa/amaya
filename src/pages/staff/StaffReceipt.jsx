@@ -13,10 +13,7 @@ function StaffReceipt() {
   const { businessSettings } = useBusiness() || {};
   const business = businessSettings || defaultBusinessSettings;
 
-  const order = useMemo(() => location.state?.order || [
-    { title: "Matcha Milk Tea", quantity: 2, price: 39, size: "Regular" },
-    { title: "Takoyaki", quantity: 1, price: 30, size: "Regular" },
-  ], [location.state?.order]);
+  const order = useMemo(() => location.state?.order || [], [location.state?.order]);
 
   const customerName = location.state?.customerName || "Walk-in Customer";
   const orderType = location.state?.orderType || "Dine-in";
@@ -24,9 +21,9 @@ function StaffReceipt() {
   const paymentStatus = location.state?.paymentStatus
     ? String(location.state.paymentStatus).toUpperCase()
     : getPaymentStatusLabel({ payment: location.state?.payment });
-  const subtotal = Number(location.state?.subtotal || 108);
-  const total = Number(location.state?.total || subtotal);
-  const cashTendered = Number(location.state?.cashTendered || total);
+  const subtotal = Number(location.state?.subtotal ?? 0);
+  const total = Number(location.state?.total ?? subtotal);
+  const cashTendered = Number(location.state?.cashTendered ?? total);
   const changeDue = Number(location.state?.changeDue || 0);
 
   // No fabricated order number: the receipt only ever shows a real one.
@@ -225,7 +222,7 @@ function StaffReceipt() {
 
             <div className="slip-calc-row slip-paid-row">
               <span>Payment Status:</span>
-              <strong>PAID</strong>
+              <strong>{String(paymentStatus || "PAID").toUpperCase()}</strong>
             </div>
           </div>
 

@@ -408,6 +408,20 @@
   transform: translateY(0);
 }
 
+.quantity-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+}
+
+.quantity-button:disabled:hover {
+  background: #f3ebe4;
+  border-color: #d7c4b5;
+  color: #69452f;
+  transform: none;
+}
+
 .quantity-value {
   min-width: 72px;
   height: 42px;
@@ -432,6 +446,22 @@
   background: #8b5e3c;
   border-color: #8b5e3c;
   color: #ffffff;
+}
+
+.staff-quantity-page.dark-mode .quantity-button:disabled,
+.staff-menu-page.dark-mode .quantity-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+}
+
+.staff-quantity-page.dark-mode .quantity-button:disabled:hover,
+.staff-menu-page.dark-mode .quantity-button:disabled:hover {
+  background: #342e29;
+  border-color: #4a4038;
+  color: #ead9ca;
+  transform: none;
 }
 
 .staff-quantity-page.dark-mode .quantity-value {
@@ -511,6 +541,50 @@
   background: #8b5e3c;
   border-color: #8b5e3c;
   color: #ffffff;
+}
+
+.size-option.out-of-stock {
+  border-color: #fca5a5;
+  background: #fff5f5;
+  color: #b91c1c;
+}
+
+.size-option.out-of-stock strong {
+  color: #b91c1c;
+}
+
+.size-option.out-of-stock span {
+  color: #dc2626;
+}
+
+.size-sold-out-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #ef4444;
+  color: #ffffff !important;
+  font-size: 8.5px !important;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+
+.staff-quantity-page.dark-mode .size-option.out-of-stock,
+.staff-menu-page.dark-mode .size-option.out-of-stock {
+  border-color: #7f1d1d;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.staff-quantity-page.dark-mode .size-option.out-of-stock strong,
+.staff-menu-page.dark-mode .size-option.out-of-stock strong {
+  color: #fca5a5;
+}
+
+.staff-quantity-page.dark-mode .size-option.out-of-stock span,
+.staff-menu-page.dark-mode .size-option.out-of-stock span {
+  color: #f87171;
 }
 
 
@@ -884,7 +958,18 @@
   overflow: hidden;
 }
 
-.quantity-stock-panel { display: grid; gap: 9px; margin-top: 14px; padding: 12px; border: 1px solid #eee5dc; border-radius: 12px; background: #fcfaf7; }
+.quantity-stock-panel { display: grid; gap: 9px; margin-top: 14px; padding: 12px; border: 1px solid #eee5dc; border-radius: 12px; background: #fcfaf7; transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease; }
+.quantity-stock-panel.has-shortage {
+  border: 1.5px solid #ef4444;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.15), 0 4px 12px rgba(239, 68, 68, 0.08);
+}
+.staff-quantity-page.dark-mode .quantity-stock-panel.has-shortage,
+.staff-menu-page.dark-mode .quantity-stock-panel.has-shortage {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25);
+}
 .quantity-stock-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #493322; font-size: 11px; }
 .quantity-stock-heading span { color: #8b7767; font-size: 10px; font-weight: 600; }
 .quantity-stock-list { display: grid; gap: 7px; }
@@ -892,9 +977,26 @@
 .quantity-stock-row > span { display: grid; gap: 3px; min-width: 0; }
 .quantity-stock-row strong { overflow: hidden; color: #493322; text-overflow: ellipsis; white-space: nowrap; }
 .quantity-stock-row small { color: #887c72; font-size: 9px; }
-.quantity-stock-row b { flex: 0 0 auto; font-size: 9px; }
-.quantity-stock-row.short { color: #ad4535; }
-.quantity-stock-row.short b { padding: 4px 7px; border-radius: 999px; background: #fff0ed; }
+.quantity-stock-row.short { color: #ad4535; font-weight: 700; }
+.quantity-stock-row.short b {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  font-weight: 800;
+}
+.staff-quantity-page.dark-mode .quantity-stock-row.short,
+.staff-menu-page.dark-mode .quantity-stock-row.short {
+  color: #f87171;
+  font-weight: 700;
+}
+.staff-quantity-page.dark-mode .quantity-stock-row.short b,
+.staff-menu-page.dark-mode .quantity-stock-row.short b {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  border: 1px solid #ef4444;
+}
 .quantity-stock-empty { margin: 0; color: #897d72; font-size: 10px; line-height: 1.45; }
 .quantity-stock-warning { margin: 0; padding: 8px 9px; border-radius: 8px; background: #fff0ed; color: #9f3d2f; font-size: 10px; line-height: 1.45; }
 

@@ -24,7 +24,7 @@ import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
-import { useMenu } from "../../context/MenuContext.jsx";
+import { findProductById, resolveProductSizes, useMenu } from "../../context/MenuContext.jsx";
 import {
   getNextAllowedStatuses,
   getOrderTime,
@@ -42,7 +42,7 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const statusFilterList = ["All", "Pending", "Preparing", "Ready", "Completed"];
+const statusFilterList = ["All", "Pending", "Preparing", "Completed"];
 
 function StaffOrder() {
   const { darkMode } = useTheme();
@@ -70,9 +70,9 @@ function StaffOrder() {
 
   // Dynamic summary metrics calculated directly from state
   const totalOrdersCount = orders.length;
+  const activeOrdersCount = useMemo(() => orders.filter((o) => o.status !== "Completed").length, [orders]);
   const pendingCount = useMemo(() => orders.filter((o) => o.status === "Pending").length, [orders]);
   const preparingCount = useMemo(() => orders.filter((o) => o.status === "Preparing").length, [orders]);
-  const readyCount = useMemo(() => orders.filter((o) => o.status === "Ready").length, [orders]);
   const completedCount = useMemo(() => orders.filter((o) => o.status === "Completed").length, [orders]);
 
   // Filter & Search visible orders
@@ -84,8 +84,9 @@ function StaffOrder() {
       if (!query) return true;
 
       const orderId = (order.id || "").toLowerCase();
+      const customer = (order.customer || order.customerName || "").toLowerCase();
       const items = (order.items || []).map((item) => (item.title || "").toLowerCase()).join(" ");
-      return orderId.includes(query) || items.includes(query);
+      return orderId.includes(query) || customer.includes(query) || items.includes(query);
     });
   }, [activeFilter, orders, searchQuery]);
 
@@ -110,7 +111,7 @@ function StaffOrder() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [orderToDelete, orderToPrint, selectedOrder]);
 
-  const handleStatusChange = (orderId, currentStatus, newStatus) => {
+  const handleStatusChange = async (orderId, currentStatus, newStatus) => {
     if (!updateOrderStatus || newStatus === currentStatus) return;
 
     const allowed = getNextAllowedStatuses(currentStatus);
@@ -124,18 +125,22 @@ function StaffOrder() {
       return;
     }
 
-    updateOrderStatus(orderId, newStatus);
-    setToastMessage(`Order ${orderId} updated to "${newStatus}"`);
+    const result = await updateOrderStatus(orderId, newStatus);
+    if (result) {
+      setToastMessage(`Order ${orderId} updated to "${newStatus}"`);
+    }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!orderToDelete) return;
     const id = orderToDelete.id;
-    if (deleteOrder) {
-      deleteOrder(id);
-      setToastMessage(`Order ${id} deleted successfully`);
-    }
     setOrderToDelete(null);
+    if (deleteOrder) {
+      const result = await deleteOrder(id);
+      if (result) {
+        setToastMessage(`Order ${id} deleted successfully`);
+      }
+    }
   };
 
   return (
@@ -176,7 +181,7 @@ function StaffOrder() {
               <p>View, update order statuses, and manage customer orders received by Amaya.</p>
             </div>
             <div className="orders-summary">
-              <div className="summary-number">{totalOrdersCount}</div>
+              <div className="summary-number">{activeOrdersCount}</div>
               <div className="summary-text">
                 <strong>Active Orders</strong>
                 <span>Currently in system</span>
@@ -209,10 +214,10 @@ function StaffOrder() {
             />
             <OrderStat
               icon="✓"
-              tone="ready"
-              label="Ready"
-              value={readyCount}
-              note="For pickup"
+              tone="completed"
+              label="Completed"
+              value={completedCount}
+              note="Fulfilled"
             />
           </section>
 
@@ -247,7 +252,6 @@ function StaffOrder() {
                   let count = totalOrdersCount;
                   if (filter === "Pending") count = pendingCount;
                   if (filter === "Preparing") count = preparingCount;
-                  if (filter === "Ready") count = readyCount;
                   if (filter === "Completed") count = completedCount;
 
                   return (
@@ -316,7 +320,7 @@ function StaffOrder() {
                           <div className="order-card-avatar">{WALK_IN_INITIALS}</div>
                           <div className="order-card-customer-text">
                             <p>
-                              <strong>{WALK_IN_CUSTOMER_NAME}</strong>
+                              <strong>{order.customer || order.customerName || WALK_IN_CUSTOMER_NAME}</strong>
                               <span>{order.type || "Counter"}</span>
                             </p>
                           </div>
@@ -431,7 +435,7 @@ function StaffOrder() {
             <div>
               <strong>Staff Order Controls</strong>
               <p>
-                Use the status selector to advance orders across Pending, Preparing, Ready, and Completed. Use the Delete button to remove cancelled or mistaken orders.
+                Use the status selector to advance orders across Pending, Preparing, and Completed. Use the Delete button to remove cancelled or mistaken orders.
               </p>
             </div>
           </div>
@@ -447,7 +451,6 @@ function StaffOrder() {
         const kitchenTicket = {
           Pending: "Sent to Kitchen",
           Preparing: "In Preparation",
-          Ready: "Ready for Pickup",
           Completed: "Fulfilled",
         }[selectedOrder.status] || "Not Sent";
         const paymentMethod = selectedOrder.paymentMethod || "Cash";
@@ -457,9 +460,11 @@ function StaffOrder() {
           year: "numeric",
         });
         const orderTime = getOrderTime(selectedOrder.createdAt);
+        const foundItemNote = orderItems.find((item) => item.notes || item.instructions);
         const orderNote =
           selectedOrder.notes ||
-          orderItems.find((item) => item.notes)?.notes ||
+          foundItemNote?.notes ||
+          foundItemNote?.instructions ||
           "No special instructions.";
 
         return (
@@ -507,8 +512,16 @@ function StaffOrder() {
                     const unitPrice = Number(item.price || 0);
                     const qty = Number(item.quantity || 0);
                     const lineTotal = unitPrice * qty;
+                    const catalogItem =
+                      (item.productId != null && findProductById(products, item.productId)) ||
+                      products.find((p) => (p.name || p.title) === item.title);
+                    const fallbackSizeLabel = catalogItem
+                      ? resolveProductSizes(catalogItem)[0]?.label
+                      : null;
                     const description = [
-                      item.size && item.size !== "Regular" ? item.size : "Medium (16oz)",
+                      item.size && item.size !== "Regular"
+                        ? item.size
+                        : fallbackSizeLabel || item.size || "Regular",
                       item.sugarLevel || null,
                       item.addons?.length ? `+${item.addons.join(", ")}` : null,
                     ].filter(Boolean).join(" · ");
@@ -529,8 +542,8 @@ function StaffOrder() {
                           <strong>{item.title}</strong>
                           <span className="od-item-desc">{description}</span>
                           <span className="od-item-unit">₱{unitPrice.toFixed(2)} each</span>
-                          {item.notes ? (
-                            <span className="od-item-note">Note: {item.notes}</span>
+                          {(item.notes || item.instructions) ? (
+                            <span className="od-item-note">Note: {item.notes || item.instructions}</span>
                           ) : null}
                         </div>
 
@@ -634,7 +647,7 @@ function StaffOrder() {
                   </div>
                   <div>
                     <dt><User aria-hidden="true" size={13} strokeWidth={2.2} /> Customer</dt>
-                    <dd>{selectedOrder.customer || WALK_IN_CUSTOMER_NAME}</dd>
+                    <dd>{selectedOrder.customer || selectedOrder.customerName || WALK_IN_CUSTOMER_NAME}</dd>
                   </div>
                   <div>
                     <dt><Utensils aria-hidden="true" size={13} strokeWidth={2.2} /> Order type</dt>
@@ -735,7 +748,7 @@ function StaffOrder() {
               <div className="modal-order-summary">
                 <div className="summary-row">
                   <span>Customer:</span>
-                  <strong>{WALK_IN_CUSTOMER_NAME}</strong>
+                  <strong>{orderToDelete.customer || orderToDelete.customerName || WALK_IN_CUSTOMER_NAME}</strong>
                 </div>
                 <div className="summary-row">
                   <span>Current Status:</span>
@@ -854,7 +867,7 @@ function StaffOrder() {
                   <span>TIME:</span> <span>{getOrderTime(orderToPrint.createdAt)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>CUSTOMER:</span> <strong>{WALK_IN_CUSTOMER_NAME}</strong>
+                  <span>CUSTOMER:</span> <strong>{orderToPrint.customer || orderToPrint.customerName || WALK_IN_CUSTOMER_NAME}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>TYPE:</span> <strong>{String(orderToPrint.type || "Counter").toUpperCase()}</strong>

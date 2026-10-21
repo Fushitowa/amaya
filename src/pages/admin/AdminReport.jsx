@@ -2,24 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import "../../assets/css/admin/AdminReport.css";
-import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const rangeOptions = [
-  { key: "7d", label: "Last 7 days", days: 7, bucketDays: 1, axisStep: 1 },
-  { key: "30d", label: "Last 30 days", days: 30, bucketDays: 1, axisStep: 5 },
-  { key: "90d", label: "Last 90 days", days: 90, bucketDays: 7, axisStep: 2 },
+  { key: "1d", label: "Day 1", mode: "hourly" },
+  { key: "7d", label: "7 days", mode: "daily", days: 7, bucketDays: 1, axisStep: 1 },
+  { key: "30d", label: "30 days", mode: "daily", days: 30, bucketDays: 1, axisStep: 5 },
+  { key: "custom", label: "Custom", mode: "custom" },
 ];
 
 const stockFilters = ["all", "attention", "healthy"];
 
-const orderStatuses = ["Pending", "Preparing", "Ready", "Completed"];
+const orderStatuses = ["Pending", "Preparing", "Completed"];
 
 const peso = (value) => `₱${Number(value || 0).toFixed(2)}`;
 
@@ -64,7 +63,17 @@ function AdminReport() {
   const { orders = [] } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
 
-  const [rangeKey, setRangeKey] = useState("7d");
+  const [rangeKey, setRangeKey] = useState("1d");
+  const [customStart, setCustomStart] = useState(() => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00`;
+  });
+  const [customEnd, setCustomEnd] = useState(() => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59`;
+  });
   const [stockFilter, setStockFilter] = useState("all");
   const [exportNotice, setExportNotice] = useState(false);
   const noticeTimer = useRef(null);
@@ -90,62 +99,131 @@ function AdminReport() {
   }), []);
 
   const rangeBounds = useMemo(() => {
+    if (rangeKey === "custom") {
+      const start = new Date(customStart);
+      const end = new Date(customEnd);
+      const validStart = Number.isNaN(start.getTime()) ? startOfDay(new Date()) : start;
+      const validEnd = Number.isNaN(end.getTime()) ? new Date() : end;
+      const duration = Math.max(3600000, validEnd.getTime() - validStart.getTime());
+      const previousStart = new Date(validStart.getTime() - duration);
+      return { start: validStart, end: validEnd, previousStart, isCustom: true };
+    }
+
+    if (rangeKey === "1d") {
+      const start = startOfDay(new Date());
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      const previousStart = new Date(start);
+      previousStart.setDate(previousStart.getDate() - 1);
+      return { start, end, previousStart, isHourly: true, days: 1 };
+    }
+
     const end = startOfDay(new Date());
     end.setDate(end.getDate() + 1);
-
     const start = new Date(end);
-    start.setDate(start.getDate() - range.days);
-
+    start.setDate(start.getDate() - (range.days || 7));
     const previousStart = new Date(start);
-    previousStart.setDate(previousStart.getDate() - range.days);
+    previousStart.setDate(previousStart.getDate() - (range.days || 7));
 
-    return { start, end, previousStart };
-  }, [range]);
+    return { start, end, previousStart, isDaily: true };
+  }, [rangeKey, range.days, customStart, customEnd]);
 
   const periodOrders = useMemo(() => orders.filter((order) => {
     const timestamp = orderTimestamp(order);
     return timestamp >= rangeBounds.start.getTime() && timestamp < rangeBounds.end.getTime();
   }), [orders, rangeBounds]);
 
+  const paidPeriodOrders = useMemo(
+    () => periodOrders.filter((order) => isOrderPaid(order)),
+    [periodOrders],
+  );
+
   const previousOrders = useMemo(() => orders.filter((order) => {
     const timestamp = orderTimestamp(order);
     return timestamp >= rangeBounds.previousStart.getTime() && timestamp < rangeBounds.start.getTime();
   }), [orders, rangeBounds]);
 
-  const periodSales = useMemo(
-    () => periodOrders.reduce((sum, order) => sum + orderTotal(order), 0),
-    [periodOrders],
-  );
-
-  const previousSales = useMemo(
-    () => previousOrders.reduce((sum, order) => sum + orderTotal(order), 0),
+  const paidPreviousOrders = useMemo(
+    () => previousOrders.filter((order) => isOrderPaid(order)),
     [previousOrders],
   );
 
-  const averageOrder = periodOrders.length ? periodSales / periodOrders.length : 0;
-  const previousAverage = previousOrders.length ? previousSales / previousOrders.length : 0;
+  const periodSales = useMemo(
+    () => paidPeriodOrders.reduce((sum, order) => sum + orderTotal(order), 0),
+    [paidPeriodOrders],
+  );
 
-  const itemsSold = useMemo(() => periodOrders.reduce(
+  const previousSales = useMemo(
+    () => paidPreviousOrders.reduce((sum, order) => sum + orderTotal(order), 0),
+    [paidPreviousOrders],
+  );
+
+  const averageOrder = paidPeriodOrders.length ? periodSales / paidPeriodOrders.length : 0;
+  const previousAverage = paidPreviousOrders.length ? previousSales / paidPreviousOrders.length : 0;
+
+  const itemsSold = useMemo(() => paidPeriodOrders.reduce(
     (sum, order) => sum + orderItemList(order).reduce(
       (itemSum, item) => itemSum + Number(item.quantity || 0),
       0,
     ),
     0,
-  ), [periodOrders]);
+  ), [paidPeriodOrders]);
+
+  const periodCogs = useMemo(
+    () => paidPeriodOrders.reduce(
+      (sum, order) => sum + orderItemList(order).reduce(
+        (itemSum, item) => itemSum + (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
+        0,
+      ),
+      0,
+    ),
+    [paidPeriodOrders],
+  );
+  const periodGrossProfit = periodSales - periodCogs;
+  const periodMarginPercent = periodSales > 0 ? (periodGrossProfit / periodSales) * 100 : 0;
 
   const revenueSeries = useMemo(() => {
-    const bucketCount = Math.ceil(range.days / range.bucketDays);
+    const isHourly = rangeKey === "1d" || (rangeKey === "custom" && ((rangeBounds.end.getTime() - rangeBounds.start.getTime()) <= 48 * 3600000));
+
+    if (isHourly) {
+      const startMs = rangeBounds.start.getTime();
+      const endMs = rangeBounds.end.getTime();
+      const totalHours = Math.max(1, Math.ceil((endMs - startMs) / 3600000));
+      const count = Math.min(48, totalHours);
+
+      const buckets = Array.from({ length: count }, (_, index) => {
+        const bStart = new Date(startMs + index * 3600000);
+        const bEnd = new Date(startMs + (index + 1) * 3600000);
+        return { start: bStart, end: bEnd, amount: 0, orders: 0, isHourly: true };
+      });
+
+      paidPeriodOrders.forEach((order) => {
+        const timestamp = orderTimestamp(order);
+        const bucket = buckets.find((entry) => timestamp >= entry.start.getTime() && timestamp < entry.end.getTime());
+        if (bucket) {
+          bucket.amount += orderTotal(order);
+          bucket.orders += 1;
+        }
+      });
+
+      return buckets;
+    }
+
+    const bucketDays = range.bucketDays || 1;
+    const totalDays = Math.max(1, Math.ceil((rangeBounds.end.getTime() - rangeBounds.start.getTime()) / (24 * 3600000)));
+    const bucketCount = Math.ceil(totalDays / bucketDays);
+
     const buckets = Array.from({ length: bucketCount }, (_, index) => {
       const start = new Date(rangeBounds.start);
-      start.setDate(start.getDate() + index * range.bucketDays);
+      start.setDate(start.getDate() + index * bucketDays);
 
       const end = new Date(start);
-      end.setDate(end.getDate() + range.bucketDays);
+      end.setDate(end.getDate() + bucketDays);
 
-      return { start, end, amount: 0, orders: 0 };
+      return { start, end, amount: 0, orders: 0, isHourly: false };
     });
 
-    periodOrders.forEach((order) => {
+    paidPeriodOrders.forEach((order) => {
       const timestamp = orderTimestamp(order);
       const bucket = buckets.find((entry) => timestamp >= entry.start.getTime() && timestamp < entry.end.getTime());
 
@@ -156,7 +234,7 @@ function AdminReport() {
     });
 
     return buckets;
-  }, [periodOrders, range, rangeBounds]);
+  }, [paidPeriodOrders, range.bucketDays, rangeBounds, rangeKey]);
 
   const trend = useMemo(() => {
     const width = 760;
@@ -168,15 +246,23 @@ function AdminReport() {
     const innerWidth = width - padLeft - padRight;
     const innerHeight = height - padTop - padBottom;
     const slotWidth = revenueSeries.length ? innerWidth / revenueSeries.length : innerWidth;
-    const barWidth = Math.min(44, slotWidth * 0.62);
+    const barWidth = Math.min(44, Math.max(6, slotWidth * 0.65));
     const ceiling = niceCeil(Math.max(...revenueSeries.map((bucket) => bucket.amount), 0));
-    const labelFormat = range.days === 7 && range.bucketDays === 1
-      ? { weekday: "short" }
-      : { month: "short", day: "numeric" };
+
+    const isHourly = revenueSeries[0]?.isHourly;
 
     const points = revenueSeries.map((bucket, index) => {
       const x = padLeft + (index + 0.5) * slotWidth;
       const y = padTop + innerHeight - (ceiling > 0 ? (bucket.amount / ceiling) * innerHeight : 0);
+
+      let label;
+      if (isHourly) {
+        label = bucket.start.toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
+      } else if (range.days === 7 && range.bucketDays === 1) {
+        label = bucket.start.toLocaleDateString("en-US", { weekday: "short" });
+      } else {
+        label = bucket.start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
 
       return {
         ...bucket,
@@ -185,7 +271,7 @@ function AdminReport() {
         barX: x - barWidth / 2,
         barWidth,
         barHeight: Math.max(0, padTop + innerHeight - y),
-        label: bucket.start.toLocaleDateString("en-US", labelFormat),
+        label,
       };
     });
 
@@ -201,13 +287,20 @@ function AdminReport() {
       };
     });
 
+    let axisStep = range.axisStep || 1;
+    if (isHourly) {
+      axisStep = revenueSeries.length > 20 ? 3 : 2;
+    } else if (points.length > 20) {
+      axisStep = 5;
+    }
+
     const lastIndex = points.length - 1;
     const labelledPoints = points.map((point, index) => ({
       ...point,
-      showLabel: index % range.axisStep === 0 || index === lastIndex,
+      showLabel: index % axisStep === 0 || index === lastIndex,
     }));
 
-    const best = points.reduce((top, point) => (point.amount > top.amount ? point : top), points[0]);
+    const best = points.reduce((top, point) => (point.amount > (top?.amount || 0) ? point : top), points[0] || null);
 
     return {
       width,
@@ -228,15 +321,19 @@ function AdminReport() {
   const topProducts = useMemo(() => {
     const totals = new Map();
 
-    periodOrders.forEach((order) => {
+    paidPeriodOrders.forEach((order) => {
       orderItemList(order).forEach((item) => {
         const key = item.title || "Menu item";
-        const current = totals.get(key) || { title: key, quantity: 0, revenue: 0, category: item.category || "Menu item" };
+        const current = totals.get(key) || { title: key, quantity: 0, revenue: 0, cogs: 0, profit: 0, category: item.category || "Menu item" };
         const quantity = Number(item.quantity || 0);
         const price = Number(item.price || 0);
+        const itemRevenue = quantity * price;
+        const itemCogs = item.unitCost != null ? quantity * Number(item.unitCost) : 0;
 
         current.quantity += quantity;
-        current.revenue += quantity * price;
+        current.revenue += itemRevenue;
+        current.cogs += itemCogs;
+        current.profit = current.revenue - current.cogs;
         totals.set(key, current);
       });
     });
@@ -244,12 +341,12 @@ function AdminReport() {
     return [...totals.values()]
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 6);
-  }, [periodOrders]);
+  }, [paidPeriodOrders]);
 
   const channelMix = useMemo(() => {
     const totals = new Map();
 
-    periodOrders.forEach((order) => {
+    paidPeriodOrders.forEach((order) => {
       const key = order.type || "Counter";
       const current = totals.get(key) || { type: key, orders: 0, revenue: 0 };
       current.orders += 1;
@@ -258,17 +355,14 @@ function AdminReport() {
     });
 
     return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
-  }, [periodOrders]);
+  }, [paidPeriodOrders]);
 
   const statusMix = useMemo(() => orderStatuses.map((status) => ({
     status,
     orders: periodOrders.filter((order) => order.status === status).length,
   })), [periodOrders]);
 
-  const paidOrders = useMemo(
-    () => periodOrders.filter(isOrderPaid),
-    [periodOrders],
-  );
+  const paidOrders = paidPeriodOrders;
 
   const unpaidExposure = useMemo(
     () => periodOrders.filter((order) => !isOrderPaid(order)).reduce((sum, order) => sum + orderTotal(order), 0),
@@ -420,100 +514,75 @@ function AdminReport() {
           </div>
           <div className="admin-report-topbar-actions">
             <PortalNotificationButton />
-            <div className="admin-report-user">
-              <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
-              <div>
-                <strong>Administrator</strong>
-                <span>Store Supervisor</span>
-              </div>
+            <div className="admin-report-date">
+              <span>REPORT DATE</span>
+              <strong>{liveDate}</strong>
+              <small>Generated {generatedStamp}</small>
             </div>
           </div>
         </header>
 
         <div className="admin-report-content">
-          <section className="admin-report-heading">
-            <div>
-              <span className="admin-report-eyebrow">PERFORMANCE ANALYTICS</span>
-              <h2>Reports at a glance</h2>
-              <p>Track sales performance, product demand, and stock health for Amaya&apos;s Drinks and Bites.</p>
-            </div>
-            <div className="admin-report-heading-actions">
-              <div className="admin-report-date">
-                <span>REPORT DATE</span>
-                <strong>{liveDate}</strong>
-                <small>Generated {generatedStamp}</small>
+          <div className="admin-report-hero-grid">
+            <section className="admin-report-panel trend-panel" aria-label="Revenue trend">
+              <div className="panel-heading trend-heading">
+                <div>
+                  <h3>{rangeKey === "1d" ? "Day 1 (Hourly) performance" : rangeKey === "custom" ? "Custom range performance" : `Last ${range.label} performance`}</h3>
+                  <span className="trend-hero-total">{peso(periodSales)}</span>
+                </div>
+                <div className="trend-heading-actions">
+                  <div className="admin-report-range" role="tablist" aria-label="Reporting period" style={{ marginBottom: 0 }}>
+                    {rangeOptions.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={option.key === rangeKey}
+                        className={option.key === rangeKey ? "active" : ""}
+                        onClick={() => setRangeKey(option.key)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="admin-report-export"
+                    onClick={handleExport}
+                    disabled={!periodOrders.length}
+                  >
+                    ⎙ <span>{exportNotice ? "Exported" : "Export CSV"}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                className="admin-report-export"
-                onClick={handleExport}
-                disabled={!periodOrders.length}
-              >
-                ⎙ <span>{exportNotice ? "Exported" : "Export CSV"}</span>
-              </button>
-            </div>
-          </section>
 
-          <div className="admin-report-range" role="tablist" aria-label="Reporting period">
-            {rangeOptions.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                role="tab"
-                aria-selected={option.key === range.key}
-                className={option.key === range.key ? "active" : ""}
-                onClick={() => setRangeKey(option.key)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-
-          <section className="admin-report-stats" aria-label="Summary metrics">
-            <div>
-              <span className="report-stat-mark plum">₱</span>
-              <div>
-                <small>Net sales</small>
-                <strong>{peso(periodSales)}</strong>
-                <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text} vs prior period</span>
-              </div>
-            </div>
-            <div>
-              <span className="report-stat-mark blue">▤</span>
-              <div>
-                <small>Orders placed</small>
-                <strong>{periodOrders.length}</strong>
-                <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text} vs prior period</span>
-              </div>
-            </div>
-            <div>
-              <span className="report-stat-mark amber">◷</span>
-              <div>
-                <small>Average order</small>
-                <strong>{peso(averageOrder)}</strong>
-                <span className={`report-stat-note ${averageTrend.tone}`}>{averageTrend.text} vs prior period</span>
-              </div>
-            </div>
-            <div>
-              <span className="report-stat-mark green">✓</span>
-              <div>
-                <small>Items sold</small>
-                <strong>{itemsSold}</strong>
-                <span className="report-stat-note flat">
-                  {paidOrders.length} of {periodOrders.length} settled
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section className="admin-report-panel trend-panel" aria-label="Revenue trend">
-            <div className="panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">REVENUE TREND</span>
-                <h3>{range.label} performance</h3>
-              </div>
-              <span className="weekly-total">{peso(periodSales)}</span>
-            </div>
+              {rangeKey === "custom" && (
+                <div className="admin-report-custom-row">
+                  <div className="custom-input-group">
+                    <label htmlFor="custom-report-start">From</label>
+                    <input
+                      id="custom-report-start"
+                      type="datetime-local"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                      className="admin-report-datetime-input"
+                    />
+                  </div>
+                  <div className="custom-input-group">
+                    <label htmlFor="custom-report-end">To</label>
+                    <input
+                      id="custom-report-end"
+                      type="datetime-local"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                      className="admin-report-datetime-input"
+                    />
+                  </div>
+                  <span className="custom-range-hint">
+                    {(new Date(customEnd) - new Date(customStart)) <= 48 * 3600000 ? "Hourly breakdown" : "Daily breakdown"}
+                  </span>
+                </div>
+              )}
 
             {periodOrders.length ? (
               <div className="report-trend">
@@ -583,39 +652,85 @@ function AdminReport() {
             )}
           </section>
 
-          <section className="admin-report-sales-layout" aria-label="Sales breakdown">
-            <div className="admin-report-panel sales-summary">
-              <div className="panel-heading">
-                <div>
-                  <span className="admin-report-eyebrow">SALES SUMMARY</span>
-                  <h3>{range.label}</h3>
-                </div>
-                <span className="report-panel-icon">₱</span>
+          <div className="admin-report-panel sales-summary">
+            <div className="panel-heading">
+              <div>
+                <span className="admin-report-eyebrow">SALES SUMMARY</span>
+                <h3>{rangeKey === "1d" ? "Day 1 (Today)" : rangeKey === "custom" ? "Custom Range" : `Last ${range.label}`}</h3>
               </div>
-              <div className="sales-metrics">
-                <div>
-                  <span>Net sales</span>
-                  <strong>{peso(periodSales)}</strong>
-                </div>
-                <div>
-                  <span>Average order value</span>
-                  <strong>{peso(averageOrder)}</strong>
-                </div>
-                <div>
-                  <span>Items sold</span>
-                  <strong>{itemsSold}</strong>
-                </div>
-                <div>
-                  <span>Settled orders</span>
-                  <strong>{paidOrders.length}</strong>
-                </div>
-                <div>
-                  <span>Outstanding balance</span>
-                  <strong className={unpaidExposure > 0 ? "due" : ""}>{peso(unpaidExposure)}</strong>
-                </div>
+              <span className="report-panel-icon">₱</span>
+            </div>
+            <div className="sales-metrics">
+              <div>
+                <span>Net sales</span>
+                <strong>{peso(periodSales)}</strong>
+              </div>
+              <div>
+                <span>Estimated COGS</span>
+                <strong>{peso(periodCogs)}</strong>
+              </div>
+              <div>
+                <span>Gross profit</span>
+                <strong>{peso(periodGrossProfit)} <small style={{ fontSize: "0.75em", fontWeight: 600, color: "#5d9b69" }}>({periodMarginPercent.toFixed(1)}% margin)</small></strong>
+              </div>
+              <div>
+                <span>Average order value</span>
+                <strong>{peso(averageOrder)}</strong>
+              </div>
+              <div>
+                <span>Items sold</span>
+                <strong>{itemsSold}</strong>
+              </div>
+              <div>
+                <span>Settled orders</span>
+                <strong>{paidOrders.length}</strong>
+              </div>
+              <div>
+                <span>Outstanding balance</span>
+                <strong className={unpaidExposure > 0 ? "due" : ""}>{peso(unpaidExposure)}</strong>
               </div>
             </div>
+          </div>
 
+          <section className="admin-report-stats" aria-label="Summary metrics">
+            <div>
+              <span className="report-stat-mark green">✓</span>
+              <div>
+                <small>Items sold</small>
+                <strong>{itemsSold}</strong>
+                <span className="report-stat-note flat">
+                  {paidOrders.length} of {periodOrders.length} settled
+                </span>
+              </div>
+            </div>
+            <div>
+              <span className="report-stat-mark plum">₱</span>
+              <div>
+                <small>Net sales</small>
+                <strong>{peso(periodSales)}</strong>
+                <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text} vs prior period</span>
+              </div>
+            </div>
+            <div>
+              <span className="report-stat-mark amber">◷</span>
+              <div>
+                <small>Average order</small>
+                <strong>{peso(averageOrder)}</strong>
+                <span className={`report-stat-note ${averageTrend.tone}`}>{averageTrend.text} vs prior period</span>
+              </div>
+            </div>
+            <div>
+              <span className="report-stat-mark blue">▤</span>
+              <div>
+                <small>Orders placed</small>
+                <strong>{periodOrders.length}</strong>
+                <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text} vs prior period</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+          <section className="admin-report-sales-layout" aria-label="Sales breakdown">
             <div className="admin-report-panel channel-panel">
               <div className="panel-heading">
                 <div>
@@ -674,6 +789,8 @@ function AdminReport() {
                       <th scope="col">Category</th>
                       <th scope="col">Units sold</th>
                       <th scope="col">Revenue</th>
+                      <th scope="col">COGS</th>
+                      <th scope="col">Gross profit</th>
                       <th scope="col">Share</th>
                     </tr>
                   </thead>
@@ -685,6 +802,8 @@ function AdminReport() {
                         <td>{product.category}</td>
                         <td>{product.quantity}</td>
                         <td>{peso(product.revenue)}</td>
+                        <td>{peso(product.cogs)}</td>
+                        <td>{peso(product.profit)}</td>
                         <td>
                           <span className="report-share">
                             <span className="report-share-track">

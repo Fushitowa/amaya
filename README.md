@@ -44,6 +44,11 @@ A Tkinter Python GUI (`scripts/amaya_control_panel.py`) accompanied by a windowl
 * **Compact 27px Card Actions:** Eliminated button overflow and container clipping.
 * **Header Stock Alert Flag:** Relocated out-of-stock warning flags directly into the topbar actions header.
 
+### 8. 🧠 TypeSafe System One AI Decision Engine & Zero-Defect Logical Guard (v2.1)
+* **Live AI Decision Routes (`/api/decisions`):** Integrates TypeSafe `Jev` (`jev-latest`) for real-time warehouse restock urgency triage (`/api/decisions/inventory-triage`) and cashier kitchen note risk evaluation (`/api/decisions/order-guard`).
+* **Complete Logical Remediation:** 8 defect clusters remediated across financial reporting (strict Paid-only recognized revenue/COGS), exact cash checkout fallbacks, dynamic recipe-backed serving availability (`recipeServings`), and cumulative cart ingredient stock ceilings.
+* **Engineering Ledger:** See [CHANGELOG.md](CHANGELOG.md) and [docs/LOGICAL_AUDIT_AND_REMEDIATION_LOG.md](docs/LOGICAL_AUDIT_AND_REMEDIATION_LOG.md) for full technical diffs and verification benchmarks.
+
 ---
 
 ## 🧮 The Mathematical Inventory-to-Menu Costing Engine

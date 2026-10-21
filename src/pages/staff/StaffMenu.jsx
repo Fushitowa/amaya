@@ -6,6 +6,11 @@ import MenuProductImage from "../../components/MenuProductImage.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu, resolveProductSizes } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
+import {
+  canFulfillCartAddition,
+  getDefaultProductSize,
+  normalizeBaseSizeLabel,
+} from "../../utils/cartStock.js";
 import { StaffQuantityModal } from "./StaffQuantity.jsx";
 
 import "../../assets/css/staff/staff-menu.css";
@@ -14,18 +19,36 @@ import "../../assets/css/sidebar-collapse.css";
 
 const categoryTitles = {
   all: "All Items",
-  drinks: "Drinks",
-  milktea: "Milk Tea",
-  snacks: "Snacks",
+  "foods / snacks": "Foods & Snacks",
+  "fries & sip": "Fries & Sip",
+  "burgers and hotdogs": "Burgers & Hotdogs",
+  desserts: "Desserts",
   dessert: "Desserts",
+  milktea: "Milk Tea",
+  "milk tea": "Milk Tea",
+  "float series": "Float Series",
+  "fruity soda": "Fruity Soda",
+  "fruity milk": "Fruity Milk",
+  "iced coffee": "Iced Coffee",
+  drinks: "Drinks",
+  snacks: "Snacks",
 };
 
 const categoryDescriptions = {
   all: "Browse the complete Amaya Drinks & Bites menu.",
-  drinks: "Refreshing coolers, fruit juices, and classic café sodas.",
+  "foods / snacks": "Crispy bites, street food, and comfort snacks.",
+  "fries & sip": "Crispy seasoned fries paired with your favorite drink.",
+  "burgers and hotdogs": "Grilled patties, savory franks, and loaded toasted buns.",
+  desserts: "Sweet signature treats, sundaes, and dessert bites.",
+  dessert: "Sweet signature treats, sundaes, and dessert bites.",
   milktea: "Creamy, rich milk teas with custom sweetness & toppings.",
+  "milk tea": "Creamy, rich milk teas with custom sweetness & toppings.",
+  "float series": "Chilled flavored sodas crowned with velvety soft ice cream.",
+  "fruity soda": "Sparkling, effervescent fruit-infused coolers.",
+  "fruity milk": "Silky fresh milk blends swirled with luscious fruit purees.",
+  "iced coffee": "Bold espresso pours brewed cold over fresh milk and ice.",
+  drinks: "Refreshing coolers, fruit juices, and classic café sodas.",
   snacks: "Crispy bites, street food, and comfort snacks.",
-  dessert: "Decadent desserts and sweet signature treats.",
 };
 
 function StaffMenu() {
@@ -56,25 +79,20 @@ function StaffMenu() {
     return initialItem ? [initialItem] : [];
   });
 
-  // Group products by category key
+  // Group products and normalize base pricing
   const allFormattedProducts = useMemo(() => {
     return products
-      .filter((p) => p.available && Number(p.stock) > 0)
+      .filter((p) => p.available !== false)
       .map((product) => {
-        let categoryKey = "snacks";
-        const cat = (product.category || "").toLowerCase();
-        if (cat.includes("milk") || cat.includes("tea")) categoryKey = "milktea";
-        else if (cat.includes("drink")) categoryKey = "drinks";
-        else if (cat.includes("dessert")) categoryKey = "dessert";
-
         const basePrice = Number(String(product.price).replace(/[^0-9.]/g, "")) || 35;
+        const stockNum = Number(product.stock);
 
         return {
           ...product,
           title: product.name || product.title,
-          categoryKey,
-          category: product.category,
+          category: product.category || "General",
           price: basePrice,
+          stock: Number.isFinite(stockNum) ? stockNum : Infinity,
           id: product.id,
           // Size variants come from the Admin catalog only.
           sizeOptions: resolveProductSizes(product),
@@ -82,11 +100,18 @@ function StaffMenu() {
       });
   }, [products]);
 
+  // Derive dynamic category list based on catalog products
+  const dynamicCategories = useMemo(() => {
+    const rawCategories = allFormattedProducts.map((p) => String(p.category || "").trim()).filter(Boolean);
+    const unique = Array.from(new Set(rawCategories));
+    return ["all", ...unique];
+  }, [allFormattedProducts]);
+
   // Filter products by active category and search term
   const visibleItems = useMemo(() => {
     const query = searchTerm.toLowerCase().trim();
     return allFormattedProducts.filter((item) => {
-      const matchesCategory = activeCategory === "all" || item.categoryKey === activeCategory;
+      const matchesCategory = activeCategory === "all" || item.category === activeCategory;
       if (!matchesCategory) return false;
       if (!query) return true;
 
@@ -97,17 +122,85 @@ function StaffMenu() {
     });
   }, [activeCategory, allFormattedProducts, searchTerm]);
 
-  // Add standard regular item directly to cart
+  const isItemOutOfStock = (item) => {
+    if (Number(item.stock) <= 0) return true;
+    if (Array.isArray(item.ingredientShortages) && item.ingredientShortages.length > 0) return true;
+    const defaultSize = getDefaultProductSize(item);
+    const defaultSizeLabel = defaultSize?.label || "Regular";
+    const check = canFulfillCartAddition({
+      cartItems: [],
+      catalogProducts: products,
+      targetProduct: item,
+      sizeLabel: defaultSizeLabel,
+      addons: [],
+      addQuantity: 1,
+    });
+    return !check.allowed;
+  };
+
+  // Add standard regular item directly to cart using the product's catalog default size
   const quickAddToOrder = (item) => {
+    const defaultSize = getDefaultProductSize(item);
+    const defaultSizeLabel = defaultSize?.label || "Regular";
+    const defaultSizePrice = Number(defaultSize?.price ?? item.price);
+
+    // Quick Add always sells the DEFAULT size, so its cap comes from that size's
+    // own ingredient stock (never the product-level stock, which may be the max
+    // across sizes). Products with no recipe fall back to catalog stock inside
+    // canFulfillCartAddition.
+    const hasShortages = Array.isArray(item.ingredientShortages) && item.ingredientShortages.length > 0;
+    const defaultSizeStock = canFulfillCartAddition({
+      cartItems: [],
+      catalogProducts: products,
+      targetProduct: item,
+      sizeLabel: defaultSizeLabel,
+      addons: [],
+      addQuantity: 1,
+    });
+    if (item.recipeConfigured === false || hasShortages || !defaultSizeStock.allowed) {
+      setToastMessage(`${item.title} cannot be quick-added due to insufficient stock or recipe setup`);
+      setTimeout(() => setToastMessage(null), 2500);
+      return;
+    }
+
+    let added = false;
     setOrder((currentOrder) => {
-      const existing = currentOrder.find((entry) => entry.title === item.title && (entry.size === "Regular" || !entry.size));
+      const stockCheck = canFulfillCartAddition({
+        cartItems: currentOrder,
+        catalogProducts: products,
+        targetProduct: item,
+        sizeLabel: defaultSizeLabel,
+        addons: [],
+        addQuantity: 1,
+      });
+      if (!stockCheck.allowed) {
+        return currentOrder;
+      }
+
+      const existing = currentOrder.find(
+        (entry) =>
+          entry.productId === item.id &&
+          normalizeBaseSizeLabel(entry.size) === normalizeBaseSizeLabel(defaultSizeLabel) &&
+          (!entry.addons || entry.addons.length === 0) &&
+          !entry.instructions &&
+          !entry.notes
+      );
 
       if (existing) {
+        added = true;
         return currentOrder.map((entry) =>
-          entry === existing ? { ...entry, quantity: entry.quantity + 1 } : entry
+          entry === existing
+            ? {
+                ...entry,
+                size: defaultSizeLabel,
+                price: defaultSizePrice,
+                quantity: entry.quantity + 1,
+              }
+            : entry
         );
       }
 
+      added = true;
       return [
         ...currentOrder,
         {
@@ -115,14 +208,18 @@ function StaffMenu() {
           title: item.title,
           image: item.image,
           category: item.category,
-          price: item.price,
+          price: defaultSizePrice,
           quantity: 1,
-          size: "Regular",
+          size: defaultSizeLabel,
         },
       ];
     });
 
-    setToastMessage(`Added 1x ${item.title} to order`);
+    if (added) {
+      setToastMessage(`Added 1x ${item.title} (${defaultSizeLabel}) to order`);
+    } else {
+      setToastMessage(`Maximum available stock reached for ${item.title}`);
+    }
     setTimeout(() => setToastMessage(null), 2500);
   };
 
@@ -141,16 +238,19 @@ function StaffMenu() {
 
           return (
             sameProduct &&
-            entry.size === itemToAdd.size &&
+            normalizeBaseSizeLabel(entry.size) === normalizeBaseSizeLabel(itemToAdd.size) &&
             entry.sugarLevel === itemToAdd.sugarLevel &&
-            JSON.stringify(entry.addons) === JSON.stringify(itemToAdd.addons)
+            JSON.stringify(entry.addons || []) === JSON.stringify(itemToAdd.addons || []) &&
+            String(entry.instructions || entry.notes || "") === String(itemToAdd.instructions || itemToAdd.notes || "")
           );
         }
       );
 
       if (existing) {
         return currentOrder.map((entry) =>
-          entry === existing ? { ...entry, quantity: entry.quantity + itemToAdd.quantity } : entry
+          entry === existing
+            ? { ...entry, size: itemToAdd.size, price: itemToAdd.price, quantity: entry.quantity + itemToAdd.quantity }
+            : entry
         );
       }
 
@@ -163,10 +263,30 @@ function StaffMenu() {
   };
 
   const updateQuantity = (index, delta) => {
+    let blockedByStock = false;
+    let blockedTitle = "";
     setOrder((currentOrder) => {
       const target = currentOrder[index];
       if (!target) return currentOrder;
 
+      const catalogMatch = allFormattedProducts.find((p) => p.id === target.productId || p.title === target.title);
+      if (delta > 0) {
+        const stockCheck = canFulfillCartAddition({
+          cartItems: currentOrder,
+          catalogProducts: products,
+          targetProduct: catalogMatch || target,
+          sizeLabel: target.size,
+          addons: target.addons || [],
+          addQuantity: delta,
+        });
+        if (!stockCheck.allowed) {
+          blockedByStock = true;
+          blockedTitle = target.title;
+          return currentOrder;
+        }
+      }
+
+      // Stock for increases was already validated live by canFulfillCartAddition above.
       const nextQty = target.quantity + delta;
       if (nextQty <= 0) {
         return currentOrder.filter((_, i) => i !== index);
@@ -176,6 +296,11 @@ function StaffMenu() {
         i === index ? { ...entry, quantity: nextQty } : entry
       );
     });
+
+    if (blockedByStock) {
+      setToastMessage(`Maximum available ingredient stock reached for ${blockedTitle}`);
+      setTimeout(() => setToastMessage(null), 2500);
+    }
   };
 
   const removeItem = (index) => {
@@ -212,7 +337,7 @@ function StaffMenu() {
       <Sidebar
         role="staff"
         activeTab="menu"
-        orderCount={orders.length}
+        orderCount={orders.filter((o) => o.status === "Pending").length}
         sidebarCollapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((c) => !c)}
       />
@@ -240,10 +365,12 @@ function StaffMenu() {
 
         {/* Category Tabs */}
         <section className="staff-menu-category-tabs" style={{ display: "flex", gap: "8px", overflowX: "auto", padding: "14px 0", borderBottom: "1px solid rgba(52, 39, 29, 0.08)" }}>
-          {Object.entries(categoryTitles).map(([key, label]) => {
-            const count = key === "all"
+          {dynamicCategories.map((key) => {
+            const isAll = key === "all";
+            const label = isAll ? "All Items" : (categoryTitles[key.toLowerCase()] || key);
+            const count = isAll
               ? allFormattedProducts.length
-              : allFormattedProducts.filter((p) => p.categoryKey === key).length;
+              : allFormattedProducts.filter((p) => p.category === key).length;
 
             return (
               <button
@@ -277,10 +404,12 @@ function StaffMenu() {
         <section className="staff-menu-category-header" style={{ margin: "16px 0 12px" }}>
           <div>
             <span className="category-label" style={{ fontWeight: 700, color: "#8b5e3c", fontSize: "13px" }}>
-              {categoryTitles[activeCategory]}
+              {activeCategory === "all" ? "All Items" : (categoryTitles[activeCategory.toLowerCase()] || activeCategory)}
             </span>
             <p style={{ margin: "4px 0 0", color: "#8a7c73", fontSize: "12px" }}>
-              {categoryDescriptions[activeCategory]}
+              {activeCategory === "all"
+                ? categoryDescriptions.all
+                : (categoryDescriptions[activeCategory.toLowerCase()] || `Browse all available ${activeCategory.toLowerCase()} items.`)}
             </p>
           </div>
           <span className="category-total" style={{ fontWeight: 600, fontSize: "12px", color: "#8a7c73" }}>
@@ -291,99 +420,111 @@ function StaffMenu() {
         {/* Product Cards Grid */}
         <section className="staff-menu-grid">
           {visibleItems.length > 0 ? (
-            visibleItems.map((item, index) => (
-              <article
-                className="staff-menu-card"
-                key={`${item.title}-${index}`}
-                style={{
-                  background: "#ffffff",
-                  border: "1px solid #ebdcd0",
-                  borderRadius: "12px",
-                  overflow: "hidden",
-                  boxShadow: "0 4px 12px rgba(45, 31, 26, 0.04)",
-                  display: "flex",
-                  flexDirection: "column",
-                  transition: "transform 0.18s ease, box-shadow 0.18s ease",
-                }}
-              >
-                <div
-                  className="staff-menu-card-image-wrap"
-                  style={{ position: "relative", height: "130px", background: "#fcf9f6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-                  onClick={() => setCustomizingItem(item)}
-                  title="Click to customize modifiers"
+            visibleItems.map((item, index) => {
+              const isOutOfStock = isItemOutOfStock(item);
+              return (
+                <article
+                  className={`staff-menu-card ${isOutOfStock ? "out-of-stock" : ""}`}
+                  key={`${item.title}-${index}`}
+                  style={{
+                    background: isOutOfStock ? "#fffcfc" : "#ffffff",
+                    border: isOutOfStock ? "1.5px solid #f87171" : "1px solid #ebdcd0",
+                    borderRadius: "12px",
+                    overflow: "hidden",
+                    boxShadow: isOutOfStock
+                      ? "0 4px 14px rgba(239, 68, 68, 0.12)"
+                      : "0 4px 12px rgba(45, 31, 26, 0.04)",
+                    display: "flex",
+                    flexDirection: "column",
+                    transition: "transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease",
+                  }}
                 >
-                  <MenuProductImage
-                    src={item.image}
-                    alt={item.title}
-                    className="staff-menu-card-image"
-                    style={{ maxHeight: "115px", objectFit: "contain" }}
-                    fallbackStyle={{ width: "100%", height: "100%" }}
-                  />
-                  <span
-                    className="staff-menu-category-pill"
-                    style={{ position: "absolute", top: "8px", left: "8px", background: "rgba(255, 255, 255, 0.9)", padding: "3px 8px", borderRadius: "6px", fontSize: "10px", fontWeight: 700, color: "#70482f" }}
+                  <div
+                    className="staff-menu-card-image-wrap"
+                    style={{ position: "relative", height: "130px", background: isOutOfStock ? "#fdf5f5" : "#fcf9f6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                    onClick={() => setCustomizingItem(item)}
+                    title="Click to customize modifiers"
                   >
-                    {item.category || categoryTitles[item.categoryKey]}
-                  </span>
-                  <span
-                    style={{ position: "absolute", bottom: "8px", right: "8px", background: "#2d1f1a", color: "#fff", padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 800 }}
-                  >
-                    ₱{item.price.toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="staff-menu-card-body" style={{ padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div>
-                    <h3 style={{ margin: "0 0 4px", fontSize: "13.5px", fontWeight: 700, color: "#2d1f1a" }}>
-                      {item.title}
-                    </h3>
-                    <p style={{ margin: 0, fontSize: "11px", color: "#8a7c73", lineHeight: 1.4, height: "30px", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {item.description || "Freshly made café staple."}
-                    </p>
+                    <MenuProductImage
+                      src={item.image}
+                      alt={item.title}
+                      className="staff-menu-card-image"
+                      style={{ maxHeight: "115px", objectFit: "contain", opacity: isOutOfStock ? 0.78 : 1 }}
+                      fallbackStyle={{ width: "100%", height: "100%" }}
+                    />
+                    <span
+                      className="staff-menu-category-pill"
+                      style={{ position: "absolute", top: "8px", left: "8px", background: "rgba(255, 255, 255, 0.9)", padding: "3px 8px", borderRadius: "6px", fontSize: "10px", fontWeight: 700, color: "#70482f" }}
+                    >
+                      {item.category || "Menu Item"}
+                    </span>
+                    {isOutOfStock && (
+                      <span className="staff-menu-out-of-stock-pill">
+                        OUT OF STOCK
+                      </span>
+                    )}
+                    <span
+                      style={{ position: "absolute", bottom: "8px", right: "8px", background: "#2d1f1a", color: "#fff", padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 800 }}
+                    >
+                      ₱{item.price.toFixed(2)}
+                    </span>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "12px" }}>
-                    <button
-                      type="button"
-                      onClick={() => setCustomizingItem(item)}
-                      style={{
-                        padding: "6px 8px",
-                        borderRadius: "6px",
-                        border: "1px solid #dcd1c6",
-                        background: "#fff",
-                        color: "#6b5548",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ⚙ Customize
-                    </button>
+                  <div className="staff-menu-card-body" style={{ padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div>
+                      <h3 style={{ margin: "0 0 4px", fontSize: "13.5px", fontWeight: 700, color: isOutOfStock ? "#b91c1c" : "#2d1f1a" }}>
+                        {item.title}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: "11px", color: "#8a7c73", lineHeight: 1.4, height: "30px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {item.description || "Freshly made café staple."}
+                      </p>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => quickAddToOrder(item)}
-                      style={{
-                        padding: "6px 8px",
-                        borderRadius: "6px",
-                        border: "none",
-                        background: "#8b5e3c",
-                        color: "#fff",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      <span>+</span> Quick Add
-                    </button>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "12px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setCustomizingItem(item)}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid #dcd1c6",
+                          background: "#fff",
+                          color: "#6b5548",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ⚙ Customize
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => quickAddToOrder(item)}
+                        disabled={isOutOfStock}
+                        title={isOutOfStock ? "This item is currently out of stock" : undefined}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: "6px",
+                          border: "none",
+                          background: isOutOfStock ? "#e5e7eb" : "#8b5e3c",
+                          color: isOutOfStock ? "#9ca3af" : "#fff",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          cursor: isOutOfStock ? "not-allowed" : "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        {isOutOfStock ? <span>Sold Out</span> : <><span>+</span> Quick Add</>}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))
+                </article>
+              );
+            })
           ) : (
             <div className="staff-menu-empty" style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 20px" }}>
               <p style={{ fontSize: "14px", color: "#8a7c73" }}>No menu items match &quot;{searchTerm}&quot; in this category.</p>
@@ -575,6 +716,7 @@ function StaffMenu() {
       {customizingItem && (
         <StaffQuantityModal
           product={customizingItem}
+          order={order}
           onConfirm={handleConfirmCustomized}
           onCancel={() => setCustomizingItem(null)}
         />

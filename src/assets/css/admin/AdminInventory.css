@@ -290,16 +290,70 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 238px);
+  min-height: 0;
+  height: calc(100vh - 238px);
   max-height: calc(100vh - 238px);
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.03);
 }
 
+.admin-inventory-grid-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  padding: 16px 16px 24px;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d6c7b8 transparent;
+}
+
+.admin-inventory-grid-wrap::-webkit-scrollbar {
+  width: 7px;
+}
+
+.admin-inventory-grid-wrap::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.admin-inventory-grid-wrap::-webkit-scrollbar-thumb {
+  background: #d6c7b8;
+  border-radius: 999px;
+}
+
+.admin-inventory-grid-wrap::-webkit-scrollbar-thumb:hover {
+  background: #b8a28e;
+}
+
 .admin-inventory-table-wrap {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: auto;
   height: 100%;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d6c7b8 transparent;
+}
+
+.admin-inventory-table-wrap::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.admin-inventory-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.admin-inventory-table-wrap::-webkit-scrollbar-thumb {
+  background: #d6c7b8;
+  border-radius: 999px;
+}
+
+.admin-inventory-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #b8a28e;
 }
 
 .admin-inventory-table {
@@ -801,7 +855,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 @media (max-width: 1280px) {
@@ -984,6 +1038,25 @@
 
 .admin-inventory-progress > span.out-of-stock {
   background: #e7e5e4;
+}
+
+.admin-inventory-progress.no-maximum {
+  background: repeating-linear-gradient(90deg, #f0efee 0 6px, #e7e5e4 6px 12px);
+}
+
+.admin-inventory-progress-note {
+  display: block;
+  margin-top: 4px;
+  color: #78716c;
+  font-size: 0.72rem;
+}
+
+.inventory-field-helper {
+  display: block;
+  margin-top: 4px;
+  color: #78716c;
+  font-size: 0.75rem;
+  font-weight: 400;
 }
 
 .admin-inventory-card-actions {

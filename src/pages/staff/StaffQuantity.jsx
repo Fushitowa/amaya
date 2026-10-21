@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
@@ -12,6 +12,11 @@ import {
   resolveProductSizes,
   useMenu,
 } from "../../context/MenuContext.jsx";
+import {
+  buildIngredientStockLines,
+  findMatchingSizeOption,
+  getCartIngredientUsage,
+} from "../../utils/cartStock.js";
 
 import "../../assets/css/staff/staff-quantity.css";
 
@@ -21,9 +26,15 @@ import "../../assets/css/staff/staff-quantity.css";
 /**
  * Reusable Quantity & Modifiers Component used both as inline modal and standalone page
  */
-export function QuantityModifierContent({ product, onConfirm, onCancel, orderId = "NEW" }) {
+export function QuantityModifierContent({ product, order: orderProp, onConfirm, onCancel, orderId = "NEW" }) {
   const { products = [] } = useMenu() || {};
+  const location = useLocation();
   const [quantity, setQuantity] = useState(1);
+
+  const currentOrderCart = useMemo(
+    () => (Array.isArray(orderProp) ? orderProp : location.state?.order || []),
+    [orderProp, location.state?.order],
+  );
 
   // Admin Menu Management owns sizes/add-ons. Resolve the live catalog record
   // by the product's unique id so edits appear without a redeploy.
@@ -41,39 +52,83 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
   const [instructions, setInstructions] = useState("");
 
   const currentSizeObj = useMemo(() => {
-    return sizeOptions.find((size) => size.label === selectedSize) || sizeOptions[0];
+    return findMatchingSizeOption(sizeOptions, selectedSize);
   }, [sizeOptions, selectedSize]);
 
-  const ingredientStockLines = useMemo(() => {
-    const combined = new Map();
-    const entries = [
-      ...(currentSizeObj?.ingredients || catalogProduct?.ingredients || []),
-      ...selectedAddons.map((label) => addonOptions.find((addon) => addon.label === label)).filter(Boolean),
-    ];
-    entries.forEach((entry) => {
-      const itemId = Number(entry.inventoryItemId);
-      const perServing = Number(entry.quantityInStockUnit);
-      const key = Number.isFinite(itemId) && itemId > 0 ? String(itemId) : `missing:${entry.name || entry.label}`;
-      const current = combined.get(key) || {
-        id: Number.isFinite(itemId) && itemId > 0 ? itemId : null,
-        name: entry.name || entry.label || "Inventory item",
-        unit: entry.stockUnit || "pcs",
-        inventoryQuantity: Number(entry.inventoryQuantity || 0),
-        perServing: 0,
-        configured: Number.isFinite(itemId) && itemId > 0 && Number.isFinite(perServing) && perServing > 0,
-      };
-      current.perServing += Number.isFinite(perServing) && perServing > 0 ? perServing : 0;
-      combined.set(key, current);
-    });
-    return [...combined.values()].map((entry) => ({
-      ...entry,
-      required: Number((entry.perServing * quantity).toFixed(6)),
-      availableAfter: Number((entry.inventoryQuantity - entry.perServing * quantity).toFixed(6)),
-    }));
-  }, [addonOptions, catalogProduct, currentSizeObj, quantity, selectedAddons]);
+  // Compute ingredient quantities already committed in the active cart
+  const cartUsedByIngredientId = useMemo(
+    () => getCartIngredientUsage(currentOrderCart, products),
+    [currentOrderCart, products],
+  );
+
+  const ingredientStockLines = useMemo(
+    () =>
+      buildIngredientStockLines({
+        catalogProduct,
+        sizeObj: currentSizeObj,
+        selectedAddons,
+        addonOptions,
+        cartUsedByIngredientId,
+        quantity,
+      }),
+    [addonOptions, cartUsedByIngredientId, catalogProduct, currentSizeObj, quantity, selectedAddons],
+  );
+
+  const maxServingsFromIngredients = useMemo(() => {
+    if (!ingredientStockLines.length) return Number(catalogProduct?.stock ?? Infinity);
+    return ingredientStockLines.reduce((minServings, entry) => {
+      if (!entry.configured || !(entry.perServing > 0)) return 0;
+      return Math.min(minServings, Math.floor(entry.inventoryQuantity / entry.perServing));
+    }, Infinity);
+  }, [catalogProduct?.stock, ingredientStockLines]);
+
+  const isMaxStockReached = Number.isFinite(maxServingsFromIngredients)
+    ? maxServingsFromIngredients <= 0 || quantity >= maxServingsFromIngredients
+    : false;
+
+  useEffect(() => {
+    if (Number.isFinite(maxServingsFromIngredients) && maxServingsFromIngredients > 0) {
+      if (quantity > maxServingsFromIngredients) {
+        const timer = setTimeout(() => {
+          setQuantity(maxServingsFromIngredients);
+        }, 0);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [maxServingsFromIngredients, quantity]);
 
   const ingredientShortages = ingredientStockLines.filter((entry) => !entry.configured || entry.availableAfter < 0);
-  const canAddToOrder = ingredientShortages.length === 0;
+  const canAddToOrder = ingredientShortages.length === 0 && maxServingsFromIngredients >= quantity;
+  const hasDepletedOrShortIngredient = ingredientStockLines.some(
+    (entry) => !entry.configured || entry.availableAfter <= 0 || Number(entry.inventoryQuantity || 0) <= 0
+  );
+  const hasIngredientShortage =
+    ingredientShortages.length > 0 ||
+    hasDepletedOrShortIngredient ||
+    (Number.isFinite(maxServingsFromIngredients) && maxServingsFromIngredients <= 0);
+
+  const sizeAvailability = useMemo(() => {
+    const map = new Map();
+    sizeOptions.forEach((size) => {
+      const lines = buildIngredientStockLines({
+        catalogProduct,
+        sizeObj: size,
+        selectedAddons: [],
+        addonOptions,
+        cartUsedByIngredientId,
+        quantity: 1,
+      });
+      const maxServings = !lines.length
+        ? Number(catalogProduct?.stock ?? Infinity)
+        : lines.reduce((minServings, entry) => {
+            if (!entry.configured || !(entry.perServing > 0)) return 0;
+            return Math.min(minServings, Math.floor(entry.inventoryQuantity / entry.perServing));
+          }, Infinity);
+      const isAvailable = Number.isFinite(maxServings) ? maxServings > 0 : true;
+      map.set(size.label, { maxServings, isAvailable });
+    });
+    return map;
+  }, [addonOptions, cartUsedByIngredientId, catalogProduct, sizeOptions]);
 
   const formatStock = (value) => Number(value || 0).toFixed(6).replace(/\.?0+$/, "");
 
@@ -95,6 +150,7 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
   };
 
   const handleAdd = () => {
+    const trimmedNote = instructions.trim() || undefined;
     const itemToAdd = {
       productId: catalogProduct?.id,
       title: itemName,
@@ -105,7 +161,9 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
       quantity,
       size: selectedSize,
       addons: [...selectedAddons],
-      instructions: instructions.trim() || undefined,
+      instructions: trimmedNote,
+      notes: trimmedNote,
+      stock: Number.isFinite(maxServingsFromIngredients) ? maxServingsFromIngredients : catalogProduct?.stock,
     };
 
     onConfirm(itemToAdd);
@@ -129,7 +187,7 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
           <p className="quantity-product-description">
             {catalogProduct?.description || "Freshly crafted favorite from Amaya Drinks & Bites."}
           </p>
-          <section className="quantity-stock-panel" aria-live="polite" aria-label="Ingredient stock check">
+          <section className={`quantity-stock-panel ${hasIngredientShortage ? "has-shortage" : ""}`} aria-live="polite" aria-label="Ingredient stock check">
             <div className="quantity-stock-heading">
               <strong>Ingredient stock</strong>
               <span>{selectedSize} × {quantity}</span>
@@ -137,11 +195,20 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
             {ingredientStockLines.length ? (
               <div className="quantity-stock-list">
                 {ingredientStockLines.map((entry) => {
-                  const short = !entry.configured || entry.availableAfter < 0;
+                  const isDepletedOrShort = !entry.configured || entry.availableAfter <= 0;
+                  const unitLabel = entry.unit ? ` ${entry.unit}` : "";
+                  const badgeText = !entry.configured
+                    ? "Setup needed"
+                    : entry.availableAfter < 0
+                    ? "Short"
+                    : entry.availableAfter === 0
+                    ? `0${unitLabel} left`
+                    : `${formatStock(entry.availableAfter)}${unitLabel} left`;
+
                   return (
-                    <div className={`quantity-stock-row ${short ? "short" : ""}`} key={entry.id || entry.name}>
+                    <div className={`quantity-stock-row ${isDepletedOrShort ? "short" : ""}`} key={entry.id || entry.name}>
                       <span><strong>{entry.name}</strong><small>{entry.configured ? `Uses ${formatStock(entry.required)} ${entry.unit} · ${formatStock(entry.inventoryQuantity)} ${entry.unit} on hand` : "Inventory recipe link needs setup"}</small></span>
-                      <b>{short ? "Short" : `${formatStock(entry.availableAfter)} left`}</b>
+                      <b>{badgeText}</b>
                     </div>
                   );
                 })}
@@ -180,6 +247,7 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
                 className="quantity-button"
                 onClick={() => setQuantity((q) => Math.max(q - 1, 1))}
                 aria-label="Decrease quantity"
+                disabled={quantity <= 1}
               >
                 −
               </button>
@@ -187,7 +255,19 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
               <button
                 type="button"
                 className="quantity-button"
-                onClick={() => setQuantity((q) => q + 1)}
+                onClick={() => {
+                  if (isMaxStockReached) return;
+                  setQuantity((q) => {
+                    if (Number.isFinite(maxServingsFromIngredients)) {
+                      return maxServingsFromIngredients > 0
+                        ? Math.min(q + 1, maxServingsFromIngredients)
+                        : q;
+                    }
+                    return q + 1;
+                  });
+                }}
+                disabled={isMaxStockReached}
+                title={isMaxStockReached ? "Maximum available ingredient stock reached" : "Increase quantity"}
                 aria-label="Increase quantity"
               >
                 +
@@ -198,18 +278,23 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
           <div className="quantity-form-group">
             <label className="quantity-label">Serving size</label>
             <div className="size-options">
-              {sizeOptions.map((size) => (
-                <button
-                  key={size.label}
-                  type="button"
-                  className={`size-option ${selectedSize === size.label ? "selected" : ""}`}
-                  onClick={() => setSelectedSize(size.label)}
-                  aria-pressed={selectedSize === size.label}
-                >
-                  <strong>{size.label}</strong>
-                  <span>₱{size.price.toFixed(2)}</span>
-                </button>
-              ))}
+              {sizeOptions.map((size) => {
+                const isSizeOutOfStock = sizeAvailability.get(size.label)?.isAvailable === false;
+                return (
+                  <button
+                    key={size.label}
+                    type="button"
+                    className={`size-option ${selectedSize === size.label ? "selected" : ""} ${isSizeOutOfStock ? "out-of-stock" : ""}`}
+                    onClick={() => setSelectedSize(size.label)}
+                    aria-pressed={selectedSize === size.label}
+                    title={isSizeOutOfStock ? `${size.label} is currently out of stock` : undefined}
+                  >
+                    <strong>{size.label}</strong>
+                    <span>₱{size.price.toFixed(2)}</span>
+                    {isSizeOutOfStock && <span className="size-sold-out-badge">Sold out</span>}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -296,7 +381,7 @@ export function QuantityModifierContent({ product, onConfirm, onCancel, orderId 
 /**
  * Staff Quantity Modal: Can be directly mounted inline inside StaffMenu.jsx
  */
-export function StaffQuantityModal({ product, onConfirm, onCancel }) {
+export function StaffQuantityModal({ product, order, onConfirm, onCancel }) {
   if (!product) return null;
 
   return (
@@ -333,6 +418,7 @@ export function StaffQuantityModal({ product, onConfirm, onCancel }) {
       >
         <QuantityModifierContent
           product={product}
+          order={order}
           onConfirm={onConfirm}
           onCancel={onCancel}
         />

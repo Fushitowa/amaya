@@ -491,6 +491,39 @@
   backdrop-filter: blur(5px);
 }
 
+.staff-menu-card.out-of-stock {
+  border: 1.5px solid #f87171 !important;
+  background: #fffcfc !important;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.12) !important;
+}
+
+.staff-menu-card.out-of-stock:hover {
+  border-color: #ef4444 !important;
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.18) !important;
+}
+
+.staff-menu-page.dark-mode .staff-menu-card.out-of-stock {
+  border-color: #ef4444 !important;
+  background: #201313 !important;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.22) !important;
+}
+
+.staff-menu-out-of-stock-pill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.45);
+  z-index: 2;
+}
+
 
 
 .staff-menu-card-body {

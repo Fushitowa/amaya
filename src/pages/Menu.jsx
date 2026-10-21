@@ -11,25 +11,58 @@ function Menu() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const categoryTitles = {
+    "foods / snacks": "Foods / Snacks",
+    "fries & sip": "Fries & Sip",
+    "burgers and hotdogs": "Burgers and Hotdogs",
+    desserts: "Desserts",
+    dessert: "Desserts",
+    milktea: "Milktea",
+    "milk tea": "Milk Tea",
+    "float series": "Float Series",
+    "fruity soda": "Fruity Soda",
+    "fruity milk": "Fruity Milk",
+    "iced coffee": "Iced Coffee",
     drinks: "Drinks",
     snacks: "Snacks",
-    milktea: "Milk Tea",
-    dessert: "Desserts",
   };
 
   const descriptionByCategory = {
+    "foods / snacks": "Amaya's crispy street food, dumplings, and savory comfort snacks.",
+    "fries & sip": "Amaya's crispy seasoned fries paired with your favorite drink.",
+    "burgers and hotdogs": "Amaya's flame-grilled burgers, savory hotdogs, and loaded buns.",
+    desserts: "Amaya's sweet dessert moments, sundaes, and treats made to delight.",
+    dessert: "Amaya's sweet dessert moments, sundaes, and treats made to delight.",
+    milktea: "Amaya's rich and creamy milk teas brewed fresh with smooth toppings.",
+    "milk tea": "Amaya's rich and creamy milk teas brewed fresh with smooth toppings.",
+    "float series": "Amaya's chilled flavored sodas crowned with velvety soft ice cream.",
+    "fruity soda": "Amaya's effervescent, sparkling fruit-infused coolers.",
+    "fruity milk": "Amaya's silky fresh milk blends swirled with luscious fruit purees.",
+    "iced coffee": "Amaya's bold espresso pours brewed cold over fresh milk and ice.",
     drinks: "Amaya's crafted drinks for every kind of refreshment.",
     snacks: "Amaya's savory bites made for sharing and savoring.",
-    milktea: "Amaya's creamy milktea favorites with a smooth finish.",
-    dessert: "Amaya's sweet dessert moments made to delight.",
   };
 
-  const menuSections = Object.entries(categoryTitles).map(([id, label]) => ({
-    id,
-    label,
-    sectionTitle: label,
-    items: products.filter((product) => product.available && Number(product.stock) > 0 && product.category === label),
-  }));
+  const availableProducts = products.filter((product) => product.available && Number(product.stock) > 0);
+  const dynamicCategories = Array.from(
+    new Set(availableProducts.map((p) => String(p.category || "Uncategorized").trim()).filter(Boolean))
+  );
+  const activeCategories = dynamicCategories.length > 0 ? dynamicCategories : Object.values(categoryTitles);
+
+  const menuSections = activeCategories.map((category) => {
+    const matchedKey = Object.keys(categoryTitles).find(
+      (key) => categoryTitles[key].toLowerCase() === category.toLowerCase() || key.toLowerCase() === category.toLowerCase()
+    );
+    const fallbackDesc = `Amaya's freshly crafted ${category.toLowerCase()} favorites.`;
+    const defaultDesc = matchedKey ? descriptionByCategory[matchedKey] : fallbackDesc;
+
+    return {
+      id: matchedKey || category.toLowerCase().replace(/\s+/g, "-"),
+      label: category,
+      sectionTitle: category,
+      defaultDescription: defaultDesc,
+      items: availableProducts.filter((product) => product.category === category),
+    };
+  });
 
   const filteredSections = menuSections.map((section) => ({
     ...section,
@@ -102,7 +135,7 @@ function Menu() {
                           <div className="menu-card-content">
                             <span className="menu-category-name">{section.label}</span>
                             <h3>{item.name}</h3>
-                            <p>{item.description || descriptionByCategory[section.id]}</p>
+                            <p>{item.description || section.defaultDescription || descriptionByCategory[section.id]}</p>
                             <strong>₱{String(item.price).replace("₱", "")}</strong>
                           </div>
                         </article>

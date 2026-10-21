@@ -34,6 +34,13 @@ const inventoryUnitGroups = [
 ];
 const packageUnitOptions = ["pack", "box", "bag", "bottle", "can", "sack", "set", "tub", "jar", "carton"];
 
+export function formatUnitCost(cost) {
+  const num = Number(cost || 0);
+  if (!Number.isFinite(num) || num <= 0) return "0.00";
+  const fixed3 = num.toFixed(3);
+  return fixed3.endsWith("0") ? num.toFixed(2) : fixed3;
+}
+
 function createEmptyInventoryForm() {
   return {
     item: "",
@@ -47,6 +54,15 @@ function createEmptyInventoryForm() {
     maximumStock: "",
   };
 }
+
+const normalizeInventoryCategory = (cat) => {
+  if (!cat) return "Other";
+  if (cat === "Cups") return "Cups & Lids";
+  if (cat === "Dairy & Creamers") return "Dairy & Ice Cream";
+  if (cat === "Snack Ingredients") return "Snack Ingredients & Meats";
+  if (cat === "Syrups & Sweeteners") return "Syrups & Purees";
+  return cat;
+};
 
 // Stable reference so the memo dependencies below don't change every render.
 const EMPTY_INVENTORY = [];
@@ -149,6 +165,7 @@ function AdminInventory() {
   const [editingItem, setEditingItem] = useState(null);
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState("");
+  const [restockBatchCost, setRestockBatchCost] = useState("");
   const [itemToDelete, setItemToDelete] = useState(null);
   const [movementHistory, setMovementHistory] = useState({ item: null, rows: [], loading: false, error: "" });
   const [actionError, setActionError] = useState("");
@@ -162,8 +179,8 @@ function AdminInventory() {
   const livePurchasePrice = Number.isFinite(parsedLivePurchasePrice) ? Math.max(0, parsedLivePurchasePrice) : 0;
   const parsedLivePackageQuantity = Number(formValues.packageQuantity);
   const livePkgQty = Number.isFinite(parsedLivePackageQuantity) && parsedLivePackageQuantity > 0 ? parsedLivePackageQuantity : 0;
-  const parsedLiveContents = Number(formValues.contentsPerPackage || 0);
-  const liveContents = Number.isFinite(parsedLiveContents) ? Math.max(0, parsedLiveContents) : 0;
+  const parsedLiveContents = Number(formValues.contentsPerPackage || 1);
+  const liveContents = Number.isFinite(parsedLiveContents) && parsedLiveContents > 0 ? parsedLiveContents : 1;
   const liveTotalMeasurable = livePkgQty * liveContents;
   const liveUnitCost = (livePurchasePrice > 0 && liveTotalMeasurable > 0)
     ? (livePurchasePrice / liveTotalMeasurable)
@@ -178,10 +195,14 @@ function AdminInventory() {
     const query = search.trim().toLowerCase();
 
     return inventory.filter((entry) => {
-      const matchesCategory = activeCategory === "All" || entry.category === activeCategory;
+      const canonicalCategory = normalizeInventoryCategory(entry.category);
+      const matchesCategory =
+        activeCategory === "All" ||
+        entry.category === activeCategory ||
+        canonicalCategory === activeCategory;
       const matchesSearch =
         !query ||
-        `${entry.item} ${entry.category} ${entry.unit}`.toLowerCase().includes(query);
+        `${entry.item} ${entry.category} ${canonicalCategory} ${entry.unit}`.toLowerCase().includes(query);
 
       return matchesCategory && matchesSearch;
     });
@@ -190,8 +211,9 @@ function AdminInventory() {
   // One row shape shared by both the grid and list views.
   const rows = useMemo(() => filteredInventory.map((entry) => {
     const status = getInventoryStatus(entry.quantity, entry.maximumStock);
-    const healthyTarget = Number(entry.maximumStock) > 0 ? Number(entry.maximumStock) : entry.quantity;
-    const ratio = healthyTarget > 0 ? Math.max(0, Math.min(1, entry.quantity / healthyTarget)) : 0;
+    const hasMaximum = Number(entry.maximumStock) > 0;
+    // No maximum set means there is no target to measure against, so no ratio (neutral bar).
+    const ratio = hasMaximum ? Math.max(0, Math.min(1, entry.quantity / Number(entry.maximumStock))) : null;
     const unitCost = Number(entry.unitCost || entry.unit_cost || 0);
     const inventoryValue = Number((Number(entry.quantity || 0) * unitCost).toFixed(2));
     const packageSpec = `${entry.packageQuantity || 1} ${entry.packageUnit || "pack"}${entry.contentsPerPackage ? ` (${entry.contentsPerPackage} ${entry.unit})` : ""}`;
@@ -203,7 +225,7 @@ function AdminInventory() {
       packageSpec,
       status,
       statusKey: status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
-      stockRatio: Math.round(ratio * 100),
+      stockRatio: ratio == null ? null : Math.round(ratio * 100),
     };
   }).sort((left, right) => {
     if (sortBy === "quantity-asc") return left.quantity - right.quantity || left.item.localeCompare(right.item);
@@ -218,7 +240,11 @@ function AdminInventory() {
   const categoryCounts = useMemo(() => {
     const counts = { All: inventory.length };
     inventory.forEach((entry) => {
-      counts[entry.category] = (counts[entry.category] || 0) + 1;
+      const canonical = normalizeInventoryCategory(entry.category);
+      counts[canonical] = (counts[canonical] || 0) + 1;
+      if (entry.category && entry.category !== canonical) {
+        counts[entry.category] = (counts[entry.category] || 0) + 1;
+      }
     });
     return counts;
   }, [inventory]);
@@ -236,6 +262,7 @@ function AdminInventory() {
       setShowForm(false);
       setEditingItem(null);
       setRestockItem(null);
+      setRestockBatchCost("");
       setItemToDelete(null);
       setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
@@ -295,7 +322,15 @@ function AdminInventory() {
 
   const openRestock = (item) => {
     setRestockItem(item);
-    setRestockQuantity(String(Math.max(1, Number(item.maximumStock || 0) - item.quantity)));
+    const maxStock = Number(item.maximumStock);
+    const currentQty = Number(item.quantity || 0);
+    // Suggest the gap to the maximum only when a maximum is set and not yet reached; otherwise leave blank.
+    if (Number.isFinite(maxStock) && maxStock > 0 && currentQty < maxStock) {
+      setRestockQuantity(String(maxStock - currentQty));
+    } else {
+      setRestockQuantity("");
+    }
+    setRestockBatchCost("");
     setActionError("");
   };
 
@@ -316,12 +351,17 @@ function AdminInventory() {
       setActionError("Enter a restock quantity greater than zero.");
       return;
     }
+    if (restockBatchCost !== "" && (!Number.isFinite(Number(restockBatchCost)) || Number(restockBatchCost) < 0)) {
+      setActionError("Enter a valid non-negative batch cost.");
+      return;
+    }
     setIsSaving(true);
     setActionError("");
     try {
-      await restockInventoryItem(restockItem.id, quantity);
+      await restockInventoryItem(restockItem.id, quantity, restockBatchCost);
       setNotice(`${restockItem.item} restocked by ${quantity} ${restockItem.unit}.`);
       setRestockItem(null);
+      setRestockBatchCost("");
     } catch (error) {
       setActionError(error.message || "Could not restock this item.");
     } finally {
@@ -355,7 +395,7 @@ function AdminInventory() {
 
     const totalMeasurable = packageQuantity * contentsPerPackage;
     const unitCost = (purchasePrice > 0 && totalMeasurable > 0)
-      ? Number((purchasePrice / totalMeasurable).toFixed(4))
+      ? Number((purchasePrice / totalMeasurable).toFixed(6))
       : 0;
 
     setIsSaving(true);
@@ -577,7 +617,8 @@ function AdminInventory() {
                 </p>
               </div>
             ) : viewMode === "grid" ? (
-              <div className="admin-inventory-grid">
+              <div className="admin-inventory-grid-wrap custom-inventory-scrollbar">
+                <div className="admin-inventory-grid">
                 {rows.map((row) => (
                   <article className="admin-inventory-card" key={row.id}>
                     <div>
@@ -607,19 +648,24 @@ function AdminInventory() {
                       </div>
 
                       <div
-                        className="admin-inventory-progress"
+                        className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""}`}
                         role="progressbar"
-                        aria-valuenow={row.stockRatio}
+                        aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
+                        aria-valuetext={row.stockRatio == null ? "No maximum set" : undefined}
                         aria-valuemin={0}
                         aria-valuemax={100}
                         aria-label={`${row.item} stock level`}
+                        title={row.stockRatio == null ? "No maximum set" : undefined}
                       >
-                        <span className={row.statusKey} style={{ width: `${row.stockRatio}%` }} />
+                        {row.stockRatio == null
+                          ? null
+                          : <span className={row.statusKey} style={{ width: `${row.stockRatio}%` }} />}
                       </div>
+                      {row.stockRatio == null && <small className="admin-inventory-progress-note">No maximum set</small>}
 
                       <div className="inventory-pricing-badges">
                         <span className="inventory-unit-cost-pill" title="Calculated unit cost">
-                          ₱{Number(row.unitCost || 0).toFixed(4)} / {row.unit}
+                          ₱{formatUnitCost(row.unitCost)} / {row.unit}
                         </span>
                         <span className="inventory-value-pill" title="Current remaining stock asset value">
                           Valued: ₱{Number(row.inventoryValue || 0).toFixed(2)}
@@ -651,6 +697,7 @@ function AdminInventory() {
                     </div>
                   </article>
                 ))}
+                </div>
               </div>
             ) : (
               <div className="admin-inventory-table-wrap">
@@ -674,7 +721,7 @@ function AdminInventory() {
                         <td>{row.item}</td>
                         <td>{row.category}</td>
                         <td><strong>{row.quantity}</strong> {row.unit}</td>
-                        <td>₱{Number(row.unitCost || 0).toFixed(4)} / {row.unit}</td>
+                        <td>₱{formatUnitCost(row.unitCost)} / {row.unit}</td>
                         <td>{row.packageSpec}</td>
                         <td><span className="inventory-value-pill">₱{Number(row.inventoryValue || 0).toFixed(2)}</span></td>
                         <td>{row.maximumStock == null ? "—" : `${row.maximumStock} ${row.unit}`}</td>
@@ -820,7 +867,7 @@ function AdminInventory() {
                   Category
                   <FieldHelpTooltip
                     title="Category"
-                    text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"
+                    text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Cups' | Straws/Bags = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"
                     align="right"
                   />
                 </span>
@@ -952,7 +999,7 @@ function AdminInventory() {
               <div className="inventory-costing-preview-box">
                 <div className="costing-preview-header">
                   <span className="costing-preview-title">Live Costing & Stock Conversion</span>
-                  <span className="costing-preview-badge">₱{liveUnitCost.toFixed(4)} / {formValues.unit || "unit"}</span>
+                  <span className="costing-preview-badge">₱{formatUnitCost(liveUnitCost)} / {formValues.unit || "unit"}</span>
                 </div>
                 <div className="costing-preview-metrics">
                   <div>
@@ -971,7 +1018,7 @@ function AdminInventory() {
                 <p className="costing-preview-hint">
                   {livePurchasePrice > 0 && liveContents <= 0
                     ? "Enter the measurable contents in each package to calculate an accurate unit cost."
-                    : `Unit Cost = Purchase Price (₱${livePurchasePrice.toFixed(2)}) ÷ (${livePkgQty} ${formValues.packageUnit} × ${liveContents || 1} ${formValues.unit}) = ₱${liveUnitCost.toFixed(4)} per ${formValues.unit}`}
+                    : `Unit Cost = Purchase Price (₱${livePurchasePrice.toFixed(2)}) ÷ (${livePkgQty} ${formValues.packageUnit} × ${liveContents || 1} ${formValues.unit}) = ₱${formatUnitCost(liveUnitCost)} per ${formValues.unit}`}
                 </p>
               </div>
 
@@ -1013,6 +1060,9 @@ function AdminInventory() {
                   step="0.000001"
                   placeholder="No maximum set"
                 />
+                <small className="inventory-field-helper">
+                  {editingItem ? "Leave blank for no maximum." : "Leave blank to use the starting quantity as the maximum."}
+                </small>
               </label>
             </div>
 
@@ -1057,7 +1107,7 @@ function AdminInventory() {
       )}
 
       {restockItem && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => !isSaving && setRestockItem(null)}>
+        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => { if (!isSaving) { setRestockItem(null); setRestockBatchCost(""); } }}>
           <form className="admin-inventory-modal inventory-action-modal" onSubmit={handleRestock} role="dialog" aria-modal="true" aria-labelledby="restock-dialog-title" onClick={(event) => event.stopPropagation()}>
             <div className="admin-inventory-modal-header">
               <div>
@@ -1065,16 +1115,54 @@ function AdminInventory() {
                 <h3 id="restock-dialog-title">Restock {restockItem.item}</h3>
                 <p>Current: {restockItem.quantity} {restockItem.unit} · Maximum: {restockItem.maximumStock == null ? "Not set" : `${restockItem.maximumStock} ${restockItem.unit}`}</p>
               </div>
-              <button type="button" onClick={() => setRestockItem(null)} disabled={isSaving} aria-label="Close restock form">×</button>
+              <button type="button" onClick={() => { setRestockItem(null); setRestockBatchCost(""); }} disabled={isSaving} aria-label="Close restock form">×</button>
             </div>
             <label className="inventory-restock-field">
               Quantity to add ({restockItem.unit})
               <input autoFocus type="number" min="0.01" step="any" value={restockQuantity} onChange={(event) => setRestockQuantity(event.target.value)} required />
               <small>This amount will be added to the current stock and recorded as a restock.</small>
             </label>
+            <label className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
+              Total paid for this batch (₱) — Optional
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={restockBatchCost}
+                onChange={(event) => setRestockBatchCost(event.target.value)}
+                placeholder="Leave blank to keep current unit cost"
+              />
+              <small>Enter total batch cost to recalculate weighted-average unit cost.</small>
+            </label>
+            {Number(restockBatchCost) > 0 && Number(restockQuantity) > 0 && (
+              <div className="inventory-costing-preview-box" style={{ marginTop: "0.75rem" }}>
+                <div className="costing-preview-header">
+                  <span className="costing-preview-title">Weighted-Average Cost Preview</span>
+                  <span className="costing-preview-badge">
+                    ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
+                  </span>
+                </div>
+                <div className="costing-preview-metrics">
+                  <div>
+                    <small>Current Unit Cost</small>
+                    <strong>₱{formatUnitCost(restockItem.unitCost)} / {restockItem.unit}</strong>
+                  </div>
+                  <div>
+                    <small>Batch Unit Cost</small>
+                    <strong>₱{formatUnitCost(Number(restockBatchCost) / Number(restockQuantity))} / {restockItem.unit}</strong>
+                  </div>
+                  <div>
+                    <small>New Weighted-Average Cost</small>
+                    <strong>
+                      ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
             {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
             <div className="admin-inventory-modal-actions">
-              <button type="button" className="modal-cancel" onClick={() => setRestockItem(null)} disabled={isSaving}>Cancel</button>
+              <button type="button" className="modal-cancel" onClick={() => { setRestockItem(null); setRestockBatchCost(""); }} disabled={isSaving}>Cancel</button>
               <button type="submit" className="modal-save" disabled={isSaving}>{isSaving ? "Adding stock…" : "Confirm restock"}</button>
             </div>
           </form>

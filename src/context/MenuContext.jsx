@@ -122,7 +122,12 @@ export function MenuProvider({ children }) {
       });
     load();
     const interval = window.setInterval(load, 30000);
-    return () => { current = false; window.clearInterval(interval); };
+    window.addEventListener("amaya:stock-mutated", load);
+    return () => {
+      current = false;
+      window.clearInterval(interval);
+      window.removeEventListener("amaya:stock-mutated", load);
+    };
   }, [isSignedIn, userRole, withLocalImage]);
 
   const value = useMemo(() => ({

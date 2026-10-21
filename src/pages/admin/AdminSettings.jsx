@@ -5,22 +5,13 @@ import PortalNotificationButton from "../../components/PortalNotificationButton.
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
+import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 
 import "../../assets/css/admin/AdminSettings.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
-
-const initialSettings = {
-	businessName: "Amaya Cafe",
-	email: "admin@amayacafe.com",
-	phone: "+63 917 123 4567",
-	address: "Mabini Street, General Santos City",
-	openingTime: "09:00",
-	closingTime: "21:00",
-};
 
 function isStoreOpen(openingTime, closingTime, currentDate) {
 	const parseTime = (time) => {
@@ -47,7 +38,7 @@ function AdminSettings() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const { businessSettings, saveBusinessSettings } = useBusiness();
 	const [settingsDraft, setSettingsDraft] = useState({});
-	const settings = { ...initialSettings, ...businessSettings, ...settingsDraft };
+	const settings = { ...defaultBusinessSettings, ...businessSettings, ...settingsDraft };
 	const [preferences, setPreferences] = useState(readNotificationPreferences);
 	const { notifications, orderAlerts, inventoryAlerts } = preferences;
 	const [saveState, setSaveState] = useState("idle");

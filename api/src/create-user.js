@@ -40,7 +40,7 @@ if (!['admin', 'staff'].includes(role) || !username || username.length > 80) {
 } else {
   try {
     const password = await askHidden("Choose a password (input hidden): ");
-    if (password.length < 12) throw new Error("Use a password with at least 12 characters.");
+    if (password.length < 8 || password.length > 128) throw new Error("Use a password between 8 and 128 characters.");
     const confirmation = await askHidden("Confirm password (input hidden): ");
     if (password !== confirmation) throw new Error("Passwords did not match.");
     const passwordHash = await bcrypt.hash(password, 12);

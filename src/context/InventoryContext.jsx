@@ -8,16 +8,18 @@ const InventoryContext = createContext(null);
 
 export const INVENTORY_CATEGORIES = [
   "All",
-  "Tea Bases",
-  "Dairy & Creamers",
-  "Syrups & Sweeteners",
-  "Toppings & Add-ons",
-  "Snack Ingredients",
-  "Powders & Seasonings",
+  "Cups & Lids",
   "Packaging & Disposables",
+  "Snack Ingredients & Meats",
+  "Bakery & Breads",
+  "Dairy & Ice Cream",
+  "Syrups & Purees",
+  "Powders & Seasonings",
+  "Toppings & Add-ons",
+  "Cooking & Condiments",
   "Store & Cleaning Supplies",
 ];
-export const DEFAULT_INGREDIENT_CATEGORY = "Tea Bases";
+export const DEFAULT_INGREDIENT_CATEGORY = "Cups & Lids";
 
 export function getInventoryStatus(quantity, maximumStock) {
   if (Number(quantity) <= 0) return "Out of Stock";
@@ -64,7 +66,12 @@ function InventoryProvider({ children }) {
       });
     load();
     const interval = window.setInterval(load, 30000);
-    return () => { active = false; window.clearInterval(interval); };
+    window.addEventListener("amaya:stock-mutated", load);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("amaya:stock-mutated", load);
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -84,6 +91,7 @@ function InventoryProvider({ children }) {
     addInventoryItem: async (item) => {
       const saved = await apiRequest("/inventory", { method: "POST", body: JSON.stringify(item) });
       setInventory((current) => [...current, saved]);
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return saved;
     },
     updateInventoryItem: async (id, updates) => {
@@ -91,16 +99,25 @@ function InventoryProvider({ children }) {
       if (!existing) return null;
       const saved = await apiRequest(`/inventory/${id}`, { method: "PUT", body: JSON.stringify({ ...existing, ...updates }) });
       setInventory((current) => current.map((item) => item.id === id ? saved : item));
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return saved;
     },
-    restockInventoryItem: async (id, quantity) => {
-      const saved = await apiRequest(`/inventory/${id}/restock`, { method: "POST", body: JSON.stringify({ quantity }) });
+    restockInventoryItem: async (id, quantity, batchCost) => {
+      const payload = {
+        quantity,
+        ...(batchCost !== undefined && batchCost !== null && String(batchCost).trim() !== ""
+          ? { batchCost: Number(batchCost) }
+          : {}),
+      };
+      const saved = await apiRequest(`/inventory/${id}/restock`, { method: "POST", body: JSON.stringify(payload) });
       setInventory((current) => current.map((item) => item.id === id ? saved : item));
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return saved;
     },
     removeInventoryItem: async (id) => {
       await apiRequest(`/inventory/${id}`, { method: "DELETE" });
       setInventory((current) => current.filter((item) => item.id !== id));
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
     },
   }), [error, inventory, loadedUserId, refreshInventory, user]);
 

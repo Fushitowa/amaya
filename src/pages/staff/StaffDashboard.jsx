@@ -15,7 +15,7 @@ import PortalHero from "../../components/PortalHero.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
-import { getOrderTime, isToday, useOrders } from "../../context/OrdersContext.jsx";
+import { getOrderTime, isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
 import "../../assets/css/portal-hero.css";
@@ -50,7 +50,10 @@ function StaffDashboard() {
   const pendingOrders = useMemo(() => orders.filter((order) => order.status === "Pending"), [orders]);
   const preparingOrders = useMemo(() => orders.filter((order) => order.status === "Preparing"), [orders]);
   const completedToday = useMemo(() => todaysOrders.filter((order) => order.status === "Completed"), [todaysOrders]);
-  const todaysRevenue = useMemo(() => todaysOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [todaysOrders]);
+  const todaysRevenue = useMemo(
+    () => todaysOrders.filter((order) => isOrderPaid(order)).reduce((sum, order) => sum + Number(order.total || 0), 0),
+    [todaysOrders],
+  );
 
   const recentOrders = useMemo(() => orders.slice(0, 6), [orders]);
 

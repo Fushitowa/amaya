@@ -29,8 +29,16 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const statusOptions = ["All orders", "Pending", "Preparing", "Ready", "Completed"];
+const statusOptions = ["All orders", "Pending", "Preparing", "Completed"];
 
+
+function getCustomerInitials(name) {
+  const clean = String(name || "").trim();
+  if (!clean || clean.toLowerCase() === WALK_IN_CUSTOMER_NAME.toLowerCase()) return WALK_IN_INITIALS;
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 function AdminOrder() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
@@ -49,6 +57,8 @@ function AdminOrder() {
     const itemsCount = itemsList.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const summary = itemsList.map((item) => item.title).join(", ");
     const totalAmount = Number(order.total || 0);
+    const customer = order.customer || order.customerName || WALK_IN_CUSTOMER_NAME;
+    const initials = getCustomerInitials(customer);
 
     return {
       ...order,
@@ -61,8 +71,8 @@ function AdminOrder() {
       isPaid: isOrderPaid(order),
       paymentStatusLabel: getPaymentStatusLabel(order),
       paymentMethodLabel: getPaymentMethodLabel(order),
-      customer: WALK_IN_CUSTOMER_NAME,
-      initials: WALK_IN_INITIALS,
+      customer,
+      initials,
     };
   }), [orders]);
 
@@ -71,7 +81,7 @@ function AdminOrder() {
     const normalizedSearch = search.toLowerCase().trim();
     return displayOrders.filter((order) => {
       const matchesStatus = activeStatus === "All orders" || order.status === activeStatus;
-      const matchesSearch = !normalizedSearch || `${order.id} ${order.summary}`.toLowerCase().includes(normalizedSearch);
+      const matchesSearch = !normalizedSearch || `${order.id} ${order.customer} ${order.summary}`.toLowerCase().includes(normalizedSearch);
       return matchesStatus && matchesSearch;
     });
   }, [activeStatus, displayOrders, search]);
@@ -88,7 +98,7 @@ function AdminOrder() {
   // Summary Metrics
   const todaysOrders = useMemo(() => displayOrders.filter((order) => isToday(order.createdAt)), [displayOrders]);
   const pendingOrders = useMemo(() => displayOrders.filter((order) => order.status === "Pending"), [displayOrders]);
-  const inProgressOrders = useMemo(() => displayOrders.filter((order) => ["Preparing", "Ready"].includes(order.status)), [displayOrders]);
+  const inProgressOrders = useMemo(() => displayOrders.filter((order) => order.status === "Preparing"), [displayOrders]);
   const completedToday = useMemo(() => todaysOrders.filter((order) => order.status === "Completed"), [todaysOrders]);
   const todaysRevenue = useMemo(() => todaysOrders.reduce((sum, order) => sum + order.totalAmount, 0), [todaysOrders]);
 

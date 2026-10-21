@@ -1,15 +1,9 @@
-import mysql from "mysql2/promise";
+import pool from "./src/database.js";
 
 async function seed() {
-  const conn = await mysql.createConnection({
-    host: "127.0.0.1",
-    port: 3306,
-    user: "root",
-    password: "",
-    database: "amaya",
-  });
-
-  console.log("Connected to MariaDB amaya database.");
+  const conn = await pool.getConnection();
+  console.log("Connected to database via pool.");
+  try {
 
   // 1. Clean up old archived test records
   await conn.query("DELETE FROM inventory_movements WHERE inventory_item_id = 6");
@@ -167,10 +161,11 @@ async function seed() {
      VALUES (?, 'Extra Black Pearl (Sago)', 10.00, ?, 30.000, 'g', 0)`,
     [productId, pearlId],
   );
-  console.log("Created add-on: Extra Black Pearl (Sago) (₱10.00 / 30g)");
-
-  await conn.end();
-  console.log("SUCCESS: All Milk Tea menu product and inventory data successfully seeded!");
+    console.log("SUCCESS: All Milk Tea menu product and inventory data successfully seeded!");
+  } finally {
+    conn.release();
+    await pool.end();
+  }
 }
 
 seed().catch(console.error);

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
+import { calculateLineCost, summarizeCosting } from "../utils/costing.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
 import { recordArchiveAudit } from "./archive.js";
 
@@ -20,15 +21,17 @@ const explainPackedUnit = (name, value, fieldName) => {
 	const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
 	if (!match) return null;
 	if (fieldName === "stock") {
-		return `For “${name}”, the Inventory stock unit is “${value}”. Edit the inventory item and enter ${match[1]} as its stock quantity and “${match[2]}” as its unit.`;
+		return `For â€œ${name}â€, the Inventory stock unit is â€œ${value}â€. Edit the inventory item and enter ${match[1]} as its stock quantity and â€œ${match[2]}â€ as its unit.`;
 	}
-	return `For “${name}”, put ${match[1]} in Amount per serving and “${match[2]}” in Recipe unit. Keep the amount and unit in separate fields.`;
+	return `For â€œ${name}â€, put ${match[1]} in Amount per serving and â€œ${match[2]}â€ in Recipe unit. Keep the amount and unit in separate fields.`;
 };
 
-function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInventory) {
-  const productIngredients = ingredients
-    .filter((entry) => Number(entry.product_id) === Number(row.id))
-    .map((entry) => ({
+export function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInventory) {
+  const mapIngredient = (entry) => {
+    const line = includeInventory
+      ? calculateLineCost(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit, entry.unit_cost)
+      : null;
+    return {
       inventoryItemId: Number(entry.inventory_item_id),
       name: entry.name,
       quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
@@ -38,27 +41,53 @@ function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInve
       ...(includeInventory ? {
         inventoryQuantity: Number(entry.inventory_quantity),
         maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
+        unitCost: Number(entry.unit_cost || 0),
+        lineCost: line.cost,
+        costComplete: line.complete,
       } : {}),
-    }));
+    };
+  };
+  // Servings a recipe can still make from live inventory (the scarcest ingredient decides).
+  const recipeServings = (rows) => Math.min(...rows.map((entry) => {
+    const perServing = toInventoryQuantity(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit);
+    const available = Number(entry.inventory_quantity || 0);
+    return perServing && perServing > 0 ? Math.max(0, Math.floor((available + 1e-9) / perServing)) : 0;
+  }));
+  const rawIngredients = ingredients.filter((entry) => Number(entry.product_id) === Number(row.id));
+  const productIngredients = rawIngredients.map(mapIngredient);
   const productSizes = sizes
     .filter((entry) => Number(entry.product_id) === Number(row.id))
     .map((size) => {
-      const overrides = sizeIngredients.filter((entry) => Number(entry.product_size_id) === Number(size.id));
-      const recipes = productIngredients.map((base) => {
-        const override = overrides.find((entry) => Number(entry.inventory_item_id) === base.inventoryItemId);
-        return override ? {
-          ...base,
-          quantityUsed: Number(override.quantity_used),
-          unit: override.unit,
-          quantityInStockUnit: toInventoryQuantity(override.quantity_used, override.unit, base.stockUnit),
-        } : base;
-      });
+      // A size with its own rows uses them exclusively (same rule as orders.js); a size with none uses the base recipe.
+      const ownRows = sizeIngredients.filter((entry) => Number(entry.product_size_id) === Number(size.id));
+      const recipeRows = ownRows.length ? ownRows : rawIngredients;
+      const recipes = ownRows.length ? ownRows.map(mapIngredient) : productIngredients;
+      const sizeCostSummary = includeInventory
+        ? summarizeCosting(size.price, recipes.map((recipe) => ({ cost: recipe.lineCost, complete: recipe.costComplete })))
+        : null;
       return {
         label: size.label,
         price: Number(size.price),
+        stock: recipeRows.length ? recipeServings(recipeRows) : Number(row.stock_quantity),
         ingredients: recipes,
+        ...(sizeCostSummary ? sizeCostSummary : {}),
       };
     });
+  const primarySize =
+    productSizes.find(
+      (s) =>
+        String(s.label || "")
+          .replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:fl\s*)?oz\s*\)\s*$/i, "")
+          .trim()
+          .toLowerCase() === "regular",
+    ) || productSizes[0];
+  const effectiveStock = productSizes.length
+    ? Math.max(...productSizes.map((s) => s.stock))
+    : rawIngredients.length ? recipeServings(rawIngredients) : Number(row.stock_quantity);
+  const baseCostSummary = includeInventory && rawIngredients.length
+    ? summarizeCosting(row.base_price, productIngredients.map((r) => ({ cost: r.lineCost, complete: r.costComplete })))
+    : null;
+  const activeCostSummary = primarySize || baseCostSummary;
   return {
     id: Number(row.id),
     name: row.name,
@@ -66,29 +95,49 @@ function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInve
     price: `₱${Number(row.base_price).toFixed(2)}`,
     image: row.image_url || "",
     description: row.description || "",
-    stock: Number(row.stock_quantity),
+    stock: effectiveStock,
     available: Boolean(row.is_available),
     featured: Boolean(row.is_featured),
+    ...(includeInventory ? {
+      cost: activeCostSummary?.cost ?? 0,
+      costComplete: Boolean(activeCostSummary?.costComplete),
+      grossProfit: activeCostSummary?.grossProfit ?? null,
+      margin: activeCostSummary?.margin ?? null,
+      foodCostPercent: activeCostSummary?.foodCostPercent ?? null,
+      suggestedPrice: activeCostSummary?.suggestedPrice ?? null,
+    } : {}),
     sizes: productSizes,
-    addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => ({
-      label: entry.label,
-      price: Number(entry.price),
-      inventoryItemId: entry.inventory_item_id == null ? null : Number(entry.inventory_item_id),
-      quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
-      unit: entry.usage_unit || entry.inventory_unit || "pcs",
-      stockUnit: entry.inventory_unit || "pcs",
-      quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit),
-      ...(includeInventory ? {
-        inventoryQuantity: Number(entry.inventory_quantity || 0),
-        maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
-      } : {}),
-    })),
+    addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => {
+      const addonLine = includeInventory
+        ? calculateLineCost(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit, entry.unit_cost)
+        : null;
+      const addonSummary = includeInventory ? summarizeCosting(entry.price, [addonLine]) : null;
+      return {
+        label: entry.label,
+        price: Number(entry.price),
+        inventoryItemId: entry.inventory_item_id == null ? null : Number(entry.inventory_item_id),
+        quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
+        unit: entry.usage_unit || entry.inventory_unit || "pcs",
+        stockUnit: entry.inventory_unit || "pcs",
+        quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit),
+        ...(includeInventory ? {
+          inventoryQuantity: Number(entry.inventory_quantity || 0),
+          maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
+          unitCost: Number(entry.unit_cost || 0),
+          cost: addonSummary.cost,
+          costComplete: addonSummary.costComplete,
+          grossProfit: addonSummary.grossProfit,
+          margin: addonSummary.margin,
+        } : {}),
+      };
+    }),
     ingredients: productIngredients,
   };
 }
 
-async function listProducts(includeUnavailable = false, includeInventory = false) {
-  const [products] = await pool.execute(
+// db defaults to the shared pool; tests pass a transaction connection.
+export async function listProducts(includeUnavailable = false, includeInventory = false, db = pool) {
+  const [products] = await db.execute(
     `SELECT p.*, c.name AS category
        FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
       WHERE p.is_archived = FALSE ${includeUnavailable ? "" : "AND p.is_available = TRUE"}
@@ -98,9 +147,9 @@ async function listProducts(includeUnavailable = false, includeInventory = false
   const ids = products.map((product) => product.id);
   const marks = ids.map(() => "?").join(",");
   const [addonResult, ingredientResult, sizeResult] = await Promise.all([
-    pool.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
-    pool.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
-    pool.execute(`SELECT ps.product_id, ps.id, ps.label, ps.price FROM product_sizes ps WHERE ps.product_id IN (${marks}) ORDER BY ps.display_order, ps.id`, ids),
+    db.execute(`SELECT pa.product_id, pa.label, pa.price, pa.inventory_item_id, pa.quantity_used, pa.usage_unit, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock, i.unit_cost FROM product_addons pa LEFT JOIN inventory_items i ON i.id = pa.inventory_item_id WHERE pa.product_id IN (${marks}) ORDER BY pa.display_order, pa.id`, ids),
+    db.execute(`SELECT pi.product_id, pi.inventory_item_id, pi.quantity_used, pi.unit, i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock, i.unit_cost FROM product_ingredients pi JOIN inventory_items i ON i.id = pi.inventory_item_id WHERE pi.product_id IN (${marks}) ORDER BY pi.id`, ids),
+    db.execute(`SELECT ps.product_id, ps.id, ps.label, ps.price FROM product_sizes ps WHERE ps.product_id IN (${marks}) ORDER BY ps.display_order, ps.id`, ids),
   ]);
   const addonRows = addonResult[0];
   const ingredientRows = ingredientResult[0];
@@ -109,9 +158,11 @@ async function listProducts(includeUnavailable = false, includeInventory = false
   let sizeIngredients = [];
   if (sizeIds.length) {
     const sizeMarks = sizeIds.map(() => "?").join(",");
-    const [rows] = await pool.execute(
-      `SELECT psi.product_size_id, psi.inventory_item_id, psi.quantity_used, psi.unit
-         FROM product_size_ingredients psi WHERE psi.product_size_id IN (${sizeMarks})`, sizeIds,
+    const [rows] = await db.execute(
+      `SELECT psi.product_size_id, psi.inventory_item_id, psi.quantity_used, psi.unit,
+              i.name, i.unit AS inventory_unit, i.quantity AS inventory_quantity, i.maximum_stock, i.unit_cost
+         FROM product_size_ingredients psi JOIN inventory_items i ON i.id = psi.inventory_item_id
+        WHERE psi.product_size_id IN (${sizeMarks}) ORDER BY psi.id`, sizeIds,
     );
     sizeIngredients = rows;
   }
@@ -126,7 +177,7 @@ function normalizeRecipeEntries(entries, description) {
     const name = String(ingredient?.name || ingredient?.item || "").trim();
     const rawQuantity = String(ingredient?.quantityUsed ?? "").trim();
     const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
-    if (attachedAmount) throw httpError(400, `For “${name || "this ingredient"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
+    if (attachedAmount) throw httpError(400, `For â€œ${name || "this ingredient"}â€, enter only ${attachedAmount[1]} in Amount per serving and â€œ${attachedAmount[2]}â€ in Recipe unit.`);
     const quantityUsed = Number(ingredient?.quantityUsed);
     const unit = String(ingredient?.unit || "pcs").trim();
     const stockUnit = String(ingredient?.stockUnit || unit).trim();
@@ -141,6 +192,27 @@ function normalizeRecipeEntries(entries, description) {
     return { name, unit, stockUnit, quantityUsed };
   });
 }
+
+// Volume key (oz) for a cup name or size label, e.g. "12oz Cup (Large)" / "Large (12oz)" -> 12. null = unknown.
+function cupSizeKey(text) {
+  const value = String(text || "").toLowerCase();
+  const oz = value.match(/(\d+(?:\.\d+)?)\s*oz/);
+  if (oz) return Number(oz[1]);
+  if (/\b(xl|extra large)\b/.test(value)) return 24;
+  if (/\blarge\b/.test(value)) return 12;
+  if (/\bmedium\b/.test(value)) return 18;
+  if (/\b(small|regular)\b/.test(value)) return 8;
+  return null;
+}
+
+// A cup belongs to a size only when their volumes agree; unknown volumes are left alone.
+function cupMatchesSize(cupName, sizeLabel) {
+  const cup = cupSizeKey(cupName);
+  const size = cupSizeKey(sizeLabel);
+  return cup == null || size == null || cup === size;
+}
+
+const isCupItem = (item) => item?.category === "Cups" || item?.category === "Cups & Lids" || /cup/i.test(String(item?.name || ""));
 
 function assertNoDuplicateRecipeNames(entries, description) {
   if (new Set(entries.map((entry) => entry.name.toLocaleLowerCase())).size !== entries.length) {
@@ -208,8 +280,9 @@ async function saveProduct(connection, body, id = null) {
   const sizeRecipeInputs = sizes.map((size) => {
     const entries = size.ingredients === undefined ? recipeInputs : normalizeRecipeEntries(size.ingredients, `The ${String(size.label).trim()} recipe`);
     assertNoDuplicateRecipeNames(entries, `The ${String(size.label).trim()} recipe`);
-    if (entries.length !== recipeInputs.length || entries.some((entry) => !recipeInputs.some((base) => base.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()))) {
-      throw httpError(400, `Each serving size must use the same ingredient list as the default recipe.`);
+    // A size may use its own ingredients (e.g. its own cup), but must not end up with none, or it would silently fall back to the base recipe.
+    if (recipeInputs.length && !entries.length) {
+      throw httpError(400, `The ${String(size.label).trim()} size needs at least one ingredient.`);
     }
     return entries;
   });
@@ -219,7 +292,7 @@ async function saveProduct(connection, body, id = null) {
     const stockUnit = String(addon?.stockUnit || unit).trim();
     const rawQuantity = String(addon?.quantityUsed ?? "").trim();
     const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
-    if (attachedAmount) throw httpError(400, `For “${label || "this add-on"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
+    if (attachedAmount) throw httpError(400, `For â€œ${label || "this add-on"}â€, enter only ${attachedAmount[1]} in Amount per serving and â€œ${attachedAmount[2]}â€ in Recipe unit.`);
     const quantityUsed = Number(addon?.quantityUsed);
     const packedUnitError = explainPackedUnit(label || "this add-on", unit, "recipe")
       || explainPackedUnit(label || "this add-on", stockUnit, "stock");
@@ -245,32 +318,67 @@ async function saveProduct(connection, body, id = null) {
         [itemName, itemCategory, stockUnit],
       );
     } catch (error) {
-      if (error.code === "ER_DUP_ENTRY") throw httpError(409, `Inventory already has “${itemName}” with a different spelling or name conflict. Check its existing entry.`);
+      if (error.code === "ER_DUP_ENTRY") throw httpError(409, `Inventory already has â€œ${itemName}â€ with a different spelling or name conflict. Check its existing entry.`);
       throw error;
     }
     const inventoryItemId = Number(result.insertId);
     const [[inventoryItem]] = await connection.execute(
       "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
     );
-    if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for “${itemName}”.`);
+    if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for â€œ${itemName}â€.`);
     const packedStockUnitError = explainPackedUnit(itemName, inventoryItem.unit, "stock");
     if (packedStockUnitError) throw httpError(400, packedStockUnitError);
     return inventoryItem;
   };
 
-  const recipeItems = [];
-  for (const entry of recipeInputs) {
-    const item = await ensureInventoryItem(entry.name, entry.stockUnit, "Supplies");
-    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `“${entry.unit}” for ${entry.name} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
+  // Resolve every ingredient used by the default recipe AND any size-specific recipe once.
+  const itemByName = new Map();
+  for (const entry of [...recipeInputs, ...sizeRecipeInputs.flat()]) {
+    const key = entry.name.toLocaleLowerCase();
+    if (!itemByName.has(key)) {
+      let item = null;
+      if (entry.inventoryItemId) {
+        const [[byId]] = await connection.execute(
+          "SELECT id, name, unit, category FROM inventory_items WHERE id = ? AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+          [entry.inventoryItemId],
+        );
+        item = byId;
+      }
+      if (!item) {
+        const [byName] = await connection.execute(
+          "SELECT id, name, unit, category FROM inventory_items WHERE LOWER(name) = LOWER(?) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+          [entry.name],
+        );
+        item = byName[0];
+      }
+      if (!item) {
+        const isCup = /cup/i.test(entry.name);
+        item = { ...(await ensureInventoryItem(entry.name, entry.stockUnit, isCup ? "Cups" : "Supplies")), category: isCup ? "Cups" : "Supplies" };
+      }
+      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup: isCupItem(item) });
     }
-    recipeItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
+    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, itemByName.get(key).stockUnit)) {
+      throw httpError(400, `â€œ${entry.unit}â€ for ${entry.name} cannot be converted to inventory unit â€œ${itemByName.get(key).stockUnit}â€. Choose units from the same group (weight, volume, or count).`);
+    }
   }
+  const firstSizeLabel = String(sizes[0]?.label || "").trim();
+  const recipeItems = recipeInputs
+    .map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }))
+    // Default recipe mirrors the first size, so it may only carry that size's cup.
+    .filter((entry) => !entry.isCup || cupMatchesSize(entry.itemName, firstSizeLabel));
   const addonInventoryItems = [];
   for (const entry of addonInputs) {
-    const item = await ensureInventoryItem(entry.label, entry.stockUnit, "Toppings");
+    const strippedName = entry.label.replace(/^extra\s+/i, "").trim();
+    const [existingBaseRows] =
+      strippedName && strippedName.toLocaleLowerCase() !== entry.label.toLocaleLowerCase()
+        ? await connection.execute(
+            "SELECT id, name, unit FROM inventory_items WHERE LOWER(name) = LOWER(?) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+            [strippedName],
+          )
+        : [[]];
+    const item = existingBaseRows[0] || (await ensureInventoryItem(entry.label, entry.stockUnit, "Toppings"));
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
+      throw httpError(400, `â€œ${entry.unit}â€ for ${entry.label} cannot be converted to inventory unit â€œ${item.unit}â€. Choose units from the same group (weight, volume, or count).`);
     }
     addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }
@@ -279,17 +387,38 @@ async function saveProduct(connection, body, id = null) {
   await connection.execute("DELETE FROM product_addons WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_ingredients WHERE product_id = ?", [productId]);
 
-  const recipeByName = new Map(recipeItems.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
+  let activeCups = null;
   for (const [index, size] of sizes.entries()) {
     const label = String(size?.label || "").trim();
     if (!label) continue;
     const [createdSize] = await connection.execute("INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 80), toMoney(size.price ?? basePrice, `Price for ${label}`), index]);
-    const sizeIngredients = sizeRecipeInputs[index] || [];
+    const requested = sizeRecipeInputs[index] || [];
+    // Cup isolation: a size only keeps the cup whose volume matches its label (16oz -> Regular, 22oz -> Large).
+    const sizeIngredients = requested.filter((entry) => {
+      const base = itemByName.get(entry.name.toLocaleLowerCase());
+      return !base.isCup || cupMatchesSize(base.itemName, label);
+    });
+    const wantedCup = requested.some((entry) => itemByName.get(entry.name.toLocaleLowerCase()).isCup);
+    const keptCup = sizeIngredients.some((entry) => itemByName.get(entry.name.toLocaleLowerCase()).isCup);
+    // The recipe asked for a cup but every cup sent belonged to another size: link the matching Inventory cup instead.
+    if (wantedCup && !keptCup && cupSizeKey(label) != null) {
+      if (!activeCups) {
+        [activeCups] = await connection.execute(
+          "SELECT id, name, unit FROM inventory_items WHERE is_archived = FALSE AND (category = 'Cups' OR name LIKE '%cup%') ORDER BY id",
+        );
+      }
+      const match = activeCups.find((cup) => cupSizeKey(cup.name) === cupSizeKey(label));
+      if (match) {
+        await connection.execute(
+          "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
+          [createdSize.insertId, match.id, 1, match.unit || "pcs"],
+        );
+      }
+    }
     for (const entry of sizeIngredients) {
-      const base = recipeByName.get(entry.name.toLocaleLowerCase());
-      if (!base) throw httpError(400, `The ${label} recipe contains an ingredient missing from the default recipe.`);
+      const base = itemByName.get(entry.name.toLocaleLowerCase());
       const quantityUsed = toInventoryQuantity(entry.quantityUsed, entry.unit, base.stockUnit);
-      if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit “${base.stockUnit}”.`);
+      if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit â€œ${base.stockUnit}â€.`);
       await connection.execute(
         "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
         [createdSize.insertId, base.inventoryItemId, entry.quantityUsed, entry.unit],
@@ -310,6 +439,13 @@ async function saveProduct(connection, body, id = null) {
   }
   return productId;
 }
+
+router.get("/categories", optionalAuth, async (_request, response) => {
+  const [rows] = await pool.execute(
+    "SELECT id, name, description, display_order AS displayOrder FROM menu_categories WHERE is_active = TRUE ORDER BY display_order, name",
+  );
+  response.json(rows);
+});
 
 router.get("/", optionalAuth, async (request, response) => {
   const includeUnavailable = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))

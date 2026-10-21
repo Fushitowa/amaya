@@ -14,7 +14,7 @@ export const PAYMENT_STATUS_PAID = "Paid";
 export const DEFAULT_PAYMENT_METHOD = "Cash";
 export const WALK_IN_CUSTOMER_NAME = "Walk-in Customer";
 export const WALK_IN_INITIALS = "WC";
-export const ORDER_STATUS_FLOW = ["Pending", "Preparing", "Ready", "Completed"];
+export const ORDER_STATUS_FLOW = ["Pending", "Preparing", "Completed"];
 
 export function getNextAllowedStatuses(currentStatus) {
   const index = ORDER_STATUS_FLOW.indexOf(currentStatus);
@@ -71,11 +71,12 @@ export function OrdersProvider({ children }) {
       const normalized = normalizeOrderPayment(normalizeOrderCustomer(order));
       setOrders((current) => [normalized, ...current]);
       notifyOrderCreated(normalized);
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return normalized;
     },
     updateOrderStatus: async (id, status) => {
       const current = orders.find((entry) => entry.id === id);
-      if (!current || !canTransitionTo(current.status, status)) return;
+      if (!current || !canTransitionTo(current.status, status)) return undefined;
       try {
         const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
         const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
@@ -111,7 +112,12 @@ export function OrdersProvider({ children }) {
       try {
         await apiRequest(`/orders/${encodeURIComponent(id)}`, { method: "DELETE" });
         setOrders((current) => current.filter((entry) => entry.id !== id));
-      } catch (error) { window.alert(error.message); }
+        window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+        return true;
+      } catch (error) {
+        window.alert(error.message);
+        return false;
+      }
     },
   }), [orders, refreshOrders, user]);
 

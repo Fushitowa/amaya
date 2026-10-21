@@ -4,6 +4,7 @@ import pool from "../database.js";
 import { createAccessToken, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
+const DUMMY_HASH = "$2a$12$e8Y5t1hKq9w2N7vU4jF.peGzL5fXb9qW0K8r3Z7Y2x8U1c4m6V8qS";
 
 router.post("/login", async (request, response) => {
   const username = String(request.body?.username || "").trim();
@@ -13,15 +14,17 @@ router.post("/login", async (request, response) => {
   }
 
   const [rows] = await pool.execute(
-    "SELECT id, username, password_hash, role, is_active FROM users WHERE username = ? LIMIT 1",
+    "SELECT id, username, password_hash, role, token_version, is_active FROM users WHERE username = ? LIMIT 1",
     [username],
   );
   const user = rows[0];
-  if (!user || !user.is_active || !(await bcrypt.compare(password, user.password_hash))) {
+  const targetHash = user ? user.password_hash : DUMMY_HASH;
+  const passwordValid = await bcrypt.compare(password, targetHash);
+  if (!user || !user.is_active || !passwordValid) {
     return response.status(401).json({ message: "Invalid username or password." });
   }
 
-  const profile = { id: user.id, username: user.username, role: user.role };
+  const profile = { id: user.id, username: user.username, role: user.role, token_version: user.token_version };
   return response.json({ token: createAccessToken(profile), user: profile });
 });
 
@@ -42,7 +45,7 @@ router.post("/change-password", requireAuth, async (request, response) => {
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await pool.execute("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+  await pool.execute("UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?", [passwordHash, user.id]);
   response.json({ message: "Password updated successfully." });
 });
 

@@ -35,6 +35,46 @@ const unitWithAmountError = (unit) => {
     : null;
 };
 
+const resolveCosting = (body = {}, current = {}) => {
+  const rawPurchasePrice = body.purchasePrice !== undefined ? body.purchasePrice : (current.purchase_price ?? 0);
+  const purchasePrice = rawPurchasePrice === "" || rawPurchasePrice == null ? 0 : Number(rawPurchasePrice);
+  if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+    throw httpError(400, "Purchase price must be zero or greater.");
+  }
+
+  const rawPkgQty = body.packageQuantity !== undefined ? body.packageQuantity : current.package_quantity;
+  const rawContents = body.contentsPerPackage !== undefined ? body.contentsPerPackage : current.contents_per_package;
+  const parsedPkgQty = rawPkgQty === "" || rawPkgQty == null ? 0 : Number(rawPkgQty);
+  const parsedContents = rawContents === "" || rawContents == null ? 0 : Number(rawContents);
+
+  if (purchasePrice > 0 && (!Number.isFinite(parsedPkgQty) || parsedPkgQty <= 0 || !Number.isFinite(parsedContents) || parsedContents <= 0)) {
+    throw httpError(400, "Enter how much is inside one package so unit cost can be calculated.");
+  }
+
+  const packageQuantity = Number.isFinite(parsedPkgQty) && parsedPkgQty > 0 ? parsedPkgQty : 1;
+  const contentsPerPackage = Number.isFinite(parsedContents) && parsedContents > 0 ? parsedContents : 1;
+  const packageUnit = String(body.packageUnit || current.package_unit || "pack").trim().slice(0, 40) || "pack";
+  const unitCost = purchasePrice > 0
+    ? Number((purchasePrice / (packageQuantity * contentsPerPackage)).toFixed(6))
+    : Number(current.unit_cost || 0);
+
+  return { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost };
+};
+
+// Keep inventory_cups in step with the "Cups" / "Cups & Lids" category: cups get a row, anything else loses it.
+const syncCupRow = async (connection, itemId, category, name) => {
+  const isCupCategory = category === "Cups" || category === "Cups & Lids";
+  if (!isCupCategory) {
+    await connection.execute("DELETE FROM inventory_cups WHERE inventory_item_id = ?", [itemId]);
+    return;
+  }
+  const oz = String(name).match(/(\d+(?:\.\d+)?)\s*oz/i);
+  await connection.execute(
+    "INSERT INTO inventory_cups (inventory_item_id, cup_size_oz) VALUES (?, ?) ON DUPLICATE KEY UPDATE cup_size_oz = VALUES(cup_size_oz)",
+    [itemId, oz ? Number(oz[1]) : null],
+  );
+};
+
 router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
   const [rows] = await pool.execute(
     `SELECT
@@ -94,17 +134,9 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
   if (!name || name.length > 160 || !cleanCategory || !cleanUnit || !Number.isFinite(quantity) || quantity < 0 || (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0))) {
     throw httpError(400, "Enter a valid inventory name, category, unit, and quantity. Maximum stock must be above zero or omitted.");
   }
-  const purchasePrice = Math.max(0, Number(request.body.purchasePrice || 0));
-  const packageQuantity = Math.max(0.001, Number(request.body.packageQuantity || 1));
-  const packageUnit = String(request.body.packageUnit || "pack").trim().slice(0, 40) || "pack";
-  const contentsPerPackage = Math.max(0.001, Number(request.body.contentsPerPackage || 1));
-  let calculatedUnitCost = 0;
-  if (purchasePrice > 0 && packageQuantity > 0 && contentsPerPackage > 0) {
-    calculatedUnitCost = purchasePrice / (packageQuantity * contentsPerPackage);
-  } else if (Number(request.body.unitCost) > 0) {
-    calculatedUnitCost = Number(request.body.unitCost);
-  }
-  const unitCost = Number(calculatedUnitCost.toFixed(4));
+  const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body);
+  // Blank maximum on create falls back to the starting quantity (only when there is stock).
+  const effectiveMaximumStock = maximumStock === null && quantity > 0 ? quantity : maximumStock;
 
   const connection = await pool.getConnection();
   try {
@@ -114,8 +146,9 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
          name, category, quantity, unit, maximum_stock,
          purchase_price, package_quantity, package_unit, contents_per_package, unit_cost
        ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, cleanCategory, cleanUnit, maximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost],
+      [name, cleanCategory, cleanUnit, effectiveMaximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost],
     );
+    await syncCupRow(connection, created.insertId, cleanCategory, name);
     if (quantity > 0) {
       await connection.execute("UPDATE inventory_items SET quantity = ? WHERE id = ?", [quantity, created.insertId]);
       await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'restock', ?, 'Opening stock')", [created.insertId, request.authUser.sub, quantity]);
@@ -167,19 +200,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
       }
     }
 
-    const purchasePrice = Math.max(0, Number(request.body.purchasePrice !== undefined ? request.body.purchasePrice : current.purchase_price || 0));
-    const packageQuantity = Math.max(0.001, Number(request.body.packageQuantity || current.package_quantity || 1));
-    const packageUnit = String(request.body.packageUnit || current.package_unit || "pack").trim().slice(0, 40) || "pack";
-    const contentsPerPackage = Math.max(0.001, Number(request.body.contentsPerPackage || current.contents_per_package || 1));
-    let calculatedUnitCost = 0;
-    if (purchasePrice > 0 && packageQuantity > 0 && contentsPerPackage > 0) {
-      calculatedUnitCost = purchasePrice / (packageQuantity * contentsPerPackage);
-    } else if (Number(request.body.unitCost) > 0) {
-      calculatedUnitCost = Number(request.body.unitCost);
-    } else {
-      calculatedUnitCost = Number(current.unit_cost || 0);
-    }
-    const unitCost = Number(calculatedUnitCost.toFixed(4));
+    const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body, current);
 
     await connection.execute(
       `UPDATE inventory_items SET
@@ -188,6 +209,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
        WHERE id = ?`,
       [name, cleanCategory, quantity, cleanUnit, maximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost, id],
     );
+    await syncCupRow(connection, id, cleanCategory, name);
     const delta = quantity - Number(current.quantity);
     if (delta !== 0) await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'adjustment', ?, 'Manual inventory adjustment')", [id, request.authUser.sub, delta]);
     await connection.commit();
@@ -202,14 +224,48 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
 
 router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, response) => {
   const id = Number(request.params.id);
-  const quantity = Number(request.body.quantity);
+  const quantity = Number(request.body?.quantity);
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isFinite(quantity) || quantity <= 0) throw httpError(400, "Restock quantity must be greater than zero.");
+
+  const rawBatchCost = request.body?.batchCost;
+  const hasBatchCost = rawBatchCost !== undefined && rawBatchCost !== null && String(rawBatchCost).trim() !== "";
+  const parsedBatchCost = hasBatchCost ? Number(rawBatchCost) : 0;
+  if (hasBatchCost && (!Number.isFinite(parsedBatchCost) || parsedBatchCost < 0)) {
+    throw httpError(400, "Batch cost must be zero or greater.");
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [result] = await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ? AND is_archived = FALSE", [quantity, id]);
-    if (!result.affectedRows) throw httpError(404, "Inventory item not found.");
-    await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'restock', ?, 'Inventory restock')", [id, request.authUser.sub, quantity]);
+    const [[current]] = await connection.execute("SELECT * FROM inventory_items WHERE id = ? AND is_archived = FALSE FOR UPDATE", [id]);
+    if (!current) throw httpError(404, "Inventory item not found.");
+
+    if (hasBatchCost && parsedBatchCost > 0) {
+      const oldQty = Math.max(0, Number(current.quantity || 0));
+      const oldCost = Math.max(0, Number(current.unit_cost || 0));
+      const batchUnitCost = parsedBatchCost / quantity;
+      const newUnitCost = oldQty > 0
+        ? ((oldQty * oldCost) + parsedBatchCost) / (oldQty + quantity)
+        : batchUnitCost;
+      await connection.execute(
+        "UPDATE inventory_items SET quantity = quantity + ?, unit_cost = ? WHERE id = ? AND is_archived = FALSE",
+        [quantity, Number(newUnitCost.toFixed(6)), id],
+      );
+      const formattedAvg = Number(newUnitCost.toFixed(3)).toFixed(newUnitCost.toFixed(3).endsWith("0") ? 2 : 3);
+      const note = `Inventory restock (+${quantity} ${current.unit} for ₱${parsedBatchCost.toFixed(2)} · new avg ₱${formattedAvg}/${current.unit})`;
+      await connection.execute(
+        "INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'restock', ?, ?)",
+        [id, request.authUser.sub, quantity, note],
+      );
+    } else {
+      await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ? AND is_archived = FALSE", [quantity, id]);
+      await connection.execute("INSERT INTO inventory_movements (inventory_item_id, user_id, movement_type, quantity_change, note) VALUES (?, ?, 'restock', ?, 'Inventory restock')", [id, request.authUser.sub, quantity]);
+    }
+    // First restock of an item that has no maximum and no stock (e.g. auto-created from a menu
+    // recipe at 0): use the restocked amount as the maximum. Never touches a maximum that is set.
+    if (current.maximum_stock == null && Number(current.quantity || 0) <= 0) {
+      await connection.execute("UPDATE inventory_items SET maximum_stock = ? WHERE id = ? AND maximum_stock IS NULL", [quantity, id]);
+    }
     await connection.commit();
   } catch (error) { await connection.rollback(); throw error; }
   finally { connection.release(); }

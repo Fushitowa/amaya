@@ -4,6 +4,8 @@ import {
   Archive,
   ArrowLeft,
   BarChart2,
+  ChevronLeft,
+  ChevronRight,
   LayoutGrid,
   LogOut,
   Package,
@@ -75,7 +77,12 @@ function Sidebar({
   };
 
   return (
-    <aside className={`amaya-sidebar ${className}`.trim()}>
+    <aside
+      className={`amaya-sidebar ${sidebarCollapsed ? "amaya-sidebar--collapsed" : ""} ${className}`.trim()}
+      aria-label={`${portalLabel} navigation`}
+      aria-expanded={!sidebarCollapsed}
+      data-collapsed={sidebarCollapsed ? "true" : "false"}
+    >
       <div className="amaya-sidebar-brand">
         <SidebarLogoButton
           logo={logo}
@@ -87,9 +94,22 @@ function Sidebar({
           <strong>Amaya</strong>
           <span>{portalLabel}</span>
         </div>
+        <button
+          type="button"
+          className="sidebar-toggle-btn amaya-sidebar-toggle-btn amaya-sidebar-toggle"
+          onClick={onToggle}
+          aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+          title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+        >
+          {sidebarCollapsed ? (
+            <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
+          ) : (
+            <ChevronLeft size={18} strokeWidth={2.4} aria-hidden="true" />
+          )}
+        </button>
       </div>
 
-      <nav className="amaya-sidebar-nav" aria-label={`${portalLabel} navigation`}>
+      <nav className="amaya-sidebar-nav" aria-label={`${portalLabel} menu`}>
         {resolvedSections.map((section) => (
           <div className="amaya-sidebar-section" key={section.label}>
             <span className="amaya-sidebar-section-label">{section.label}</span>
@@ -105,6 +125,7 @@ function Sidebar({
                   className={`amaya-sidebar-link${isActive ? " active" : ""}${animatedItem === item.key ? " nav-clicked" : ""}`}
                   aria-current={isActive ? "page" : undefined}
                   onClick={() => replayNavMotion(item.key)}
+                  title={item.label}
                 >
                   <item.Icon aria-hidden="true" />
                   <span className="amaya-sidebar-link-label">{item.label}</span>
@@ -117,11 +138,20 @@ function Sidebar({
       </nav>
 
       <div className="amaya-sidebar-bottom">
-        <a href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"} className="amaya-sidebar-link">
+        <a
+          href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"}
+          className="amaya-sidebar-link"
+          title="Back to Website"
+        >
           <ArrowLeft aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Back to Website</span>
         </a>
-        <Link to="/login" className="amaya-sidebar-link amaya-sidebar-link--logout" onClick={logout}>
+        <Link
+          to="/login"
+          className="amaya-sidebar-link amaya-sidebar-link--logout"
+          onClick={logout}
+          title="Log Out"
+        >
           <LogOut aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Log Out</span>
         </Link>

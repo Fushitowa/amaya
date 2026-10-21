@@ -18,6 +18,12 @@ const migrations = [
   "009_archive_and_audit_logs.sql",
   "010_inventory_pricing_and_costing.sql",
   "012_repair_archive_schema.sql",
+  "013_cost_snapshots_and_unit_cost_precision.sql",
+  "014_cups_category_and_table.sql",
+  "015_user_token_version.sql",
+  "016_seed_9_menu_categories.sql",
+  "017_seed_23_store_products_and_ingredients.sql",
+  "018_seed_full_recipes_and_packaging_from_docx.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",
