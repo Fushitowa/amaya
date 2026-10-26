@@ -75,6 +75,7 @@ export default function AdminCategories() {
     addCategory: addInventoryCategory,
     updateCategory: updateInventoryCategory,
     deleteCategory: deleteInventoryCategory,
+    reassignAndDeleteCategory,
   } = useInventory() || {};
 
   const [activeTab, setActiveTab] = useState("menu"); // "menu" | "inventory"
@@ -104,6 +105,7 @@ export default function AdminCategories() {
     name: "",
     count: 0,
     isSystem: false,
+    reassignTargetId: "",
   });
 
   // Keyboard accessibility: Escape key to close modals
@@ -269,7 +271,8 @@ export default function AdminCategories() {
       id: item.id,
       name: item.name,
       count,
-      isSystem: Boolean(item.isSystem),
+      isSystem: false,
+      reassignTargetId: "",
     });
   };
 
@@ -282,10 +285,15 @@ export default function AdminCategories() {
         await deleteMenuCategory(deleteModal.id);
         showNotice("success", `Menu category “${deleteModal.name}” deleted.`);
       } else {
-        await deleteInventoryCategory(deleteModal.id);
-        showNotice("success", `Inventory category “${deleteModal.name}” deleted.`);
+        if (deleteModal.count > 0 && deleteModal.reassignTargetId) {
+          await reassignAndDeleteCategory(deleteModal.id, Number(deleteModal.reassignTargetId));
+          showNotice("success", `Inventory category “${deleteModal.name}” deleted and items reassigned.`);
+        } else {
+          await deleteInventoryCategory(deleteModal.id);
+          showNotice("success", `Inventory category “${deleteModal.name}” deleted.`);
+        }
       }
-      setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false });
+      setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false, reassignTargetId: "" });
     } catch (err) {
       showNotice("error", err.message || "Failed to delete category.");
     } finally {
@@ -352,20 +360,6 @@ export default function AdminCategories() {
           <div className="admin-categories-workspace">
             {/* Primary Left Column */}
             <div className="admin-categories-main-pane">
-              {/* Section Heading */}
-              <section className="admin-categories-heading">
-                <div>
-                  <span className="admin-categories-pane-eyebrow">CATALOG WORKFLOW</span>
-                  <h2>{activeTab === "menu" ? "Menu Categories" : "Inventory Categories"}</h2>
-                  <p>
-                    {activeTab === "menu"
-                      ? "Configure guest-facing menu groups, operational recipes, and size scaling logic."
-                      : "Organize warehouse raw materials, packaging, and automatic checkout deductions."}
-                  </p>
-                </div>
-              </section>
-
-              {/* Control Toolbar & Tabs */}
               <div className="categories-control-panel">
                 <div className="categories-tab-group" role="tablist" aria-label="Category Types">
                   <button
@@ -565,7 +559,6 @@ export default function AdminCategories() {
                         ) : (
                           filteredInventoryCategories.map((cat) => {
                             const hasItems = Number(cat.itemCount || 0) > 0;
-                            const isProtected = Boolean(cat.isSystem) || hasItems;
                             return (
                               <tr key={cat.id} className={!cat.isActive ? "row-inactive" : ""}>
                                 <td>
@@ -586,15 +579,7 @@ export default function AdminCategories() {
                                         <Coffee size={12} aria-hidden="true" /> Cups Container
                                       </span>
                                     )}
-                                    {cat.isSystem && (
-                                      <span
-                                        className="family-badge badge-system"
-                                        title="Core operational group"
-                                      >
-                                        Core Group
-                                      </span>
-                                    )}
-                                    {!cat.isCupCategory && !cat.isSystem && (
+                                    {!cat.isCupCategory && (
                                       <span className="family-badge badge-custom">Custom</span>
                                     )}
                                   </div>
@@ -629,16 +614,13 @@ export default function AdminCategories() {
                                     </button>
                                     <button
                                       type="button"
-                                      className={`action-btn delete-btn ${isProtected ? "btn-disabled" : ""}`}
-                                      onClick={() => !isProtected && promptDelete(cat, "inventory")}
-                                      disabled={isProtected}
+                                      className="action-btn delete-btn"
+                                      onClick={() => promptDelete(cat, "inventory")}
                                       aria-label={`Delete ${cat.name} category`}
                                       title={
-                                        cat.isSystem
-                                          ? "Protected core category cannot be deleted"
-                                          : hasItems
-                                            ? `Cannot delete: ${cat.itemCount} item(s) belong to this category`
-                                            : `Delete ${cat.name} category`
+                                        hasItems
+                                          ? `${cat.itemCount} item(s) assigned. Click to reassign & delete.`
+                                          : `Delete ${cat.name} category`
                                       }
                                     >
                                       <Trash2 size={16} aria-hidden="true" />
@@ -888,15 +870,37 @@ export default function AdminCategories() {
                 Are you sure you want to delete the category{" "}
                 <strong>“{deleteModal.name}”</strong>?
               </p>
-              <p className="delete-warning-note">
-                This action is permanent and will remove the category from the database.
-              </p>
+              {deleteModal.count > 0 && deleteModal.tab === "inventory" ? (
+                <div style={{ marginTop: "14px", padding: "12px", background: "#fef3c7", borderRadius: "8px", border: "1px solid #fde68a", textAlign: "left" }}>
+                  <p style={{ margin: "0 0 8px 0", color: "#92400e", fontSize: "0.88rem", fontWeight: 600 }}>
+                    ⚠️ {deleteModal.count} inventory item(s) are currently in this category. Reassign them before deleting:
+                  </p>
+                  <select
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #d97706", fontSize: "0.88rem", background: "#ffffff" }}
+                    value={deleteModal.reassignTargetId || ""}
+                    onChange={(e) => setDeleteModal((prev) => ({ ...prev, reassignTargetId: e.target.value }))}
+                  >
+                    <option value="">-- Select Destination Category --</option>
+                    {inventoryCategories
+                      .filter((c) => c.id !== deleteModal.id)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="delete-warning-note">
+                  This action is permanent and will remove the category from the database.
+                </p>
+              )}
             </div>
             <div className="delete-confirm-footer">
               <button
                 type="button"
                 className="btn-cancel"
-                onClick={() => setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false })}
+                onClick={() => setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false, reassignTargetId: "" })}
               >
                 Cancel
               </button>
@@ -904,9 +908,13 @@ export default function AdminCategories() {
                 type="button"
                 className="btn-delete-confirm"
                 onClick={confirmDelete}
-                disabled={loading}
+                disabled={loading || (deleteModal.count > 0 && deleteModal.tab === "inventory" && !deleteModal.reassignTargetId)}
               >
-                {loading ? "Deleting..." : "Delete Permanently"}
+                {loading
+                  ? "Deleting..."
+                  : deleteModal.count > 0 && deleteModal.tab === "inventory"
+                    ? "Reassign & Delete"
+                    : "Delete Permanently"}
               </button>
             </div>
           </div>

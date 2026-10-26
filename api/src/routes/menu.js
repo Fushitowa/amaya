@@ -212,7 +212,7 @@ function cupMatchesSize(cupName, sizeLabel) {
   return cup == null || size == null || cup === size;
 }
 
-const isCupItem = (item) => item?.category === "Cups" || item?.category === "Cups & Lids" || /cup/i.test(String(item?.name || ""));
+const isCupItem = (item) => Boolean(item?.is_cup_category || item?.isCupCategory) || /cup/i.test(String(item?.category || "")) || /cup/i.test(String(item?.name || ""));
 
 function assertNoDuplicateRecipeNames(entries, description) {
   if (new Set(entries.map((entry) => entry.name.toLocaleLowerCase())).size !== entries.length) {
@@ -353,7 +353,13 @@ async function saveProduct(connection, body, id = null) {
       }
       if (!item) {
         const isCup = /cup/i.test(entry.name);
-        item = { ...(await ensureInventoryItem(entry.name, entry.stockUnit, isCup ? "Cups" : "Supplies")), category: isCup ? "Cups" : "Supplies" };
+        const [[catRow]] = await connection.execute(
+          isCup
+            ? "SELECT name FROM inventory_categories WHERE is_cup_category = TRUE ORDER BY display_order ASC, id ASC LIMIT 1"
+            : "SELECT name FROM inventory_categories WHERE is_cup_category = FALSE ORDER BY display_order ASC, id ASC LIMIT 1",
+        );
+        const resolvedCategory = catRow?.name || (isCup ? "Cups" : "Ingredients");
+        item = { ...(await ensureInventoryItem(entry.name, entry.stockUnit, resolvedCategory)), category: resolvedCategory };
       }
       itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup: isCupItem(item) });
     }
@@ -376,7 +382,11 @@ async function saveProduct(connection, body, id = null) {
             [strippedName],
           )
         : [[]];
-    const item = existingBaseRows[0] || (await ensureInventoryItem(entry.label, entry.stockUnit, "Toppings"));
+    const [[defaultCatRow]] = await connection.execute(
+      "SELECT name FROM inventory_categories ORDER BY display_order ASC, id ASC LIMIT 1",
+    );
+    const fallbackAddonCat = defaultCatRow?.name || "Ingredients";
+    const item = existingBaseRows[0] || (await ensureInventoryItem(entry.label, entry.stockUnit, fallbackAddonCat));
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
       throw httpError(400, `â€œ${entry.unit}â€ for ${entry.label} cannot be converted to inventory unit â€œ${item.unit}â€. Choose units from the same group (weight, volume, or count).`);
     }

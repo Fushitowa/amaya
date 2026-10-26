@@ -11,7 +11,8 @@
     "build:customer": "vite build --mode customer",
     "build:portal": "vite build --mode portal",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/stockBoundary.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",

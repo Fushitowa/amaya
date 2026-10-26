@@ -19,14 +19,13 @@ import {
 
 import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { DEFAULT_INGREDIENT_CATEGORY, getInventoryStatus, INVENTORY_CATEGORIES, useInventory } from "../../context/InventoryContext.jsx";
+import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const fallbackCategories = INVENTORY_CATEGORIES;
 const inventoryUnitGroups = [
   { label: "Weight", options: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
   { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
@@ -44,7 +43,7 @@ export function formatUnitCost(cost) {
 function createEmptyInventoryForm() {
   return {
     item: "",
-    category: DEFAULT_INGREDIENT_CATEGORY,
+    category: "",
     purchasePrice: "",
     packageQuantity: "1",
     packageUnit: "pack",
@@ -55,14 +54,7 @@ function createEmptyInventoryForm() {
   };
 }
 
-const normalizeInventoryCategory = (cat) => {
-  if (!cat) return "Other";
-  if (cat === "Cups") return "Cups & Lids";
-  if (cat === "Dairy & Creamers") return "Dairy & Ice Cream";
-  if (cat === "Snack Ingredients") return "Snack Ingredients & Meats";
-  if (cat === "Syrups & Sweeteners") return "Syrups & Purees";
-  return cat;
-};
+const normalizeInventoryCategory = (cat) => cat || "Uncategorized";
 
 // Stable reference so the memo dependencies below don't change every render.
 const EMPTY_INVENTORY = [];
@@ -157,7 +149,7 @@ function AdminInventory() {
     removeInventoryItem,
     restockInventoryItem,
   } = useInventory() || {};
-  const categories = (categoryNames && categoryNames.length) ? categoryNames : fallbackCategories;
+  const categories = (categoryNames && categoryNames.length) ? categoryNames : ["All"];
   const inventory = storedInventory || EMPTY_INVENTORY;
   const [activeCategory, setActiveCategory] = useState("All");
   const [viewMode, setViewMode] = useState("grid");
@@ -885,7 +877,10 @@ function AdminInventory() {
                   value={formValues.category}
                   onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
                 >
-                  {!categories.includes(formValues.category) && <option value={formValues.category}>{formValues.category} (current)</option>}
+                  <option value="">-- Choose Category --</option>
+                  {formValues.category && !categories.includes(formValues.category) && (
+                    <option value={formValues.category}>{formValues.category} (current)</option>
+                  )}
                   {categories.filter((category) => category !== "All").map((category) => (
                     <option key={category} value={category}>{category}</option>
                   ))}

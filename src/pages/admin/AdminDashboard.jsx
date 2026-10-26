@@ -8,6 +8,7 @@ import {
   Plus,
   ReceiptText,
   ShoppingBag,
+  TrendingUp,
   Warehouse,
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
@@ -32,8 +33,42 @@ function AdminDashboard() {
   // 1. Total Sales (strictly from verified Paid orders)
   const paidOrders = useMemo(() => orders.filter((order) => order.payment === "Paid"), [orders]);
   const allTimeSales = useMemo(() => paidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [paidOrders]);
+  const allTimeCogs = useMemo(
+    () =>
+      paidOrders.reduce(
+        (sum, order) =>
+          sum +
+          (order.items || []).reduce(
+            (itemSum, item) =>
+              itemSum +
+              (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
+            0,
+          ),
+        0,
+      ),
+    [paidOrders],
+  );
+  const allTimeProfit = allTimeSales - allTimeCogs;
+  const allTimeMarginPercent = allTimeSales > 0 ? (allTimeProfit / allTimeSales) * 100 : 0;
+
   const todaysPaidOrders = useMemo(() => paidOrders.filter((order) => isToday(order.createdAt)), [paidOrders]);
   const todaysSales = useMemo(() => todaysPaidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [todaysPaidOrders]);
+  const todaysCogs = useMemo(
+    () =>
+      todaysPaidOrders.reduce(
+        (sum, order) =>
+          sum +
+          (order.items || []).reduce(
+            (itemSum, item) =>
+              itemSum +
+              (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
+            0,
+          ),
+        0,
+      ),
+    [todaysPaidOrders],
+  );
+  const todaysProfit = todaysSales - todaysCogs;
 
   // 2. Products Sold (distinguishing completed orders count vs actual unit count)
   const allTimeUnitsSold = useMemo(
@@ -97,16 +132,32 @@ function AdminDashboard() {
       });
     }
 
-    return buckets.map((bucket) => ({
-      ...bucket,
-      total: orders.reduce((sum, order) => {
-        if (order.payment !== "Paid") return sum;
+    return buckets.map((bucket) => {
+      let bucketTotal = 0;
+      let bucketCogs = 0;
+      orders.forEach((order) => {
+        if (order.payment !== "Paid") return;
         const createdAt = new Date(order.createdAt);
-        return createdAt >= bucket.start && createdAt < bucket.end ? sum + Number(order.total || 0) : sum;
-      }, 0),
-    }));
+        if (createdAt >= bucket.start && createdAt < bucket.end) {
+          bucketTotal += Number(order.total || 0);
+          bucketCogs += (order.items || []).reduce(
+            (itemSum, item) =>
+              itemSum +
+              (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
+            0,
+          );
+        }
+      });
+      return {
+        ...bucket,
+        total: bucketTotal,
+        cogs: bucketCogs,
+        profit: bucketTotal - bucketCogs,
+      };
+    });
   }, [orders, salesRange]);
   const periodSales = salesBuckets.reduce((sum, bucket) => sum + bucket.total, 0);
+  const periodProfit = salesBuckets.reduce((sum, bucket) => sum + (bucket.profit || 0), 0);
   const chartMaximum = Math.max(1, ...salesBuckets.map((bucket) => bucket.total));
   const chartRangeLabel = salesRange === "year" ? "this year" : salesRange === "month" ? "last 30 days" : "last 7 days";
 
@@ -156,10 +207,19 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Total Sales (Paid)</span>
-                <h3>₱{allTimeSales.toFixed(2)}</h3>
+                <div className="stat-metric-row">
+                  <h3>₱{allTimeSales.toFixed(2)}</h3>
+                  <div
+                    className="stat-profit-pill"
+                    title={`COGS: ₱${allTimeCogs.toFixed(2)} • Margin: ${allTimeMarginPercent.toFixed(1)}%`}
+                  >
+                    <TrendingUp size={11} strokeWidth={2.4} />
+                    <span className="profit-text">₱{allTimeProfit.toFixed(2)} profit</span>
+                  </div>
+                </div>
                 <small>
                   {todaysPaidOrders.length
-                    ? `₱${todaysSales.toFixed(2)} from ${todaysPaidOrders.length} paid today`
+                    ? `₱${todaysSales.toFixed(2)} from ${todaysPaidOrders.length} paid today (₱${todaysProfit.toFixed(2)} profit)`
                     : "No paid sales recorded today"}
                 </small>
               </div>
@@ -224,6 +284,9 @@ function AdminDashboard() {
 
                 <div className="sales-header-controls">
                   <span className="sales-total"><ChartNoAxesColumnIncreasing size={14} /> ₱{periodSales.toFixed(2)}</span>
+                  <span className="sales-profit-badge" title="Gross Profit for selected range">
+                    ₱{periodProfit.toFixed(2)} profit
+                  </span>
                   <select
                     className="sales-filter"
                     value={salesRange}
@@ -242,7 +305,11 @@ function AdminDashboard() {
                 <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
                   {salesBuckets.map((bucket) => (
                     <div className="chart-column" key={`${salesRange}-${bucket.start.toISOString()}`}>
-                      <div className="chart-bar" title={`₱${bucket.total.toFixed(2)}`} style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }} />
+                      <div
+                        className="chart-bar"
+                        title={`₱${bucket.total.toFixed(2)} sales (₱${(bucket.profit || 0).toFixed(2)} profit)`}
+                        style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }}
+                      />
                       <span>{bucket.label}</span>
                     </div>
                   ))}

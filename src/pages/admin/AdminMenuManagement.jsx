@@ -243,7 +243,7 @@ function AdminMenuManagement() {
 	const { inventory = [], refreshInventory } = useInventory() || {};
 	const cupInventoryItems = useMemo(() => {
 		return (inventory || [])
-			.filter((item) => (item.category === "Cups & Lids" || item.category === "Cups" || String(item.item || "").toLowerCase().includes("cup")) && !item.isArchived)
+			.filter((item) => (item.isCupCategory || item.is_cup_category || String(item.category || "").toLowerCase().includes("cup") || String(item.item || "").toLowerCase().includes("cup")) && !item.isArchived)
 			.sort((a, b) => {
 				const ozA = Number(String(a.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
 				const ozB = Number(String(b.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
@@ -353,7 +353,7 @@ function AdminMenuManagement() {
 	const isCupIngredient = (ing) => {
 		const name = String(ing?.name || "").trim().toLowerCase();
 		const invItem = inventory.find((entry) => Number(entry.id) === Number(ing?.inventoryItemId) || entry.item.toLowerCase() === name);
-		return invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || name.includes("cup");
+		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || name.includes("cup"));
 	};
 
 	// Per-size amount: cups are 1 only on their matching size (never cloned), everything else scales.
@@ -499,7 +499,7 @@ function AdminMenuManagement() {
 		// Separate non-cup ingredients from cup ingredients
 		const nonCupIngredients = formValues.ingredients.filter((ing) => {
 			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
-			return !(invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || String(ing.name || "").toLowerCase().includes("cup"));
+			return !(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || String(ing.name || "").toLowerCase().includes("cup"));
 		});
 
 		// Scale non-cup ingredients across sizes
@@ -558,7 +558,7 @@ function AdminMenuManagement() {
 
 			const updatedIngredients = current.ingredients.map((ing) => {
 				const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
-				const isCup = invItem?.category === "Cups & Lids" || invItem?.category === "Cups" || String(ing.name || "").toLowerCase().includes("cup");
+				const isCup = Boolean(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || String(ing.name || "").toLowerCase().includes("cup"));
 				const isThisCup = (invItem && invItem.id === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
 				if (isThisCup) hasThisCup = true;
 

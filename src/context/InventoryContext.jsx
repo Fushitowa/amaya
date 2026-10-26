@@ -6,20 +6,8 @@ import { useAuth } from "./AuthContext.jsx";
 
 const InventoryContext = createContext(null);
 
-export const INVENTORY_CATEGORIES = [
-  "All",
-  "Cups & Lids",
-  "Packaging & Disposables",
-  "Snack Ingredients & Meats",
-  "Bakery & Breads",
-  "Dairy & Ice Cream",
-  "Syrups & Purees",
-  "Powders & Seasonings",
-  "Toppings & Add-ons",
-  "Cooking & Condiments",
-  "Store & Cleaning Supplies",
-];
-export const DEFAULT_INGREDIENT_CATEGORY = "Cups & Lids";
+export const INVENTORY_CATEGORIES = [];
+export const DEFAULT_INGREDIENT_CATEGORY = "";
 
 export function getInventoryStatus(quantity, maximumStock) {
   if (Number(quantity) <= 0) return "Out of Stock";
@@ -97,8 +85,8 @@ function InventoryProvider({ children }) {
 
   const value = useMemo(() => ({
     inventory: user ? inventory : [],
-    categories: categories.length ? categories : INVENTORY_CATEGORIES.filter((c) => c !== "All").map((c, i) => ({ id: i + 1, name: c, isCupCategory: c === "Cups" || c === "Cups & Lids", isSystem: true, displayOrder: i + 1, isActive: true, itemCount: 0 })),
-    categoryNames: ["All", ...(categories.length ? categories.filter((c) => c.isActive !== false).map((c) => c.name) : INVENTORY_CATEGORIES.filter((c) => c !== "All"))],
+    categories: user ? categories : [],
+    categoryNames: ["All", ...(categories.filter((c) => c.isActive !== false).map((c) => c.name))],
     loading: Boolean(user && loadedUserId !== user.id),
     error: user ? error : "",
     refreshInventory,
@@ -123,6 +111,15 @@ function InventoryProvider({ children }) {
     deleteCategory: async (id) => {
       await apiRequest(`/inventory/categories/${id}`, { method: "DELETE" });
       setCategories((current) => current.filter((c) => c.id !== id));
+    },
+    reassignAndDeleteCategory: async (id, targetCategoryId) => {
+      const result = await apiRequest(`/inventory/categories/${id}/reassign-and-delete`, {
+        method: "PUT",
+        body: JSON.stringify({ targetCategoryId }),
+      });
+      setCategories((current) => current.filter((c) => c.id !== id));
+      await refreshInventory();
+      return result;
     },
     totalInventoryValue: inventory.reduce(
       (sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)),
@@ -159,7 +156,7 @@ function InventoryProvider({ children }) {
       setInventory((current) => current.filter((item) => item.id !== id));
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
     },
-  }), [error, inventory, loadedUserId, refreshInventory, user]);
+  }), [categories, error, inventory, loadedUserId, refreshCategories, refreshInventory, user]);
 
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }

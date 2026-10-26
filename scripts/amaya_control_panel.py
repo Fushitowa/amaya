@@ -295,7 +295,8 @@ class AmayaControlPanel:
             bg="#8B5E3C",
             fg="#FFFFFF",
             command=self.start_all_services,
-        ).pack(side=tk.LEFT, padx=4)
+            padx=8,
+        ).pack(side=tk.LEFT, padx=3)
 
         self._make_button(
             btn_bar,
@@ -303,7 +304,8 @@ class AmayaControlPanel:
             bg="#7F1D1D",
             fg="#FEE2E2",
             command=self.stop_all_services,
-        ).pack(side=tk.LEFT, padx=4)
+            padx=8,
+        ).pack(side=tk.LEFT, padx=3)
 
         self._make_button(
             btn_bar,
@@ -311,7 +313,8 @@ class AmayaControlPanel:
             bg="#3B2A22",
             fg="#F5E6D3",
             command=self.restart_all_services,
-        ).pack(side=tk.LEFT, padx=4)
+            padx=8,
+        ).pack(side=tk.LEFT, padx=3)
 
         self._make_button(
             btn_bar,
@@ -319,7 +322,8 @@ class AmayaControlPanel:
             bg="#3B2A22",
             fg="#FCD34D",
             command=self.free_all_ports,
-        ).pack(side=tk.LEFT, padx=4)
+            padx=8,
+        ).pack(side=tk.LEFT, padx=3)
 
         self._make_button(
             btn_bar,
@@ -327,7 +331,8 @@ class AmayaControlPanel:
             bg="#3B2A22",
             fg="#93C5FD",
             command=self.run_setup_and_migrate,
-        ).pack(side=tk.LEFT, padx=4)
+            padx=8,
+        ).pack(side=tk.LEFT, padx=3)
 
         # Service Cards Grid (2x2 layout so all 4 services have plenty of room)
         cards_frame = tk.Frame(self.root, bg="#1E1612")
@@ -339,6 +344,70 @@ class AmayaControlPanel:
             row_idx = idx // 2
             col_idx = idx % 2
             self._build_service_card(cards_frame, cfg, row_idx, col_idx)
+
+        # Catalog & Inventory Vault Bar (One-Click Archive & Clean / Recover)
+        vault_bar = tk.Frame(
+            self.root,
+            bg="#2A1E19",
+            padx=14,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground="#3E2D25",
+        )
+        vault_bar.pack(fill=tk.X, padx=14, pady=(4, 4))
+
+        vault_left = tk.Frame(vault_bar, bg="#2A1E19")
+        vault_left.pack(side=tk.LEFT, fill=tk.Y)
+
+        tk.Label(
+            vault_left,
+            text="🗄️ INVENTORY & MENU CATALOG VAULT (ONE-CLICK ARCHIVE & CLEAN / RECOVER)",
+            font=("Segoe UI", 8, "bold"),
+            fg="#EBC18F",
+            bg="#2A1E19",
+        ).pack(anchor="w")
+
+        self.vault_status_lbl = tk.Label(
+            vault_left,
+            text="Checking live catalog & archived vault snapshot...",
+            font=("Consolas", 8),
+            fg="#D6C4B4",
+            bg="#2A1E19",
+        )
+        self.vault_status_lbl.pack(anchor="w", pady=(2, 0))
+
+        vault_btns = tk.Frame(vault_bar, bg="#2A1E19")
+        vault_btns.pack(side=tk.RIGHT)
+
+        self._make_button(
+            vault_btns,
+            text="🗄️ Archive & Clean Inventory + Menu",
+            bg="#9A3412",
+            fg="#FFEDD5",
+            command=self.archive_and_clean_catalog,
+            padx=10,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=4)
+
+        self._make_button(
+            vault_btns,
+            text="♻️ Recover Archived Inventory + Menu",
+            bg="#166534",
+            fg="#DCFCE7",
+            command=self.recover_archived_catalog,
+            padx=10,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=4)
+
+        self._make_button(
+            vault_btns,
+            text="📂 Backups Folder",
+            bg="#3B2A22",
+            fg="#EBC18F",
+            command=self.open_vault_backups_folder,
+            padx=10,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(4, 0))
 
         # Bottom Console Area
         console_outer = tk.Frame(
@@ -600,6 +669,7 @@ class AmayaControlPanel:
             f"API node_modules: {'OK' if api_nm else 'MISSING'} | "
             f"api/.env: {'OK' if api_env else 'MISSING'}",
         )
+        self.refresh_vault_status()
 
     def _ensure_api_env_file(self) -> bool:
         env_path = API_DIR / ".env"
@@ -718,6 +788,7 @@ class AmayaControlPanel:
                 proc.wait()
                 if proc.returncode == 0:
                     self.enqueue_log("api", "success", "Database migration finished successfully!")
+                    self.refresh_vault_status()
                 else:
                     self.enqueue_log(
                         "api",
@@ -728,6 +799,290 @@ class AmayaControlPanel:
                 self.enqueue_log("api", "error", f"Migration error: {exc}")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # CATALOG & INVENTORY VAULT (ARCHIVE & CLEAN / RECOVER)
+    # ------------------------------------------------------------------
+    def _ensure_mysql_ready_for_vault(self) -> bool:
+        if is_port_open(3306):
+            return True
+        self.enqueue_log("mysql", "info", "MySQL (:3306) is offline. Auto-starting XAMPP MySQL for Vault operation...")
+        self._start_service_worker("mysql")
+        for _ in range(24):
+            if is_port_open(3306):
+                return True
+            time.sleep(0.25)
+        return is_port_open(3306)
+
+    def _apply_vault_status_payload(self, data: dict) -> None:
+        if not hasattr(self, "vault_status_lbl"):
+            return
+        live_menu = data.get("liveMenu", 0)
+        live_inv = data.get("liveInventory", 0)
+        has_backup = data.get("hasBackup", False)
+        b_menu = data.get("backupMenu", 0)
+        b_inv = data.get("backupInventory", 0)
+        b_ts = data.get("backupTimestamp") or ""
+        if b_ts and "T" in b_ts:
+            b_ts = b_ts.replace("T", " ").split(".")[0] + " UTC"
+
+        if has_backup:
+            backup_str = f"Ready ({b_menu} Products, {b_inv} Ingredients @ {b_ts})"
+        else:
+            backup_str = "None yet (Click 'Archive & Clean' to create snapshot)"
+
+        text = f"Live DB: {live_menu} Menu Products, {live_inv} Inventory Ingredients  |  Archived Vault: {backup_str}"
+        fg_color = "#86EFAC" if (live_menu > 0 or live_inv > 0) else "#FDE047"
+        self.root.after(0, lambda: self.vault_status_lbl.configure(text=text, fg=fg_color))
+
+    def refresh_vault_status(self) -> None:
+        def _worker() -> None:
+            backups_file = ROOT_DIR / "database" / "backups" / "catalog_vault_latest.json"
+            if not is_port_open(3306):
+                # Read local backup JSON even if MySQL is currently stopped
+                b_menu, b_inv, has_b, b_ts = 0, 0, False, ""
+                if backups_file.is_file():
+                    try:
+                        parsed = json.loads(backups_file.read_text(encoding="utf-8"))
+                        has_b = True
+                        b_menu = len(parsed.get("tables", {}).get("menu_products", []))
+                        b_inv = len(parsed.get("tables", {}).get("inventory_items", []))
+                        b_ts = parsed.get("createdAt", "")
+                    except Exception:
+                        pass
+                backup_txt = f"Ready ({b_menu} Products, {b_inv} Ingredients)" if has_b else "None yet"
+                msg = f"Live DB: (Start MySQL :3306 to inspect)  |  Archived Vault: {backup_txt}"
+                if hasattr(self, "vault_status_lbl"):
+                    self.root.after(0, lambda: self.vault_status_lbl.configure(text=msg, fg="#D6C4B4"))
+                return
+
+            try:
+                node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                res = subprocess.run(
+                    [node_exe, "src/catalog-vault.js", "status"],
+                    cwd=str(API_DIR),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=10,
+                    creationflags=creationflags,
+                )
+                for line in (res.stdout or "").splitlines():
+                    if line.startswith("VAULT_STATUS_JSON:"):
+                        payload = json.loads(line.split("VAULT_STATUS_JSON:", 1)[1])
+                        self._apply_vault_status_payload(payload)
+                        break
+            except Exception as exc:
+                self.enqueue_log("api", "warn", f"Vault status check skipped: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def archive_and_clean_catalog(self) -> None:
+        confirm = messagebox.askyesno(
+            "Archive & Clean Inventory + Menu Catalog?",
+            "This action will:\n\n"
+            "1. ARCHIVE your entire current Inventory Management ingredients, stock levels, cups, and Menu Management products/recipes into a safe Vault Snapshot (database/backups/catalog_vault_latest.json).\n\n"
+            "2. CLEAN SLATE your active Inventory Management and Menu Management database (0 products, 0 ingredients) so you can start completely fresh without duplicate-name conflicts.\n"
+            "   (Your 9 Menu Categories, 12 Inventory Categories, Staff Accounts, and Orders are kept intact!)\n\n"
+            "You can restore everything anytime with one click using '♻️ Recover Archived Inventory + Menu'.\n\n"
+            "Proceed with Archive & Clean?",
+        )
+        if not confirm:
+            return
+
+        def _worker() -> None:
+            self._ensure_api_env_file()
+            if not self._ensure_mysql_ready_for_vault():
+                self.enqueue_log("api", "error", "Cannot run Catalog Vault: MySQL (:3306) is not reachable.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "MySQL Offline",
+                        "Could not connect to MySQL on port 3306. Please start XAMPP MySQL first.",
+                    ),
+                )
+                return
+
+            self.enqueue_log("api", "info", "Running Catalog Vault: 'node src/catalog-vault.js archive-clean'...")
+            node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            try:
+                proc = subprocess.Popen(
+                    [node_exe, "src/catalog-vault.js", "archive-clean"],
+                    cwd=str(API_DIR),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=creationflags,
+                )
+                assert proc.stdout is not None
+                last_payload: dict | None = None
+                for raw_line in proc.stdout:
+                    cleaned = strip_ansi(raw_line).rstrip()
+                    if not cleaned:
+                        continue
+                    if cleaned.startswith("VAULT_STATUS_JSON:"):
+                        try:
+                            last_payload = json.loads(cleaned.split("VAULT_STATUS_JSON:", 1)[1])
+                            self._apply_vault_status_payload(last_payload)
+                        except Exception:
+                            pass
+                        continue
+                    level = "error" if "error" in cleaned.lower() else "success" if "clean slate" in cleaned.lower() else "info"
+                    self.enqueue_log("api", level, cleaned)
+
+                proc.wait()
+                if proc.returncode == 0 and last_payload:
+                    if last_payload.get("alreadyClean"):
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Catalog Already Clean (Backup Preserved)",
+                                f"Your live Inventory & Menu database is already clean (0 Products, 0 Ingredients).\n\n"
+                                f"Safety Guard preserved your previous Vault backup ({last_payload.get('backupMenu', 0)} Products, "
+                                f"{last_payload.get('backupInventory', 0)} Ingredients) so it was not overwritten with zeros!",
+                            ),
+                        )
+                    else:
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Archive & Clean Complete!",
+                                f"Successfully archived {last_payload.get('backupMenu', 0)} Menu Products and "
+                                f"{last_payload.get('backupInventory', 0)} Inventory Ingredients to the Vault!\n\n"
+                                f"Live Database is now a 100% clean slate:\n"
+                                f"• Active Menu Products: 0\n"
+                                f"• Active Inventory Ingredients: 0\n\n"
+                                f"Refresh your Admin Portal (:5174) to view the clean database, or click '♻️ Recover Archived Inventory + Menu' anytime to restore.",
+                            ),
+                        )
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Archive & Clean Failed",
+                            "Catalog Vault archive-clean encountered an error. Check the Live Terminal Output below for details.",
+                        ),
+                    )
+            except Exception as exc:
+                self.enqueue_log("api", "error", f"Catalog Vault error: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def recover_archived_catalog(self) -> None:
+        backups_file = ROOT_DIR / "database" / "backups" / "catalog_vault_latest.json"
+        if not backups_file.is_file():
+            messagebox.showwarning(
+                "No Archived Snapshot Found",
+                f"No archived catalog snapshot was found at:\n{backups_file}\n\n"
+                "Click '🗄️ Archive & Clean Inventory + Menu' first to create a Vault snapshot.",
+            )
+            return
+
+        b_menu, b_inv, b_ts = 0, 0, "Unknown"
+        try:
+            parsed = json.loads(backups_file.read_text(encoding="utf-8"))
+            b_menu = len(parsed.get("tables", {}).get("menu_products", []))
+            b_inv = len(parsed.get("tables", {}).get("inventory_items", []))
+            b_ts = parsed.get("createdAt", "Unknown")
+        except Exception:
+            pass
+
+        confirm = messagebox.askyesno(
+            "Recover Archived Inventory + Menu?",
+            f"Restore the archived Vault snapshot into the live MySQL database?\n\n"
+            f"• Snapshot Timestamp: {b_ts}\n"
+            f"• Menu Products to Restore: {b_menu}\n"
+            f"• Inventory Ingredients to Restore: {b_inv}\n\n"
+            f"(Any items currently in the live database will first be saved to a pre_recovery safety file in database/backups/.)\n\n"
+            f"Proceed with Full Recovery?",
+        )
+        if not confirm:
+            return
+
+        def _worker() -> None:
+            self._ensure_api_env_file()
+            if not self._ensure_mysql_ready_for_vault():
+                self.enqueue_log("api", "error", "Cannot run Catalog Vault recovery: MySQL (:3306) is offline.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "MySQL Offline",
+                        "Could not connect to MySQL on port 3306. Please start XAMPP MySQL first.",
+                    ),
+                )
+                return
+
+            self.enqueue_log("api", "info", "Running Catalog Vault: 'node src/catalog-vault.js recover'...")
+            node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            try:
+                proc = subprocess.Popen(
+                    [node_exe, "src/catalog-vault.js", "recover"],
+                    cwd=str(API_DIR),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=creationflags,
+                )
+                assert proc.stdout is not None
+                last_payload: dict | None = None
+                for raw_line in proc.stdout:
+                    cleaned = strip_ansi(raw_line).rstrip()
+                    if not cleaned:
+                        continue
+                    if cleaned.startswith("VAULT_STATUS_JSON:"):
+                        try:
+                            last_payload = json.loads(cleaned.split("VAULT_STATUS_JSON:", 1)[1])
+                            self._apply_vault_status_payload(last_payload)
+                        except Exception:
+                            pass
+                        continue
+                    level = "error" if "error" in cleaned.lower() else "success" if "recovery complete" in cleaned.lower() else "info"
+                    self.enqueue_log("api", level, cleaned)
+
+                proc.wait()
+                if proc.returncode == 0 and last_payload:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Catalog Recovery Complete!",
+                            f"Successfully restored your archived catalog back into the live MySQL database!\n\n"
+                            f"• Restored Menu Products: {last_payload.get('liveMenu', 0)}\n"
+                            f"• Restored Inventory Ingredients: {last_payload.get('liveInventory', 0)}\n\n"
+                            f"Refresh your Admin Portal (:5174) or Customer Website (:5173) to see all restored items and recipes.",
+                        ),
+                    )
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Recovery Failed",
+                            "Catalog Vault recovery encountered an error. Check the Live Terminal Output below for details.",
+                        ),
+                    )
+            except Exception as exc:
+                self.enqueue_log("api", "error", f"Catalog Vault recovery error: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def open_vault_backups_folder(self) -> None:
+        backups_dir = ROOT_DIR / "database" / "backups"
+        backups_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if os.name == "nt":
+                os.startfile(str(backups_dir))
+            else:
+                webbrowser.open(backups_dir.as_uri())
+            self.enqueue_log("system", "info", f"Opened Vault backups directory: {backups_dir}")
+        except Exception as exc:
+            self.enqueue_log("system", "error", f"Could not open backups folder: {exc}")
 
     # ------------------------------------------------------------------
     # SERVICE START / STOP / RESTART & PORT MANAGEMENT
@@ -979,6 +1334,7 @@ class AmayaControlPanel:
                 for _ in range(24):
                     if is_port_open(3306):
                         self.enqueue_log("mysql", "success", "MySQL Port :3306 is open and ready for connections!")
+                        self.refresh_vault_status()
                         break
                     time.sleep(0.25)
 

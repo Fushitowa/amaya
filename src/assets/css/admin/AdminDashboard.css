@@ -1464,6 +1464,44 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.admin-dashboard .stat-metric-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 5px;
+}
+
+.admin-dashboard .stat-metric-row h3 {
+  margin: 0;
+}
+
+.admin-dashboard .stat-profit-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2.5px 8px;
+  border-radius: 999px;
+  background: rgba(46, 125, 50, 0.09);
+  border: 1px solid rgba(46, 125, 50, 0.22);
+  color: #246d29;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.admin-dashboard .stat-profit-pill:hover {
+  background: rgba(46, 125, 50, 0.15);
+  transform: translateY(-1px);
+}
+
+.admin-dashboard .stat-profit-pill svg {
+  flex-shrink: 0;
+}
+
 .admin-dashboard .stat-info small {
   color: #91847a;
   font-size: 10px;
@@ -1520,6 +1558,21 @@ body {
   color: #637a68;
   font-size: 11px;
   font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-dashboard .sales-profit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(46, 125, 50, 0.08);
+  border: 1px solid rgba(46, 125, 50, 0.2);
+  color: #246d29;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

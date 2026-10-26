@@ -38,3 +38,4 @@ database/*.sql
 !database/migrations/*.sql
 *.backup.sql
 *_backup.sql
+database/backups/catalog_vault_2*.json

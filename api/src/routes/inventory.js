@@ -237,10 +237,6 @@ router.delete("/categories/:id", requireAuth, requireRole("admin"), async (reque
   );
   if (!category) throw httpError(404, "Inventory category not found.");
 
-  if (Boolean(category.is_system)) {
-    throw httpError(403, `“${category.name}” is a protected core operational category and cannot be deleted.`);
-  }
-
   // Charlotte's Zero-Trust Check: block deletion if items (active or archived) are assigned
   const [[usage]] = await pool.execute(
     "SELECT COUNT(*) AS total FROM inventory_items WHERE category = ?",
@@ -252,6 +248,50 @@ router.delete("/categories/:id", requireAuth, requireRole("admin"), async (reque
 
   await pool.execute("DELETE FROM inventory_categories WHERE id = ?", [id]);
   response.json({ message: `Inventory category “${category.name}” deleted successfully.`, id });
+});
+
+router.put("/categories/:id/reassign-and-delete", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = Number(request.params.id);
+  const targetId = Number(request.body?.targetCategoryId);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid source category ID.");
+  if (!Number.isSafeInteger(targetId) || targetId <= 0 || targetId === id) {
+    throw httpError(400, "Valid target category ID is required for reassignment.");
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[sourceCategory]] = await connection.execute(
+      "SELECT id, name FROM inventory_categories WHERE id = ? FOR UPDATE",
+      [id],
+    );
+    if (!sourceCategory) throw httpError(404, "Source inventory category not found.");
+
+    const [[targetCategory]] = await connection.execute(
+      "SELECT id, name FROM inventory_categories WHERE id = ? FOR UPDATE",
+      [targetId],
+    );
+    if (!targetCategory) throw httpError(404, "Target inventory category not found.");
+
+    const [updateResult] = await connection.execute(
+      "UPDATE inventory_items SET category = ? WHERE category = ?",
+      [targetCategory.name, sourceCategory.name],
+    );
+
+    await connection.execute("DELETE FROM inventory_categories WHERE id = ?", [id]);
+
+    await connection.commit();
+    response.json({
+      message: `Category “${sourceCategory.name}” deleted. Reassigned ${updateResult.affectedRows} item(s) to “${targetCategory.name}”.`,
+      id,
+      reassignedCount: updateResult.affectedRows,
+    });
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 });
 
 router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_request, response) => {

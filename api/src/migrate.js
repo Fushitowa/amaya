@@ -25,6 +25,7 @@ const migrations = [
   "017_seed_23_store_products_and_ingredients.sql",
   "018_seed_full_recipes_and_packaging_from_docx.sql",
   "019_inventory_categories_and_operational_families.sql",
+  "020_dynamic_inventory_categories_and_reset_readiness.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",

@@ -51,6 +51,13 @@ const categoryDescriptions = {
   snacks: "Crispy bites, street food, and comfort snacks.",
 };
 
+const getCategoryTitle = (key) => {
+  if (!key) return "General";
+  if (key === "all") return "All Items";
+  const normalized = String(key).toLowerCase().trim();
+  return Object.hasOwn(categoryTitles, normalized) ? categoryTitles[normalized] : key;
+};
+
 function StaffMenu() {
   const { darkMode } = useTheme();
   const { products = [] } = useMenu() || {};
@@ -109,15 +116,15 @@ function StaffMenu() {
 
   // Filter products by active category and search term
   const visibleItems = useMemo(() => {
-    const query = searchTerm.toLowerCase().trim();
+    const query = String(searchTerm || "").toLowerCase().trim();
     return allFormattedProducts.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory;
       if (!matchesCategory) return false;
       if (!query) return true;
 
-      const title = (item.title || "").toLowerCase();
-      const desc = (item.description || "").toLowerCase();
-      const cat = (item.category || "").toLowerCase();
+      const title = String(item.title || "").toLowerCase();
+      const desc = String(item.description || "").toLowerCase();
+      const cat = String(item.category || "").toLowerCase();
       return title.includes(query) || desc.includes(query) || cat.includes(query);
     });
   }, [activeCategory, allFormattedProducts, searchTerm]);
@@ -344,77 +351,62 @@ function StaffMenu() {
 
       {/* Main Menu Grid Area */}
       <main className="staff-menu-main">
+        {/* Consolidated Compact Header: Title + Count Badge + Search in one 34px row */}
         <section className="staff-menu-top">
-          <div>
-            <span className="staff-menu-page-label">COUNTER POINT OF SALE</span>
-            <h1>Menu & Quick Ordering</h1>
+          <div className="staff-menu-top-heading">
+            <h1 className="staff-menu-title">Menu &amp; Quick Ordering</h1>
+            <span className="staff-menu-count-badge">
+              {visibleItems.length} Available
+            </span>
           </div>
 
           <div className="staff-menu-top-actions">
             <div className="staff-menu-search">
+              <span className="staff-menu-search-icon" aria-hidden="true">🔍</span>
               <input
                 type="search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search drinks, milk teas, snacks..."
+                placeholder="Search menu items..."
                 aria-label="Search menu items"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  className="staff-menu-search-clear"
+                  onClick={() => setSearchTerm("")}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
         </section>
 
-        {/* Category Tabs */}
-        <section className="staff-menu-category-tabs" style={{ display: "flex", gap: "8px", overflowX: "auto", padding: "14px 0", borderBottom: "1px solid rgba(52, 39, 29, 0.08)" }}>
+        {/* Slim Horizontal Category Pill Row (Clean CSS classes, zero inline styles) */}
+        <section className="staff-menu-category-tabs" aria-label="Menu categories">
           {dynamicCategories.map((key) => {
             const isAll = key === "all";
-            const label = isAll ? "All Items" : (categoryTitles[key.toLowerCase()] || key);
+            const label = getCategoryTitle(key);
             const count = isAll
               ? allFormattedProducts.length
               : allFormattedProducts.filter((p) => p.category === key).length;
+            const isActive = activeCategory === key;
 
             return (
               <button
                 key={key}
                 type="button"
-                className={`category-tab-btn ${activeCategory === key ? "active" : ""}`}
+                className={`category-tab-btn ${isActive ? "active" : ""}`}
                 onClick={() => setActiveCategory(key)}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "8px",
-                  border: activeCategory === key ? "1.5px solid #8b5e3c" : "1px solid #e5ded7",
-                  background: activeCategory === key ? "#8b5e3c" : "#ffffff",
-                  color: activeCategory === key ? "#ffffff" : "#5d4d43",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  whiteSpace: "nowrap",
-                  transition: "all 0.18s ease",
-                }}
+                aria-pressed={isActive}
               >
-                <span>{label}</span>
-                <span style={{ fontSize: "10px", opacity: 0.85 }}>({count})</span>
+                <span className="category-tab-label">{label}</span>
+                <span className="category-tab-count">({count})</span>
               </button>
             );
           })}
-        </section>
-
-        <section className="staff-menu-category-header" style={{ margin: "16px 0 12px" }}>
-          <div>
-            <span className="category-label" style={{ fontWeight: 700, color: "#8b5e3c", fontSize: "13px" }}>
-              {activeCategory === "all" ? "All Items" : (categoryTitles[activeCategory.toLowerCase()] || activeCategory)}
-            </span>
-            <p style={{ margin: "4px 0 0", color: "#8a7c73", fontSize: "12px" }}>
-              {activeCategory === "all"
-                ? categoryDescriptions.all
-                : (categoryDescriptions[activeCategory.toLowerCase()] || `Browse all available ${activeCategory.toLowerCase()} items.`)}
-            </p>
-          </div>
-          <span className="category-total" style={{ fontWeight: 600, fontSize: "12px", color: "#8a7c73" }}>
-            {visibleItems.length} Available
-          </span>
         </section>
 
         {/* Product Cards Grid */}
@@ -426,22 +418,10 @@ function StaffMenu() {
                 <article
                   className={`staff-menu-card ${isOutOfStock ? "out-of-stock" : ""}`}
                   key={`${item.title}-${index}`}
-                  style={{
-                    background: isOutOfStock ? "#fffcfc" : "#ffffff",
-                    border: isOutOfStock ? "1.5px solid #f87171" : "1px solid #ebdcd0",
-                    borderRadius: "12px",
-                    overflow: "hidden",
-                    boxShadow: isOutOfStock
-                      ? "0 4px 14px rgba(239, 68, 68, 0.12)"
-                      : "0 4px 12px rgba(45, 31, 26, 0.04)",
-                    display: "flex",
-                    flexDirection: "column",
-                    transition: "transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease",
-                  }}
+                  title={item.description || item.title}
                 >
                   <div
                     className="staff-menu-card-image-wrap"
-                    style={{ position: "relative", height: "130px", background: isOutOfStock ? "#fdf5f5" : "#fcf9f6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
                     onClick={() => setCustomizingItem(item)}
                     title="Click to customize modifiers"
                   >
@@ -449,13 +429,10 @@ function StaffMenu() {
                       src={item.image}
                       alt={item.title}
                       className="staff-menu-card-image"
-                      style={{ maxHeight: "115px", objectFit: "contain", opacity: isOutOfStock ? 0.78 : 1 }}
+                      style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isOutOfStock ? 0.78 : 1 }}
                       fallbackStyle={{ width: "100%", height: "100%" }}
                     />
-                    <span
-                      className="staff-menu-category-pill"
-                      style={{ position: "absolute", top: "8px", left: "8px", background: "rgba(255, 255, 255, 0.9)", padding: "3px 8px", borderRadius: "6px", fontSize: "10px", fontWeight: 700, color: "#70482f" }}
-                    >
+                    <span className="staff-menu-category-pill">
                       {item.category || "Menu Item"}
                     </span>
                     {isOutOfStock && (
@@ -463,60 +440,41 @@ function StaffMenu() {
                         OUT OF STOCK
                       </span>
                     )}
-                    <span
-                      style={{ position: "absolute", bottom: "8px", right: "8px", background: "#2d1f1a", color: "#fff", padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 800 }}
-                    >
+                    <span className="staff-menu-card-price">
                       ₱{item.price.toFixed(2)}
                     </span>
                   </div>
 
-                  <div className="staff-menu-card-body" style={{ padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div className="staff-menu-card-body">
                     <div>
-                      <h3 style={{ margin: "0 0 4px", fontSize: "13.5px", fontWeight: 700, color: isOutOfStock ? "#b91c1c" : "#2d1f1a" }}>
+                      <h3
+                        className="staff-menu-card-title"
+                        style={isOutOfStock ? { color: "#b91c1c" } : undefined}
+                        title={item.title}
+                      >
                         {item.title}
                       </h3>
-                      <p style={{ margin: 0, fontSize: "11px", color: "#8a7c73", lineHeight: 1.4, height: "30px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <p className="staff-menu-card-desc" title={item.description || item.title}>
                         {item.description || "Freshly made café staple."}
                       </p>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "12px" }}>
+                    <div className="staff-menu-card-actions">
                       <button
                         type="button"
+                        className="staff-menu-card-btn-custom"
                         onClick={() => setCustomizingItem(item)}
-                        style={{
-                          padding: "6px 8px",
-                          borderRadius: "6px",
-                          border: "1px solid #dcd1c6",
-                          background: "#fff",
-                          color: "#6b5548",
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
+                        title="Customize modifiers"
                       >
                         ⚙ Customize
                       </button>
 
                       <button
                         type="button"
+                        className="staff-menu-card-btn-add"
                         onClick={() => quickAddToOrder(item)}
                         disabled={isOutOfStock}
-                        title={isOutOfStock ? "This item is currently out of stock" : undefined}
-                        style={{
-                          padding: "6px 8px",
-                          borderRadius: "6px",
-                          border: "none",
-                          background: isOutOfStock ? "#e5e7eb" : "#8b5e3c",
-                          color: isOutOfStock ? "#9ca3af" : "#fff",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          cursor: isOutOfStock ? "not-allowed" : "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "4px",
-                        }}
+                        title={isOutOfStock ? "This item is currently out of stock" : "Quick add default size to order"}
                       >
                         {isOutOfStock ? <span>Sold Out</span> : <><span>+</span> Quick Add</>}
                       </button>
