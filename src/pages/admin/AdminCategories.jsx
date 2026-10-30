@@ -772,7 +772,7 @@ export default function AdminCategories() {
                     onChange={(e) => setModalState({ ...modalState, operationalFamily: e.target.value })}
                     className="form-select"
                   >
-                    <option value="drink">Beverage Workflow (Drink sizes: 16oz/22oz & Cups generator)</option>
+                    <option value="drink">Beverage Workflow (Drink sizes with required cups from Inventory)</option>
                     <option value="fries">Weighed Mass (Fries: Regular, Medium, Large tiers)</option>
                     <option value="snack_pieces">Discrete Pieces (Snacks: 4s, 6s, 12s piece counts)</option>
                     <option value="single_fixed">Single Fixed Price (Burgers, Hotdogs, Fixed foods)</option>
@@ -793,7 +793,7 @@ export default function AdminCategories() {
                     <span className="checkbox-label">Contains Beverage Cup Packaging (Auto-deducted by POS)</span>
                   </label>
                   <span className="form-hint">
-                    Identifies items in this category as cups (16oz, 22oz) for automatic inventory deduction at POS checkout.
+                    Identifies items in this category as drink cups (any size) for recipe assignment and inventory deduction at POS checkout.
                   </span>
                 </div>
               )}

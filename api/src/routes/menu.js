@@ -193,7 +193,6 @@ function normalizeRecipeEntries(entries, description) {
   });
 }
 
-const isCupItem = (item) => Boolean(item?.is_cup_category || item?.isCupCategory) || /cup/i.test(String(item?.category || "")) || /cup/i.test(String(item?.name || ""));
 
 function assertNoDuplicateRecipeNames(entries, description) {
   if (new Set(entries.map((entry) => entry.name.toLocaleLowerCase())).size !== entries.length) {
