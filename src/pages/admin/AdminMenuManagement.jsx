@@ -1601,25 +1601,6 @@ function AdminMenuManagement() {
 												/>
 											</div>
 										</label>
-
-										<label className="menu-builder-field">
-											Stock Quantity
-											<div className="menu-builder-price">
-												<input
-													type="number"
-													value={formValues.stock}
-													onChange={(e) => setFormValues({ ...formValues, stock: e.target.value })}
-													placeholder={formValues.ingredients.length > 0 ? "Calculated from Recipe" : "0"}
-													min="0"
-													step="1"
-												/>
-											</div>
-											<small className="menu-field-hint" style={{ fontSize: "0.75rem", color: "#8a7a6e", marginTop: "2px" }}>
-												{formValues.ingredients.length > 0
-													? "Auto-calculated from ingredients on hand"
-													: "Direct stock balance for retail/prepared items"}
-											</small>
-										</label>
 									</div>
 
 									<div className="menu-builder-field">
