@@ -185,9 +185,9 @@ function normalizeRecipeEntries(entries, description) {
       || explainPackedUnit(name || "this ingredient", stockUnit, "stock");
     if (packedUnitError) throw httpError(400, packedUnitError);
     if (!name || name.length > 160 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
-      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
+      || !Number.isFinite(quantityUsed) || quantityUsed <= 0 || quantityUsed > 100000
       || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
-      throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount with at most 6 decimal places.`);
+      throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount up to 100,000 with at most 6 decimal places.`);
     }
     return { name, unit, stockUnit, quantityUsed };
   });
@@ -201,7 +201,7 @@ function assertNoDuplicateRecipeNames(entries, description) {
   }
 }
 
-async function saveProduct(connection, body, id = null) {
+export async function saveProduct(connection, body, id = null) {
   const name = String(body?.name || "").trim();
   const category = String(body?.category || "").trim();
   const description = String(body?.description || "").trim();
@@ -216,10 +216,13 @@ async function saveProduct(connection, body, id = null) {
   }
 
   const [categoryRows] = await connection.execute(
-    "INSERT INTO menu_categories (name) VALUES (?) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)",
+    "SELECT id, name FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1",
     [category],
   );
-  const categoryId = categoryRows.insertId;
+  if (!categoryRows.length) {
+    throw httpError(400, `Menu category "${category}" does not exist. Please choose an existing category or create it in Categories first.`);
+  }
+  const categoryId = categoryRows[0].id;
   let productId = id;
   const values = [categoryId, name, description || null, image, basePrice, stock, body.available !== false, Boolean(body.featured)];
   if (id == null) {
@@ -279,9 +282,9 @@ async function saveProduct(connection, body, id = null) {
       || explainPackedUnit(label || "this add-on", stockUnit, "stock");
     if (packedUnitError) throw httpError(400, packedUnitError);
     if (!label || label.length > 100 || !unit || unit.length > 40 || !stockUnit || stockUnit.length > 40
-      || !Number.isFinite(quantityUsed) || quantityUsed <= 0
+      || !Number.isFinite(quantityUsed) || quantityUsed <= 0 || quantityUsed > 100000
       || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
-      throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount with at most 6 decimal places.");
+      throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount up to 100,000 with at most 6 decimal places.");
     }
     return { label, unit, stockUnit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
   });
