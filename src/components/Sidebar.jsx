@@ -25,7 +25,6 @@ const NAV_BY_ROLE = {
       label: "MAIN MENU",
       items: [
         { key: "dashboard", to: "/admin", label: "Dashboard", Icon: LayoutGrid },
-        { key: "orders", to: "/admin/orders", label: "Orders", Icon: ShoppingBag, countKey: true },
         { key: "inventory", to: "/admin/inventory", label: "Inventory", Icon: Package },
         { key: "menu", to: "/admin/menu", label: "Menu Management", Icon: Utensils },
       ],

@@ -6,7 +6,6 @@ import {
   CircleDollarSign,
   Coins,
   Plus,
-  ReceiptText,
   ShoppingBag,
   TrendingUp,
   Warehouse,
@@ -347,21 +346,6 @@ function AdminDashboard() {
 
 
                 <Link
-                  to="/admin/orders"
-                  className="quick-action"
-                >
-                  <span className="quick-icon"><ReceiptText size={18} /></span>
-
-                  <div>
-                    <strong>View Orders</strong>
-                    <span>Manage customer orders</span>
-                  </div>
-
-                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
-                </Link>
-
-
-                <Link
                   to="/admin/reports"
                   className="quick-action"
                 >
@@ -394,13 +378,6 @@ function AdminDashboard() {
                   <h3>Recent Orders</h3>
                   <p>Latest customer orders</p>
                 </div>
-
-                <Link
-                  to="/admin/orders"
-                  className="view-all"
-                >
-                  View All →
-                </Link>
 
               </div>
 

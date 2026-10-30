@@ -193,25 +193,6 @@ function normalizeRecipeEntries(entries, description) {
   });
 }
 
-// Volume key (oz) for a cup name or size label, e.g. "12oz Cup (Large)" / "Large (12oz)" -> 12. null = unknown.
-function cupSizeKey(text) {
-  const value = String(text || "").toLowerCase();
-  const oz = value.match(/(\d+(?:\.\d+)?)\s*oz/);
-  if (oz) return Number(oz[1]);
-  if (/\b(xl|extra large)\b/.test(value)) return 24;
-  if (/\blarge\b/.test(value)) return 12;
-  if (/\bmedium\b/.test(value)) return 18;
-  if (/\b(small|regular)\b/.test(value)) return 8;
-  return null;
-}
-
-// A cup belongs to a size only when their volumes agree; unknown volumes are left alone.
-function cupMatchesSize(cupName, sizeLabel) {
-  const cup = cupSizeKey(cupName);
-  const size = cupSizeKey(sizeLabel);
-  return cup == null || size == null || cup === size;
-}
-
 const isCupItem = (item) => Boolean(item?.is_cup_category || item?.isCupCategory) || /cup/i.test(String(item?.category || "")) || /cup/i.test(String(item?.name || ""));
 
 function assertNoDuplicateRecipeNames(entries, description) {
@@ -367,11 +348,7 @@ async function saveProduct(connection, body, id = null) {
       throw httpError(400, `â€œ${entry.unit}â€ for ${entry.name} cannot be converted to inventory unit â€œ${itemByName.get(key).stockUnit}â€. Choose units from the same group (weight, volume, or count).`);
     }
   }
-  const firstSizeLabel = String(sizes[0]?.label || "").trim();
-  const recipeItems = recipeInputs
-    .map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }))
-    // Default recipe mirrors the first size, so it may only carry that size's cup.
-    .filter((entry) => !entry.isCup || cupMatchesSize(entry.itemName, firstSizeLabel));
+  const recipeItems = recipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
   const addonInventoryItems = [];
   for (const entry of addonInputs) {
     const strippedName = entry.label.replace(/^extra\s+/i, "").trim();
@@ -397,34 +374,14 @@ async function saveProduct(connection, body, id = null) {
   await connection.execute("DELETE FROM product_addons WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_ingredients WHERE product_id = ?", [productId]);
 
-  let activeCups = null;
   for (const [index, size] of sizes.entries()) {
     const label = String(size?.label || "").trim();
     if (!label) continue;
-    const [createdSize] = await connection.execute("INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)", [productId, label.slice(0, 80), toMoney(size.price ?? basePrice, `Price for ${label}`), index]);
-    const requested = sizeRecipeInputs[index] || [];
-    // Cup isolation: a size only keeps the cup whose volume matches its label (16oz -> Regular, 22oz -> Large).
-    const sizeIngredients = requested.filter((entry) => {
-      const base = itemByName.get(entry.name.toLocaleLowerCase());
-      return !base.isCup || cupMatchesSize(base.itemName, label);
-    });
-    const wantedCup = requested.some((entry) => itemByName.get(entry.name.toLocaleLowerCase()).isCup);
-    const keptCup = sizeIngredients.some((entry) => itemByName.get(entry.name.toLocaleLowerCase()).isCup);
-    // The recipe asked for a cup but every cup sent belonged to another size: link the matching Inventory cup instead.
-    if (wantedCup && !keptCup && cupSizeKey(label) != null) {
-      if (!activeCups) {
-        [activeCups] = await connection.execute(
-          "SELECT id, name, unit FROM inventory_items WHERE is_archived = FALSE AND (category = 'Cups' OR name LIKE '%cup%') ORDER BY id",
-        );
-      }
-      const match = activeCups.find((cup) => cupSizeKey(cup.name) === cupSizeKey(label));
-      if (match) {
-        await connection.execute(
-          "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
-          [createdSize.insertId, match.id, 1, match.unit || "pcs"],
-        );
-      }
-    }
+    const [createdSize] = await connection.execute(
+      "INSERT INTO product_sizes (product_id, label, price, display_order) VALUES (?, ?, ?, ?)",
+      [productId, label.slice(0, 80), toMoney(size.price ?? basePrice, `Price for ${label}`), index],
+    );
+    const sizeIngredients = sizeRecipeInputs[index] || [];
     for (const entry of sizeIngredients) {
       const base = itemByName.get(entry.name.toLocaleLowerCase());
       const quantityUsed = toInventoryQuantity(entry.quantityUsed, entry.unit, base.stockUnit);
