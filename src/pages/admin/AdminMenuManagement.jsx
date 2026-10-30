@@ -57,6 +57,18 @@ const safeToFixed = (val, fractionDigits = 2, fallback = "0.00") => {
 	return Number.isFinite(num) ? num.toFixed(fractionDigits) : fallback;
 };
 
+const findInventoryItemInList = (inventoryList, query, id = null) => {
+	if (!Array.isArray(inventoryList)) return undefined;
+	const numericId = id != null && !Number.isNaN(Number(id)) ? Number(id) : null;
+	const clean = safeLower(query);
+	return inventoryList.find((entry) => {
+		if (!entry) return false;
+		if (numericId !== null && Number(entry.id) === numericId) return true;
+		if (!clean) return false;
+		return safeLower(safeItemName(entry)) === clean;
+	});
+};
+
 const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
 	const sourceName = safeLower(recipeUnit);
 	const targetName = safeLower(stockUnit);
@@ -182,6 +194,13 @@ function AdminMenuManagement() {
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
 	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
+
+	const findInventoryItem = (queryOrList, maybeQuery = null, maybeId = null) => {
+		if (Array.isArray(queryOrList)) {
+			return findInventoryItemInList(queryOrList, maybeQuery, maybeId);
+		}
+		return findInventoryItemInList(inventory, queryOrList, maybeQuery);
+	};
 
 	const getCategoryFamily = (categoryName) => {
 		const match = (dbCategories || []).find(
@@ -1266,7 +1285,7 @@ function AdminMenuManagement() {
 											<h4>{product.name}</h4>
 											{Number(product.cost) > 0 && (
 												<div className="admin-product-cost-badge">
-													COGS ₱{Number(product.cost).toFixed(2)}{product.margin != null ? ` · ${Number(product.margin).toFixed(1)}% margin` : ""}
+													COGS ₱{safeToFixed(product.cost, 2)}{product.margin != null ? ` · ${safeToFixed(product.margin, 1)}% margin` : ""}
 												</div>
 											)}
 											<p>{product.description}</p>
@@ -1705,7 +1724,7 @@ function AdminMenuManagement() {
 										<div className="menu-builder-cups-detection" style={{ background: "#f8f6f2", borderColor: "#e6e0d8", color: "#5a4d41" }}>
 											<div className="menu-builder-cups-title">
 												<Utensils size={13} strokeWidth={2.2} />
-												<span>Fixed Price Item: No size variations needed. Base price (₱{Number(formValues.price || 0).toFixed(2)}) is the customer price. Click &ldquo;+ Add Variation&rdquo; only if offering special sizes or combo portions.</span>
+												<span>Fixed Price Item: No size variations needed. Base price (₱{safeToFixed(formValues.price, 2)}) is the customer price. Click &ldquo;+ Add Variation&rdquo; only if offering special sizes or combo portions.</span>
 											</div>
 										</div>
 									)}
@@ -1873,7 +1892,7 @@ function AdminMenuManagement() {
 																>
 																	<span className="price-caption">Serving price</span>
 																	<strong className="price-tag">
-																		₱{size?.price !== "" && size?.price != null && !isNaN(Number(size.price)) ? Number(size.price).toFixed(2) : formValues.price ? Number(formValues.price).toFixed(2) : "0.00"}
+																		₱{safeToFixed(size?.price !== "" && size?.price != null ? size.price : formValues.price, 2)}
 																	</strong>
 																</div>
 															</div>
@@ -2072,7 +2091,7 @@ function AdminMenuManagement() {
 					{formValues.addons.length ? (
 						<div className="menu-addon-list">
 							{formValues.addons.map((addon, index) => {
-								const addonInv = inventory.find((entry) => (addon.inventoryItemId && Number(entry.id) === Number(addon.inventoryItemId)) || safeLower(safeItemName(entry)) === safeLower(addon.label));
+								const addonInv = (inventory || []).find((entry) => entry && ((addon.inventoryItemId && Number(entry.id) === Number(addon.inventoryItemId)) || safeLower(safeItemName(entry)) === safeLower(addon.label)));
 								const addonStockUnit = addonInv?.unit || addon.stockUnit || "pcs";
 								const addonUnitCost = Number(addonInv?.unitCost ?? addonInv?.unit_cost ?? addon.unitCost ?? 0);
 								const addonStockQty = convertRecipeAmount(addon.quantityUsed, addon.unit || addonStockUnit, addonStockUnit);
@@ -2085,7 +2104,7 @@ function AdminMenuManagement() {
 											<strong>{addon.label}</strong>
 											<small>Stock: {addonInv?.quantity ?? 0} {addonStockUnit}</small>
 											<span className="addon-cost-pill">
-												COGS ₱{addonCost.toFixed(2)} · {addonMargin != null ? `${addonMargin.toFixed(1)}% margin` : "—"}
+												COGS ₱{safeToFixed(addonCost, 2)} · {addonMargin != null ? `${addonMargin.toFixed(1)}% margin` : "—"}
 											</span>
 										</div>
 										<label>Price <input type="number" min="0" step="0.01" value={addon.price} onChange={(event) => updateAddon(index, "price", event.target.value)} aria-label={`${addon.label} price`} /></label>
