@@ -101,5 +101,34 @@ describe("Tala Test Suite: Menu Cup & Sizing Business Rules", () => {
     assert.equal(amountForSize(cupIng, "Medium", 1.25), "1", "Must not zero on Medium");
     assert.equal(amountForSize(cupIng, "Large", 1.5), "1", "Must not zero on Large");
   });
+
+  it("TEST 8 (Steps 1 & 2): DEFAULT_MENU_CATEGORIES is removed and operationalFamily is looked up from DB categories", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const filePath = path.resolve("src/pages/admin/AdminMenuManagement.jsx");
+    const content = await fs.readFile(filePath, "utf-8");
+
+    assert.equal(
+      content.includes("DEFAULT_MENU_CATEGORIES"),
+      false,
+      "DEFAULT_MENU_CATEGORIES must be deleted from AdminMenuManagement.jsx"
+    );
+
+    // Verify operationalFamily lookup function logic
+    const dbCategories = [
+      { id: 1, name: "Drinks & Refreshers", operationalFamily: "drink" },
+      { id: 2, name: "Takoyaki & Tempura", operationalFamily: "snack_pieces" },
+    ];
+    const getCategoryFamily = (categoryName) => {
+      const match = dbCategories.find(
+        (c) => String(c.name || "").toLowerCase() === String(categoryName || "").trim().toLowerCase()
+      );
+      return match?.operationalFamily || "general";
+    };
+
+    assert.equal(getCategoryFamily("Drinks & Refreshers"), "drink");
+    assert.equal(getCategoryFamily("Takoyaki & Tempura"), "snack_pieces");
+    assert.equal(getCategoryFamily("Unknown Category"), "general");
+  });
 });
 

@@ -15,17 +15,6 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const DEFAULT_MENU_CATEGORIES = [
-	"Foods / Snacks",
-	"Fries & Sip",
-	"Burgers and Hotdogs",
-	"Desserts",
-	"Milktea",
-	"Float Series",
-	"Fruity Soda",
-	"Fruity Milk",
-	"Iced Coffee",
-];
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -125,22 +114,6 @@ const VARIATION_PRESETS = {
 	],
 };
 
-const getCategoryFamily = (category) => {
-	const cat = String(category || "").toLowerCase();
-	if (cat.includes("milktea") || cat.includes("float") || cat.includes("soda") || cat.includes("milk") || cat.includes("coffee") || cat.includes("drink")) {
-		return "drink";
-	}
-	if (cat.includes("fries")) {
-		return "fries";
-	}
-	if (cat.includes("foods") || cat.includes("snack")) {
-		return "snack_pieces";
-	}
-	if (cat.includes("burger") || cat.includes("hotdog") || cat.includes("dessert")) {
-		return "single_fixed";
-	}
-	return "general";
-};
 
 const getCupVariationInfo = (cupItem, index = 0) => {
 	const name = String(cupItem?.item || "").trim();
@@ -234,7 +207,9 @@ function AdminMenuManagement() {
 			});
 	}, [inventory]);
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
-	const [categories, setCategories] = useState(["All items", ...DEFAULT_MENU_CATEGORIES]);
+	const [categories, setCategories] = useState(["All items"]);
+	const [dbCategories, setDbCategories] = useState([]);
+	const [categoriesLoading, setCategoriesLoading] = useState(true);
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
 	const [sortBy, setSortBy] = useState("popular");
@@ -242,20 +217,35 @@ function AdminMenuManagement() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
-	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: "Foods / Snacks", image: "", sizes: [], ingredients: [], addons: [], available: true });
+	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
+
+	const getCategoryFamily = (categoryName) => {
+		const match = dbCategories.find(
+			(c) => String(c.name || "").toLowerCase() === String(categoryName || "").trim().toLowerCase()
+		);
+		return match?.operationalFamily || "general";
+	};
 
 	useEffect(() => {
 		let isMounted = true;
 		apiRequest("/menu/categories")
 			.then((data) => {
-				if (!isMounted || !Array.isArray(data) || !data.length) return;
-				const categoryNames = data.map((cat) => (typeof cat === "string" ? cat : cat.name)).filter(Boolean);
-				if (categoryNames.length) {
-					setCategories(["All items", ...categoryNames]);
-				}
+				if (!isMounted || !Array.isArray(data)) return;
+				const validCats = data.filter((cat) => cat && cat.name);
+				setDbCategories(validCats);
+				const categoryNames = validCats.map((cat) => cat.name);
+				setCategories(["All items", ...categoryNames]);
+				setCategoriesLoading(false);
+				setFormValues((prev) => {
+					if (!prev.category && validCats.length > 0) {
+						return { ...prev, category: validCats[0].name };
+					}
+					return prev;
+				});
 			})
 			.catch((err) => {
 				console.warn("Failed to fetch menu categories:", err);
+				if (isMounted) setCategoriesLoading(false);
 			});
 		return () => {
 			isMounted = false;
@@ -885,6 +875,10 @@ function AdminMenuManagement() {
 
 	const saveProduct = async (event) => {
 		event.preventDefault();
+		if (categoriesLoading || !formValues.category) {
+			setRecipeError("Categories are still loading from database. Please wait.");
+			return;
+		}
 		const name = formValues.name.trim();
 		const description = formValues.description.trim();
 		const numericPrice = Number(formValues.price);
@@ -1438,12 +1432,15 @@ function AdminMenuManagement() {
 											<select
 												value={formValues.category}
 												onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
+												disabled={categoriesLoading}
 											>
-												{categories
-													.filter((category) => category !== "All items")
-													.map((category) => (
-														<option key={category} value={category}>{category}</option>
-													))}
+												{categoriesLoading ? (
+													<option value="">Loading categories from database...</option>
+												) : (
+													dbCategories.map((category) => (
+														<option key={category.id || category.name} value={category.name}>{category.name}</option>
+													))
+												)}
 											</select>
 										</label>
 
@@ -1932,8 +1929,8 @@ function AdminMenuManagement() {
 							<button type="button" className="menu-builder-cancel" onClick={closeForm}>
 								Cancel
 							</button>
-							<button type="submit" className="menu-builder-save">
-								{editingProduct ? "Save Item" : "Add Item"}
+							<button type="submit" className="menu-builder-save" disabled={categoriesLoading}>
+								{categoriesLoading ? "Loading..." : (editingProduct ? "Save Item" : "Add Item")}
 							</button>
 						</footer>
 					</form>
