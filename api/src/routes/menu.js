@@ -292,29 +292,6 @@ export async function saveProduct(connection, body, id = null) {
     throw httpError(400, "Each add-on name can only appear once per menu item.");
   }
 
-  const ensureInventoryItem = async (itemName, stockUnit, itemCategory) => {
-    let result;
-    try {
-      [result] = await connection.execute(
-        `INSERT INTO inventory_items (name, category, quantity, unit, maximum_stock, added_from_menu, is_archived, archived_at, archived_by)
-         VALUES (?, ?, 0, ?, NULL, TRUE, FALSE, NULL, NULL)
-         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), is_archived = FALSE, archived_at = NULL, archived_by = NULL`,
-        [itemName, itemCategory, stockUnit],
-      );
-    } catch (error) {
-      if (error.code === "ER_DUP_ENTRY") throw httpError(409, `Inventory already has â€œ${itemName}â€ with a different spelling or name conflict. Check its existing entry.`);
-      throw error;
-    }
-    const inventoryItemId = Number(result.insertId);
-    const [[inventoryItem]] = await connection.execute(
-      "SELECT id, name, unit FROM inventory_items WHERE id = ? FOR UPDATE", [inventoryItemId],
-    );
-    if (!inventoryItem) throw httpError(409, `Could not find the Inventory item for â€œ${itemName}â€.`);
-    const packedStockUnitError = explainPackedUnit(itemName, inventoryItem.unit, "stock");
-    if (packedStockUnitError) throw httpError(400, packedStockUnitError);
-    return inventoryItem;
-  };
-
   // Resolve every ingredient used by the default recipe AND any size-specific recipe once.
   const itemByName = new Map();
   for (const entry of [...recipeInputs, ...sizeRecipeInputs.flat()]) {
@@ -336,16 +313,9 @@ export async function saveProduct(connection, body, id = null) {
         item = byName[0];
       }
       if (!item) {
-        const isCup = /cup/i.test(entry.name);
-        const [[catRow]] = await connection.execute(
-          isCup
-            ? "SELECT name FROM inventory_categories WHERE is_cup_category = TRUE ORDER BY display_order ASC, id ASC LIMIT 1"
-            : "SELECT name FROM inventory_categories WHERE is_cup_category = FALSE ORDER BY display_order ASC, id ASC LIMIT 1",
-        );
-        const resolvedCategory = catRow?.name || (isCup ? "Cups" : "Ingredients");
-        item = { ...(await ensureInventoryItem(entry.name, entry.stockUnit, resolvedCategory)), category: resolvedCategory };
+        throw httpError(400, `Inventory item "${entry.name}" does not exist. Please add it to Inventory first.`);
       }
-      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup: isCupItem(item) });
+      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name });
     }
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, itemByName.get(key).stockUnit)) {
       throw httpError(400, `â€œ${entry.unit}â€ for ${entry.name} cannot be converted to inventory unit â€œ${itemByName.get(key).stockUnit}â€. Choose units from the same group (weight, volume, or count).`);
@@ -354,21 +324,27 @@ export async function saveProduct(connection, body, id = null) {
   const recipeItems = recipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
   const addonInventoryItems = [];
   for (const entry of addonInputs) {
-    const strippedName = entry.label.replace(/^extra\s+/i, "").trim();
-    const [existingBaseRows] =
-      strippedName && strippedName.toLocaleLowerCase() !== entry.label.toLocaleLowerCase()
-        ? await connection.execute(
-            "SELECT id, name, unit FROM inventory_items WHERE LOWER(name) = LOWER(?) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
-            [strippedName],
-          )
-        : [[]];
-    const [[defaultCatRow]] = await connection.execute(
-      "SELECT name FROM inventory_categories ORDER BY display_order ASC, id ASC LIMIT 1",
-    );
-    const fallbackAddonCat = defaultCatRow?.name || "Ingredients";
-    const item = existingBaseRows[0] || (await ensureInventoryItem(entry.label, entry.stockUnit, fallbackAddonCat));
+    let item = null;
+    if (entry.inventoryItemId) {
+      const [[byId]] = await connection.execute(
+        "SELECT id, name, unit FROM inventory_items WHERE id = ? AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+        [entry.inventoryItemId],
+      );
+      item = byId;
+    }
+    if (!item) {
+      const strippedName = entry.label.replace(/^extra\s+/i, "").trim();
+      const [byName] = await connection.execute(
+        "SELECT id, name, unit FROM inventory_items WHERE (LOWER(name) = LOWER(?) OR LOWER(name) = LOWER(?)) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+        [entry.label, strippedName],
+      );
+      item = byName[0];
+    }
+    if (!item) {
+      throw httpError(400, `Inventory item for add-on "${entry.label}" does not exist. Please add it to Inventory first.`);
+    }
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `â€œ${entry.unit}â€ for ${entry.label} cannot be converted to inventory unit â€œ${item.unit}â€. Choose units from the same group (weight, volume, or count).`);
+      throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
     }
     addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
   }

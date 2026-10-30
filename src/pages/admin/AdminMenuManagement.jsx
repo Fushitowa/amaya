@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, FolderOpen, ImagePlus, List, Package, Plus, Sparkles, Trash2, Utensils } from "lucide-react";
+import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Sparkles, Trash2, Utensils } from "lucide-react";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
@@ -607,6 +607,10 @@ function AdminMenuManagement() {
 		const name = ingredientDraft.name.trim();
 		const quantityUsed = Number(ingredientDraft.quantityUsed);
 		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === name.toLowerCase());
+		if (!existingItem) {
+			setRecipeError(`"${name}" is not in Inventory. Please pick an existing inventory item or click "+ Add in Inventory".`);
+			return;
+		}
 		const stockUnit = (existingItem?.unit || ingredientDraft.stockUnit || "").trim();
 		const unit = (ingredientDraft.unit || "").trim();
 		const unitHint = separateAmountHint(ingredientDraft.quantityUsed, unit, stockUnit, name || "this ingredient");
@@ -633,6 +637,7 @@ function AdminMenuManagement() {
 		setFormValues((current) => ({
 			...current,
 			ingredients: [...current.ingredients, {
+				inventoryItemId: existingItem.id,
 				name,
 				quantityUsed,
 				unit,
@@ -652,6 +657,10 @@ function AdminMenuManagement() {
 	const addAddon = () => {
 		const label = addonDraft.label.trim();
 		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === label.toLowerCase());
+		if (!existingItem) {
+			setRecipeError(`"${label}" is not in Inventory. Please pick an existing inventory item or add it in Inventory first.`);
+			return;
+		}
 		const stockUnit = (existingItem?.unit || addonDraft.stockUnit || "").trim();
 		const unit = (addonDraft.unit || "").trim();
 		const unitHint = separateAmountHint(addonDraft.quantityUsed, unit, stockUnit, label || "this add-on");
@@ -677,7 +686,7 @@ function AdminMenuManagement() {
 			setRecipeError("That add-on is already listed for this menu item.");
 			return;
 		}
-		setFormValues((current) => ({ ...current, addons: [...current.addons, { label, price, quantityUsed, unit, stockUnit }] }));
+		setFormValues((current) => ({ ...current, addons: [...current.addons, { inventoryItemId: existingItem.id, label, price, quantityUsed, unit, stockUnit }] }));
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 	};
@@ -969,7 +978,7 @@ function AdminMenuManagement() {
 			if (editingProduct) await updateProduct(editingProduct.id, { ...productData, stock: cleanStock });
 			else await addProduct({ ...productData, stock: cleanStock, available: formValues.available !== false, featured: false });
 			await refreshInventory?.().catch(() => null);
-			setSyncNotice(`${name} saved. New ingredients and add-ons were added to Inventory at zero stock; matching names reuse the existing stock item.`);
+			setSyncNotice(`${name} saved successfully.`);
 			closeForm();
 		} catch (error) {
 			setRecipeError(error.message);
@@ -1808,15 +1817,25 @@ function AdminMenuManagement() {
 										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
 										Ingredients &amp; Recipe
 									</label>
-					<p className="menu-recipe-help">Set the amount used for one serving. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically (for example, 5 g to kg); weight and volume cannot mix without a density conversion. New ingredients start at zero stock.</p>
+					<p className="menu-recipe-help">Set the amount used for one serving. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically.</p>
 					<div className="menu-recipe-entry menu-conversion-entry">
-						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Ingredient name" />
+						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Pick from inventory..." />
 						<label className="menu-recipe-field"><span>Amount per serving</span><input type="number" min="0.000001" step="0.000001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="e.g. 5" /></label>
 						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={ingredientDraft.unit} compatibleWith={recipeDraftItem?.unit || ingredientDraft.stockUnit} onChange={(unit) => { setIngredientDraft((current) => ({ ...current, unit })); setRecipeError(""); }} ariaLabel="Ingredient recipe unit" /></label>
 						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={recipeDraftItem?.unit || ingredientDraft.stockUnit} disabled={Boolean(recipeDraftItem)} onChange={(stockUnit) => { setIngredientDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit })); setRecipeError(""); }} ariaLabel="Ingredient stock unit" /></label>
 						<button type="button" onClick={addRecipeIngredient} disabled={!ingredientDraft.name.trim() || !ingredientDraft.quantityUsed}>
 							<Plus size={14} strokeWidth={2.4} /> Add ingredient
 						</button>
+						<a
+							href="/admin/inventory"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="menu-builder-auto-size-btn"
+							style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 10px" }}
+							title="Open Inventory in a new tab to add stock items"
+						>
+							<ExternalLink size={12} strokeWidth={2.2} /> + New in Inventory
+						</a>
 					</div>
 					{convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {recipeDraftItem?.unit || ingredientDraft.stockUnit} from inventory per serving.</p>}
 					{inventory.some((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}

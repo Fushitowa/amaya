@@ -18,6 +18,12 @@ describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", ()
       );
       const testCatName = "Test Drinks";
 
+      // Ensure test inventory items exist in transaction
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Matcha Powder', 'Ingredients', 500, 'g') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Fresh Milk', 'Ingredients', 2000, 'ml') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('12oz Paper Cup', 'Cups & Lids', 100, 'pcs') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Peanut Butter Cup', 'Ingredients', 50, 'pcs') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+
       const testDrinkPayload = {
         name: "Test Matcha Delight",
         category: testCatName,
@@ -153,6 +159,41 @@ describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", ()
     if (authWithIngredients) {
       const authSize = authWithIngredients.sizes.find((s) => s.ingredients.length > 0);
       assert(authSize.ingredients[0].name, "Authenticated view must preserve ingredient names");
+    }
+  });
+
+  it("TEST 5 (Step 5): Unknown ingredient in saveProduct must be rejected with HTTP 400", async () => {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const invalidIngredientPayload = {
+        name: "Test Phantom Recipe",
+        category: "Foods / Snacks",
+        price: "75.00",
+        description: "Test description",
+        sizes: [
+          {
+            label: "Regular",
+            price: 75,
+            ingredients: [{ name: "CompletelyFakeNonExistentIngredient_XYZ", quantityUsed: 10, unit: "g", stockUnit: "g" }],
+          },
+        ],
+        ingredients: [{ name: "CompletelyFakeNonExistentIngredient_XYZ", quantityUsed: 10, unit: "g", stockUnit: "g" }],
+      };
+
+      await assert.rejects(
+        async () => {
+          await saveProduct(connection, invalidIngredientPayload);
+        },
+        (err) => {
+          return err.status === 400 && /does not exist/i.test(err.message);
+        },
+        "Must throw HTTP 400 when ingredient does not exist in inventory"
+      );
+    } finally {
+      await connection.rollback();
+      connection.release();
     }
   });
 });
