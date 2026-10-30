@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
+import ErrorBoundary from "../../components/ErrorBoundary.jsx";
 import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Sparkles, Trash2, Utensils } from "lucide-react";
 import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
@@ -48,9 +49,17 @@ registerUnit("volume", 3785.411784, ["gal", "gallon", "gallons"]);
 registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
 registerUnit("count", 2, ["pair", "pairs"]);
 registerUnit("count", 12, ["dozen", "doz"]);
+const safeLower = (val) => String(val || "").trim().toLowerCase();
+const safeItemName = (entry) => String(entry?.item ?? entry?.name ?? "").trim();
+const getInvItemName = safeItemName;
+const safeToFixed = (val, fractionDigits = 2, fallback = "0.00") => {
+	const num = Number(val);
+	return Number.isFinite(num) ? num.toFixed(fractionDigits) : fallback;
+};
+
 const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
-	const sourceName = String(recipeUnit || "").trim().toLowerCase();
-	const targetName = String(stockUnit || "").trim().toLowerCase();
+	const sourceName = safeLower(recipeUnit);
+	const targetName = safeLower(stockUnit);
 	const quantity = Number(amount);
 	const source = unitFactors.get(sourceName);
 	const target = unitFactors.get(targetName);
@@ -121,8 +130,8 @@ const defaultSizeFactor = (factor, index = 0) => (Number.isFinite(Number(factor)
 const scaleIngredientAmount = (baseQty, factor, unit) => {
 	const numQty = Number(baseQty);
 	if (!Number.isFinite(numQty) || numQty <= 0) return "";
-	const unitDef = unitFactors.get(String(unit || "").toLowerCase());
-	if (unitDef?.dimension === "count" || ["pcs", "pc", "piece", "pieces", "ea", "each", "unit", "units", "cup", "cups"].includes(String(unit || "").toLowerCase())) {
+	const unitDef = unitFactors.get(safeLower(unit));
+	if (unitDef?.dimension === "count" || ["pcs", "pc", "piece", "pieces", "ea", "each", "unit", "units", "cup", "cups"].includes(safeLower(unit))) {
 		return String(numQty);
 	}
 	const scaled = Number((numQty * factor).toFixed(2));
@@ -148,15 +157,17 @@ const computeInventoryBasedSizePrice = (sizeCost, baseCost, basePrice, factor, i
 };
 
 function AdminMenuManagement() {
-	const { products, menuError, addProduct, updateProduct, deleteProduct } = useMenu();
+	const { products = [], menuError, addProduct, updateProduct, deleteProduct } = useMenu() || {};
 	const { inventory = [], refreshInventory } = useInventory() || {};
 	const cupInventoryItems = useMemo(() => {
 		return (inventory || [])
-			.filter((item) => (item.isCupCategory || item.is_cup_category || item.category === "Cups" || item.category === "Cups & Lids") && !item.isArchived)
+			.filter((item) => item && (item.isCupCategory || item.is_cup_category || item.category === "Cups" || item.category === "Cups & Lids") && !item.isArchived)
 			.sort((a, b) => {
-				const ozA = Number(String(a.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
-				const ozB = Number(String(b.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
-				return ozA - ozB || a.item.localeCompare(b.item);
+				const nameA = getInvItemName(a);
+				const nameB = getInvItemName(b);
+				const ozA = Number(nameA.match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
+				const ozB = Number(nameB.match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
+				return ozA - ozB || nameA.localeCompare(nameB);
 			});
 	}, [inventory]);
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
@@ -173,8 +184,8 @@ function AdminMenuManagement() {
 	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
 
 	const getCategoryFamily = (categoryName) => {
-		const match = dbCategories.find(
-			(c) => String(c.name || "").toLowerCase() === String(categoryName || "").trim().toLowerCase()
+		const match = (dbCategories || []).find(
+			(c) => safeLower(c?.name) === safeLower(categoryName)
 		);
 		return match?.operationalFamily || "general";
 	};
@@ -277,21 +288,27 @@ function AdminMenuManagement() {
 	};
 
 	const isCupIngredient = (ing) => {
-		const name = String(ing?.name || "").trim().toLowerCase();
-		const invItem = inventory.find((entry) => Number(entry.id) === Number(ing?.inventoryItemId) || entry.item.toLowerCase() === name);
+		if (!ing) return false;
+		const name = safeLower(ing.name || ing.item);
+		const invItemId = Number(ing.inventoryItemId);
+		const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(getInvItemName(entry)) === name);
 		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || invItem?.category === "Cups" || invItem?.category === "Cups & Lids");
 	};
 
 	// Per-size amount: cups preserve the configured amount set by the merchant; other ingredients scale by factor.
 	const amountForSize = (ing, sizeLabel, factor) => {
+		if (!ing) return "0";
 		if (isCupIngredient(ing)) return String(ing.quantityUsed ?? "1");
 		return scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
 	};
 
 	const calculateCostForFactor = (factor, ingredients = formValues.ingredients) => {
 		let rawCost = 0;
-		for (const ing of ingredients) {
-			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+		for (const ing of (ingredients || [])) {
+			if (!ing) continue;
+			const ingName = safeLower(ing.name || ing.item);
+			const invItemId = Number(ing.inventoryItemId);
+			const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(getInvItemName(entry)) === ingName);
 			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
 			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
 			const recipeUnit = ing.unit || stockUnit;
@@ -301,17 +318,17 @@ function AdminMenuManagement() {
 				rawCost += stockQty * unitCost;
 			}
 		}
-		return Number(rawCost.toFixed(2));
+		return Number(Number.isFinite(rawCost) ? rawCost.toFixed(2) : 0);
 	};
 
 	const addVariation = () => {
 		const family = getCategoryFamily(formValues.category);
 		const presets = VARIATION_PRESETS[family] || STANDARD_SIZES;
-		const existingLabels = formValues.sizes.map((s) => String(s.label || "").toLowerCase());
-		const nextStandard = presets.find((std) => !existingLabels.some((lbl) => lbl.includes(std.label.toLowerCase().slice(0, 5))))
-			|| { label: `Size ${formValues.sizes.length + 1}`, factor: Number((1.0 + formValues.sizes.length * 0.25).toFixed(2)) };
+		const existingLabels = (formValues.sizes || []).map((s) => safeLower(s?.label));
+		const nextStandard = presets.find((std) => !existingLabels.some((lbl) => lbl.includes(safeLower(std.label).slice(0, 5))))
+			|| { label: `Size ${(formValues.sizes || []).length + 1}`, factor: Number((1.0 + (formValues.sizes || []).length * 0.25).toFixed(2)) };
 
-		const newIndex = formValues.sizes.length;
+		const newIndex = (formValues.sizes || []).length;
 		const factor = defaultSizeFactor(nextStandard.factor, newIndex);
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
@@ -319,9 +336,9 @@ function AdminMenuManagement() {
 		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
 
 		setFormValues((current) => {
-			const newSizes = [...current.sizes, { label: nextStandard.label, price, factor, cupId: null }];
-			const updatedIngredients = current.ingredients.map((ing) => {
-				const qMap = { ...(ing.quantityBySize || {}) };
+			const newSizes = [...(current.sizes || []), { label: nextStandard.label, price, factor, cupId: null }];
+			const updatedIngredients = (current.ingredients || []).map((ing) => {
+				const qMap = { ...(ing?.quantityBySize || {}) };
 				qMap[nextStandard.label] = amountForSize(ing, nextStandard.label, factor);
 				return { ...ing, quantityBySize: qMap };
 			});
@@ -333,20 +350,21 @@ function AdminMenuManagement() {
 	const assignCupToSize = (sizeIndex, cupId) => {
 		const numericCupId = cupId ? Number(cupId) : null;
 		setFormValues((current) => {
-			const targetSize = current.sizes[sizeIndex];
+			const targetSize = (current.sizes || [])[sizeIndex];
 			if (!targetSize) return current;
 
-			const updatedSizes = current.sizes.map((s, idx) =>
+			const updatedSizes = (current.sizes || []).map((s, idx) =>
 				idx === sizeIndex ? { ...s, cupId: numericCupId } : s
 			);
 
-			const chosenCup = inventory.find((item) => Number(item.id) === numericCupId);
-			let updatedIngredients = [...current.ingredients];
+			const chosenCup = (inventory || []).find((item) => Number(item?.id) === numericCupId);
+			const chosenCupName = getInvItemName(chosenCup);
+			let updatedIngredients = [...(current.ingredients || [])];
 
-			if (chosenCup && !updatedIngredients.some((ing) => Number(ing.inventoryItemId) === numericCupId || ing.name.toLowerCase() === chosenCup.item.toLowerCase())) {
+			if (chosenCup && !updatedIngredients.some((ing) => (numericCupId && Number(ing?.inventoryItemId) === numericCupId) || safeLower(ing?.name) === safeLower(chosenCupName))) {
 				updatedIngredients.push({
 					inventoryItemId: chosenCup.id,
-					name: chosenCup.item,
+					name: chosenCupName,
 					unit: chosenCup.unit || "pcs",
 					stockUnit: chosenCup.unit || "pcs",
 					quantityUsed: "1",
@@ -356,14 +374,14 @@ function AdminMenuManagement() {
 
 			updatedIngredients = updatedIngredients.map((ing) => {
 				const isCup = Boolean(
-					(numericCupId && Number(ing.inventoryItemId) === numericCupId) ||
+					(numericCupId && Number(ing?.inventoryItemId) === numericCupId) ||
 					isCupIngredient(ing) ||
-					(chosenCup && ing.name.toLowerCase() === chosenCup.item.toLowerCase())
+					(chosenCup && safeLower(ing?.name) === safeLower(chosenCupName))
 				);
 				if (!isCup) return ing;
-				const qMap = { ...(ing.quantityBySize || {}) };
-				const isThisCup = (numericCupId && Number(ing.inventoryItemId) === numericCupId) ||
-					(chosenCup && ing.name.toLowerCase() === chosenCup.item.toLowerCase());
+				const qMap = { ...(ing?.quantityBySize || {}) };
+				const isThisCup = (numericCupId && Number(ing?.inventoryItemId) === numericCupId) ||
+					(chosenCup && safeLower(ing?.name) === safeLower(chosenCupName));
 				qMap[targetSize.label] = isThisCup ? "1" : "0";
 				return { ...ing, quantityBySize: qMap };
 			});
@@ -375,15 +393,15 @@ function AdminMenuManagement() {
 	const updateSizeFactor = (index, newFactor) => {
 		const factorNum = Number(newFactor);
 		setFormValues((current) => {
-			const targetSize = current.sizes[index];
-			const updatedSizes = current.sizes.map((s, i) => i === index ? { ...s, factor: factorNum } : s);
+			const targetSize = (current.sizes || [])[index];
+			const updatedSizes = (current.sizes || []).map((s, i) => i === index ? { ...s, factor: factorNum } : s);
 			if (!targetSize || !Number.isFinite(factorNum) || factorNum <= 0) {
 				return { ...current, sizes: updatedSizes };
 			}
-			const updatedIngredients = current.ingredients.map((ing) => {
+			const updatedIngredients = (current.ingredients || []).map((ing) => {
 				if (isCupIngredient(ing)) return ing;
-				const qMap = { ...(ing.quantityBySize || {}) };
-				qMap[targetSize.label] = scaleIngredientAmount(ing.quantityUsed, factorNum, ing.unit);
+				const qMap = { ...(ing?.quantityBySize || {}) };
+				qMap[targetSize.label] = scaleIngredientAmount(ing?.quantityUsed, factorNum, ing?.unit);
 				return { ...ing, quantityBySize: qMap };
 			});
 			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
@@ -394,23 +412,23 @@ function AdminMenuManagement() {
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
 
-		const newSizes = presetList.map((preset, index) => {
-			const factor = defaultSizeFactor(preset.factor, index);
+		const newSizes = (presetList || []).map((preset, index) => {
+			const factor = defaultSizeFactor(preset?.factor, index);
 			const sizeCost = calculateCostForFactor(factor);
 			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, index);
 			return {
-				label: preset.label,
+				label: preset?.label || "",
 				price,
 				factor,
-				cupId: preset.cupId || null,
+				cupId: preset?.cupId || null,
 			};
 		});
 
-		const updatedIngredients = formValues.ingredients.map((ing) => {
-			const qMap = { ...(ing.quantityBySize || {}) };
-			presetList.forEach((preset, idx) => {
-				const factor = defaultSizeFactor(preset.factor, idx);
-				qMap[preset.label] = amountForSize(ing, preset.label, factor);
+		const updatedIngredients = (formValues.ingredients || []).map((ing) => {
+			const qMap = { ...(ing?.quantityBySize || {}) };
+			(presetList || []).forEach((preset, idx) => {
+				const factor = defaultSizeFactor(preset?.factor, idx);
+				qMap[preset?.label] = amountForSize(ing, preset?.label, factor);
 			});
 			return { ...ing, quantityBySize: qMap };
 		});
@@ -424,6 +442,22 @@ function AdminMenuManagement() {
 		setEditingSizeIndex(null);
 	};
 
+	const handleClearVariations = () => {
+		setFormValues((current) => ({
+			...current,
+			sizes: [],
+			ingredients: (current.ingredients || []).map((ing) => ({
+				...ing,
+				quantityBySize: {},
+			})),
+		}));
+		setEditingSizeIndex(null);
+	};
+
+	const handleAutoSetStandardSizes = () => {
+		handleApplyVariationPreset(STANDARD_SIZES);
+	};
+
 	const handleAutoSetFromCups = () => {
 		const cupsToUse = cupInventoryItems.length ? cupInventoryItems : null;
 		if (!cupsToUse || cupsToUse.length === 0) {
@@ -435,7 +469,8 @@ function AdminMenuManagement() {
 		const baseCost = calculateCostForFactor(1.0);
 
 		const newSizes = cupsToUse.map((cup, index) => {
-			const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
+			const cupName = getInvItemName(cup);
+			const label = cupName.replace(/\s*cup\s*/i, "").trim() || cupName;
 			const factor = index === 0 ? 1.0 : Number((1.0 + index * 0.25).toFixed(2));
 			const sizeCost = calculateCostForFactor(factor);
 			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, index);
@@ -447,23 +482,24 @@ function AdminMenuManagement() {
 			};
 		});
 
-		const nonCupIngredients = formValues.ingredients.filter((ing) => !isCupIngredient(ing));
+		const nonCupIngredients = (formValues.ingredients || []).filter((ing) => !isCupIngredient(ing));
 		const scaledNonCupIngredients = nonCupIngredients.map((ing) => {
 			const qMap = {};
 			newSizes.forEach((s) => {
-				qMap[s.label] = scaleIngredientAmount(ing.quantityUsed, s.factor, ing.unit);
+				qMap[s.label] = scaleIngredientAmount(ing?.quantityUsed, s.factor, ing?.unit);
 			});
 			return { ...ing, quantityBySize: qMap };
 		});
 
 		const cupIngredients = cupsToUse.map((cup, cupIdx) => {
+			const cupName = getInvItemName(cup);
 			const qMap = {};
 			newSizes.forEach((s, sIdx) => {
 				qMap[s.label] = cupIdx === sIdx ? "1" : "0";
 			});
 			return {
 				inventoryItemId: cup.id,
-				name: cup.item,
+				name: cupName,
 				unit: cup.unit || "pcs",
 				stockUnit: cup.unit || "pcs",
 				quantityUsed: cupIdx === 0 ? "1" : "0",
@@ -481,13 +517,14 @@ function AdminMenuManagement() {
 	};
 
 	const addSingleCupVariation = (cup) => {
-		const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
-		const existingLabels = formValues.sizes.map((s) => String(s.label || "").toLowerCase());
-		if (existingLabels.includes(label.toLowerCase())) {
+		const cupName = getInvItemName(cup);
+		const label = cupName.replace(/\s*cup\s*/i, "").trim() || cupName;
+		const existingLabels = (formValues.sizes || []).map((s) => safeLower(s?.label));
+		if (existingLabels.includes(safeLower(label))) {
 			return;
 		}
 
-		const newIndex = formValues.sizes.length;
+		const newIndex = (formValues.sizes || []).length;
 		const factor = newIndex === 0 ? 1.0 : Number((1.0 + newIndex * 0.25).toFixed(2));
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
@@ -495,19 +532,19 @@ function AdminMenuManagement() {
 		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
 
 		setFormValues((current) => {
-			const newSizes = [...current.sizes, { label, price, factor, cupId: cup.id }];
+			const newSizes = [...(current.sizes || []), { label, price, factor, cupId: cup.id }];
 			let hasThisCup = false;
 
-			const updatedIngredients = current.ingredients.map((ing) => {
-				const isCup = isCupIngredient(ing) || (ing.inventoryItemId === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
-				const isThisCup = (ing.inventoryItemId && ing.inventoryItemId === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
+			const updatedIngredients = (current.ingredients || []).map((ing) => {
+				const isCup = isCupIngredient(ing) || (Number(ing?.inventoryItemId) === Number(cup.id)) || safeLower(ing?.name) === safeLower(cupName);
+				const isThisCup = (Number(ing?.inventoryItemId) === Number(cup.id)) || safeLower(ing?.name) === safeLower(cupName);
 				if (isThisCup) hasThisCup = true;
 
-				const qMap = { ...(ing.quantityBySize || {}) };
+				const qMap = { ...(ing?.quantityBySize || {}) };
 				if (isCup) {
 					qMap[label] = isThisCup ? "1" : "0";
 				} else {
-					qMap[label] = scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+					qMap[label] = scaleIngredientAmount(ing?.quantityUsed, factor, ing?.unit);
 				}
 				return { ...ing, quantityBySize: qMap };
 			});
@@ -515,14 +552,14 @@ function AdminMenuManagement() {
 			if (!hasThisCup) {
 				const qMap = {};
 				newSizes.forEach((s) => {
-					qMap[s.label] = s.label.toLowerCase() === label.toLowerCase() ? "1" : "0";
+					qMap[s.label] = safeLower(s?.label) === safeLower(label) ? "1" : "0";
 				});
 				updatedIngredients.push({
 					inventoryItemId: cup.id,
-					name: cup.item,
+					name: cupName,
 					unit: cup.unit || "pcs",
 					stockUnit: cup.unit || "pcs",
-					quantityUsed: current.sizes.length === 0 ? "1" : "0",
+					quantityUsed: (current.sizes || []).length === 0 ? "1" : "0",
 					quantityBySize: qMap,
 				});
 			}
@@ -606,7 +643,7 @@ function AdminMenuManagement() {
 	const addRecipeIngredient = () => {
 		const name = ingredientDraft.name.trim();
 		const quantityUsed = Number(ingredientDraft.quantityUsed);
-		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === name.toLowerCase());
+		const existingItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(name));
 		if (!existingItem) {
 			setRecipeError(`"${name}" is not in Inventory. Please pick an existing inventory item or click "+ Add in Inventory".`);
 			return;
@@ -630,7 +667,7 @@ function AdminMenuManagement() {
 			setRecipeError(`“${unit}” and “${stockUnit}” cannot be converted automatically. Choose units from the same group (weight, volume, or count).`);
 			return;
 		}
-		if (formValues.ingredients.some((entry) => String(entry.name || entry.item || "").trim().toLowerCase() === name.toLowerCase())) {
+		if ((formValues.ingredients || []).some((entry) => safeLower(entry?.name || entry?.item) === safeLower(name))) {
 			setRecipeError("That ingredient is already in this recipe.");
 			return;
 		}
@@ -643,7 +680,7 @@ function AdminMenuManagement() {
 				unit,
 				stockUnit,
 				quantityBySize: Object.fromEntries(
-					current.sizes.map((size, idx) => [
+					(current.sizes || []).map((size, idx) => [
 						size.label,
 						amountForSize({ name, quantityUsed, unit }, size.label, defaultSizeFactor(size.factor, idx)),
 					])
@@ -656,7 +693,7 @@ function AdminMenuManagement() {
 
 	const addAddon = () => {
 		const label = addonDraft.label.trim();
-		const existingItem = inventory.find((entry) => entry.item.toLowerCase() === label.toLowerCase());
+		const existingItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(label));
 		if (!existingItem) {
 			setRecipeError(`"${label}" is not in Inventory. Please pick an existing inventory item or add it in Inventory first.`);
 			return;
@@ -682,7 +719,7 @@ function AdminMenuManagement() {
 			setRecipeError(`“${unit}” and “${stockUnit}” cannot be converted automatically. Choose units from the same group (weight, volume, or count).`);
 			return;
 		}
-		if (formValues.addons.some((entry) => entry.label.trim().toLowerCase() === label.toLowerCase())) {
+		if ((formValues.addons || []).some((entry) => safeLower(entry?.label || entry?.name) === safeLower(label))) {
 			setRecipeError("That add-on is already listed for this menu item.");
 			return;
 		}
@@ -757,18 +794,19 @@ function AdminMenuManagement() {
 	};
 
 	const visibleProducts = useMemo(() => {
-		const query = search.toLowerCase().trim();
-		const filtered = products.filter((product) => {
+		const query = safeLower(search);
+		const filtered = (products || []).filter((product) => {
+			if (!product) return false;
 			const categoryMatches = activeCategory === "All items" || product.category === activeCategory;
-			const searchMatches = !query || `${product.name} ${product.category}`.toLowerCase().includes(query);
+			const searchMatches = !query || safeLower(`${product.name || ""} ${product.category || ""}`).includes(query);
 			return categoryMatches && searchMatches;
 		});
 		return [...filtered].sort((left, right) => {
-			if (sortBy === "name") return left.name.localeCompare(right.name);
-			const leftPrice = Number(String(left.price || "").replace(/[^0-9.]/g, "")) || 0;
-			const rightPrice = Number(String(right.price || "").replace(/[^0-9.]/g, "")) || 0;
-			if (sortBy === "price") return leftPrice - rightPrice || left.name.localeCompare(right.name);
-			return Number(right.featured) - Number(left.featured) || left.name.localeCompare(right.name);
+			if (sortBy === "name") return String(left?.name || "").localeCompare(String(right?.name || ""));
+			const leftPrice = Number(String(left?.price || "").replace(/[^0-9.]/g, "")) || 0;
+			const rightPrice = Number(String(right?.price || "").replace(/[^0-9.]/g, "")) || 0;
+			if (sortBy === "price") return leftPrice - rightPrice || String(left?.name || "").localeCompare(String(right?.name || ""));
+			return Number(right?.featured) - Number(left?.featured) || String(left?.name || "").localeCompare(String(right?.name || ""));
 		});
 	}, [activeCategory, products, search, sortBy]);
 	const pageCount = Math.max(1, Math.ceil(visibleProducts.length / MENU_PAGE_SIZE));
@@ -784,6 +822,7 @@ function AdminMenuManagement() {
 	};
 
 	const handleDelete = (product) => {
+		if (!product) return;
 		setItemToDelete(product);
 	};
 
@@ -798,48 +837,101 @@ function AdminMenuManagement() {
 	};
 
 	const openEditForm = (product) => {
+		if (!product) return;
 		setEditingProduct(product);
 		setEditingSizeIndex(null);
+
+		const rawSizes = Array.isArray(product.sizes) ? product.sizes : [];
+		const rawIngredients = Array.isArray(product.ingredients) ? product.ingredients.filter(Boolean) : [];
+		const rawAddons = Array.isArray(product.addons) ? product.addons.filter(Boolean) : [];
+
+		const sizes = rawSizes.filter(Boolean).map((size, idx) => {
+			const sizeIngredients = Array.isArray(size.ingredients) ? size.ingredients.filter(Boolean) : [];
+			const sizeCup = sizeIngredients.find((ing) => isCupIngredient(ing));
+			return {
+				label: String(size.label || `Size ${idx + 1}`),
+				price: size.price != null && !Number.isNaN(Number(size.price)) ? String(size.price) : "",
+				factor: size.factor ?? defaultSizeFactor(null, idx),
+				cupId: sizeCup && sizeCup.inventoryItemId != null ? Number(sizeCup.inventoryItemId) : null,
+			};
+		});
+
+		const mergedIngredients = [
+			...rawIngredients,
+			...rawSizes
+				.flatMap((size) => (Array.isArray(size?.ingredients) ? size.ingredients.filter(Boolean) : []))
+				.filter((entry, index, all) => {
+					if (typeof entry === "string") return false;
+					if (!entry || entry.inventoryItemId == null) return false;
+					const entryId = Number(entry.inventoryItemId);
+					const existsInBase = rawIngredients.some(
+						(base) => typeof base !== "string" && base && Number(base.inventoryItemId) === entryId
+					);
+					const isFirstOccurrence =
+						all.findIndex((other) => other && Number(other.inventoryItemId) === entryId) === index;
+					return !existsInBase && isFirstOccurrence;
+				}),
+		];
+
+		const ingredients = mergedIngredients.map((ingredient) => {
+			if (typeof ingredient === "string") {
+				const invItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(ingredient));
+				return {
+					name: invItem ? safeItemName(invItem) : ingredient,
+					unit: invItem?.unit || "pcs",
+					stockUnit: invItem?.unit || "pcs",
+					quantityUsed: "",
+					quantityBySize: {},
+				};
+			}
+			const invId = ingredient?.inventoryItemId != null ? Number(ingredient.inventoryItemId) : null;
+			const invItem = (inventory || []).find((entry) => (invId !== null && Number(entry?.id) === invId) || safeLower(safeItemName(entry)) === safeLower(ingredient?.name));
+			const quantityBySize = Object.fromEntries(
+				sizes.map((size) => {
+					const rawSizeObj = rawSizes.find((s) => s?.label === size.label);
+					const sizedIngredient = Array.isArray(rawSizeObj?.ingredients)
+						? rawSizeObj.ingredients.find((entry) => entry && Number(entry.inventoryItemId) === invId)
+						: null;
+					return [
+						size.label,
+						sizedIngredient && sizedIngredient.quantityUsed != null ? String(sizedIngredient.quantityUsed) : "0",
+					];
+				})
+			);
+			return {
+				...ingredient,
+				name: ingredient.name || safeItemName(invItem) || "",
+				unit: ingredient.unit || invItem?.unit || "pcs",
+				stockUnit: ingredient.stockUnit || invItem?.unit || ingredient.unit || "pcs",
+				quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed),
+				quantityBySize,
+			};
+		});
+
+		const addons = rawAddons.map((addon) => {
+			const invId = addon?.inventoryItemId != null ? Number(addon.inventoryItemId) : null;
+			const addonLabel = String(addon?.label || "");
+			const invItem = (inventory || []).find((entry) => (invId !== null && Number(entry?.id) === invId) || safeLower(safeItemName(entry)) === safeLower(addonLabel));
+			return {
+				...addon,
+				label: addonLabel,
+				price: addon?.price != null && !Number.isNaN(Number(addon.price)) ? String(addon.price) : "",
+				quantityUsed: addon?.quantityUsed == null ? 1 : addon.quantityUsed,
+				unit: addon?.unit || invItem?.unit || "pcs",
+				stockUnit: addon?.stockUnit || invItem?.unit || addon?.unit || "pcs",
+			};
+		});
+
 		setFormValues({
-			name: product.name,
+			name: String(product.name || ""),
 			price: String(product.price || "").replace(/[^0-9.]/g, ""),
 			stock: product.stock != null ? String(product.stock) : "",
-			description: product.description,
-			category: product.category,
-			image: product.image,
-			// A size priced at the base price round-trips as a bare label.
-			sizes: (product.sizes || []).map((size, idx) => {
-				const sizeCup = size.ingredients?.find((ing) => isCupIngredient(ing));
-				return {
-					label: size.label,
-					price: String(size.price),
-					factor: size.factor ?? defaultSizeFactor(null, idx),
-					cupId: sizeCup ? Number(sizeCup.inventoryItemId) : null,
-				};
-			}),
-			// Default recipe plus any ingredient that only some sizes use (e.g. a size-specific cup).
-			ingredients: [
-				...(product.ingredients || []),
-				...(product.sizes || []).flatMap((size) => size.ingredients || []).filter((entry, index, all) =>
-					typeof entry !== "string"
-					&& !(product.ingredients || []).some((base) => Number(base.inventoryItemId) === Number(entry.inventoryItemId))
-					&& all.findIndex((other) => Number(other.inventoryItemId) === Number(entry.inventoryItemId)) === index),
-			].map((ingredient) => {
-				if (typeof ingredient === "string") {
-					const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === ingredient.toLowerCase());
-				return { name: inventoryItem?.item || ingredient, unit: inventoryItem?.unit || "pcs", stockUnit: inventoryItem?.unit || "pcs", quantityUsed: "", quantityBySize: {} };
-				}
-				const inventoryItem = inventory.find((entry) => entry.id === Number(ingredient.inventoryItemId));
-				const quantityBySize = Object.fromEntries((product.sizes || []).map((size) => {
-					const sizedIngredient = size.ingredients?.find((entry) => Number(entry.inventoryItemId) === Number(ingredient.inventoryItemId));
-					return [size.label, sizedIngredient ? String(sizedIngredient.quantityUsed) : "0"];
-				}));
-				return { ...ingredient, name: ingredient.name || inventoryItem?.item || "", unit: ingredient.unit || inventoryItem?.unit || "pcs", stockUnit: ingredient.stockUnit || inventoryItem?.unit || ingredient.unit || "pcs", quantityUsed: ingredient.quantityUsed == null ? "" : String(ingredient.quantityUsed), quantityBySize };
-			}),
-			addons: (product.addons || []).map((addon) => {
-				const inventoryItem = inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId) || entry.item.toLowerCase() === addon.label.toLowerCase());
-				return { ...addon, quantityUsed: addon.quantityUsed == null ? 1 : addon.quantityUsed, unit: addon.unit || inventoryItem?.unit || "pcs", stockUnit: addon.stockUnit || inventoryItem?.unit || addon.unit || "pcs" };
-			}),
+			description: product.description != null ? String(product.description) : "",
+			category: product.category != null ? String(product.category) : (dbCategories[0]?.name || ""),
+			image: product.image != null ? String(product.image) : "",
+			sizes,
+			ingredients,
+			addons,
 			available: product.available !== false,
 		});
 		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
@@ -851,6 +943,7 @@ function AdminMenuManagement() {
 
 	// Amount an ingredient uses in one size; blank or 0 means "not used in this size".
 	const sizeQty = (ing, label) => {
+		if (!ing) return 0;
 		const explicit = ing.quantityBySize?.[label];
 		const fallback = ing.quantityUsed;
 		const raw = explicit ?? fallback;
@@ -864,15 +957,15 @@ function AdminMenuManagement() {
 			setRecipeError("Categories are still loading from database. Please wait.");
 			return;
 		}
-		const name = formValues.name.trim();
-		const description = formValues.description.trim();
+		const name = String(formValues.name || "").trim();
+		const description = String(formValues.description || "").trim();
 		const numericPrice = Number(formValues.price);
 
 		if (!name || !description || !Number.isFinite(numericPrice) || numericPrice < 0) return;
 
 		// Clean and validate variation sizes
-		const cleanSizes = formValues.sizes
-			.map((s) => ({ label: String(s.label || "").trim(), price: s.price }))
+		const cleanSizes = (formValues.sizes || [])
+			.map((s) => ({ label: String(s?.label || "").trim(), price: s?.price }))
 			.filter((s) => s.label || (s.price !== "" && s.price !== null && s.price !== undefined));
 
 		if (cleanSizes.length > 0) {
@@ -887,24 +980,24 @@ function AdminMenuManagement() {
 					return;
 				}
 			}
-			const lowerLabels = cleanSizes.map((s) => s.label.toLowerCase());
+			const lowerLabels = cleanSizes.map((s) => safeLower(s.label));
 			if (new Set(lowerLabels).size !== lowerLabels.length) {
 				setRecipeError("Each variation must have a unique name.");
 				return;
-				}
+			}
 		}
 
 		const finalSizes = cleanSizes.length
 			? cleanSizes.map((size) => ({
 					label: size.label,
 					price: Number(size.price),
-					ingredients: formValues.ingredients
+					ingredients: (formValues.ingredients || [])
 						.map((ingredient) => ({
-							...(ingredient.inventoryItemId ? { inventoryItemId: Number(ingredient.inventoryItemId) } : {}),
-							name: String(ingredient.name || "").trim(),
+							...(ingredient?.inventoryItemId ? { inventoryItemId: Number(ingredient.inventoryItemId) } : {}),
+							name: String(ingredient?.name || "").trim(),
 							quantityUsed: sizeQty(ingredient, size.label),
-							unit: ingredient.unit || "pcs",
-							stockUnit: ingredient.stockUnit || ingredient.unit || "pcs",
+							unit: ingredient?.unit || "pcs",
+							stockUnit: ingredient?.stockUnit || ingredient?.unit || "pcs",
 						}))
 						.filter((ingredient) => ingredient.quantityUsed > 0),
 				}))
@@ -913,11 +1006,11 @@ function AdminMenuManagement() {
 					price: numericPrice,
 					ingredients: (formValues.ingredients || [])
 						.map((ing) => ({
-							...(ing.inventoryItemId ? { inventoryItemId: Number(ing.inventoryItemId) } : {}),
-							name: String(ing.name || "").trim(),
-							quantityUsed: Number(ing.quantityUsed ?? ing.quantityBySize?.Regular ?? 0),
-							unit: ing.unit || "pcs",
-							stockUnit: ing.stockUnit || ing.unit || "pcs",
+							...(ing?.inventoryItemId ? { inventoryItemId: Number(ing.inventoryItemId) } : {}),
+							name: String(ing?.name || "").trim(),
+							quantityUsed: Number(ing?.quantityUsed ?? ing?.quantityBySize?.Regular ?? 0),
+							unit: ing?.unit || "pcs",
+							stockUnit: ing?.stockUnit || ing?.unit || "pcs",
 						}))
 						.filter((ing) => (ing.inventoryItemId || ing.name) && ing.quantityUsed > 0),
 				}];
@@ -926,7 +1019,7 @@ function AdminMenuManagement() {
 			setRecipeError("Enter a valid price for every serving size.");
 			return;
 		}
-		const emptySize = formValues.ingredients.length > 0 ? finalSizes.find((size) => !size.ingredients.length) : null;
+		const emptySize = (formValues.ingredients || []).length > 0 ? finalSizes.find((size) => !size.ingredients.length) : null;
 		if (emptySize) {
 			setRecipeError(`The ${emptySize.label} size has no ingredients. Enter an amount above 0 for at least one ingredient.`);
 			return;
@@ -938,7 +1031,7 @@ function AdminMenuManagement() {
 				return;
 			}
 			for (const size of finalSizes) {
-				const hasCup = size.ingredients.some((ing) => isCupIngredient(ing) && ing.quantityUsed > 0);
+				const hasCup = (size.ingredients || []).some((ing) => isCupIngredient(ing) && ing.quantityUsed > 0);
 				if (!hasCup) {
 					setRecipeError(`Every drink size must have a cup selected from Inventory (variation "${size.label}" is missing a cup).`);
 					return;
@@ -946,15 +1039,16 @@ function AdminMenuManagement() {
 			}
 		}
 
-		for (const addon of formValues.addons || []) {
-			const addonLabel = String(addon.label || "").trim();
-			const addonPrice = Number(addon.price);
-			const addonQty = Number(addon.quantityUsed);
-			const matchedInv = addon.inventoryItemId
-				? inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId))
-				: inventory.find((entry) => entry.item.toLowerCase() === addonLabel.toLowerCase());
-			const addonUnit = String(addon.unit || matchedInv?.unit || "pcs").trim();
-			const addonStockUnit = String(matchedInv?.unit || addon.stockUnit || addonUnit || "pcs").trim();
+		for (const addon of (formValues.addons || [])) {
+			const addonLabel = String(addon?.label || addon?.name || "").trim();
+			const addonPrice = Number(addon?.price);
+			const addonQty = Number(addon?.quantityUsed);
+			const addonId = Number(addon?.inventoryItemId);
+			const matchedInv = (addonId > 0)
+				? (inventory || []).find((entry) => Number(entry?.id) === addonId)
+				: (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(addonLabel));
+			const addonUnit = String(addon?.unit || matchedInv?.unit || "pcs").trim();
+			const addonStockUnit = String(matchedInv?.unit || addon?.stockUnit || addonUnit || "pcs").trim();
 
 			if (!addonLabel || addon.price === "" || !Number.isFinite(addonPrice) || addonPrice < 0) {
 				setRecipeError(`Enter a valid non-negative price for add-on "${addonLabel || "unnamed"}".`);
@@ -970,22 +1064,22 @@ function AdminMenuManagement() {
 			}
 		}
 
-		const productBasePrice = finalSizes.find((size) => size.label.trim().toLowerCase() === "regular")?.price ?? finalSizes[0]?.price ?? numericPrice;
+		const productBasePrice = finalSizes.find((size) => safeLower(size?.label) === "regular")?.price ?? finalSizes[0]?.price ?? numericPrice;
 		const cleanStock = formValues.stock !== "" && !Number.isNaN(Number(formValues.stock))
 			? Math.max(0, parseInt(formValues.stock, 10))
 			: 0;
 
 		const productData = {
 			name,
-			price: `₱${productBasePrice.toFixed(2)}`,
+			price: `₱${safeToFixed(productBasePrice, 2)}`,
 			description,
 			category: formValues.category,
 			image: formValues.image || "",
 			available: formValues.available !== false,
 			sizes: finalSizes,
 			// Default recipe = the first size's recipe; every size also sends its own list.
-			ingredients: finalSizes[0].ingredients,
-			addons: formValues.addons.map((addon) => ({ ...addon, price: Number(addon.price), quantityUsed: Number(addon.quantityUsed), unit: addon.unit || "pcs", stockUnit: addon.stockUnit || addon.unit || "pcs" })),
+			ingredients: finalSizes[0]?.ingredients || [],
+			addons: (formValues.addons || []).map((addon) => ({ ...addon, price: Number(addon?.price || 0), quantityUsed: Number(addon?.quantityUsed || 1), unit: addon?.unit || "pcs", stockUnit: addon?.stockUnit || addon?.unit || "pcs" })),
 		};
 
 		try {
@@ -1000,24 +1094,29 @@ function AdminMenuManagement() {
 		}
 	};
 
-	const availableCount = products.filter((product) => product.available).length;
-	const lowStockCount = products.filter((product) => product.stock > 0 && product.stock <= 7).length;
-	const recipeDraftItem = inventory.find((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase());
+	const availableCount = (products || []).filter((product) => product?.available).length;
+	const lowStockCount = (products || []).filter((product) => product?.stock > 0 && product?.stock <= 7).length;
+	const recipeDraftItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(ingredientDraft.name));
 
 	const computeSizeCosting = (sizeLabel, rawSizePrice) => {
+		const formPrice = Number(formValues?.price) || 0;
 		const numericPrice = rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
 			? Number(rawSizePrice)
-			: (Number(formValues.price) || 0);
+			: formPrice;
 		let rawCost = 0;
-		let costComplete = formValues.ingredients.length > 0;
-		for (const ing of formValues.ingredients) {
-			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
+		const ingredients = (formValues.ingredients || []).filter(Boolean);
+		let costComplete = ingredients.length > 0;
+		for (const ing of ingredients) {
+			if (!ing) continue;
+			const ingName = safeLower(ing.name || ing.item);
+			const invItemId = Number(ing.inventoryItemId);
+			const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(safeItemName(entry)) === ingName);
 			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
 			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
 			const recipeUnit = ing.unit || stockUnit;
 			const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
 			if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue; // unused in this size
-			const matchedSize = sizeLabel ? formValues.sizes.find((s) => s.label === sizeLabel) : null;
+			const matchedSize = sizeLabel ? (formValues.sizes || []).find((s) => s?.label === sizeLabel) : null;
 			const factor = matchedSize ? defaultSizeFactor(matchedSize.factor, 0) : 1.0;
 			const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
 			const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
@@ -1027,24 +1126,32 @@ function AdminMenuManagement() {
 				rawCost += stockQty * unitCost;
 			}
 		}
-		const cost = Number(rawCost.toFixed(2));
-		const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : null;
-		const margin = numericPrice > 0 ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
-		const foodCostPercent = numericPrice > 0 ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
-		const suggestedPrice = rawCost > 0 ? Math.ceil((rawCost / 0.30) / 5) * 5 : null;
-		return { cost, costComplete, grossProfit, margin, foodCostPercent, suggestedPrice };
+		const safeRawCost = Number.isFinite(rawCost) ? rawCost : 0;
+		const cost = Number(safeRawCost.toFixed(2));
+		const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : 0;
+		const margin = (numericPrice > 0 && Number.isFinite(cost)) ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
+		const foodCostPercent = (numericPrice > 0 && Number.isFinite(cost)) ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
+		const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / 0.30) / 5) * 5 : null;
+		return {
+			cost: Number.isFinite(cost) ? cost : 0,
+			costComplete,
+			grossProfit: Number.isFinite(grossProfit) ? grossProfit : 0,
+			margin: Number.isFinite(margin) ? margin : null,
+			foodCostPercent: Number.isFinite(foodCostPercent) ? foodCostPercent : null,
+			suggestedPrice,
+		};
 	};
 
 	const applySuggestedSizePrice = (index, suggestedPrice) => {
 		if (suggestedPrice == null) return;
 		const nextPrice = String(suggestedPrice);
 		setFormValues((current) => {
-			const targetLabel = String(current.sizes[index]?.label || "").toLowerCase();
+			const targetLabel = safeLower(current.sizes[index]?.label);
 			const shouldUpdateBase = index === 0 || targetLabel.includes("regular");
 			return {
 				...current,
 				price: shouldUpdateBase ? nextPrice : current.price,
-				sizes: current.sizes.map((s, i) => (i === index ? { ...s, price: nextPrice } : s)),
+				sizes: (current.sizes || []).map((s, i) => (i === index ? { ...s, price: nextPrice } : s)),
 			};
 		});
 	};
@@ -1320,7 +1427,23 @@ function AdminMenuManagement() {
 			)}
 
 			{showForm && (
-				<div className="admin-menu-modal-backdrop" role="presentation" onClick={closeForm}>
+				<ErrorBoundary
+					fallback={({ error, reset }) => (
+						<div className="admin-menu-modal-backdrop" role="presentation" onClick={closeForm}>
+							<div className="admin-menu-modal" style={{ maxWidth: 500, padding: "2rem" }} onClick={(e) => e.stopPropagation()}>
+								<h3 style={{ color: "#b91c1c", fontWeight: "bold", marginBottom: "0.5rem" }}>⚠️ Form Render Error</h3>
+								<p style={{ fontSize: "0.875rem", color: "#4b5563", marginBottom: "1rem" }}>
+									{error?.message || "An unexpected error occurred while displaying the product form."}
+								</p>
+								<div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+									<button type="button" className="menu-builder-cancel" onClick={closeForm}>Close</button>
+									<button type="button" className="menu-builder-save" onClick={reset}>Try Again</button>
+								</div>
+							</div>
+						</div>
+					)}
+				>
+					<div className="admin-menu-modal-backdrop" role="presentation" onClick={closeForm}>
 					<form
 						className="admin-menu-modal menu-builder"
 						onSubmit={saveProduct}
@@ -1604,8 +1727,9 @@ function AdminMenuManagement() {
 											</div>
 											<div className="menu-builder-cups-chips">
 												{cupInventoryItems.map((cup) => {
-													const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
-													const isAdded = formValues.sizes.some((s) => s.label.toLowerCase() === label.toLowerCase() || s.cupId === cup.id);
+													const cupName = safeItemName(cup);
+													const label = cupName.replace(/\s*cup\s*/i, "").trim() || cupName;
+													const isAdded = formValues.sizes.some((s) => safeLower(s?.label) === safeLower(label) || s.cupId === cup.id);
 													return (
 														<button
 															key={cup.id}
@@ -1615,7 +1739,7 @@ function AdminMenuManagement() {
 															title={isAdded ? `${label} is already in the variations list` : `Click to add ${label} variation (${cup.quantity} pcs in stock)`}
 														>
 															<span className="cup-chip-label">{label}</span>
-															<span className="cup-chip-name">{cup.item}</span>
+															<span className="cup-chip-name">{cupName}</span>
 															<span className="cup-chip-stock">{Number(cup.quantity)} pcs</span>
 															{isAdded ? <Check size={12} strokeWidth={2.4} /> : <Plus size={12} strokeWidth={2.4} />}
 														</button>
@@ -1629,18 +1753,19 @@ function AdminMenuManagement() {
 										<div className="menu-builder-size-list">
 											{formValues.sizes.map((size, index) => {
 												const isEditing = editingSizeIndex === index;
-												const sizeCosting = computeSizeCosting(size.label, size.price);
-												const factor = defaultSizeFactor(size.factor, index);
-												const recipeSummary = formValues.ingredients
+												const sizeCosting = computeSizeCosting(size?.label, size?.price) || { cost: 0, costComplete: false, grossProfit: 0, margin: null, suggestedPrice: null };
+												const factor = defaultSizeFactor(size?.factor, index);
+												const recipeSummary = (formValues.ingredients || [])
 													.map((ing) => {
-														const rawQty = ing.quantityBySize?.[size.label];
-																		if (rawQty !== undefined && !(Number(rawQty) > 0)) return "";
-																		const qty = rawQty ?? scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
-														return `${qty}${ing.unit || ""} ${ing.name}`.trim();
+														if (!ing) return "";
+														const rawQty = ing.quantityBySize?.[size?.label];
+														if (rawQty !== undefined && !(Number(rawQty) > 0)) return "";
+														const qty = rawQty ?? scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+														return `${qty}${ing.unit || ""} ${ing.name || ""}`.trim();
 													})
 													.filter(Boolean)
 													.join(", ");
-												const marginTone = sizeCosting.margin == null
+												const marginTone = sizeCosting?.margin == null
 													? "neutral"
 													: sizeCosting.margin >= 50
 														? "good"
@@ -1658,7 +1783,7 @@ function AdminMenuManagement() {
 																<input
 																	type="text"
 																	className="size-label-input"
-																	value={size.label}
+																	value={size?.label || ""}
 																	placeholder="Variation name (e.g. Large, Medium)"
 																	onChange={(e) => updateSizeLabel(index, e.target.value)}
 																	autoFocus
@@ -1677,7 +1802,7 @@ function AdminMenuManagement() {
 																		min="0"
 																		step="0.01"
 																		className="size-price-input"
-																		value={size.price ?? ""}
+																		value={size?.price ?? ""}
 																		placeholder={formValues.price || "0.00"}
 																		onChange={(e) => updateSizePrice(index, e.target.value)}
 																		onKeyDown={(e) => {
@@ -1686,7 +1811,7 @@ function AdminMenuManagement() {
 																				setEditingSizeIndex(null);
 																			}
 																		}}
-																		aria-label={`${size.label || "Variation"} price`}
+																		aria-label={`${size?.label || "Variation"} price`}
 																	/>
 																</div>
 																<div className="size-factor-input-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -1697,23 +1822,23 @@ function AdminMenuManagement() {
 																		max="10"
 																		step="0.05"
 																		style={{ width: "60px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid #d1d5db" }}
-																		value={size.factor ?? factor}
+																		value={size?.factor ?? factor}
 																		onChange={(e) => updateSizeFactor(index, e.target.value)}
-																		aria-label={`${size.label || "Variation"} scale factor`}
+																		aria-label={`${size?.label || "Variation"} scale factor`}
 																	/>
 																</div>
 																{getCategoryFamily(formValues.category) === "drink" && (
 																	<div className="size-cup-select-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
 																		<select
-																			value={size.cupId || ""}
+																			value={size?.cupId || ""}
 																			onChange={(e) => assignCupToSize(index, e.target.value)}
 																			style={{ fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #d1d5db" }}
-																			aria-label={`Cup for ${size.label}`}
+																			aria-label={`Cup for ${size?.label || "Variation"}`}
 																		>
 																			<option value="">-- Select Cup --</option>
-																			{cupInventoryItems.map((cup) => (
+																			{(cupInventoryItems || []).map((cup) => (
 																				<option key={cup.id} value={cup.id}>
-																					{cup.item} ({cup.quantity} {cup.unit})
+																					{safeItemName(cup)} ({cup.quantity} {cup.unit})
 																				</option>
 																			))}
 																		</select>
@@ -1728,17 +1853,17 @@ function AdminMenuManagement() {
 																	onClick={() => setEditingSizeIndex(index)}
 																	title="Click to edit variation name"
 																>
-																	<strong className={size.label.trim() ? "" : "empty-placeholder"}>
-																		{size.label.trim() ? size.label : "Untitled Variation"}
+																	<strong className={String(size?.label || "").trim() ? "" : "empty-placeholder"}>
+																		{String(size?.label || "").trim() ? size.label : "Untitled Variation"}
 																	</strong>
 																</button>
 																{getCategoryFamily(formValues.category) === "drink" && (
 																	<span
-																		style={{ fontSize: "11px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px", color: size.cupId ? "#1f2937" : "#9ca3af", cursor: "pointer" }}
+																		style={{ fontSize: "11px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px", color: size?.cupId ? "#1f2937" : "#9ca3af", cursor: "pointer" }}
 																		onClick={() => setEditingSizeIndex(index)}
 																		title="Click to change assigned cup"
 																	>
-																		☕ {inventory.find((i) => Number(i.id) === Number(size.cupId))?.item || "No cup selected"}
+																		☕ {safeItemName((inventory || []).find((i) => Number(i?.id) === Number(size?.cupId))) || "No cup selected"}
 																	</span>
 																)}
 																<div
@@ -1748,7 +1873,7 @@ function AdminMenuManagement() {
 																>
 																	<span className="price-caption">Serving price</span>
 																	<strong className="price-tag">
-																		₱{size.price !== "" && !isNaN(Number(size.price)) ? Number(size.price).toFixed(2) : formValues.price ? Number(formValues.price).toFixed(2) : "0.00"}
+																		₱{size?.price !== "" && size?.price != null && !isNaN(Number(size.price)) ? Number(size.price).toFixed(2) : formValues.price ? Number(formValues.price).toFixed(2) : "0.00"}
 																	</strong>
 																</div>
 															</div>
@@ -1768,14 +1893,14 @@ function AdminMenuManagement() {
 															type="button"
 															className="size-delete-btn"
 															onClick={() => removeSize(index)}
-															aria-label={`Remove ${size.label || "variation"}`}
+															aria-label={`Remove ${size?.label || "variation"}`}
 															title="Remove variation"
 														>
 															×
 														</button>
 
 														<div className="size-costing-strip">
-															{formValues.ingredients.length === 0 ? (
+															{(formValues.ingredients || []).length === 0 ? (
 																<span className="size-costing-note">Add recipe ingredients below to calculate COGS &amp; suggested price</span>
 															) : (
 																<>
@@ -1783,13 +1908,13 @@ function AdminMenuManagement() {
 																		<Beaker size={11} strokeWidth={2} />
 																		{factor}x Recipe{recipeSummary ? ` (${recipeSummary})` : ""}
 																	</span>
-																	<span>COGS <strong>₱{sizeCosting.cost.toFixed(2)}</strong></span>
+																	<span>COGS <strong>₱{safeToFixed(sizeCosting?.cost, 2)}</strong></span>
 																	<span>·</span>
-																	<span>Profit <strong>₱{(sizeCosting.grossProfit ?? 0).toFixed(2)}</strong></span>
+																	<span>Profit <strong>₱{safeToFixed(sizeCosting?.grossProfit ?? 0, 2)}</strong></span>
 																	<span className={`size-margin-badge ${marginTone}`}>
-																		Margin {sizeCosting.margin != null ? `${sizeCosting.margin.toFixed(1)}%` : "—"}
+																		Margin {sizeCosting?.margin != null && Number.isFinite(sizeCosting.margin) ? `${safeToFixed(sizeCosting.margin, 1)}%` : "—"}
 																	</span>
-																	{sizeCosting.suggestedPrice != null && (
+																	{sizeCosting?.suggestedPrice != null && (
 																		<>
 																			<span>Suggested <strong>₱{sizeCosting.suggestedPrice}</strong> (30% food cost)</span>
 																			<button
@@ -1801,7 +1926,7 @@ function AdminMenuManagement() {
 																			</button>
 																		</>
 																	)}
-																	{!sizeCosting.costComplete && (
+																	{!sizeCosting?.costComplete && (
 																		<span className="size-costing-warning">Some ingredients have ₱0 unit cost in Inventory</span>
 																	)}
 																</>
@@ -1816,14 +1941,14 @@ function AdminMenuManagement() {
 											<div className="empty-variations-msg">
 												No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large, or populate from detected cups in inventory:
 											</div>
-											{cupInventoryItems.length > 0 && (
+											{(cupInventoryItems || []).length > 0 && (
 												<div className="empty-variations-cups-actions">
 													<button
 														type="button"
 														className="empty-variations-all-cups-btn"
 														onClick={handleAutoSetFromCups}
 													>
-														<Sparkles size={13} strokeWidth={2.2} /> Auto-Generate All {cupInventoryItems.length} Cup Sizes ({cupInventoryItems.map((c) => c.item).join(", ")})
+														<Sparkles size={13} strokeWidth={2.2} /> Auto-Generate All {cupInventoryItems.length} Cup Sizes ({(cupInventoryItems || []).map((c) => safeItemName(c)).join(", ")})
 													</button>
 												</div>
 											)}
@@ -1842,7 +1967,7 @@ function AdminMenuManagement() {
 									</label>
 					<p className="menu-recipe-help">Set the amount used for one serving. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically.</p>
 					<div className="menu-recipe-entry menu-conversion-entry">
-						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === name.trim().toLowerCase()); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Pick from inventory..." />
+						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = findInventoryItem(name); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Pick from inventory..." />
 						<label className="menu-recipe-field"><span>Amount per serving</span><input type="number" min="0.000001" step="0.000001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="e.g. 5" /></label>
 						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={ingredientDraft.unit} compatibleWith={recipeDraftItem?.unit || ingredientDraft.stockUnit} onChange={(unit) => { setIngredientDraft((current) => ({ ...current, unit })); setRecipeError(""); }} ariaLabel="Ingredient recipe unit" /></label>
 						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={recipeDraftItem?.unit || ingredientDraft.stockUnit} disabled={Boolean(recipeDraftItem)} onChange={(stockUnit) => { setIngredientDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit })); setRecipeError(""); }} ariaLabel="Ingredient stock unit" /></label>
@@ -1861,8 +1986,8 @@ function AdminMenuManagement() {
 						</a>
 					</div>
 					{convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {recipeDraftItem?.unit || ingredientDraft.stockUnit} from inventory per serving.</p>}
-					{inventory.some((entry) => entry.item.toLowerCase() === ingredientDraft.name.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
-					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={entry.item}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
+					{inventory.some((entry) => safeLower(safeItemName(entry)) === safeLower(ingredientDraft.name) && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
+					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={safeItemName(entry)}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
 									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
 									{formValues.ingredients.length > 0 && formValues.sizes.length > 0 && (
 										<div className="menu-size-recipe-summary-card">
@@ -1906,8 +2031,8 @@ function AdminMenuManagement() {
 									{formValues.ingredients.length > 0 && (
 										<div className="menu-recipe-list">
 										{formValues.ingredients.map((ingredient, index) => {
-								const inventoryItem = inventory.find((entry) => entry.item.toLowerCase() === String(ingredient.name || "").toLowerCase());
-								const ingredientName = inventoryItem?.item || ingredient.name || "Missing inventory item";
+								const inventoryItem = findInventoryItem(ingredient.name);
+								const ingredientName = safeItemName(inventoryItem) || ingredient.name || "Missing inventory item";
 								return (
 									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
 														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small>{(formValues.sizes.length ? formValues.sizes.every((size) => sizeQty(ingredient, size.label) === 0) : sizeQty(ingredient) === 0) && <small className="menu-recipe-error" role="alert">Amount is 0 for every size, so this ingredient will be removed when you save.</small>}</div>
@@ -1932,22 +2057,22 @@ function AdminMenuManagement() {
 									</label>
 					<p className="menu-recipe-help">The add-on amount is what one serving consumes. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically; weight and volume need a density conversion and cannot be mixed directly.</p>
 					<div className="menu-recipe-entry menu-addon-entry menu-conversion-entry">
-						<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = inventory.find((entry) => entry.item.toLowerCase() === label.trim().toLowerCase()); setAddonDraft((current) => ({ ...current, label, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
+						<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = findInventoryItem(label); setAddonDraft((current) => ({ ...current, label, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
 						<input type="number" min="0" step="0.01" value={addonDraft.price} onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))} aria-label="Add-on price" placeholder="Price" />
 						<label className="menu-recipe-field"><span>Amount / serving</span><input type="number" min="0.000001" step="0.000001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on amount used per serving" placeholder="e.g. 5" /></label>
-						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} compatibleWith={inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
-						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} disabled={Boolean(inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase()))} onChange={(stockUnit) => setAddonDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit }))} ariaLabel="Add-on stock unit" /></label>
+						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} compatibleWith={findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
+						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} disabled={Boolean(findInventoryItem(addonDraft.label))} onChange={(stockUnit) => setAddonDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit }))} ariaLabel="Add-on stock unit" /></label>
 						<button type="button" onClick={addAddon} disabled={!addonDraft.label.trim() || addonDraft.price === "" || !addonDraft.quantityUsed}>
 							<Plus size={14} strokeWidth={2.4} /> Add
 						</button>
 					</div>
-					{convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {inventory.find((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase())?.unit || addonDraft.stockUnit} from inventory per serving.</p>}
-					{inventory.some((entry) => entry.item.toLowerCase() === addonDraft.label.trim().toLowerCase() && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
+					{convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} from inventory per serving.</p>}
+					{inventory.some((entry) => safeLower(safeItemName(entry)) === safeLower(addonDraft.label) && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
 
 					{formValues.addons.length ? (
 						<div className="menu-addon-list">
 							{formValues.addons.map((addon, index) => {
-								const addonInv = inventory.find((entry) => Number(entry.id) === Number(addon.inventoryItemId) || entry.item.toLowerCase() === addon.label.toLowerCase());
+								const addonInv = inventory.find((entry) => (addon.inventoryItemId && Number(entry.id) === Number(addon.inventoryItemId)) || safeLower(safeItemName(entry)) === safeLower(addon.label));
 								const addonStockUnit = addonInv?.unit || addon.stockUnit || "pcs";
 								const addonUnitCost = Number(addonInv?.unitCost ?? addonInv?.unit_cost ?? addon.unitCost ?? 0);
 								const addonStockQty = convertRecipeAmount(addon.quantityUsed, addon.unit || addonStockUnit, addonStockUnit);
@@ -2008,6 +2133,7 @@ function AdminMenuManagement() {
 						</footer>
 					</form>
 				</div>
+				</ErrorBoundary>
 			)}
 
 			{syncNotice && (

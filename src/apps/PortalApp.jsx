@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import RequireAuth from "../components/RequireAuth.jsx";
+import ErrorBoundary from "../components/ErrorBoundary.jsx";
 import Login from "../pages/Login.jsx";
 import StaffMenu from "../pages/staff/StaffMenu.jsx";
 import StaffOrder from "../pages/staff/StaffOrder.jsx";
@@ -25,7 +26,7 @@ export default function PortalApp() {
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/staff" element={<Navigate to="/staff/menu" replace />} />
-          <Route element={<RequireAuth roles={["staff"]}><Outlet /></RequireAuth>}>
+          <Route element={<RequireAuth roles={["staff"]}><ErrorBoundary><Outlet /></ErrorBoundary></RequireAuth>}>
             <Route path="/staff/menu" element={<StaffMenu />} />
             <Route path="/staff/orders" element={<StaffOrder />} />
             <Route path="/staff/dashboard" element={<StaffDashboard />} />
@@ -34,7 +35,7 @@ export default function PortalApp() {
             <Route path="/staff/receipt" element={<StaffReceipt />} />
             <Route path="/staff/quantity" element={<StaffQuantity />} />
           </Route>
-          <Route element={<RequireAuth roles={["admin"]}><Outlet /></RequireAuth>}>
+          <Route element={<RequireAuth roles={["admin"]}><ErrorBoundary><Outlet /></ErrorBoundary></RequireAuth>}>
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/orders" element={<Navigate to="/admin" replace />} />
             <Route path="/admin/inventory" element={<AdminInventory />} />
