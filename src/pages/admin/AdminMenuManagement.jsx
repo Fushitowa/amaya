@@ -1601,6 +1601,29 @@ function AdminMenuManagement() {
 												/>
 											</div>
 										</label>
+
+										<div className="menu-builder-field">
+											Stock Quantity
+											<input
+												type="text"
+												readOnly
+												value={formValues.stock !== "" && formValues.stock != null ? String(formValues.stock) : "0"}
+												aria-label="Stock quantity auto-calculated from inventory"
+												style={{
+													backgroundColor: "#f9f8f6",
+													color: "#44403c",
+													fontWeight: "600",
+													cursor: "default",
+													userSelect: "none",
+													borderColor: "#e7e5e4"
+												}}
+											/>
+											<small className="menu-field-hint" style={{ fontSize: "0.75rem", color: "#8a7a6e", marginTop: "2px" }}>
+												{formValues.ingredients.length > 0
+													? "Auto-calculated from ingredients on hand"
+													: "Direct stock balance for retail/prepared items"}
+											</small>
+										</div>
 									</div>
 
 									<div className="menu-builder-field">
