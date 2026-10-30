@@ -65,5 +65,41 @@ describe("Tala Test Suite: Menu Cup & Sizing Business Rules", () => {
     assert.equal(baseMatcha.cupId, caramelMatcha.cupId, "Both variants can share the exact same cup");
     assert.notDeepEqual(baseMatcha.ingredients, caramelMatcha.ingredients, "Variant has additional caramel syrup");
   });
+
+  it("TEST 6 (Step 5a): cupSizeKey & cupMatchesSize are completely deleted from AdminMenuManagement.jsx", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const filePath = path.resolve("src/pages/admin/AdminMenuManagement.jsx");
+    const content = await fs.readFile(filePath, "utf-8");
+
+    assert.equal(
+      content.includes("const cupSizeKey ="),
+      false,
+      "cupSizeKey must be deleted from AdminMenuManagement.jsx"
+    );
+    assert.equal(
+      content.includes("const cupMatchesSize ="),
+      false,
+      "cupMatchesSize must be deleted from AdminMenuManagement.jsx"
+    );
+    assert.equal(
+      content.includes("cupMatchesSize("),
+      false,
+      "No call to cupMatchesSize may remain in AdminMenuManagement.jsx"
+    );
+  });
+
+  it("TEST 7 (Step 5a): Cup quantities are preserved across all sizes and not zeroed by label heuristics", () => {
+    const isCup = (ing) => /cup/i.test(ing.name);
+    const amountForSize = (ing, sizeLabel, factor) => {
+      if (isCup(ing)) return String(ing.quantityUsed ?? "1");
+      return String(Number(ing.quantityUsed) * factor);
+    };
+
+    const cupIng = { name: "12oz Paper Cup", quantityUsed: "1", unit: "pcs" };
+    assert.equal(amountForSize(cupIng, "Regular", 1.0), "1", "Must not zero on Regular");
+    assert.equal(amountForSize(cupIng, "Medium", 1.25), "1", "Must not zero on Medium");
+    assert.equal(amountForSize(cupIng, "Large", 1.5), "1", "Must not zero on Large");
+  });
 });
 

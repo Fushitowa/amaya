@@ -203,23 +203,6 @@ const scaleIngredientAmount = (baseQty, factor, unit) => {
 	return String(scaled);
 };
 
-// Volume key (oz) for a cup name or size label, e.g. "22oz Cup (Large)" / "Large (22oz)" -> 22. null = unknown.
-const cupSizeKey = (text) => {
-	const value = String(text || "").toLowerCase();
-	const oz = value.match(/(\d+(?:\.\d+)?)\s*oz/);
-	if (oz) return Number(oz[1]);
-	if (/\b(xl|extra large)\b/.test(value)) return 24;
-	if (/\blarge\b/.test(value)) return 12;
-	if (/\bmedium\b/.test(value)) return 18;
-	if (/\b(small|regular)\b/.test(value)) return 8;
-	return null;
-};
-// Mirrors the backend guard in api/src/routes/menu.js: a cup only belongs to the size with the same volume.
-const cupMatchesSize = (cupName, sizeLabel) => {
-	const cup = cupSizeKey(cupName);
-	const size = cupSizeKey(sizeLabel);
-	return cup == null || size == null || cup === size;
-};
 
 const computeInventoryBasedSizePrice = (sizeCost, baseCost, basePrice, factor, index = 0) => {
 	const numBasePrice = Number(basePrice);
@@ -356,9 +339,9 @@ function AdminMenuManagement() {
 		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || name.includes("cup"));
 	};
 
-	// Per-size amount: cups are 1 only on their matching size (never cloned), everything else scales.
+	// Per-size amount: cups preserve the configured amount set by the merchant; other ingredients scale by factor.
 	const amountForSize = (ing, sizeLabel, factor) => {
-		if (isCupIngredient(ing)) return cupMatchesSize(ing.name, sizeLabel) ? "1" : "0";
+		if (isCupIngredient(ing)) return String(ing.quantityUsed ?? "1");
 		return scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
 	};
 
@@ -894,8 +877,7 @@ function AdminMenuManagement() {
 	// Amount an ingredient uses in one size; blank or 0 means "not used in this size".
 	const sizeQty = (ing, label) => {
 		const explicit = ing.quantityBySize?.[label];
-		// A cup with no explicit amount for this size only falls back to its base amount on its matching size.
-		const fallback = isCupIngredient(ing) && !cupMatchesSize(ing.name, label) ? 0 : ing.quantityUsed;
+		const fallback = ing.quantityUsed;
 		const raw = explicit ?? fallback;
 		const amount = Number(raw);
 		return raw !== "" && raw != null && Number.isFinite(amount) && amount > 0 ? amount : 0;
