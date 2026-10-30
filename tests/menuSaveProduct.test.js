@@ -1,7 +1,7 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import pool from "../api/src/database.js";
-import { saveProduct } from "../api/src/routes/menu.js";
+import { saveProduct, listProducts } from "../api/src/routes/menu.js";
 
 describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", () => {
   after(async () => {
@@ -130,6 +130,29 @@ describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", ()
     } finally {
       await connection.rollback();
       connection.release();
+    }
+  });
+
+  it("TEST 4 (Step 3): Logged-out GET /menu (includeInventory=false) does NOT return recipes or inventoryItemId; authenticated returns them", async () => {
+    // 1. Logged-out customer view:
+    const publicProducts = await listProducts(false, false);
+    for (const product of publicProducts) {
+      assert.deepEqual(product.ingredients, [], "Public product must not leak ingredients");
+      for (const size of product.sizes || []) {
+        assert.deepEqual(size.ingredients, [], "Public product size must not leak size ingredients");
+      }
+      for (const addon of product.addons || []) {
+        assert.equal(addon.inventoryItemId, undefined, "Public addon must not leak inventoryItemId");
+      }
+    }
+
+    // 2. Authenticated staff/admin view:
+    const authProducts = await listProducts(true, true);
+    // If any product has ingredients in DB, authenticated view must retain them
+    const authWithIngredients = authProducts.find((p) => p.sizes.some((s) => s.ingredients && s.ingredients.length > 0));
+    if (authWithIngredients) {
+      const authSize = authWithIngredients.sizes.find((s) => s.ingredients.length > 0);
+      assert(authSize.ingredients[0].name, "Authenticated view must preserve ingredient names");
     }
   });
 });

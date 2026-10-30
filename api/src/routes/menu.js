@@ -69,7 +69,7 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
         label: size.label,
         price: Number(size.price),
         stock: recipeRows.length ? recipeServings(recipeRows) : Number(row.stock_quantity),
-        ingredients: recipes,
+        ingredients: includeInventory ? recipes : [],
         ...(sizeCostSummary ? sizeCostSummary : {}),
       };
     });
@@ -115,7 +115,7 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
       return {
         label: entry.label,
         price: Number(entry.price),
-        inventoryItemId: entry.inventory_item_id == null ? null : Number(entry.inventory_item_id),
+        ...(includeInventory && entry.inventory_item_id != null ? { inventoryItemId: Number(entry.inventory_item_id) } : {}),
         quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
         unit: entry.usage_unit || entry.inventory_unit || "pcs",
         stockUnit: entry.inventory_unit || "pcs",
@@ -131,7 +131,7 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
         } : {}),
       };
     }),
-    ingredients: productIngredients,
+    ingredients: includeInventory ? productIngredients : [],
   };
 }
 
