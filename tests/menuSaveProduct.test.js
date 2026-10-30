@@ -196,4 +196,132 @@ describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", ()
       connection.release();
     }
   });
+
+  it("TEST 6 (Step 6): Drink category without cup in any size must be rejected with HTTP 400", async () => {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.execute(
+        "INSERT INTO menu_categories (name, operational_family) VALUES ('Test Drinks', 'drink') ON DUPLICATE KEY UPDATE operational_family = 'drink'"
+      );
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Matcha Powder', 'Ingredients', 500, 'g') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+
+      const drinkWithoutCupPayload = {
+        name: "Cupless Matcha",
+        category: "Test Drinks",
+        price: "85.00",
+        description: "Drink missing a cup",
+        sizes: [
+          {
+            label: "Regular",
+            price: 85,
+            ingredients: [
+              { name: "Matcha Powder", quantityUsed: 15, unit: "g", stockUnit: "g" },
+            ],
+          },
+        ],
+        ingredients: [
+          { name: "Matcha Powder", quantityUsed: 15, unit: "g", stockUnit: "g" },
+        ],
+      };
+
+      await assert.rejects(
+        async () => {
+          await saveProduct(connection, drinkWithoutCupPayload);
+        },
+        (err) => {
+          return err.status === 400 && /Every drink size must have a cup selected from Inventory/i.test(err.message);
+        },
+        "Must throw HTTP 400 when drink size is missing a cup"
+      );
+    } finally {
+      await connection.rollback();
+      connection.release();
+    }
+  });
+
+  it("TEST 7 (Step 6): Non-cup ingredient with 'cup' in name (e.g. Peanut Butter Cup) does NOT satisfy drink cup check", async () => {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.execute(
+        "INSERT INTO menu_categories (name, operational_family) VALUES ('Test Drinks', 'drink') ON DUPLICATE KEY UPDATE operational_family = 'drink'"
+      );
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Peanut Butter Cup', 'Ingredients', 50, 'pcs') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+
+      const fakeCupPayload = {
+        name: "PB Cup Shake",
+        category: "Test Drinks",
+        price: "90.00",
+        description: "Contains peanut butter cup candy but no actual cup container",
+        sizes: [
+          {
+            label: "Regular",
+            price: 90,
+            ingredients: [
+              { name: "Peanut Butter Cup", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+            ],
+          },
+        ],
+        ingredients: [
+          { name: "Peanut Butter Cup", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+        ],
+      };
+
+      await assert.rejects(
+        async () => {
+          await saveProduct(connection, fakeCupPayload);
+        },
+        (err) => {
+          return err.status === 400 && /Every drink size must have a cup selected from Inventory/i.test(err.message);
+        },
+        "Must throw HTTP 400 because Peanut Butter Cup is not in a cup category"
+      );
+    } finally {
+      await connection.rollback();
+      connection.release();
+    }
+  });
+
+  it("TEST 8 (Step 6): Non-drink category (e.g. Foods / Snacks) saves successfully without any cup", async () => {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.execute(
+        "INSERT INTO menu_categories (name, operational_family) VALUES ('Foods / Snacks', 'general') ON DUPLICATE KEY UPDATE operational_family = 'general'"
+      );
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('Burger Bun', 'Burger', 100, 'pcs') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+      await connection.execute("INSERT INTO inventory_items (name, category, quantity, unit) VALUES ('PATTY', 'Burger', 100, 'pcs') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+
+      const burgerPayload = {
+        name: "Classic Cheeseburger",
+        category: "Foods / Snacks",
+        price: "60.00",
+        description: "Savory beef burger",
+        sizes: [
+          {
+            label: "Regular",
+            price: 60,
+            ingredients: [
+              { name: "Burger Bun", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+              { name: "PATTY", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+            ],
+          },
+        ],
+        ingredients: [
+          { name: "Burger Bun", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+          { name: "PATTY", quantityUsed: 1, unit: "pcs", stockUnit: "pcs" },
+        ],
+      };
+
+      const productId = await saveProduct(connection, burgerPayload);
+      assert(productId > 0, "Burger must save without any cup");
+    } finally {
+      await connection.rollback();
+      connection.release();
+    }
+  });
 });

@@ -152,7 +152,7 @@ function AdminMenuManagement() {
 	const { inventory = [], refreshInventory } = useInventory() || {};
 	const cupInventoryItems = useMemo(() => {
 		return (inventory || [])
-			.filter((item) => (item.isCupCategory || item.is_cup_category || String(item.category || "").toLowerCase().includes("cup") || String(item.item || "").toLowerCase().includes("cup")) && !item.isArchived)
+			.filter((item) => (item.isCupCategory || item.is_cup_category || item.category === "Cups" || item.category === "Cups & Lids") && !item.isArchived)
 			.sort((a, b) => {
 				const ozA = Number(String(a.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
 				const ozB = Number(String(b.item).match(/(\d+(?:\.\d+)?)\s*oz/i)?.[1] || 999);
@@ -279,7 +279,7 @@ function AdminMenuManagement() {
 	const isCupIngredient = (ing) => {
 		const name = String(ing?.name || "").trim().toLowerCase();
 		const invItem = inventory.find((entry) => Number(entry.id) === Number(ing?.inventoryItemId) || entry.item.toLowerCase() === name);
-		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || name.includes("cup"));
+		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || invItem?.category === "Cups" || invItem?.category === "Cups & Lids");
 	};
 
 	// Per-size amount: cups preserve the configured amount set by the merchant; other ingredients scale by factor.
@@ -932,6 +932,20 @@ function AdminMenuManagement() {
 			return;
 		}
 
+		if (getCategoryFamily(formValues.category) === "drink") {
+			if (cupInventoryItems.length === 0) {
+				setRecipeError("No cups found in Inventory. Drinks require a cup for each size. Please add at least one cup in Inventory (under category Cups & Lids) before saving.");
+				return;
+			}
+			for (const size of finalSizes) {
+				const hasCup = size.ingredients.some((ing) => isCupIngredient(ing) && ing.quantityUsed > 0);
+				if (!hasCup) {
+					setRecipeError(`Every drink size must have a cup selected from Inventory (variation "${size.label}" is missing a cup).`);
+					return;
+				}
+			}
+		}
+
 		for (const addon of formValues.addons || []) {
 			const addonLabel = String(addon.label || "").trim();
 			const addonPrice = Number(addon.price);
@@ -1569,6 +1583,15 @@ function AdminMenuManagement() {
 											<div className="menu-builder-cups-title">
 												<Utensils size={13} strokeWidth={2.2} />
 												<span>Fixed Price Item: No size variations needed. Base price (₱{Number(formValues.price || 0).toFixed(2)}) is the customer price. Click &ldquo;+ Add Variation&rdquo; only if offering special sizes or combo portions.</span>
+											</div>
+										</div>
+									)}
+
+									{getCategoryFamily(formValues.category) === "drink" && cupInventoryItems.length === 0 && (
+										<div className="menu-builder-cups-detection" style={{ background: "#fef2f2", borderColor: "#fecaca", color: "#991b1b" }}>
+											<div className="menu-builder-cups-title" style={{ color: "#991b1b" }}>
+												<Coffee size={13} strokeWidth={2.2} />
+												<span>No cups found in Inventory. Drinks require a cup for each size. Please <a href="/admin/inventory" style={{ textDecoration: "underline", fontWeight: "bold", color: "#991b1b" }}>add a cup in Inventory first</a> (under category Cups &amp; Lids) before saving.</span>
 											</div>
 										</div>
 									)}

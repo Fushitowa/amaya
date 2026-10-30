@@ -216,13 +216,14 @@ export async function saveProduct(connection, body, id = null) {
   }
 
   const [categoryRows] = await connection.execute(
-    "SELECT id, name FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1",
+    "SELECT id, name, operational_family AS operationalFamily FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1",
     [category],
   );
   if (!categoryRows.length) {
     throw httpError(400, `Menu category "${category}" does not exist. Please choose an existing category or create it in Categories first.`);
   }
   const categoryId = categoryRows[0].id;
+  const operationalFamily = categoryRows[0].operationalFamily || "general";
   let productId = id;
   const values = [categoryId, name, description || null, image, basePrice, stock, body.available !== false, Boolean(body.featured)];
   if (id == null) {
@@ -300,14 +301,22 @@ export async function saveProduct(connection, body, id = null) {
       let item = null;
       if (entry.inventoryItemId) {
         const [[byId]] = await connection.execute(
-          "SELECT id, name, unit, category FROM inventory_items WHERE id = ? AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+          `SELECT ii.id, ii.name, ii.unit, ii.category,
+                  COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
+             FROM inventory_items ii
+             LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+            WHERE ii.id = ? AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
           [entry.inventoryItemId],
         );
         item = byId;
       }
       if (!item) {
         const [byName] = await connection.execute(
-          "SELECT id, name, unit, category FROM inventory_items WHERE LOWER(name) = LOWER(?) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
+          `SELECT ii.id, ii.name, ii.unit, ii.category,
+                  COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
+             FROM inventory_items ii
+             LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+            WHERE LOWER(ii.name) = LOWER(?) AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
           [entry.name],
         );
         item = byName[0];
@@ -315,7 +324,8 @@ export async function saveProduct(connection, body, id = null) {
       if (!item) {
         throw httpError(400, `Inventory item "${entry.name}" does not exist. Please add it to Inventory first.`);
       }
-      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name });
+      const isCup = Boolean(item.is_cup_category) || item.category === "Cups" || item.category === "Cups & Lids";
+      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup });
     }
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, itemByName.get(key).stockUnit)) {
       throw httpError(400, `â€œ${entry.unit}â€ for ${entry.name} cannot be converted to inventory unit â€œ${itemByName.get(key).stockUnit}â€. Choose units from the same group (weight, volume, or count).`);
@@ -347,6 +357,21 @@ export async function saveProduct(connection, body, id = null) {
       throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
     }
     addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
+  }
+
+  if (operationalFamily === "drink") {
+    for (const [index, size] of sizes.entries()) {
+      const label = String(size?.label || "").trim() || `Size ${index + 1}`;
+      const sizeIngredients = sizeRecipeInputs[index] || [];
+      const hasCup = sizeIngredients.some((entry) => {
+        const base = itemByName.get(entry.name.toLocaleLowerCase());
+        const qty = toInventoryQuantity(entry.quantityUsed, entry.unit, base?.stockUnit);
+        return Boolean(base?.isCup) && qty && qty > 0;
+      });
+      if (!hasCup) {
+        throw httpError(400, `Every drink size must have a cup selected from Inventory (serving size "${label}" is missing a cup).`);
+      }
+    }
   }
 
   await connection.execute("DELETE FROM product_sizes WHERE product_id = ?", [productId]);

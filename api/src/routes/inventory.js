@@ -25,6 +25,7 @@ const mapItem = (row) => {
     unitCost,
     inventoryValue: Number((quantity * unitCost).toFixed(2)),
     lastUpdated: new Date(row.updated_at).toISOString(),
+    isCupCategory: Boolean(row.is_cup_category) || row.category === "Cups" || row.category === "Cups & Lids",
   };
 };
 
@@ -315,7 +316,13 @@ router.get("/summary", requireAuth, requireRole("admin", "staff"), async (_reque
 });
 
 router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
-  const [rows] = await pool.execute("SELECT * FROM inventory_items WHERE is_archived = FALSE ORDER BY category, name");
+  const [rows] = await pool.execute(`
+    SELECT ii.*, COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
+      FROM inventory_items ii
+      LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+     WHERE ii.is_archived = FALSE
+     ORDER BY ii.category, ii.name
+  `);
   response.json(rows.map(mapItem));
 });
 
