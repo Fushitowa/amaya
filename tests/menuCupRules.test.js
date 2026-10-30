@@ -130,5 +130,55 @@ describe("Tala Test Suite: Menu Cup & Sizing Business Rules", () => {
     assert.equal(getCategoryFamily("Takoyaki & Tempura"), "snack_pieces");
     assert.equal(getCategoryFamily("Unknown Category"), "general");
   });
+
+  it("TEST 9 (Step 4): getCupVariationInfo & getSizeScaleFactor guessing are completely deleted", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const filePath = path.resolve("src/pages/admin/AdminMenuManagement.jsx");
+    const content = await fs.readFile(filePath, "utf-8");
+
+    assert.equal(
+      content.includes("const getCupVariationInfo ="),
+      false,
+      "getCupVariationInfo must be deleted from AdminMenuManagement.jsx"
+    );
+    assert.equal(
+      content.includes("const getSizeScaleFactor ="),
+      false,
+      "getSizeScaleFactor must be deleted from AdminMenuManagement.jsx"
+    );
+    assert.equal(
+      content.includes("getSizeScaleFactor("),
+      false,
+      "No call to getSizeScaleFactor may remain in AdminMenuManagement.jsx"
+    );
+  });
+
+  it("TEST 10 (Step 4a): Assigning a cup to a size sets that cup quantity to 1 for that size and 0 for others", () => {
+    const size = { label: "12oz", cupId: 101 };
+    const ingredients = [
+      {
+        inventoryItemId: 101,
+        name: "12oz Paper Cup",
+        quantityBySize: { "12oz": "1", "16oz": "0" },
+      },
+      {
+        inventoryItemId: 102,
+        name: "16oz Paper Cup",
+        quantityBySize: { "12oz": "0", "16oz": "1" },
+      },
+    ];
+
+    const sizeQty = (ing, label) => {
+      const explicit = ing.quantityBySize?.[label];
+      const amount = Number(explicit);
+      return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    };
+
+    assert.equal(sizeQty(ingredients[0], "12oz"), 1, "12oz cup active for 12oz size");
+    assert.equal(sizeQty(ingredients[1], "12oz"), 0, "16oz cup inactive (0) for 12oz size");
+    assert.equal(sizeQty(ingredients[0], "16oz"), 0, "12oz cup inactive (0) for 16oz size");
+    assert.equal(sizeQty(ingredients[1], "16oz"), 1, "16oz cup active for 16oz size");
+  });
 });
 

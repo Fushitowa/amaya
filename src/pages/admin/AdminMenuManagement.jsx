@@ -115,55 +115,8 @@ const VARIATION_PRESETS = {
 };
 
 
-const getCupVariationInfo = (cupItem, index = 0) => {
-	const name = String(cupItem?.item || "").trim();
-	const ozMatch = name.match(/(\d+(?:\.\d+)?)\s*oz/i);
-	const oz = ozMatch ? `${ozMatch[1]}oz` : "";
-	const lower = name.toLowerCase();
-	let tier;
-	let factor;
-	if (oz === "8oz" || lower.includes("8oz")) {
-		tier = "Small";
-		factor = 1.0;
-	} else if (oz === "12oz" || lower.includes("12oz")) {
-		tier = "Large";
-		factor = 1.35;
-	} else if (lower.includes("regular") || lower.includes("small") || oz === "16oz") {
-		tier = "Regular";
-		factor = 1.0;
-	} else if (lower.includes("medium") || oz === "18oz" || oz === "20oz") {
-		tier = "Medium";
-		factor = 1.25;
-	} else if (lower.includes("large") || oz === "22oz") {
-		tier = "Large";
-		factor = 1.5;
-	} else if (lower.includes("xl") || oz === "24oz") {
-		tier = "Extra Large";
-		factor = 1.75;
-	} else {
-		tier = name.replace(/cup/i, "").replace(/[()]/g, "").trim() || `Size ${index + 1}`;
-		factor = Number((1.0 + index * 0.25).toFixed(2));
-	}
-	const label = oz ? `${tier} (${oz})` : (tier || name);
-	return { label, factor, cupItem };
-};
+const defaultSizeFactor = (factor, index = 0) => (Number.isFinite(Number(factor)) && Number(factor) > 0 ? Number(factor) : (index === 0 ? 1.0 : Number((1.0 + index * 0.25).toFixed(2))));
 
-const getSizeScaleFactor = (label = "", index = 0) => {
-	const clean = String(label || "").toLowerCase().trim();
-	if (clean.includes("24oz") || clean.includes("xl") || clean.includes("extra large")) return 1.75;
-	if (clean.includes("22oz")) return 1.5;
-	if (clean.includes("12oz")) return 1.35;
-	if (clean.includes("large") || clean.includes("venti")) return 1.35;
-	if (clean.includes("medium") || clean.includes("18oz") || clean.includes("20oz") || clean.includes("grande")) return 1.25;
-	if (clean.includes("regular") || clean.includes("16oz") || clean.includes("small") || clean.includes("8oz") || clean.includes("tall")) return 1.0;
-	if (clean.includes("party") || clean.includes("12 pcs") || clean.includes("jumbo")) return 2.2;
-	if (clean.includes("sharing") || clean.includes("6 pcs")) return 1.5;
-	if (clean.includes("solo") || clean.includes("4 pcs")) return 1.0;
-	if (index === 0) return 1.0;
-	if (index === 1) return 1.25;
-	if (index === 2) return 1.5;
-	return Number((1.0 + index * 0.25).toFixed(2));
-};
 
 const scaleIngredientAmount = (baseQty, factor, unit) => {
 	const numQty = Number(baseQty);
@@ -359,14 +312,14 @@ function AdminMenuManagement() {
 			|| { label: `Size ${formValues.sizes.length + 1}`, factor: Number((1.0 + formValues.sizes.length * 0.25).toFixed(2)) };
 
 		const newIndex = formValues.sizes.length;
-		const factor = nextStandard.factor || getSizeScaleFactor(nextStandard.label, newIndex);
+		const factor = defaultSizeFactor(nextStandard.factor, newIndex);
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
 		const sizeCost = calculateCostForFactor(factor);
 		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
 
 		setFormValues((current) => {
-			const newSizes = [...current.sizes, { label: nextStandard.label, price }];
+			const newSizes = [...current.sizes, { label: nextStandard.label, price, factor, cupId: null }];
 			const updatedIngredients = current.ingredients.map((ing) => {
 				const qMap = { ...(ing.quantityBySize || {}) };
 				qMap[nextStandard.label] = amountForSize(ing, nextStandard.label, factor);
@@ -377,65 +330,87 @@ function AdminMenuManagement() {
 		setEditingSizeIndex(newIndex);
 	};
 
+	const assignCupToSize = (sizeIndex, cupId) => {
+		const numericCupId = cupId ? Number(cupId) : null;
+		setFormValues((current) => {
+			const targetSize = current.sizes[sizeIndex];
+			if (!targetSize) return current;
+
+			const updatedSizes = current.sizes.map((s, idx) =>
+				idx === sizeIndex ? { ...s, cupId: numericCupId } : s
+			);
+
+			const chosenCup = inventory.find((item) => Number(item.id) === numericCupId);
+			let updatedIngredients = [...current.ingredients];
+
+			if (chosenCup && !updatedIngredients.some((ing) => Number(ing.inventoryItemId) === numericCupId || ing.name.toLowerCase() === chosenCup.item.toLowerCase())) {
+				updatedIngredients.push({
+					inventoryItemId: chosenCup.id,
+					name: chosenCup.item,
+					unit: chosenCup.unit || "pcs",
+					stockUnit: chosenCup.unit || "pcs",
+					quantityUsed: "1",
+					quantityBySize: {},
+				});
+			}
+
+			updatedIngredients = updatedIngredients.map((ing) => {
+				const isCup = Boolean(
+					(numericCupId && Number(ing.inventoryItemId) === numericCupId) ||
+					isCupIngredient(ing) ||
+					(chosenCup && ing.name.toLowerCase() === chosenCup.item.toLowerCase())
+				);
+				if (!isCup) return ing;
+				const qMap = { ...(ing.quantityBySize || {}) };
+				const isThisCup = (numericCupId && Number(ing.inventoryItemId) === numericCupId) ||
+					(chosenCup && ing.name.toLowerCase() === chosenCup.item.toLowerCase());
+				qMap[targetSize.label] = isThisCup ? "1" : "0";
+				return { ...ing, quantityBySize: qMap };
+			});
+
+			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
+		});
+	};
+
+	const updateSizeFactor = (index, newFactor) => {
+		const factorNum = Number(newFactor);
+		setFormValues((current) => {
+			const targetSize = current.sizes[index];
+			const updatedSizes = current.sizes.map((s, i) => i === index ? { ...s, factor: factorNum } : s);
+			if (!targetSize || !Number.isFinite(factorNum) || factorNum <= 0) {
+				return { ...current, sizes: updatedSizes };
+			}
+			const updatedIngredients = current.ingredients.map((ing) => {
+				if (isCupIngredient(ing)) return ing;
+				const qMap = { ...(ing.quantityBySize || {}) };
+				qMap[targetSize.label] = scaleIngredientAmount(ing.quantityUsed, factorNum, ing.unit);
+				return { ...ing, quantityBySize: qMap };
+			});
+			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
+		});
+	};
+
 	const handleApplyVariationPreset = (presetList) => {
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
 
 		const newSizes = presetList.map((preset, index) => {
-			const sizeCost = calculateCostForFactor(preset.factor);
-			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, preset.factor, index);
+			const factor = defaultSizeFactor(preset.factor, index);
+			const sizeCost = calculateCostForFactor(factor);
+			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, index);
 			return {
 				label: preset.label,
 				price,
+				factor,
+				cupId: preset.cupId || null,
 			};
 		});
 
 		const updatedIngredients = formValues.ingredients.map((ing) => {
 			const qMap = { ...(ing.quantityBySize || {}) };
-			presetList.forEach((preset) => {
-				qMap[preset.label] = amountForSize(ing, preset.label, preset.factor);
-			});
-			return { ...ing, quantityBySize: qMap };
-		});
-
-		setFormValues((current) => ({
-			...current,
-			price: String(basePrice),
-			sizes: newSizes,
-			ingredients: updatedIngredients,
-		}));
-		setEditingSizeIndex(null);
-	};
-
-	const handleClearVariations = () => {
-		setFormValues((current) => ({
-			...current,
-			sizes: [],
-			ingredients: current.ingredients.map((ing) => ({
-				...ing,
-				quantityBySize: {},
-			})),
-		}));
-		setEditingSizeIndex(null);
-	};
-
-	const handleAutoSetStandardSizes = () => {
-		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
-		const baseCost = calculateCostForFactor(1.0);
-
-		const newSizes = STANDARD_SIZES.map((std, index) => {
-			const sizeCost = calculateCostForFactor(std.factor);
-			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, std.factor, index);
-			return {
-				label: std.label,
-				price,
-			};
-		});
-
-		const updatedIngredients = formValues.ingredients.map((ing) => {
-			const qMap = { ...(ing.quantityBySize || {}) };
-			STANDARD_SIZES.forEach((std) => {
-				qMap[std.label] = amountForSize(ing, std.label, std.factor);
+			presetList.forEach((preset, idx) => {
+				const factor = defaultSizeFactor(preset.factor, idx);
+				qMap[preset.label] = amountForSize(ing, preset.label, factor);
 			});
 			return { ...ing, quantityBySize: qMap };
 		});
@@ -460,37 +435,31 @@ function AdminMenuManagement() {
 		const baseCost = calculateCostForFactor(1.0);
 
 		const newSizes = cupsToUse.map((cup, index) => {
-			const info = getCupVariationInfo(cup, index);
-			const sizeCost = calculateCostForFactor(info.factor);
-			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, info.factor, index);
+			const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
+			const factor = index === 0 ? 1.0 : Number((1.0 + index * 0.25).toFixed(2));
+			const sizeCost = calculateCostForFactor(factor);
+			const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, index);
 			return {
-				label: info.label,
+				label,
 				price,
+				factor,
+				cupId: cup.id,
 			};
 		});
 
-		// Separate non-cup ingredients from cup ingredients
-		const nonCupIngredients = formValues.ingredients.filter((ing) => {
-			const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
-			return !(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || String(ing.name || "").toLowerCase().includes("cup"));
-		});
-
-		// Scale non-cup ingredients across sizes
+		const nonCupIngredients = formValues.ingredients.filter((ing) => !isCupIngredient(ing));
 		const scaledNonCupIngredients = nonCupIngredients.map((ing) => {
 			const qMap = {};
-			cupsToUse.forEach((cup, idx) => {
-				const info = getCupVariationInfo(cup, idx);
-				qMap[info.label] = scaleIngredientAmount(ing.quantityUsed, info.factor, ing.unit);
+			newSizes.forEach((s) => {
+				qMap[s.label] = scaleIngredientAmount(ing.quantityUsed, s.factor, ing.unit);
 			});
 			return { ...ing, quantityBySize: qMap };
 		});
 
-		// For each cup in cupsToUse, create an ingredient with quantity 1 for that size and 0 for others
 		const cupIngredients = cupsToUse.map((cup, cupIdx) => {
 			const qMap = {};
-			cupsToUse.forEach((otherCup, otherIdx) => {
-				const otherInfo = getCupVariationInfo(otherCup, otherIdx);
-				qMap[otherInfo.label] = cupIdx === otherIdx ? "1" : "0";
+			newSizes.forEach((s, sIdx) => {
+				qMap[s.label] = cupIdx === sIdx ? "1" : "0";
 			});
 			return {
 				inventoryItemId: cup.id,
@@ -512,34 +481,33 @@ function AdminMenuManagement() {
 	};
 
 	const addSingleCupVariation = (cup) => {
-		const info = getCupVariationInfo(cup, formValues.sizes.length);
+		const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
 		const existingLabels = formValues.sizes.map((s) => String(s.label || "").toLowerCase());
-		if (existingLabels.includes(info.label.toLowerCase())) {
+		if (existingLabels.includes(label.toLowerCase())) {
 			return;
 		}
 
 		const newIndex = formValues.sizes.length;
-		const factor = info.factor;
+		const factor = newIndex === 0 ? 1.0 : Number((1.0 + newIndex * 0.25).toFixed(2));
 		const basePrice = Number(formValues.price) > 0 ? Number(formValues.price) : 40;
 		const baseCost = calculateCostForFactor(1.0);
 		const sizeCost = calculateCostForFactor(factor);
 		const price = computeInventoryBasedSizePrice(sizeCost, baseCost, basePrice, factor, newIndex);
 
 		setFormValues((current) => {
-			const newSizes = [...current.sizes, { label: info.label, price }];
+			const newSizes = [...current.sizes, { label, price, factor, cupId: cup.id }];
 			let hasThisCup = false;
 
 			const updatedIngredients = current.ingredients.map((ing) => {
-				const invItem = inventory.find((entry) => entry.item.toLowerCase() === String(ing.name || "").trim().toLowerCase());
-				const isCup = Boolean(invItem?.isCupCategory || invItem?.is_cup_category || String(invItem?.category || "").toLowerCase().includes("cup") || String(ing.name || "").toLowerCase().includes("cup"));
-				const isThisCup = (invItem && invItem.id === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
+				const isCup = isCupIngredient(ing) || (ing.inventoryItemId === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
+				const isThisCup = (ing.inventoryItemId && ing.inventoryItemId === cup.id) || String(ing.name || "").toLowerCase() === cup.item.toLowerCase();
 				if (isThisCup) hasThisCup = true;
 
 				const qMap = { ...(ing.quantityBySize || {}) };
 				if (isCup) {
-					qMap[info.label] = isThisCup ? "1" : "0";
+					qMap[label] = isThisCup ? "1" : "0";
 				} else {
-					qMap[info.label] = scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
+					qMap[label] = scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
 				}
 				return { ...ing, quantityBySize: qMap };
 			});
@@ -547,7 +515,7 @@ function AdminMenuManagement() {
 			if (!hasThisCup) {
 				const qMap = {};
 				newSizes.forEach((s) => {
-					qMap[s.label] = s.label.toLowerCase() === info.label.toLowerCase() ? "1" : "0";
+					qMap[s.label] = s.label.toLowerCase() === label.toLowerCase() ? "1" : "0";
 				});
 				updatedIngredients.push({
 					inventoryItemId: cup.id,
@@ -568,7 +536,7 @@ function AdminMenuManagement() {
 		setFormValues((current) => {
 			const oldSize = current.sizes[index];
 			const oldLabel = oldSize?.label;
-			const factor = getSizeScaleFactor(newLabel, index);
+			const factor = oldSize?.factor ?? defaultSizeFactor(null, index);
 			const basePrice = Number(current.price) > 0 ? Number(current.price) : 40;
 			const baseCost = calculateCostForFactor(1.0, current.ingredients);
 			const sizeCost = calculateCostForFactor(factor, current.ingredients);
@@ -672,7 +640,7 @@ function AdminMenuManagement() {
 				quantityBySize: Object.fromEntries(
 					current.sizes.map((size, idx) => [
 						size.label,
-						amountForSize({ name, quantityUsed, unit }, size.label, getSizeScaleFactor(size.label, idx)),
+						amountForSize({ name, quantityUsed, unit }, size.label, defaultSizeFactor(size.factor, idx)),
 					])
 				),
 			}],
@@ -831,7 +799,15 @@ function AdminMenuManagement() {
 			category: product.category,
 			image: product.image,
 			// A size priced at the base price round-trips as a bare label.
-			sizes: (product.sizes || []).map((size) => ({ label: size.label, price: String(size.price) })),
+			sizes: (product.sizes || []).map((size, idx) => {
+				const sizeCup = size.ingredients?.find((ing) => isCupIngredient(ing));
+				return {
+					label: size.label,
+					price: String(size.price),
+					factor: size.factor ?? defaultSizeFactor(null, idx),
+					cupId: sizeCup ? Number(sizeCup.inventoryItemId) : null,
+				};
+			}),
 			// Default recipe plus any ingredient that only some sizes use (e.g. a size-specific cup).
 			ingredients: [
 				...(product.ingredients || []),
@@ -1018,7 +994,8 @@ function AdminMenuManagement() {
 			const recipeUnit = ing.unit || stockUnit;
 			const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
 			if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue; // unused in this size
-			const factor = sizeLabel ? getSizeScaleFactor(sizeLabel) : 1.0;
+			const matchedSize = sizeLabel ? formValues.sizes.find((s) => s.label === sizeLabel) : null;
+			const factor = matchedSize ? defaultSizeFactor(matchedSize.factor, 0) : 1.0;
 			const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
 			const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
 			if (!stockQty || !(unitCost > 0)) {
@@ -1508,16 +1485,31 @@ function AdminMenuManagement() {
 											Item Variations &amp; Sizes
 										</label>
 										<div className="menu-builder-variations-actions">
-											{getCategoryFamily(formValues.category) === "drink" && (
-												<button
-													type="button"
-													className="menu-builder-auto-size-btn"
-													onClick={cupInventoryItems.length ? handleAutoSetFromCups : handleAutoSetStandardSizes}
-													title={cupInventoryItems.length ? `Auto-detect ${cupInventoryItems.length} cups in inventory and configure size variations with 1-per-size stock deduction` : "Auto-generate Regular (16oz), Medium (18oz), and Large (22oz) with scaled recipes & prices"}
-												>
-													<Sparkles size={13} strokeWidth={2.2} /> {cupInventoryItems.length ? `Auto-set from Cups & Lids (${cupInventoryItems.length})` : "Standard R / M / L"}
-												</button>
-											)}
+											<button
+												type="button"
+												className="menu-builder-auto-size-btn"
+												onClick={() => handleApplyVariationPreset([
+													{ label: "Small", factor: 1.0 },
+													{ label: "Medium", factor: 1.25 },
+													{ label: "Large", factor: 1.5 },
+												])}
+												title="Preset: Small, Medium, Large"
+											>
+												<Sparkles size={12} strokeWidth={2.2} /> S / M / L
+											</button>
+
+											<button
+												type="button"
+												className="menu-builder-auto-size-btn"
+												onClick={() => handleApplyVariationPreset([
+													{ label: "8oz", factor: 1.0 },
+													{ label: "12oz", factor: 1.25 },
+													{ label: "16oz", factor: 1.5 },
+												])}
+												title="Preset: 8oz, 12oz, 16oz"
+											>
+												<Sparkles size={12} strokeWidth={2.2} /> 8oz / 12oz / 16oz
+											</button>
 
 											{getCategoryFamily(formValues.category) === "fries" && (
 												<button
@@ -1526,7 +1518,7 @@ function AdminMenuManagement() {
 													onClick={() => handleApplyVariationPreset(VARIATION_PRESETS.fries)}
 													title="Auto-generate Regular, Large, and Jumbo / Party portions"
 												>
-													<Sparkles size={13} strokeWidth={2.2} /> Auto-set Portion Sizes (R/L/Jumbo)
+													<Sparkles size={12} strokeWidth={2.2} /> Fries (R/L/Jumbo)
 												</button>
 											)}
 
@@ -1537,18 +1529,18 @@ function AdminMenuManagement() {
 													onClick={() => handleApplyVariationPreset(VARIATION_PRESETS.snack_pieces)}
 													title="Auto-generate 4 pcs (Solo), 6 pcs (Sharing), and 12 pcs (Party)"
 												>
-													<Sparkles size={13} strokeWidth={2.2} /> Auto-set Piece Counts (4/6/12s)
+													<Sparkles size={12} strokeWidth={2.2} /> Counts (4/6/12s)
 												</button>
 											)}
 
-											{getCategoryFamily(formValues.category) === "single_fixed" && formValues.sizes.length > 0 && (
+											{formValues.sizes.length > 0 && (
 												<button
 													type="button"
 													className="menu-builder-auto-size-btn"
 													onClick={handleClearVariations}
 													title="Clear all variations to sell at the single base price"
 												>
-													<Archive size={13} strokeWidth={2.2} /> Clear Variations (Single Price)
+													<Archive size={12} strokeWidth={2.2} /> Clear
 												</button>
 											)}
 
@@ -1579,18 +1571,18 @@ function AdminMenuManagement() {
 												<span>Available Cups in Inventory (Category: Cups &amp; Lids):</span>
 											</div>
 											<div className="menu-builder-cups-chips">
-												{cupInventoryItems.map((cup, idx) => {
-													const info = getCupVariationInfo(cup, idx);
-													const isAdded = formValues.sizes.some((s) => s.label.toLowerCase() === info.label.toLowerCase());
+												{cupInventoryItems.map((cup) => {
+													const label = cup.item.replace(/\s*cup\s*/i, "").trim() || cup.item;
+													const isAdded = formValues.sizes.some((s) => s.label.toLowerCase() === label.toLowerCase() || s.cupId === cup.id);
 													return (
 														<button
 															key={cup.id}
 															type="button"
 															className={`menu-cup-chip ${isAdded ? "is-added" : ""}`}
 															onClick={() => addSingleCupVariation(cup)}
-															title={isAdded ? `${info.label} is already in the variations list` : `Click to add ${info.label} variation (${cup.quantity} pcs in stock)`}
+															title={isAdded ? `${label} is already in the variations list` : `Click to add ${label} variation (${cup.quantity} pcs in stock)`}
 														>
-															<span className="cup-chip-label">{info.label}</span>
+															<span className="cup-chip-label">{label}</span>
 															<span className="cup-chip-name">{cup.item}</span>
 															<span className="cup-chip-stock">{Number(cup.quantity)} pcs</span>
 															{isAdded ? <Check size={12} strokeWidth={2.4} /> : <Plus size={12} strokeWidth={2.4} />}
@@ -1606,7 +1598,7 @@ function AdminMenuManagement() {
 											{formValues.sizes.map((size, index) => {
 												const isEditing = editingSizeIndex === index;
 												const sizeCosting = computeSizeCosting(size.label, size.price);
-												const factor = getSizeScaleFactor(size.label, index);
+												const factor = defaultSizeFactor(size.factor, index);
 												const recipeSummary = formValues.ingredients
 													.map((ing) => {
 														const rawQty = ing.quantityBySize?.[size.label];
@@ -1665,6 +1657,36 @@ function AdminMenuManagement() {
 																		aria-label={`${size.label || "Variation"} price`}
 																	/>
 																</div>
+																<div className="size-factor-input-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+																	<span style={{ fontSize: "11px", color: "#6b7280" }}>Scale:</span>
+																	<input
+																		type="number"
+																		min="0.1"
+																		max="10"
+																		step="0.05"
+																		style={{ width: "60px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid #d1d5db" }}
+																		value={size.factor ?? factor}
+																		onChange={(e) => updateSizeFactor(index, e.target.value)}
+																		aria-label={`${size.label || "Variation"} scale factor`}
+																	/>
+																</div>
+																{getCategoryFamily(formValues.category) === "drink" && (
+																	<div className="size-cup-select-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+																		<select
+																			value={size.cupId || ""}
+																			onChange={(e) => assignCupToSize(index, e.target.value)}
+																			style={{ fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #d1d5db" }}
+																			aria-label={`Cup for ${size.label}`}
+																		>
+																			<option value="">-- Select Cup --</option>
+																			{cupInventoryItems.map((cup) => (
+																				<option key={cup.id} value={cup.id}>
+																					{cup.item} ({cup.quantity} {cup.unit})
+																				</option>
+																			))}
+																		</select>
+																	</div>
+																)}
 															</div>
 														) : (
 															<div className="size-row-display-content">
@@ -1678,6 +1700,15 @@ function AdminMenuManagement() {
 																		{size.label.trim() ? size.label : "Untitled Variation"}
 																	</strong>
 																</button>
+																{getCategoryFamily(formValues.category) === "drink" && (
+																	<span
+																		style={{ fontSize: "11px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px", color: size.cupId ? "#1f2937" : "#9ca3af", cursor: "pointer" }}
+																		onClick={() => setEditingSizeIndex(index)}
+																		title="Click to change assigned cup"
+																	>
+																		☕ {inventory.find((i) => Number(i.id) === Number(size.cupId))?.item || "No cup selected"}
+																	</span>
+																)}
 																<div
 																	className="size-price-display"
 																	onClick={() => setEditingSizeIndex(index)}
@@ -1760,7 +1791,7 @@ function AdminMenuManagement() {
 														className="empty-variations-all-cups-btn"
 														onClick={handleAutoSetFromCups}
 													>
-														<Sparkles size={13} strokeWidth={2.2} /> Auto-Generate All {cupInventoryItems.length} Cup Sizes ({cupInventoryItems.map((c) => getCupVariationInfo(c).label).join(", ")})
+														<Sparkles size={13} strokeWidth={2.2} /> Auto-Generate All {cupInventoryItems.length} Cup Sizes ({cupInventoryItems.map((c) => c.item).join(", ")})
 													</button>
 												</div>
 											)}
