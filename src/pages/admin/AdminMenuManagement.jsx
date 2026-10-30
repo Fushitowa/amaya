@@ -1663,18 +1663,20 @@ function AdminMenuManagement() {
 												<Sparkles size={12} strokeWidth={2.2} /> S / M / L
 											</button>
 
-											<button
-												type="button"
-												className="menu-builder-auto-size-btn"
-												onClick={() => handleApplyVariationPreset([
-													{ label: "8oz", factor: 1.0 },
-													{ label: "12oz", factor: 1.25 },
-													{ label: "16oz", factor: 1.5 },
-												])}
-												title="Preset: 8oz, 12oz, 16oz"
-											>
-												<Sparkles size={12} strokeWidth={2.2} /> 8oz / 12oz / 16oz
-											</button>
+											{getCategoryFamily(formValues.category) === "drink" && (
+												<button
+													type="button"
+													className="menu-builder-auto-size-btn"
+													onClick={() => handleApplyVariationPreset([
+														{ label: "8oz", factor: 1.0 },
+														{ label: "12oz", factor: 1.25 },
+														{ label: "16oz", factor: 1.5 },
+													])}
+													title="Preset: 8oz, 12oz, 16oz"
+												>
+													<Sparkles size={12} strokeWidth={2.2} /> 8oz / 12oz / 16oz
+												</button>
+											)}
 
 											{getCategoryFamily(formValues.category) === "fries" && (
 												<button
@@ -1958,9 +1960,9 @@ function AdminMenuManagement() {
 									) : (
 										<div className="menu-builder-empty-variations">
 											<div className="empty-variations-msg">
-												No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large, or populate from detected cups in inventory:
+												No variations added yet. Click &ldquo;+ Add Variation&rdquo; to add sizes like Medium or Large{getCategoryFamily(formValues.category) === "drink" ? ", or populate from detected cups in inventory:" : "."}
 											</div>
-											{(cupInventoryItems || []).length > 0 && (
+											{getCategoryFamily(formValues.category) === "drink" && (cupInventoryItems || []).length > 0 && (
 												<div className="empty-variations-cups-actions">
 													<button
 														type="button"
@@ -2013,7 +2015,7 @@ function AdminMenuManagement() {
 											<div className="menu-size-recipe-summary-header">
 												<div>
 													<h4>Recipe Breakdown by Size</h4>
-													<p>Live portion preview per cup based on your configured amounts.</p>
+													<p>Live portion preview per {getCategoryFamily(formValues.category) === "drink" ? "cup" : "size"} based on your configured amounts.</p>
 												</div>
 												<span className="summary-size-count">
 													{formValues.sizes.length} {formValues.sizes.length === 1 ? "Size" : "Sizes"}
