@@ -24,6 +24,7 @@ function mapOrderRecord(order, items, addons) {
   return {
     id: order.order_number,
     customer: order.customer_name,
+    cashier: order.cashier_name || order.creator_display_name || "Staff",
     items: items.filter((item) => Number(item.order_id) === Number(order.id)).map((item) => ({
       productId: item.product_id == null ? null : Number(item.product_id),
       title: item.product_name_snapshot || item.current_product_name,
@@ -53,7 +54,10 @@ function mapOrderRecord(order, items, addons) {
 
 async function loadOrders(limit = 500) {
   const safeLimit = Math.min(Math.max(1, Number(limit || 500)), 5000);
-  const [orders] = await pool.query("SELECT * FROM orders ORDER BY created_at DESC, id DESC LIMIT ?", [safeLimit]);
+  const [orders] = await pool.query(
+    "SELECT orders.*, u.display_name AS creator_display_name FROM orders LEFT JOIN users u ON u.id = orders.created_by ORDER BY orders.created_at DESC, orders.id DESC LIMIT ?",
+    [safeLimit]
+  );
   if (!orders.length) return [];
   const ids = orders.map((order) => order.id);
   const marks = ids.map(() => "?").join(",");
@@ -67,7 +71,10 @@ async function loadOrders(limit = 500) {
 }
 
 async function loadOrderByNumber(orderNumber) {
-  const [orders] = await pool.execute("SELECT * FROM orders WHERE order_number = ? LIMIT 1", [orderNumber]);
+  const [orders] = await pool.execute(
+    "SELECT orders.*, u.display_name AS creator_display_name FROM orders LEFT JOIN users u ON u.id = orders.created_by WHERE orders.order_number = ? LIMIT 1",
+    [orderNumber]
+  );
   const order = orders[0];
   if (!order) return null;
   const [itemResult, addonResult] = await Promise.all([
@@ -348,10 +355,11 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
     const tendered = paymentMethod === "Cash" ? Number(request.body.cashTendered ?? total) : null;
     if (tendered != null && (!Number.isFinite(tendered) || tendered < total)) throw httpError(400, "Cash tendered must cover the order total.");
     const change = tendered == null ? null : Math.round((tendered - total) * 100) / 100;
+    const cashierName = request.authUser?.displayName || (request.authUser?.role === "admin" ? "Admin (Owner)" : "Cashier 1");
     const [created] = await connection.execute(
-      `INSERT INTO orders (order_number, customer_name, order_type, order_status, payment_status, payment_method, subtotal, total, cash_tendered, change_due, paid_at, created_by)
-       VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
-      [orderNumber, customer, type, paymentMethod, total, total, tendered, change, request.authUser.sub],
+      `INSERT INTO orders (order_number, customer_name, order_type, order_status, payment_status, payment_method, subtotal, total, cash_tendered, change_due, paid_at, created_by, cashier_name)
+       VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)`,
+      [orderNumber, customer, type, paymentMethod, total, total, tendered, change, request.authUser.sub, cashierName],
     );
 
     for (const [inventoryItemId, ingredient] of inventoryNeeds) {

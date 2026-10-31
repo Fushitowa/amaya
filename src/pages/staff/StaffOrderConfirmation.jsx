@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import amayaLogo from "../../assets/images/amayalogo.png";
 import cashIcon from "../../assets/images/icon/cash.svg";
 import gcashIcon from "../../assets/images/icon/gcash.svg";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { PAYMENT_STATUS_PAID, useOrders } from "../../context/OrdersContext.jsx";
 import "../../assets/css/staff/staff-order-confirmation.css";
 
@@ -41,6 +42,7 @@ function StaffOrderConfirmation() {
   const navigate = useNavigate();
   const location = useLocation();
   const { addOrder } = useOrders() || {};
+  const { user } = useAuth() || {};
 
   const order = useMemo(() => location.state?.order || [], [location.state?.order]);
   const initialCustomer = location.state?.customerName || "Walk-in Customer";
@@ -142,6 +144,7 @@ function StaffOrderConfirmation() {
         subtotal,
         total: subtotal,
         orderId,
+        cashierName: user?.displayName || "Cashier 1",
         notes: combinedNotes || undefined,
       },
     });

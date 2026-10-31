@@ -331,8 +331,17 @@ class AmayaControlPanel:
             bg="#3B2A22",
             fg="#93C5FD",
             command=self.run_setup_and_migrate,
-            padx=8,
-        ).pack(side=tk.LEFT, padx=3)
+            padx=6,
+        ).pack(side=tk.LEFT, padx=2)
+
+        self._make_button(
+            btn_bar,
+            text="👥 Accounts & Cashiers",
+            bg="#3B2A22",
+            fg="#A7F3D0",
+            command=self.open_accounts_manager_dialog,
+            padx=6,
+        ).pack(side=tk.LEFT, padx=2)
 
         # Service Cards Grid (2x2 layout so all 4 services have plenty of room)
         cards_frame = tk.Frame(self.root, bg="#1E1612")
@@ -1083,6 +1092,348 @@ class AmayaControlPanel:
             self.enqueue_log("system", "info", f"Opened Vault backups directory: {backups_dir}")
         except Exception as exc:
             self.enqueue_log("system", "error", f"Could not open backups folder: {exc}")
+
+    # ------------------------------------------------------------------
+    # ACCOUNTS & CASHIER CREDENTIALS MANAGER DIALOG
+    # ------------------------------------------------------------------
+    def open_accounts_manager_dialog(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Amaya — Team Accounts & Cashier Passwords")
+        dialog.geometry("780x640")
+        dialog.minsize(700, 520)
+        dialog.configure(bg="#1E1612")
+        dialog.transient(self.root)
+
+        # Header Frame
+        hdr = tk.Frame(dialog, bg="#2A1E19", padx=16, pady=12)
+        hdr.pack(fill=tk.X)
+        tk.Label(
+            hdr,
+            text="👥 TEAM ACCOUNTS & CASHIER CREDENTIALS",
+            font=("Segoe UI", 11, "bold"),
+            fg="#EBC18F",
+            bg="#2A1E19",
+        ).pack(anchor="w")
+        tk.Label(
+            hdr,
+            text="Owner signs in with 'admin'. Counter staff signs in with 'staff' + their unique cashier password.",
+            font=("Segoe UI", 8),
+            fg="#D6C4B4",
+            bg="#2A1E19",
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Status / Feedback label
+        status_lbl = tk.Label(
+            dialog,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            fg="#10B981",
+            bg="#1E1612",
+        )
+        status_lbl.pack(fill=tk.X, padx=16, pady=(6, 2))
+
+        def show_status(msg: str, is_error: bool = False) -> None:
+            status_lbl.configure(text=msg, fg="#EF4444" if is_error else "#10B981")
+
+        # Main Body
+        body = tk.Frame(dialog, bg="#1E1612", padx=16, pady=4)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # --- Card 1: Admin / Owner ---
+        admin_card = tk.LabelFrame(
+            body,
+            text=" 👑 Administrator / Owner Account ",
+            bg="#2A1E19",
+            fg="#EBC18F",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground="#3E2D25",
+        )
+        admin_card.pack(fill=tk.X, pady=(0, 10))
+
+        admin_info = tk.Frame(admin_card, bg="#2A1E19")
+        admin_info.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(
+            admin_info,
+            text="Username: admin (Fixed)",
+            font=("Segoe UI", 9, "bold"),
+            fg="#FFFFFF",
+            bg="#2A1E19",
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            admin_info,
+            text="Full dashboard, reports & inventory control",
+            font=("Segoe UI", 8),
+            fg="#A89485",
+            bg="#2A1E19",
+        ).pack(side=tk.LEFT, padx=12)
+
+        admin_input_row = tk.Frame(admin_card, bg="#2A1E19")
+        admin_input_row.pack(fill=tk.X)
+        tk.Label(
+            admin_input_row,
+            text="New Owner Password:",
+            font=("Segoe UI", 8),
+            fg="#F5E6D3",
+            bg="#2A1E19",
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        admin_pwd_entry = tk.Entry(
+            admin_input_row,
+            show="*",
+            width=24,
+            bg="#1E1612",
+            fg="#FFFFFF",
+            insertbackground="#FFFFFF",
+            relief=tk.FLAT,
+            font=("Consolas", 9),
+        )
+        admin_pwd_entry.pack(side=tk.LEFT, padx=(0, 8))
+
+        admin_show_var = tk.BooleanVar(value=False)
+        def toggle_admin_show():
+            admin_pwd_entry.configure(show="" if admin_show_var.get() else "*")
+        tk.Checkbutton(
+            admin_input_row,
+            text="Show",
+            variable=admin_show_var,
+            command=toggle_admin_show,
+            bg="#2A1E19",
+            fg="#A89485",
+            selectcolor="#1E1612",
+            activebackground="#2A1E19",
+            activeforeground="#FFFFFF",
+            font=("Segoe UI", 8),
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        def save_admin_pwd():
+            new_p = admin_pwd_entry.get().strip()
+            if len(new_p) < 8:
+                show_status("Admin password must be at least 8 characters.", is_error=True)
+                return
+            show_status("Updating admin password...")
+            def _worker():
+                node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                try:
+                    res = subprocess.run(
+                        [node_exe, "src/account-manager.js", "set-admin-password", new_p],
+                        cwd=str(API_DIR),
+                        capture_output=True,
+                        text=True,
+                        creationflags=creationflags,
+                    )
+                    if res.returncode == 0:
+                        dialog.after(0, lambda: [show_status("Owner password updated successfully!"), admin_pwd_entry.delete(0, tk.END)])
+                    else:
+                        dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                except Exception as exc:
+                    dialog.after(0, lambda: show_status(f"Error: {exc}", is_error=True))
+            threading.Thread(target=_worker, daemon=True).start()
+
+        self._make_button(
+            admin_input_row,
+            text="Save Owner Password",
+            bg="#8B5E3C",
+            fg="#FFFFFF",
+            command=save_admin_pwd,
+            padx=10,
+            pady=3,
+        ).pack(side=tk.LEFT)
+
+        # --- Card 2: Cashier Team (Staff Accounts) ---
+        cashier_card = tk.LabelFrame(
+            body,
+            text=" 👥 Counter Cashiers (Staff Accounts) ",
+            bg="#2A1E19",
+            fg="#EBC18F",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground="#3E2D25",
+        )
+        cashier_card.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            cashier_card,
+            text="Shared Login Username: 'staff' (case-insensitive). Entering their specific password identifies who is on duty.",
+            font=("Segoe UI", 8),
+            fg="#D6C4B4",
+            bg="#2A1E19",
+        ).pack(anchor="w", pady=(0, 6))
+
+        # Add Cashier Row
+        add_frame = tk.Frame(cashier_card, bg="#2A1E19", pady=4)
+        add_frame.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(add_frame, text="Name:", font=("Segoe UI", 8), fg="#F5E6D3", bg="#2A1E19").pack(side=tk.LEFT, padx=(0, 4))
+        new_name_entry = tk.Entry(add_frame, width=16, bg="#1E1612", fg="#FFFFFF", insertbackground="#FFFFFF", relief=tk.FLAT, font=("Consolas", 9))
+        new_name_entry.insert(0, "Cashier 3")
+        new_name_entry.pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Label(add_frame, text="Password:", font=("Segoe UI", 8), fg="#F5E6D3", bg="#2A1E19").pack(side=tk.LEFT, padx=(0, 4))
+        new_pwd_entry = tk.Entry(add_frame, width=16, bg="#1E1612", fg="#FFFFFF", insertbackground="#FFFFFF", relief=tk.FLAT, font=("Consolas", 9))
+        new_pwd_entry.pack(side=tk.LEFT, padx=(0, 8))
+
+        def add_new_cashier():
+            name = new_name_entry.get().strip()
+            pwd = new_pwd_entry.get().strip()
+            if not name or len(pwd) < 6:
+                show_status("Cashier name is required and password must be at least 6 characters.", is_error=True)
+                return
+            show_status(f"Adding {name}...")
+            def _worker():
+                node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                try:
+                    res = subprocess.run(
+                        [node_exe, "src/account-manager.js", "add-cashier", name, pwd],
+                        cwd=str(API_DIR),
+                        capture_output=True,
+                        text=True,
+                        creationflags=creationflags,
+                    )
+                    if res.returncode == 0:
+                        dialog.after(0, lambda: [show_status(f"Added {name} successfully!"), new_pwd_entry.delete(0, tk.END), reload_cashiers()])
+                    else:
+                        dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                except Exception as exc:
+                    dialog.after(0, lambda: show_status(f"Error: {exc}", is_error=True))
+            threading.Thread(target=_worker, daemon=True).start()
+
+        self._make_button(
+            add_frame,
+            text="+ Add Cashier",
+            bg="#3B2A22",
+            fg="#A7F3D0",
+            command=add_new_cashier,
+            padx=10,
+            pady=3,
+        ).pack(side=tk.LEFT)
+
+        # Cashiers list container
+        list_container = tk.Frame(cashier_card, bg="#1E1612", highlightthickness=1, highlightbackground="#3E2D25")
+        list_container.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+
+        cashiers_canvas = tk.Canvas(list_container, bg="#1E1612", highlightthickness=0)
+        cashiers_scroll = tk.Scrollbar(list_container, orient=tk.VERTICAL, command=cashiers_canvas.yview)
+        cashiers_canvas.configure(yscrollcommand=cashiers_scroll.set)
+        cashiers_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        cashiers_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        list_frame = tk.Frame(cashiers_canvas, bg="#1E1612")
+        canvas_window = cashiers_canvas.create_window((0, 0), window=list_frame, anchor="nw")
+
+        def _on_canvas_configure(event):
+            cashiers_canvas.itemconfig(canvas_window, width=event.width)
+        cashiers_canvas.bind("<Configure>", _on_canvas_configure)
+        list_frame.bind("<Configure>", lambda e: cashiers_canvas.configure(scrollregion=cashiers_canvas.bbox("all")))
+
+        def reload_cashiers():
+            for w in list_frame.winfo_children():
+                w.destroy()
+            show_status("Loading live cashiers...")
+            def _worker():
+                node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                try:
+                    res = subprocess.run(
+                        [node_exe, "src/account-manager.js", "list"],
+                        cwd=str(API_DIR),
+                        capture_output=True,
+                        text=True,
+                        creationflags=creationflags,
+                    )
+                    accounts = []
+                    for line in (res.stdout or "").splitlines():
+                        if line.startswith("ACCOUNTS_JSON:"):
+                            accounts = json.loads(line[len("ACCOUNTS_JSON:"):])
+                            break
+                    dialog.after(0, lambda: render_cashier_rows(accounts))
+                except Exception as exc:
+                    dialog.after(0, lambda: show_status(f"Failed to load cashiers: {exc}", is_error=True))
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def render_cashier_rows(accounts):
+            show_status("Live accounts loaded.")
+            staff_list = [a for a in accounts if a.get("role") == "staff"]
+            for w in list_frame.winfo_children():
+                w.destroy()
+
+            if not staff_list:
+                tk.Label(list_frame, text="No cashiers found.", fg="#A89485", bg="#1E1612", font=("Segoe UI", 9)).pack(pady=10)
+                return
+
+            for idx, staff in enumerate(staff_list):
+                row = tk.Frame(list_frame, bg="#2A1E19" if idx % 2 == 0 else "#241A15", padx=10, pady=8)
+                row.pack(fill=tk.X, padx=4, pady=2)
+
+                left = tk.Frame(row, bg=row["bg"])
+                left.pack(side=tk.LEFT)
+                name_lbl = tk.Label(left, text=f"👤 {staff.get('displayName')}", font=("Segoe UI", 9, "bold"), fg="#FFFFFF", bg=row["bg"])
+                name_lbl.pack(anchor="w")
+                sub_lbl = tk.Label(
+                    left,
+                    text=f"login: staff  |  Status: {'Active' if staff.get('isActive') else 'Deactivated'}",
+                    font=("Segoe UI", 8),
+                    fg="#10B981" if staff.get("isActive") else "#EF4444",
+                    bg=row["bg"],
+                )
+                sub_lbl.pack(anchor="w")
+
+                right = tk.Frame(row, bg=row["bg"])
+                right.pack(side=tk.RIGHT)
+
+                new_pwd_entry = tk.Entry(right, width=14, show="*", bg="#1E1612", fg="#FFFFFF", insertbackground="#FFFFFF", relief=tk.FLAT, font=("Consolas", 8))
+                new_pwd_entry.pack(side=tk.LEFT, padx=(0, 6))
+
+                def make_update_pwd_cmd(s_id, s_name, entry_widget):
+                    def _update():
+                        p = entry_widget.get().strip()
+                        if len(p) < 6:
+                            show_status(f"New password for {s_name} must be at least 6 characters.", is_error=True)
+                            return
+                        show_status(f"Updating password for {s_name}...")
+                        def _w():
+                            node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                            res = subprocess.run([node_exe, "src/account-manager.js", "set-cashier-password", str(s_id), p], cwd=str(API_DIR), capture_output=True, text=True, creationflags=creationflags)
+                            if res.returncode == 0:
+                                dialog.after(0, lambda: [show_status(f"Password for {s_name} updated!"), entry_widget.delete(0, tk.END)])
+                            else:
+                                dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                        threading.Thread(target=_w, daemon=True).start()
+                    return _update
+
+                self._make_button(right, text="Set Password", bg="#3B2A22", fg="#F5E6D3", command=make_update_pwd_cmd(staff.get("id"), staff.get("displayName"), new_pwd_entry), padx=6, pady=2).pack(side=tk.LEFT, padx=(0, 4))
+
+                def make_toggle_cmd(s_id, s_name):
+                    def _toggle():
+                        show_status(f"Toggling {s_name}...")
+                        def _w():
+                            node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                            res = subprocess.run([node_exe, "src/account-manager.js", "toggle-cashier", str(s_id)], cwd=str(API_DIR), capture_output=True, text=True, creationflags=creationflags)
+                            if res.returncode == 0:
+                                dialog.after(0, lambda: reload_cashiers())
+                            else:
+                                dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                        threading.Thread(target=_w, daemon=True).start()
+                    return _toggle
+
+                self._make_button(
+                    right,
+                    text="Disable" if staff.get("isActive") else "Enable",
+                    bg="#451A1A" if staff.get("isActive") else "#1A3A2A",
+                    fg="#FEE2E2" if staff.get("isActive") else "#D1FAE5",
+                    command=make_toggle_cmd(staff.get("id"), staff.get("displayName")),
+                    padx=6,
+                    pady=2,
+                ).pack(side=tk.LEFT)
+
+        reload_cashiers()
 
     # ------------------------------------------------------------------
     # SERVICE START / STOP / RESTART & PORT MANAGEMENT

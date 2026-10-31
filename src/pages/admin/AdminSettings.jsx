@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
@@ -46,6 +46,84 @@ function AdminSettings() {
 	const [lastSaved, setLastSaved] = useState(null);
 	const [statusClock, setStatusClock] = useState(() => new Date());
 	const storeOpen = isStoreOpen(settings.openingTime, settings.closingTime, statusClock);
+	// Cashier Team State
+	const [cashiers, setCashiers] = useState([]);
+	const [cashiersLoading, setCashiersLoading] = useState(true);
+	const [showAddCashier, setShowAddCashier] = useState(false);
+	const [newCashier, setNewCashier] = useState({ displayName: "", password: "" });
+	const [cashierTarget, setCashierTarget] = useState(null);
+	const [targetPassword, setTargetPassword] = useState("");
+	const [cashierActionLoading, setCashierActionLoading] = useState(false);
+	const [cashierFeedback, setCashierFeedback] = useState(null);
+
+	const loadCashiers = useCallback(async () => {
+		try {
+			setCashiersLoading(true);
+			const data = await apiRequest("/auth/cashiers");
+			setCashiers(data || []);
+		} catch (err) {
+			console.error("Failed to load cashiers:", err);
+		} finally {
+			setCashiersLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		loadCashiers();
+	}, [loadCashiers]);
+
+	const handleAddCashier = async (e) => {
+		e.preventDefault();
+		if (!newCashier.displayName.trim() || !newCashier.password) return;
+		setCashierActionLoading(true);
+		setCashierFeedback(null);
+		try {
+			const res = await apiRequest("/auth/cashiers", {
+				method: "POST",
+				body: JSON.stringify({ displayName: newCashier.displayName.trim(), password: newCashier.password }),
+			});
+			setCashierFeedback({ type: "success", message: res.message || "Cashier added successfully." });
+			setShowAddCashier(false);
+			setNewCashier({ displayName: "", password: "" });
+			await loadCashiers();
+		} catch (err) {
+			setCashierFeedback({ type: "error", message: err.message || "Failed to add cashier." });
+		} finally {
+			setCashierActionLoading(false);
+		}
+	};
+
+	const handleChangeCashierPassword = async (e) => {
+		e.preventDefault();
+		if (!cashierTarget || !targetPassword) return;
+		setCashierActionLoading(true);
+		setCashierFeedback(null);
+		try {
+			const res = await apiRequest(`/auth/cashiers/${cashierTarget.id}/password`, {
+				method: "PUT",
+				body: JSON.stringify({ password: targetPassword }),
+			});
+			setCashierFeedback({ type: "success", message: res.message || "Cashier password updated." });
+			setCashierTarget(null);
+			setTargetPassword("");
+		} catch (err) {
+			setCashierFeedback({ type: "error", message: err.message || "Failed to update cashier password." });
+		} finally {
+			setCashierActionLoading(false);
+		}
+	};
+
+	const handleToggleCashier = async (cashierId) => {
+		setCashierFeedback(null);
+		try {
+			const res = await apiRequest(`/auth/cashiers/${cashierId}/toggle`, { method: "POST" });
+			setCashierFeedback({ type: "success", message: res.message });
+			await loadCashiers();
+		} catch (err) {
+			setCashierFeedback({ type: "error", message: err.message });
+		}
+	};
+
 	const [showPasswordForm, setShowPasswordForm] = useState(false);
 	const [passwordValues, setPasswordValues] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
 	const [passwordSaving, setPasswordSaving] = useState(false);
@@ -193,6 +271,62 @@ function AdminSettings() {
 									<div className="security-row"><div><strong>Password</strong><span>Keep your administrator account secure.</span></div><button type="button" className="settings-secondary-button" onClick={() => { setPasswordFeedback(null); setShowPasswordForm(true); }}>Update</button></div>
 									<div className="security-row"><div><strong>Two-factor authentication</strong><span>Not configured for this account.</span></div><span className="security-badge">Unavailable</span></div>
 								</section>
+
+								<section className="admin-settings-card cashiers-card" style={{ marginTop: "16px" }}>
+									<div className="admin-settings-card-header" style={{ justifyContent: "space-between", alignItems: "flex-start", width: "100%", gap: "10px" }}>
+										<div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+											<div className="admin-settings-card-icon">👥</div>
+											<div>
+												<h3>Counter Cashiers</h3>
+												<p>All cashiers login using <strong>staff</strong> with their unique password.</p>
+											</div>
+										</div>
+										<button type="button" className="settings-secondary-button" style={{ background: "var(--settings-accent, #8B5E3C)", color: "#fff", borderColor: "var(--settings-accent, #8B5E3C)", fontWeight: "bold", whiteSpace: "nowrap" }} onClick={() => { setCashierFeedback(null); setShowAddCashier(true); }}>
+											+ Add Cashier
+										</button>
+									</div>
+
+									{cashierFeedback && (
+										<p className={`settings-password-feedback is-${cashierFeedback.type}`} style={{ margin: "0 0 12px" }} role={cashierFeedback.type === "error" ? "alert" : "status"}>
+											{cashierFeedback.message}
+										</p>
+									)}
+
+									{cashiersLoading ? (
+										<div style={{ padding: "8px 0", fontSize: "11px", color: "var(--settings-muted)" }}>Loading cashier team...</div>
+									) : cashiers.length === 0 ? (
+										<div style={{ padding: "8px 0", fontSize: "11px", color: "var(--settings-muted)" }}>No cashiers configured yet. Click "+ Add Cashier" to create one.</div>
+									) : (
+										<div className="cashiers-list">
+											{cashiers.map((c) => (
+												<div key={c.id} className="security-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "11px 0" }}>
+													<div>
+														<div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+															<strong style={{ fontSize: "12px" }}>👤 {c.displayName}</strong>
+															<span style={{ padding: "1px 5px", background: "#f0ece7", border: "1px solid #dfd4ca", borderRadius: "4px", fontSize: "9px", color: "#6b5548", fontWeight: "bold" }}>
+																login: staff
+															</span>
+															<span style={{ padding: "1px 5px", borderRadius: "4px", fontSize: "9px", fontWeight: "bold", background: c.isActive ? "#E9F5EC" : "#FEE2E2", color: c.isActive ? "#15803D" : "#B91C1C" }}>
+																{c.isActive ? "Active" : "Inactive"}
+															</span>
+														</div>
+														<span style={{ fontSize: "10px", color: "var(--settings-muted)", marginTop: "2px" }}>
+															Identified in sales reports by entered password
+														</span>
+													</div>
+													<div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
+														<button type="button" className="settings-secondary-button" style={{ padding: "5px 8px", fontSize: "9px" }} onClick={() => { setCashierFeedback(null); setCashierTarget(c); setTargetPassword(""); }}>
+															Key 🔑
+														</button>
+														<button type="button" className="settings-secondary-button" style={{ padding: "5px 8px", fontSize: "9px", color: c.isActive ? "#b91c1c" : "#15803d" }} onClick={() => handleToggleCashier(c.id)}>
+															{c.isActive ? "Disable" : "Enable"}
+														</button>
+													</div>
+												</div>
+											))}
+										</div>
+									)}
+								</section>
 							</div>
 						</div>
 
@@ -218,6 +352,81 @@ function AdminSettings() {
 					</form>
 				</div>
 			)}
+
+			{showAddCashier && (
+				<div className="admin-settings-modal-backdrop" role="presentation" onClick={() => !cashierActionLoading && setShowAddCashier(false)}>
+					<form className="admin-settings-password-modal" onSubmit={handleAddCashier} role="dialog" aria-modal="true" aria-labelledby="add-cashier-title" onClick={(event) => event.stopPropagation()}>
+						<div className="admin-settings-card-header">
+							<div className="admin-settings-card-icon">👥</div>
+							<div>
+								<h3 id="add-cashier-title">Add Counter Cashier</h3>
+								<p>Username is automatically <strong>staff</strong>.</p>
+							</div>
+							<button type="button" onClick={() => setShowAddCashier(false)} disabled={cashierActionLoading} aria-label="Close form">×</button>
+						</div>
+						<label>
+							Cashier identifier / name
+							<input
+								type="text"
+								placeholder="e.g. Cashier 2, Cashier X, Maria"
+								value={newCashier.displayName}
+								onChange={(e) => setNewCashier((cur) => ({ ...cur, displayName: e.target.value }))}
+								required
+								autoFocus
+							/>
+						</label>
+						<label>
+							Assigned cashier password
+							<input
+								type="password"
+								placeholder="e.g. staff 2"
+								minLength={6}
+								value={newCashier.password}
+								onChange={(e) => setNewCashier((cur) => ({ ...cur, password: e.target.value }))}
+								required
+							/>
+						</label>
+						{cashierFeedback?.type === "error" && <p className="settings-password-feedback is-error" role="alert">{cashierFeedback.message}</p>}
+						<div className="admin-settings-password-actions">
+							<button type="button" onClick={() => setShowAddCashier(false)} disabled={cashierActionLoading}>Cancel</button>
+							<button type="submit" disabled={cashierActionLoading}>{cashierActionLoading ? "Creating…" : "Create Cashier"}</button>
+						</div>
+					</form>
+				</div>
+			)}
+
+			{cashierTarget && (
+				<div className="admin-settings-modal-backdrop" role="presentation" onClick={() => !cashierActionLoading && setCashierTarget(null)}>
+					<form className="admin-settings-password-modal" onSubmit={handleChangeCashierPassword} role="dialog" aria-modal="true" aria-labelledby="edit-cashier-title" onClick={(event) => event.stopPropagation()}>
+						<div className="admin-settings-card-header">
+							<div className="admin-settings-card-icon">🔑</div>
+							<div>
+								<h3 id="edit-cashier-title">Change Cashier Password</h3>
+								<p>Update password for <strong>{cashierTarget.displayName}</strong>.</p>
+							</div>
+							<button type="button" onClick={() => setCashierTarget(null)} disabled={cashierActionLoading} aria-label="Close form">×</button>
+						</div>
+						<label>
+							New password for {cashierTarget.displayName}
+							<input
+								type="password"
+								placeholder="Minimum 6 characters"
+								minLength={6}
+								value={targetPassword}
+								onChange={(e) => setTargetPassword(e.target.value)}
+								required
+								autoFocus
+							/>
+						</label>
+						{cashierFeedback?.type === "error" && <p className="settings-password-feedback is-error" role="alert">{cashierFeedback.message}</p>}
+						<div className="admin-settings-password-actions">
+							<button type="button" onClick={() => setCashierTarget(null)} disabled={cashierActionLoading}>Cancel</button>
+							<button type="submit" disabled={cashierActionLoading}>{cashierActionLoading ? "Updating…" : "Save New Password"}</button>
+						</div>
+					</form>
+				</div>
+			)}
+
 		</div>
 	);
 }

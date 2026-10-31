@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { formatBusinessTime, useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 import { getPaymentStatusLabel } from "../../context/OrdersContext.jsx";
 import { notifyStaff } from "../../utils/notifications.js";
@@ -39,6 +40,8 @@ function StaffReceipt() {
   const printerPaperSize = printPreferences.printerPaperSize === "58mm" ? "58mm" : "80mm";
   const receiptWidth = printerPaperSize === "58mm" ? "219px" : "300px";
   const stationName = String(printPreferences.stationName || "POS Terminal #1").trim() || "POS Terminal #1";
+  const { user } = useAuth() || {};
+  const cashierName = location.state?.cashierName || user?.displayName || "Staff";
 
   useEffect(() => {
     if (!printPreferences.autoPrintReceipt || orderNumber === "NEW" || location.state?.testPrint) return undefined;
@@ -129,7 +132,11 @@ function StaffReceipt() {
             </div>
             <div className="slip-meta-row">
               <span>STATION:</span>
-              <strong>{stationName} (Staff)</strong>
+              <strong>{stationName}</strong>
+            </div>
+            <div className="slip-meta-row">
+              <span>CASHIER:</span>
+              <strong>{cashierName}</strong>
             </div>
             <div className="slip-meta-row">
               <span>CUSTOMER:</span>

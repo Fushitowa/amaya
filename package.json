@@ -12,7 +12,7 @@
     "build:portal": "vite build --mode portal",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test --test-concurrency=1 tests/stockBoundary.test.js tests/menuCupRules.test.js tests/menuSaveProduct.test.js tests/menuEndToEnd.test.js tests/menuEditFormSafety.test.js"
+    "test": "node --test --test-concurrency=1 tests/stockBoundary.test.js tests/menuCupRules.test.js tests/menuSaveProduct.test.js tests/menuEndToEnd.test.js tests/menuEditFormSafety.test.js tests/recipeUnitSync.test.js tests/cashierAttribution.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",

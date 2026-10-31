@@ -11,7 +11,13 @@ const tokenSecret = () => {
 
 export function createAccessToken(user) {
   return jwt.sign(
-    { sub: String(user.id), username: user.username, role: user.role, ver: Number(user.token_version || 1) },
+    {
+      sub: String(user.id),
+      username: user.username,
+      displayName: user.displayName || user.display_name || user.username,
+      role: user.role,
+      ver: Number(user.token_version || 1),
+    },
     tokenSecret(),
     { expiresIn: "8h", issuer: "amaya-api", audience: "amaya-web", algorithm: "HS256" },
   );
@@ -34,14 +40,22 @@ export async function requireAuth(request, response, next) {
   } catch {
     return response.status(401).json({ message: "Your session has expired. Please sign in again." });
   }
-  const [rows] = await pool.execute("SELECT id, username, role, is_active, token_version FROM users WHERE id = ? LIMIT 1", [claims.sub]);
+  const [rows] = await pool.execute(
+    "SELECT id, username, display_name, role, is_active, token_version FROM users WHERE id = ? LIMIT 1",
+    [claims.sub]
+  );
   const user = rows[0];
   if (!user || !user.is_active) return response.status(401).json({ message: "Your account is inactive. Please contact an administrator." });
   const tokenVersion = claims.ver != null ? Number(claims.ver) : 1;
   if (tokenVersion !== Number(user.token_version || 1)) {
     return response.status(401).json({ message: "Your session has expired or was revoked. Please sign in again." });
   }
-  request.authUser = { sub: String(user.id), username: user.username, role: user.role };
+  request.authUser = {
+    sub: String(user.id),
+    username: user.username,
+    displayName: user.display_name || (user.role === "admin" ? "Admin (Owner)" : `Cashier ${user.id}`),
+    role: user.role,
+  };
   return next();
 }
 
@@ -64,11 +78,19 @@ export async function optionalAuth(request, _response, next) {
         audience: "amaya-web",
         algorithms: ["HS256"],
       });
-      const [rows] = await pool.execute("SELECT id, username, role, is_active, token_version FROM users WHERE id = ? LIMIT 1", [claims.sub]);
+      const [rows] = await pool.execute(
+        "SELECT id, username, display_name, role, is_active, token_version FROM users WHERE id = ? LIMIT 1",
+        [claims.sub]
+      );
       const user = rows[0];
       const tokenVersion = claims.ver != null ? Number(claims.ver) : 1;
       request.authUser = user && user.is_active && tokenVersion === Number(user.token_version || 1)
-        ? { sub: String(user.id), username: user.username, role: user.role }
+        ? {
+            sub: String(user.id),
+            username: user.username,
+            displayName: user.display_name || (user.role === "admin" ? "Admin (Owner)" : `Cashier ${user.id}`),
+            role: user.role,
+          }
         : null;
     } catch {
       request.authUser = null;

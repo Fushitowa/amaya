@@ -650,6 +650,10 @@ function StaffOrder() {
                     <dd>{selectedOrder.customer || selectedOrder.customerName || WALK_IN_CUSTOMER_NAME}</dd>
                   </div>
                   <div>
+                    <dt><User aria-hidden="true" size={13} strokeWidth={2.2} /> Cashier in charge</dt>
+                    <dd><strong>{selectedOrder.cashier || "Staff"}</strong></dd>
+                  </div>
+                  <div>
                     <dt><Utensils aria-hidden="true" size={13} strokeWidth={2.2} /> Order type</dt>
                     <dd>
                       <span className="od-type-pill">{selectedOrder.type || "Dine-in"}</span>

@@ -5,7 +5,9 @@ import {
   Archive,
   CheckCircle2,
   Clock,
+  FolderOpen,
   History,
+  ImagePlus,
   LayoutGrid,
   List,
   Package,
@@ -43,6 +45,7 @@ export function formatUnitCost(cost) {
 function createEmptyInventoryForm() {
   return {
     item: "",
+    image: "",
     category: "",
     purchasePrice: "",
     packageQuantity: "1",
@@ -282,6 +285,7 @@ function AdminInventory() {
     setActionError("");
     setFormValues({
       item: item.item,
+      image: item.image || "",
       category: item.category,
       purchasePrice: item.purchasePrice != null ? String(item.purchasePrice) : "",
       packageQuantity: item.packageQuantity != null ? String(item.packageQuantity) : "1",
@@ -363,6 +367,32 @@ function AdminInventory() {
     }
   };
 
+  const handleImageFile = (file) => {
+    if (!file) return;
+    const accepted = ["image/png", "image/jpeg", "image/webp"];
+    if (!accepted.includes(file.type)) {
+      setActionError("Unsupported file type. Use PNG, JPG, JPEG, or WEBP.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setActionError("Image is larger than 5MB. Please choose a smaller file.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormValues((prev) => ({ ...prev, image: reader.result }));
+      setActionError("");
+    };
+    reader.onerror = () => setActionError("Could not read image file.");
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageDrop = (event) => {
+    event.preventDefault();
+    const file = event.dataTransfer?.files?.[0];
+    if (file) handleImageFile(file);
+  };
+
   const handleSave = async (event) => {
     event.preventDefault();
 
@@ -397,6 +427,7 @@ function AdminInventory() {
     try {
       const values = {
         item: itemName,
+        image: formValues.image || null,
         category,
         purchasePrice,
         packageQuantity,
@@ -622,11 +653,19 @@ function AdminInventory() {
                   <article className="admin-inventory-card" key={row.id}>
                     <div>
                       <div className="admin-inventory-card-top">
-                      <div className="admin-inventory-card-title">
-                        <span className="admin-inventory-card-category">{row.category}</span>
-                        <h4>{row.item}</h4>
-                      </div>
-                      <div className="admin-inventory-card-badges">
+                        {row.image ? (
+                          <img
+                            src={row.image}
+                            alt={row.item}
+                            className="admin-inventory-card-thumbnail"
+                            loading="lazy"
+                          />
+                        ) : null}
+                        <div className="admin-inventory-card-title">
+                          <span className="admin-inventory-card-category">{row.category}</span>
+                          <h4>{row.item}</h4>
+                        </div>
+                        <div className="admin-inventory-card-badges">
                         {row.addedFromMenu && <span className="inventory-source-badge">Menu recipe</span>}
                         <span className={`admin-inventory-badge ${row.statusKey}`}>{row.status}</span>
                       </div>
@@ -717,7 +756,19 @@ function AdminInventory() {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row.id}>
-                        <td>{row.item}</td>
+                        <td>
+                          <div className="admin-inventory-table-item-cell">
+                            {row.image ? (
+                              <img
+                                src={row.image}
+                                alt={row.item}
+                                className="admin-inventory-table-thumbnail"
+                                loading="lazy"
+                              />
+                            ) : null}
+                            <span>{row.item}</span>
+                          </div>
+                        </td>
                         <td>{row.category}</td>
                         <td><strong>{row.quantity}</strong> {row.unit}</td>
                         <td>₱{formatUnitCost(row.unitCost)} / {row.unit}</td>
@@ -886,6 +937,76 @@ function AdminInventory() {
                   ))}
                 </select>
               </label>
+
+              <div className="inventory-image-field-wrap">
+                <span className="inventory-field-label-text">
+                  Item Photo (Optional)
+                  <FieldHelpTooltip
+                    title="Item Photo"
+                    text="Upload a picture of the ingredient or packaging. Displays on inventory cards, tables, and recipe pickers."
+                    align="right"
+                  />
+                </span>
+
+                {formValues.image ? (
+                  <div className="inventory-form-image-preview">
+                    <img
+                      src={formValues.image}
+                      alt={formValues.item || "Inventory item"}
+                      className="inventory-form-image-img"
+                    />
+                    <div className="inventory-form-image-controls">
+                      <label className="inventory-img-btn change" title="Choose a new file to replace this image">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageFile(file);
+                          }}
+                          aria-label="Change inventory image"
+                          style={{ display: "none" }}
+                        />
+                        <FolderOpen size={13} strokeWidth={2.2} />
+                        <span>Change Photo</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="inventory-img-btn remove"
+                        onClick={() => setFormValues((prev) => ({ ...prev, image: "" }))}
+                        title="Remove this image"
+                      >
+                        <Trash2 size={13} strokeWidth={2} />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label
+                    className="inventory-dropzone"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={handleImageDrop}
+                  >
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageFile(file);
+                      }}
+                      aria-label="Upload inventory item image"
+                      style={{ display: "none" }}
+                    />
+                    <span className="inventory-dropzone-icon" aria-hidden="true">
+                      <ImagePlus size={20} strokeWidth={1.8} />
+                    </span>
+                    <span className="inventory-dropzone-text">
+                      <strong>Click to upload</strong> or drag photo here
+                    </span>
+                    <small>PNG, JPG, WEBP (Up to 5MB)</small>
+                  </label>
+                )}
+              </div>
 
               <span className="admin-inventory-form-section-title">2. Procurement & Package Specification</span>
               <label>

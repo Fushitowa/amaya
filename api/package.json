@@ -7,6 +7,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "user:create": "node src/create-user.js",
+    "accounts": "node src/account-manager.js",
     "db:migrate": "node src/migrate.js",
     "db:vault": "node src/catalog-vault.js"
   },

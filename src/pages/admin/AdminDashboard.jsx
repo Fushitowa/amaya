@@ -27,7 +27,7 @@ function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
   const { inventory } = useInventory() || { inventory: [] };
-  const [salesRange, setSalesRange] = useState("week");
+  const [salesRange, setSalesRange] = useState("today");
 
   // 1. Total Sales (strictly from verified Paid orders)
   const paidOrders = useMemo(() => orders.filter((order) => order.payment === "Paid"), [orders]);
@@ -95,6 +95,18 @@ function AdminDashboard() {
       .reduce((sum, order) => sum + Number(order.total || 0), 0);
   }, [todaysPaidOrders]);
 
+  const todaysMarginPercent = todaysSales > 0 ? (todaysProfit / todaysSales) * 100 : 0;
+  const todaysCashOrders = useMemo(() => {
+    return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() === "cash");
+  }, [todaysPaidOrders]);
+  const todaysNonCashOrders = useMemo(() => {
+    return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() !== "cash");
+  }, [todaysPaidOrders]);
+
+  const [ordersTab, setOrdersTab] = useState("today");
+  const todaysOrders = useMemo(() => orders.filter((order) => isToday(order.createdAt)), [orders]);
+  const displayOrders = ordersTab === "today" ? todaysOrders : orders;
+
   const liveDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -105,7 +117,17 @@ function AdminDashboard() {
     today.setHours(0, 0, 0, 0);
     let buckets;
 
-    if (salesRange === "year") {
+    if (salesRange === "today") {
+      const hours = [8, 10, 12, 14, 16, 18, 20];
+      buckets = hours.map((hour) => {
+        const start = new Date(today);
+        start.setHours(hour, 0, 0, 0);
+        const end = new Date(today);
+        end.setHours(hour + 2, 0, 0, 0);
+        const formatHour = hour === 12 ? "12PM" : hour > 12 ? `${hour - 12}PM` : `${hour}AM`;
+        return { start, end, label: formatHour };
+      });
+    } else if (salesRange === "year") {
       buckets = Array.from({ length: 12 }, (_, index) => {
         const start = new Date(today.getFullYear(), today.getMonth() - 11 + index, 1);
         const end = new Date(today.getFullYear(), today.getMonth() - 10 + index, 1);
@@ -158,7 +180,7 @@ function AdminDashboard() {
   const periodSales = salesBuckets.reduce((sum, bucket) => sum + bucket.total, 0);
   const periodProfit = salesBuckets.reduce((sum, bucket) => sum + (bucket.profit || 0), 0);
   const chartMaximum = Math.max(1, ...salesBuckets.map((bucket) => bucket.total));
-  const chartRangeLabel = salesRange === "year" ? "this year" : salesRange === "month" ? "last 30 days" : "last 7 days";
+  const chartRangeLabel = salesRange === "today" ? "today's session" : salesRange === "year" ? "this year" : salesRange === "month" ? "last 30 days" : "last 7 days";
 
   return (
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -205,21 +227,23 @@ function AdminDashboard() {
               <div className="stat-icon"><CircleDollarSign size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Total Sales (Paid)</span>
+                <span>Today's Sales (Paid)</span>
                 <div className="stat-metric-row">
-                  <h3>₱{allTimeSales.toFixed(2)}</h3>
+                  <h3>₱{todaysSales.toFixed(2)}</h3>
                   <div
                     className="stat-profit-pill"
-                    title={`COGS: ₱${allTimeCogs.toFixed(2)} • Margin: ${allTimeMarginPercent.toFixed(1)}%`}
+                    title={`Today's COGS: ₱${todaysCogs.toFixed(2)} • Margin: ${todaysMarginPercent.toFixed(1)}%`}
                   >
                     <TrendingUp size={11} strokeWidth={2.4} />
-                    <span className="profit-text">₱{allTimeProfit.toFixed(2)} profit</span>
+                    <span className="profit-text">₱{todaysProfit.toFixed(2)} profit</span>
                   </div>
                 </div>
                 <small>
                   {todaysPaidOrders.length
-                    ? `₱${todaysSales.toFixed(2)} from ${todaysPaidOrders.length} paid today (₱${todaysProfit.toFixed(2)} profit)`
-                    : "No paid sales recorded today"}
+                    ? `${todaysPaidOrders.length} order${todaysPaidOrders.length === 1 ? "" : "s"} settled today`
+                    : "0 orders settled today"}
+                  {" • "}
+                  <span title="All-time sales across all sessions">All-time: ₱{allTimeSales.toFixed(2)}</span>
                 </small>
               </div>
             </div>
@@ -228,12 +252,14 @@ function AdminDashboard() {
               <div className="stat-icon"><ShoppingBag size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Products Sold</span>
-                <h3>{allTimeUnitsSold} units</h3>
+                <span>Today's Products Sold</span>
+                <h3>{todaysUnitsSold} units</h3>
                 <small>
-                  {paidOrders.length
-                    ? `Across ${paidOrders.length} orders (${todaysUnitsSold} units today)`
-                    : "No sales transactions completed"}
+                  {todaysUnitsSold > 0
+                    ? `Sold across ${todaysPaidOrders.length} order${todaysPaidOrders.length === 1 ? "" : "s"} today`
+                    : "0 units sold yet today"}
+                  {" • "}
+                  <span title="All-time units sold across all sessions">All-time: {allTimeUnitsSold} units</span>
                 </small>
               </div>
             </div>
@@ -246,7 +272,7 @@ function AdminDashboard() {
                 <h3>₱{inventoryAssetValue.toFixed(2)}</h3>
                 <small>
                   {(inventory || []).length
-                    ? `Asset value across ${inventory.length} ingredients`
+                    ? `Live stock across ${inventory.length} ingredients`
                     : "No inventory stock recorded"}
                 </small>
               </div>
@@ -256,12 +282,13 @@ function AdminDashboard() {
               <div className="stat-icon"><Coins size={21} strokeWidth={1.8} /></div>
 
               <div className="stat-info">
-                <span>Cash Drawer / Float</span>
-                <h3>Float Unset</h3>
+                <span>Today's Cash in Drawer</span>
+                <h3>₱{todaysCashCollected.toFixed(2)}</h3>
                 <small className="metric-note">
-                  {todaysCashCollected > 0
-                    ? `₱${todaysCashCollected.toFixed(2)} cash collected today`
-                    : "Awaiting End-of-Day reconciliation"}
+                  {todaysCashOrders.length
+                    ? `${todaysCashOrders.length} cash transaction${todaysCashOrders.length === 1 ? "" : "s"} today`
+                    : "No cash payments today"}
+                  {todaysNonCashOrders.length > 0 ? ` (+${todaysNonCashOrders.length} non-cash)` : ""}
                 </small>
               </div>
             </div>
@@ -292,6 +319,7 @@ function AdminDashboard() {
                     onChange={(event) => setSalesRange(event.target.value)}
                     aria-label="Sales chart date range"
                   >
+                    <option value="today">Today's session</option>
                     <option value="week">Last 7 days</option>
                     <option value="month">Last 30 days</option>
                     <option value="year">This year</option>
@@ -372,11 +400,48 @@ function AdminDashboard() {
             
             <div className="admin-panel orders-panel">
 
-              <div className="panel-header">
+              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
 
                 <div>
-                  <h3>Recent Orders</h3>
-                  <p>Latest customer orders</p>
+                  <h3>{ordersTab === "today" ? "Today's Orders & Transactions" : "All Recent Orders"}</h3>
+                  <p>{ordersTab === "today" ? `Active daily session (${liveDate})` : "All customer orders across sessions"}</p>
+                </div>
+
+                <div style={{ display: "inline-flex", background: "#F5EFE9", padding: "3px", borderRadius: "8px", gap: "3px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setOrdersTab("today")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "6px",
+                      border: "none",
+                      background: ordersTab === "today" ? "#8B5E3C" : "transparent",
+                      color: ordersTab === "today" ? "#FFFFFF" : "#6B5548",
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    Today's Session ({todaysOrders.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrdersTab("all")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "6px",
+                      border: "none",
+                      background: ordersTab === "all" ? "#8B5E3C" : "transparent",
+                      color: ordersTab === "all" ? "#FFFFFF" : "#6B5548",
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    All Recent ({orders.length})
+                  </button>
                 </div>
 
               </div>
@@ -389,26 +454,32 @@ function AdminDashboard() {
                     <tr>
                       <th>Order</th>
                       <th>Customer</th>
+                      <th>Cashier in Charge</th>
                       <th>Total</th>
                       <th>Status</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {orders.length === 0 ? (
+                    {displayOrders.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="empty-orders-cell">
+                        <td colSpan="5" className="empty-orders-cell">
                           <div className="empty-orders-state">
-                            <strong>No orders yet</strong>
-                            <span>New customer orders will appear here.</span>
+                            <strong>{ordersTab === "today" ? "No orders placed today yet" : "No orders yet"}</strong>
+                            <span>{ordersTab === "today" ? "Counter transactions from today's session will appear here in real time." : "New customer orders will appear here."}</span>
                           </div>
                         </td>
                       </tr>
                     ) : (
-                      orders.slice(0, 5).map((order) => (
+                      displayOrders.slice(0, ordersTab === "today" ? 30 : 10).map((order) => (
                         <tr key={order.id}>
                           <td><strong>{order.id}</strong></td>
                           <td>{order.customer || "Walk-in Customer"}</td>
+                          <td>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 8px", background: "rgba(139, 94, 60, 0.12)", border: "1px solid rgba(139, 94, 60, 0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", color: "#8B5E3C" }}>
+                              👤 {order.cashier || "Staff"}
+                            </span>
+                          </td>
                           <td>₱{Number(order.total || 0).toFixed(2)}</td>
                           <td>
                             <span className={`order-status-pill status-${String(order.status || "pending").toLowerCase()}`}>

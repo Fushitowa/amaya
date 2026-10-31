@@ -4,8 +4,7 @@ import { Link } from "react-router-dom";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import ErrorBoundary from "../../components/ErrorBoundary.jsx";
-import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Sparkles, Trash2, Utensils } from "lucide-react";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
+import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -243,6 +242,15 @@ function AdminMenuManagement() {
 	const [recipeError, setRecipeError] = useState("");
 	const [syncNotice, setSyncNotice] = useState("");
 	const syncTimer = useRef(null);
+
+	// Multi-select inventory picker state
+	const [showInventoryPicker, setShowInventoryPicker] = useState(false);
+	const [pickerSearch, setPickerSearch] = useState("");
+	const [pickerCategory, setPickerCategory] = useState("all");
+	const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState(new Set());
+
+	// Target food cost percentage for suggested pricing (defaults to 40%, adjustable e.g. 30%, 40%, 50%, 60%)
+	const [targetFoodCostPct, setTargetFoodCostPct] = useState(40);
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -710,6 +718,100 @@ function AdminMenuManagement() {
 		setRecipeError("");
 	};
 
+	const openInventoryPicker = () => {
+		const currentIds = new Set(
+			(formValues.ingredients || []).map((ing) => {
+				if (ing.inventoryItemId) return ing.inventoryItemId;
+				const matched = findInventoryItem(ing.name);
+				return matched?.id;
+			}).filter(Boolean)
+		);
+		setSelectedInventoryItemIds(currentIds);
+		setPickerSearch("");
+		setPickerCategory("all");
+		setShowInventoryPicker(true);
+	};
+
+	const togglePickerItem = (itemId) => {
+		setSelectedInventoryItemIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(itemId)) {
+				next.delete(itemId);
+			} else {
+				next.add(itemId);
+			}
+			return next;
+		});
+	};
+
+	const applyInventoryPicker = () => {
+		const selectedArray = Array.from(selectedInventoryItemIds);
+		const selectedInvItems = (inventory || []).filter((inv) => selectedArray.includes(inv.id));
+		
+		setFormValues((current) => {
+			const existingMap = new Map();
+			(current.ingredients || []).forEach((ing) => {
+				const id = ing.inventoryItemId || findInventoryItem(ing.name)?.id;
+				if (id) existingMap.set(id, ing);
+				else existingMap.set(safeLower(ing.name), ing);
+			});
+
+			const updatedIngredients = selectedInvItems.map((inv) => {
+				const existing = existingMap.get(inv.id) || existingMap.get(safeLower(safeItemName(inv)));
+				if (existing) {
+					return {
+						...existing,
+						inventoryItemId: inv.id,
+						name: safeItemName(inv),
+						stockUnit: inv.unit || existing.stockUnit || "pcs",
+					};
+				}
+				const unit = inv.unit || "pcs";
+				const defaultQty = 1;
+				return {
+					inventoryItemId: inv.id,
+					name: safeItemName(inv),
+					quantityUsed: defaultQty,
+					unit,
+					stockUnit: unit,
+					quantityBySize: Object.fromEntries(
+						(current.sizes || []).map((size, idx) => [
+							size.label,
+							amountForSize({ name: safeItemName(inv), quantityUsed: defaultQty, unit }, size.label, defaultSizeFactor(size.factor, idx)),
+						])
+					),
+				};
+			});
+
+			return {
+				...current,
+				ingredients: updatedIngredients,
+			};
+		});
+
+		setShowInventoryPicker(false);
+	};
+
+	const updateIngredientQuantityUsed = (index, val) => {
+		setFormValues((current) => ({
+			...current,
+			ingredients: current.ingredients.map((ing, i) => {
+				if (i !== index) return ing;
+				const factorMap = Object.fromEntries(
+					(current.sizes || []).map((size, idx) => [
+						size.label,
+						amountForSize({ name: ing.name, quantityUsed: Number(val) || 0, unit: ing.unit }, size.label, defaultSizeFactor(size.factor, idx)),
+					])
+				);
+				return {
+					...ing,
+					quantityUsed: val,
+					quantityBySize: ing.quantityBySize ? { ...ing.quantityBySize, ...(current.sizes.length === 1 ? { [current.sizes[0].label]: val } : {}) } : factorMap,
+				};
+			}),
+		}));
+	};
+
 	const addAddon = () => {
 		const label = addonDraft.label.trim();
 		const existingItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(label));
@@ -1150,7 +1252,8 @@ function AdminMenuManagement() {
 		const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : 0;
 		const margin = (numericPrice > 0 && Number.isFinite(cost)) ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
 		const foodCostPercent = (numericPrice > 0 && Number.isFinite(cost)) ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
-		const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / 0.30) / 5) * 5 : null;
+		const effectiveTargetFraction = Math.max(0.1, Math.min(0.9, (Number(targetFoodCostPct) || 40) / 100));
+		const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / effectiveTargetFraction) / 5) * 5 : null;
 		return {
 			cost: Number.isFinite(cost) ? cost : 0,
 			costComplete,
@@ -1185,142 +1288,142 @@ function AdminMenuManagement() {
       />
 
 			<main className="admin-menu-main">
-				<header className="admin-menu-topbar"><div><span className="admin-menu-section-label">ADMIN PORTAL</span><h1>Menu Management</h1></div><div className="admin-menu-topbar-actions"><PortalNotificationButton /><div className="admin-menu-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div></div></header>
+				<header className="admin-menu-topbar">
+					<div>
+						<span className="admin-menu-section-label">ADMIN PORTAL</span>
+						<h1>Menu Management</h1>
+					</div>
+					<div className="admin-menu-topbar-actions" style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+						<PortalNotificationButton />
+						<Link
+							to="/admin/archive"
+							className="admin-menu-archive-button"
+							style={{
+								display: "inline-flex",
+								alignItems: "center",
+								gap: "0.4rem",
+								padding: "0.65rem 1rem",
+								borderRadius: "10px",
+								background: "#ffffff",
+								color: "#2e261f",
+								fontWeight: "600",
+								fontSize: "0.88rem",
+								textDecoration: "none",
+								border: "1px solid #ece4df",
+								boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+							}}
+						>
+							<Archive size={16} /> View Archive
+						</Link>
+						<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
+					</div>
+				</header>
 
 				<div className="admin-menu-content custom-menu-scrollbar">
 					<div className="admin-menu-workspace">
 						<div className="admin-menu-main-pane">
-							<section className="admin-menu-heading">
-								<div>
-									<span className="admin-menu-eyebrow">PRODUCT CATALOG</span>
-									<h2>Everything on the menu</h2>
-									<p>Keep your offerings fresh, organized, and ready for every customer.</p>
-								</div>
-								<div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-									<Link
-										to="/admin/archive"
-										className="admin-menu-archive-button"
-										style={{
-											display: "inline-flex",
-											alignItems: "center",
-											gap: "0.4rem",
-											padding: "0.65rem 1rem",
-											borderRadius: "10px",
-											background: "#ffffff",
-											color: "#2e261f",
-											fontWeight: "600",
-											fontSize: "0.88rem",
-											textDecoration: "none",
-											border: "1px solid #ece4df",
-											boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-										}}
-									>
-										<Archive size={16} /> View Archive
-									</Link>
-									<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
-								</div>
-							</section>
 
-							<section className="admin-menu-toolbar">
-								<div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">
-									{categories.map((category) => (
-										<button
-											type="button"
-											key={category}
-											className={activeCategory === category ? "active" : ""}
-											onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
+							<section className="admin-menu-panel">
+								<div className="admin-menu-toolbar">
+									<div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">
+										{categories.map((category) => (
+											<button
+												type="button"
+												key={category}
+												className={activeCategory === category ? "active" : ""}
+												onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
+											>
+												{category}
+												<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span>
+											</button>
+										))}
+										<Link
+											to="/admin/categories"
+											style={{
+												display: "inline-flex",
+												alignItems: "center",
+												gap: "4px",
+												padding: "6px 12px",
+												fontSize: "0.78rem",
+												fontWeight: "600",
+												color: "#5a3d28",
+												background: "#f5ece5",
+												borderRadius: "8px",
+												textDecoration: "none",
+												marginLeft: "4px"
+											}}
+											title="Manage Categories in Database"
 										>
-											{category}
-											<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span>
-										</button>
-									))}
-									<Link
-										to="/admin/categories"
-										style={{
-											display: "inline-flex",
-											alignItems: "center",
-											gap: "4px",
-											padding: "6px 12px",
-											fontSize: "0.78rem",
-											fontWeight: "600",
-											color: "#5a3d28",
-											background: "#f5ece5",
-											borderRadius: "8px",
-											textDecoration: "none",
-											marginLeft: "4px"
-										}}
-										title="Manage Categories in Database"
-									>
-										⚙ Manage
-									</Link>
-								</div>
-								<label className="admin-menu-search">
-									<span>⌕</span>
-									<input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" />
-								</label>
-							</section>
-
-							<section className="admin-menu-list-header">
-								<div>
-									<h3>{activeCategory}</h3>
-									<span>{visibleProducts.length} items in this view</span>
-								</div>
-								<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
-									<option value="popular">Sort: Featured first</option>
-									<option value="name">Sort: Name A–Z</option>
-									<option value="price">Sort: Price low to high</option>
-								</select>
-							</section>
-
-							<section className="admin-menu-grid">
-								{pageProducts.map((product) => (
-									<article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
-										<div className="admin-product-image">
-											<img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />
-											{product.featured && <span className="featured-label">★ Featured</span>}
-											<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={() => openEditForm(product)}>•••</button>
-										</div>
-										<div className="admin-product-body">
-											<div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div>
-											<h4>{product.name}</h4>
-											{Number(product.cost) > 0 && (
-												<div className="admin-product-cost-badge">
-													COGS ₱{safeToFixed(product.cost, 2)}{product.margin != null ? ` · ${safeToFixed(product.margin, 1)}% margin` : ""}
-												</div>
-											)}
-											<p>{product.description}</p>
-											<div className="admin-product-footer">
-												<span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
-													{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
-												</span>
-												<label className="availability-toggle">
-													<input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} />
-													<span></span>
-													<small>{product.available ? "Available" : "Hidden"}</small>
-												</label>
-												<button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button>
-											</div>
-										</div>
-									</article>
-								))}
-								{!visibleProducts.length && (
-									<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
-										<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
-										<span>{menuError || "Try another category or search term."}</span>
+											⚙ Manage
+										</Link>
 									</div>
+									<div className="admin-menu-toolbar-actions">
+										<label className="admin-menu-search">
+											<span>⌕</span>
+											<input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" />
+										</label>
+										<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
+											<option value="popular">Sort: Featured first</option>
+											<option value="name">Sort: Name A–Z</option>
+											<option value="price">Sort: Price low to high</option>
+										</select>
+									</div>
+								</div>
+
+								<div className="admin-menu-grid-wrap custom-menu-scrollbar">
+									<div className="admin-menu-grid">
+										{pageProducts.map((product) => (
+											<article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
+												<div
+													className="admin-product-image"
+													onClick={() => openEditForm(product)}
+													role="button"
+													tabIndex={0}
+													onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditForm(product); } }}
+													title={`Click to edit ${product.name}`}
+													style={{ cursor: "pointer" }}
+												>
+													<img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />
+													{product.featured && <span className="featured-label">★ Featured</span>}
+													<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={(e) => { e.stopPropagation(); openEditForm(product); }}>•••</button>
+												</div>
+												<div className="admin-product-body">
+													<div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div>
+													<h4>{product.name}</h4>
+													<div className="admin-product-footer">
+														<span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
+															{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
+														</span>
+														<label className="availability-toggle">
+															<input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} />
+															<span></span>
+															<small>{product.available ? "Available" : "Hidden"}</small>
+														</label>
+														<button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button>
+													</div>
+												</div>
+											</article>
+										))}
+										{!visibleProducts.length && (
+											<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
+												<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
+												<span>{menuError || "Try another category or search term."}</span>
+											</div>
+										)}
+									</div>
+								</div>
+
+								{visibleProducts.length > 0 && (
+									<nav className="admin-menu-pagination" aria-label="Menu catalog pages">
+										<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
+										<div>
+											<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
+											<span>Page {safePage} of {pageCount}</span>
+											<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+										</div>
+									</nav>
 								)}
 							</section>
-
-							{visibleProducts.length > 0 && (
-								<nav className="admin-menu-pagination" aria-label="Menu catalog pages">
-									<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
-									<div>
-										<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
-										<span>Page {safePage} of {pageCount}</span>
-										<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
-									</div>
-								</nav>
-							)}
 						</div>
 
 						<aside className="admin-menu-side-rail" aria-label="Menu overview and statistics">
@@ -1550,6 +1653,58 @@ function AdminMenuManagement() {
 								)}
 
 								{imageError ? <p className="menu-builder-error" role="alert">{imageError}</p> : null}
+
+								{/* Left-rail Recipe Ingredients Overview */}
+								<div className="menu-builder-recipe-overview">
+									<div className="menu-builder-recipe-overview-header">
+										<label className="menu-builder-legend with-icon">
+											<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
+											Recipe Ingredients
+										</label>
+										<span className="menu-builder-recipe-count">
+											{(formValues.ingredients || []).length} items
+										</span>
+									</div>
+									<p className="menu-builder-hint">
+										Configured ingredients &amp; quantities for this item.
+									</p>
+
+									{(formValues.ingredients || []).length === 0 ? (
+										<div className="menu-builder-recipe-empty">
+											No ingredients added yet. Add items in the Ingredients &amp; Recipe section.
+										</div>
+									) : (
+										<div className="menu-builder-recipe-items">
+											{(formValues.ingredients || []).map((ing, idx) => {
+												const invItem = findInventoryItem(ing.name);
+												const ingName = safeItemName(invItem) || ing.name || "Item";
+												return (
+													<div className="menu-builder-recipe-item-card" key={`${ingName}-${idx}`}>
+														<div className="recipe-item-main">
+															<span className="recipe-item-name" title={ingName}>{ingName}</span>
+															<span className="recipe-item-base-qty">
+																{ing.quantityUsed ? `${ing.quantityUsed} ${ing.unit || ""}` : "—"}
+															</span>
+														</div>
+														{formValues.sizes && formValues.sizes.length > 1 && (
+															<div className="recipe-item-size-pills">
+																{formValues.sizes.map((s) => {
+																	const sq = sizeQty(ing, s.label);
+																	if (!sq || Number(sq) <= 0) return null;
+																	return (
+																		<span key={s.label} className="recipe-item-size-pill">
+																			<strong>{s.label}:</strong> {sq} {ing.unit || ""}
+																		</span>
+																	);
+																})}
+															</div>
+														)}
+													</div>
+												);
+											})}
+										</div>
+									)}
+								</div>
 							</aside>
 
 							{/* ---------------- Right: form sections ---------------- */}
@@ -1654,6 +1809,23 @@ function AdminMenuManagement() {
 											Item Variations &amp; Sizes
 										</label>
 										<div className="menu-builder-variations-actions">
+											{/* Target Food Cost Adjustment */}
+											<div className="menu-target-cost-selector" title="Choose target food cost percentage used to compute suggested serving price">
+												<span className="target-cost-label">Target Cost:</span>
+												<div className="target-cost-pills">
+													{[30, 40, 50, 60].map((pct) => (
+														<button
+															key={pct}
+															type="button"
+															className={`target-cost-pill ${targetFoodCostPct === pct ? "active" : ""}`}
+															onClick={() => setTargetFoodCostPct(pct)}
+														>
+															{pct}%
+														</button>
+													))}
+												</div>
+											</div>
+
 											<button
 												type="button"
 												className="menu-builder-auto-size-btn"
@@ -1803,136 +1975,136 @@ function AdminMenuManagement() {
 														key={index}
 														ref={isEditing ? editingSizeRef : null}
 													>
-														{isEditing ? (
-															<div className="size-row-edit-content">
-																<input
-																	type="text"
-																	className="size-label-input"
-																	value={size?.label || ""}
-																	placeholder="Variation name (e.g. Large, Medium)"
-																	onChange={(e) => updateSizeLabel(index, e.target.value)}
-																	autoFocus
-																	onKeyDown={(e) => {
-																		if (e.key === "Enter") {
-																			e.preventDefault();
-																			setEditingSizeIndex(null);
-																		}
-																	}}
-																	aria-label="Variation name"
-																/>
-																<div className="size-price-input-wrap">
-																	<span className="size-currency-sign">₱</span>
+														<div className="size-card-top-bar">
+															{isEditing ? (
+																<div className="size-row-edit-content">
 																	<input
-																		type="number"
-																		min="0"
-																		step="0.01"
-																		className="size-price-input"
-																		value={size?.price ?? ""}
-																		placeholder={formValues.price || "0.00"}
-																		onChange={(e) => updateSizePrice(index, e.target.value)}
+																		type="text"
+																		className="size-label-input"
+																		value={size?.label || ""}
+																		placeholder="Variation name (e.g. Large, Medium)"
+																		onChange={(e) => updateSizeLabel(index, e.target.value)}
+																		autoFocus
 																		onKeyDown={(e) => {
 																			if (e.key === "Enter") {
 																				e.preventDefault();
 																				setEditingSizeIndex(null);
 																			}
 																		}}
-																		aria-label={`${size?.label || "Variation"} price`}
+																		aria-label="Variation name"
 																	/>
-																</div>
-																<div className="size-factor-input-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-																	<span style={{ fontSize: "11px", color: "#6b7280" }}>Scale:</span>
-																	<input
-																		type="number"
-																		min="0.1"
-																		max="10"
-																		step="0.05"
-																		style={{ width: "60px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid #d1d5db" }}
-																		value={size?.factor ?? factor}
-																		onChange={(e) => updateSizeFactor(index, e.target.value)}
-																		aria-label={`${size?.label || "Variation"} scale factor`}
-																	/>
-																</div>
-																{getCategoryFamily(formValues.category) === "drink" && (
-																	<div className="size-cup-select-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-																		<select
-																			value={size?.cupId || ""}
-																			onChange={(e) => assignCupToSize(index, e.target.value)}
-																			style={{ fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #d1d5db" }}
-																			aria-label={`Cup for ${size?.label || "Variation"}`}
-																		>
-																			<option value="">-- Select Cup --</option>
-																			{(cupInventoryItems || []).map((cup) => (
-																				<option key={cup.id} value={cup.id}>
-																					{safeItemName(cup)} ({cup.quantity} {cup.unit})
-																				</option>
-																			))}
-																		</select>
+																	<div className="size-price-input-wrap">
+																		<span className="size-currency-sign">₱</span>
+																		<input
+																			type="number"
+																			min="0"
+																			step="0.01"
+																			className="size-price-input"
+																			value={size?.price ?? ""}
+																			placeholder={formValues.price || "0.00"}
+																			onChange={(e) => updateSizePrice(index, e.target.value)}
+																			onKeyDown={(e) => {
+																				if (e.key === "Enter") {
+																					e.preventDefault();
+																					setEditingSizeIndex(null);
+																				}
+																			}}
+																			aria-label={`${size?.label || "Variation"} price`}
+																		/>
 																	</div>
-																)}
-															</div>
-														) : (
-															<div className="size-row-display-content">
+																	<div className="size-factor-input-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+																		<span style={{ fontSize: "11px", color: "#6b7280" }}>Scale:</span>
+																		<input
+																			type="number"
+																			min="0.1"
+																			max="10"
+																			step="0.05"
+																			style={{ width: "60px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid #d1d5db" }}
+																			value={size?.factor ?? factor}
+																			onChange={(e) => updateSizeFactor(index, e.target.value)}
+																			aria-label={`${size?.label || "Variation"} scale factor`}
+																		/>
+																	</div>
+																	{getCategoryFamily(formValues.category) === "drink" && (
+																		<div className="size-cup-select-wrap" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+																			<select
+																				value={size?.cupId || ""}
+																				onChange={(e) => assignCupToSize(index, e.target.value)}
+																				style={{ fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #d1d5db" }}
+																				aria-label={`Cup for ${size?.label || "Variation"}`}
+																			>
+																				<option value="">-- Select Cup --</option>
+																				{(cupInventoryItems || []).map((cup) => (
+																					<option key={cup.id} value={cup.id}>
+																						{safeItemName(cup)} ({cup.quantity} {cup.unit})
+																					</option>
+																				))}
+																			</select>
+																		</div>
+																	)}
+																</div>
+															) : (
+																<div className="size-row-display-content">
+																	<button
+																		type="button"
+																		className="size-name-btn"
+																		onClick={() => setEditingSizeIndex(index)}
+																		title="Click to edit variation name"
+																	>
+																		<strong className={String(size?.label || "").trim() ? "" : "empty-placeholder"}>
+																			{String(size?.label || "").trim() ? size.label : "Untitled Variation"}
+																		</strong>
+																	</button>
+																	{getCategoryFamily(formValues.category) === "drink" && (
+																		<span
+																			style={{ fontSize: "11px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px", color: size?.cupId ? "#1f2937" : "#9ca3af", cursor: "pointer" }}
+																			onClick={() => setEditingSizeIndex(index)}
+																			title="Click to change assigned cup"
+																		>
+																			☕ {safeItemName((inventory || []).find((i) => Number(i?.id) === Number(size?.cupId))) || "No cup selected"}
+																		</span>
+																	)}
+																	<div
+																		className="size-price-display"
+																		onClick={() => setEditingSizeIndex(index)}
+																		title="Click to edit price"
+																	>
+																		<span className="price-caption">Serving price</span>
+																		<strong className="price-tag">
+																			₱{safeToFixed(size?.price !== "" && size?.price != null ? size.price : formValues.price, 2)}
+																		</strong>
+																	</div>
+																</div>
+															)}
+
+															<div className="size-row-controls">
 																<button
 																	type="button"
-																	className="size-name-btn"
-																	onClick={() => setEditingSizeIndex(index)}
-																	title="Click to edit variation name"
+																	className={`size-toggle-chevron-btn ${isEditing ? "active" : ""}`}
+																	onClick={() => setEditingSizeIndex(isEditing ? null : index)}
+																	aria-label={isEditing ? "Close variation editor" : "Edit variation"}
+																	title={isEditing ? "Close editor" : "Edit name & price"}
 																>
-																	<strong className={String(size?.label || "").trim() ? "" : "empty-placeholder"}>
-																		{String(size?.label || "").trim() ? size.label : "Untitled Variation"}
-																	</strong>
+																	<ChevronRight size={15} strokeWidth={2.4} className={`chevron-icon ${isEditing ? "rotated" : ""}`} />
 																</button>
-																{getCategoryFamily(formValues.category) === "drink" && (
-																	<span
-																		style={{ fontSize: "11px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px", color: size?.cupId ? "#1f2937" : "#9ca3af", cursor: "pointer" }}
-																		onClick={() => setEditingSizeIndex(index)}
-																		title="Click to change assigned cup"
-																	>
-																		☕ {safeItemName((inventory || []).find((i) => Number(i?.id) === Number(size?.cupId))) || "No cup selected"}
-																	</span>
-																)}
-																<div
-																	className="size-price-display"
-																	onClick={() => setEditingSizeIndex(index)}
-																	title="Click to edit price"
+
+																<button
+																	type="button"
+																	className="size-delete-btn"
+																	onClick={() => removeSize(index)}
+																	aria-label={`Remove ${size?.label || "variation"}`}
+																	title="Remove variation"
 																>
-																	<span className="price-caption">Serving price</span>
-																	<strong className="price-tag">
-																		₱{safeToFixed(size?.price !== "" && size?.price != null ? size.price : formValues.price, 2)}
-																	</strong>
-																</div>
+																	×
+																</button>
 															</div>
-														)}
-
-														<button
-															type="button"
-															className={`size-toggle-chevron-btn ${isEditing ? "active" : ""}`}
-															onClick={() => setEditingSizeIndex(isEditing ? null : index)}
-															aria-label={isEditing ? "Close variation editor" : "Edit variation"}
-															title={isEditing ? "Close editor" : "Edit name & price"}
-														>
-															<ChevronRight size={15} strokeWidth={2.4} className={`chevron-icon ${isEditing ? "rotated" : ""}`} />
-														</button>
-
-														<button
-															type="button"
-															className="size-delete-btn"
-															onClick={() => removeSize(index)}
-															aria-label={`Remove ${size?.label || "variation"}`}
-															title="Remove variation"
-														>
-															×
-														</button>
+														</div>
 
 														<div className="size-costing-strip">
 															{(formValues.ingredients || []).length === 0 ? (
 																<span className="size-costing-note">Add recipe ingredients below to calculate COGS &amp; suggested price</span>
 															) : (
 																<>
-																	<span className="size-recipe-pill" title={`${factor}x Recipe (${recipeSummary})`}>
-																		<Beaker size={11} strokeWidth={2} />
-																		{factor}x Recipe{recipeSummary ? ` (${recipeSummary})` : ""}
-																	</span>
 																	<span>COGS <strong>₱{safeToFixed(sizeCosting?.cost, 2)}</strong></span>
 																	<span>·</span>
 																	<span>Profit <strong>₱{safeToFixed(sizeCosting?.grossProfit ?? 0, 2)}</strong></span>
@@ -1941,7 +2113,7 @@ function AdminMenuManagement() {
 																	</span>
 																	{sizeCosting?.suggestedPrice != null && (
 																		<>
-																			<span>Suggested <strong>₱{sizeCosting.suggestedPrice}</strong> (30% food cost)</span>
+																			<span>Suggested <strong>₱{sizeCosting.suggestedPrice}</strong> ({targetFoodCostPct}% food cost)</span>
 																			<button
 																				type="button"
 																				className="size-apply-suggested-btn"
@@ -1986,91 +2158,145 @@ function AdminMenuManagement() {
 								</section>
 
 								<section className="menu-builder-card">
-									<label className="menu-builder-legend with-icon">
-										<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
-										Ingredients &amp; Recipe
-									</label>
-					<p className="menu-recipe-help">Set the amount used for one serving. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically.</p>
-					<div className="menu-recipe-entry menu-conversion-entry">
-						<input list="menu-inventory-items" value={ingredientDraft.name} onChange={(event) => { const name = event.target.value; const existing = findInventoryItem(name); setIngredientDraft((current) => ({ ...current, name, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Ingredient name" placeholder="Pick from inventory..." />
-						<label className="menu-recipe-field"><span>Amount per serving</span><input type="number" min="0.000001" step="0.000001" value={ingredientDraft.quantityUsed} onChange={(event) => { setIngredientDraft((current) => ({ ...current, quantityUsed: event.target.value })); setRecipeError(""); }} aria-label="Amount used per serving" placeholder="e.g. 5" /></label>
-						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={ingredientDraft.unit} compatibleWith={recipeDraftItem?.unit || ingredientDraft.stockUnit} onChange={(unit) => { setIngredientDraft((current) => ({ ...current, unit })); setRecipeError(""); }} ariaLabel="Ingredient recipe unit" /></label>
-						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={recipeDraftItem?.unit || ingredientDraft.stockUnit} disabled={Boolean(recipeDraftItem)} onChange={(stockUnit) => { setIngredientDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit })); setRecipeError(""); }} ariaLabel="Ingredient stock unit" /></label>
-						<button type="button" onClick={addRecipeIngredient} disabled={!ingredientDraft.name.trim() || !ingredientDraft.quantityUsed}>
-							<Plus size={14} strokeWidth={2.4} /> Add ingredient
-						</button>
-						<a
-							href="/admin/inventory"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="menu-builder-auto-size-btn"
-							style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 10px" }}
-							title="Open Inventory in a new tab to add stock items"
-						>
-							<ExternalLink size={12} strokeWidth={2.2} /> + New in Inventory
-						</a>
-					</div>
-					{convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(ingredientDraft.quantityUsed, ingredientDraft.unit, recipeDraftItem?.unit || ingredientDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {recipeDraftItem?.unit || ingredientDraft.stockUnit} from inventory per serving.</p>}
-					{inventory.some((entry) => safeLower(safeItemName(entry)) === safeLower(ingredientDraft.name) && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
-					<datalist id="menu-inventory-items">{inventory.map((entry) => <option key={entry.id} value={safeItemName(entry)}>{entry.quantity} {entry.unit} in stock</option>)}</datalist>
+									<div className="recipe-section-header-row">
+										<label className="menu-builder-legend with-icon">
+											<Beaker aria-hidden="true" size={13} strokeWidth={2.2} />
+											Ingredients &amp; Recipe
+										</label>
+										<div className="recipe-header-actions">
+											<button
+												type="button"
+												className="recipe-pick-inventory-btn"
+												onClick={openInventoryPicker}
+											>
+												<Plus size={13} strokeWidth={2.4} /> Pick from Inventory
+												{formValues.ingredients.length > 0 && (
+													<span className="recipe-pick-count-pill">{formValues.ingredients.length}</span>
+												)}
+											</button>
+											<a
+												href="/admin/inventory"
+												target="_blank"
+												rel="noopener noreferrer"
+												className="menu-builder-auto-size-btn"
+												style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 10px" }}
+												title="Open Inventory in a new tab to add new stock items"
+											>
+												<ExternalLink size={12} strokeWidth={2.2} /> + New in Inventory
+											</a>
+										</div>
+									</div>
+
+									<p className="menu-recipe-help">
+										Click &ldquo;Pick from Inventory&rdquo; to browse and multi-select ingredients, then specify the exact quantity needed for each portion.
+									</p>
+
 									{recipeError && <p className="menu-recipe-error" role="alert">{recipeError}</p>}
-									{formValues.ingredients.length > 0 && formValues.sizes.length > 0 && (
-										<div className="menu-size-recipe-summary-card">
-											<div className="menu-size-recipe-summary-header">
-												<div>
-													<h4>Recipe Breakdown by Size</h4>
-													<p>Live portion preview per {getCategoryFamily(formValues.category) === "drink" ? "cup" : "size"} based on your configured amounts.</p>
+
+									{/* Step 2: Clean Portion Configuration Table */}
+									{formValues.ingredients.length === 0 ? (
+										<div className="recipe-empty-state-box">
+											<Beaker size={26} strokeWidth={1.5} className="recipe-empty-icon" />
+											<strong>No recipe ingredients selected yet</strong>
+											<p>Choose the ingredients used to prepare this item to track food stock and calculate COGS &amp; margins.</p>
+											<button
+												type="button"
+												className="recipe-pick-inventory-cta"
+												onClick={openInventoryPicker}
+											>
+												<Plus size={14} strokeWidth={2.4} /> Browse &amp; Select Ingredients
+											</button>
+										</div>
+									) : (
+										<div className="recipe-config-container">
+											<div className="recipe-config-table">
+												<div className="recipe-config-thead">
+													<div className="th-ingredient">Ingredient</div>
+													<div className="th-unit">Unit</div>
+													{formValues.sizes.length > 1 ? (
+														formValues.sizes.map((s) => (
+															<div key={s.label} className="th-qty size-col">
+																{s.label}
+															</div>
+														))
+													) : (
+														<div className="th-qty single-col">Amount / Serving</div>
+													)}
+													<div className="th-action"></div>
 												</div>
-												<span className="summary-size-count">
-													{formValues.sizes.length} {formValues.sizes.length === 1 ? "Size" : "Sizes"}
-												</span>
-											</div>
-											<ul className="menu-size-recipe-summary" aria-label="Ingredients per size">
-												{formValues.sizes.map((size) => {
-													const used = formValues.ingredients.filter((ing) => sizeQty(ing, size.label) > 0);
-													return (
-														<li key={size.label} className={`menu-size-recipe-item ${used.length ? "" : "is-empty"}`}>
-															<div className="size-summary-row">
-																<span className="size-summary-badge">{size.label || "Unnamed size"}</span>
-																<div className="size-ingredients-wrap">
-																	{used.length ? (
-																		used.map((ing, i) => (
-																			<span className="size-ingredient-chip" key={`${ing.name}-${i}`}>
-																				<span className="chip-name">{ing.name}</span>
-																				<strong className="chip-qty">{sizeQty(ing, size.label)} {ing.unit || ""}</strong>
-																			</span>
-																		))
-																	) : (
-																		<span className="size-empty-warning" role="alert">
-																			No ingredients configured. Enter an amount above 0 for this size.
-																		</span>
+
+												<div className="recipe-config-tbody">
+													{formValues.ingredients.map((ingredient, index) => {
+														const inventoryItem = findInventoryItem(ingredient.name);
+														const ingredientName = safeItemName(inventoryItem) || ingredient.name || "Item";
+														const stockAvailable = inventoryItem ? `${inventoryItem.quantity} ${inventoryItem.unit}` : "N/A";
+														const isZero = formValues.sizes.length
+															? formValues.sizes.every((size) => sizeQty(ingredient, size.label) === 0)
+															: sizeQty(ingredient) === 0;
+
+														return (
+															<div className={`recipe-config-row ${isZero ? "row-warn" : ""}`} key={`${ingredientName}-${index}`}>
+																<div className="td-ingredient">
+																	<strong>{ingredientName}</strong>
+																	<span className="stock-info">Stock: {stockAvailable}</span>
+																	{isZero && (
+																		<span className="zero-warn-text">Portion is 0 (will not deduct)</span>
 																	)}
 																</div>
+
+																<div className="td-unit">
+																	<UnitSelect
+																		value={ingredient.unit || "pcs"}
+																		compatibleWith={inventoryItem?.unit || ingredient.stockUnit || "pcs"}
+																		onChange={(unit) => updateRecipeUnit(index, unit)}
+																		ariaLabel={`${ingredientName} recipe unit`}
+																	/>
+																</div>
+
+																{formValues.sizes.length > 1 ? (
+																	formValues.sizes.map((size) => (
+																		<div key={size.label} className="td-qty size-col">
+																			<input
+																				type="number"
+																				min="0"
+																				step="0.000001"
+																				value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""}
+																				onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)}
+																				placeholder="0"
+																				aria-label={`${ingredientName} amount for ${size.label}`}
+																			/>
+																		</div>
+																	))
+																) : (
+																	<div className="td-qty single-col">
+																		<input
+																			type="number"
+																			min="0"
+																			step="0.000001"
+																			value={ingredient.quantityUsed ?? ""}
+																			onChange={(event) => updateIngredientQuantityUsed(index, event.target.value)}
+																			placeholder="e.g. 1"
+																			aria-label={`${ingredientName} amount per serving`}
+																		/>
+																	</div>
+																)}
+
+																<div className="td-action">
+																	<button
+																		type="button"
+																		className="recipe-item-remove-btn"
+																		onClick={() => removeIngredient(index)}
+																		title={`Remove ${ingredientName}`}
+																		aria-label={`Remove ${ingredientName}`}
+																	>
+																		<X size={14} strokeWidth={2.4} />
+																	</button>
+																</div>
 															</div>
-														</li>
-													);
-												})}
-											</ul>
-										</div>
-									)}
-									{formValues.ingredients.length > 0 && (
-										<div className="menu-recipe-list">
-										{formValues.ingredients.map((ingredient, index) => {
-								const inventoryItem = findInventoryItem(ingredient.name);
-								const ingredientName = safeItemName(inventoryItem) || ingredient.name || "Missing inventory item";
-								return (
-									<div className="menu-recipe-row" key={`${ingredientName}-${index}`}>
-														<div className="menu-recipe-name"><strong>{ingredientName}</strong><small>{inventoryItem ? `On hand: ${inventoryItem.quantity} ${inventoryItem.unit}` : `New stock unit: ${ingredient.stockUnit || "pcs"}`}</small>{(formValues.sizes.length ? formValues.sizes.every((size) => sizeQty(ingredient, size.label) === 0) : sizeQty(ingredient) === 0) && <small className="menu-recipe-error" role="alert">Amount is 0 for every size, so this ingredient will be removed when you save.</small>}</div>
-										<label className="menu-recipe-unit">Recipe unit<UnitSelect value={ingredient.unit || "pcs"} compatibleWith={inventoryItem?.unit || ingredient.stockUnit || "pcs"} onChange={(unit) => updateRecipeUnit(index, unit)} ariaLabel={`${ingredientName} recipe unit`} /></label>
-														<div className="menu-recipe-size-grid">
-															{formValues.sizes.map((size) => (
-																		<label key={size.label}>{size.label}<input type="number" min="0" step="0.000001" value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""} onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)} aria-label={`${ingredientName} amount for ${size.label} (0 or blank if not used)`} /></label>
-															))}
-														</div>
-														<button type="button" onClick={() => removeIngredient(index)} aria-label={`Remove ${ingredientName} from recipe`}>×</button>
-													</div>
-												);
-											})}
+														);
+													})}
+												</div>
+											</div>
 										</div>
 									)}
 								</section>
@@ -2158,6 +2384,149 @@ function AdminMenuManagement() {
 						</footer>
 					</form>
 				</div>
+
+				{/* Multi-Select Inventory Picker Modal */}
+				{showInventoryPicker && (
+					<div
+						className="recipe-picker-backdrop"
+						role="presentation"
+						onClick={() => setShowInventoryPicker(false)}
+					>
+						<div
+							className="recipe-picker-modal"
+							role="dialog"
+							aria-modal="true"
+							aria-labelledby="recipe-picker-title"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<div className="recipe-picker-header">
+								<div>
+									<h3 id="recipe-picker-title">Select Recipe Ingredients</h3>
+									<p>Pick items from your inventory to include in this recipe. Quantities can be set in the next step.</p>
+								</div>
+								<button
+									type="button"
+									className="recipe-picker-close-btn"
+									onClick={() => setShowInventoryPicker(false)}
+									aria-label="Close inventory picker"
+								>
+									<X size={18} strokeWidth={2.2} />
+								</button>
+							</div>
+
+							<div className="recipe-picker-filters">
+								<div className="recipe-picker-search-wrap">
+									<Search size={15} strokeWidth={2.2} className="picker-search-icon" />
+									<input
+										type="text"
+										value={pickerSearch}
+										onChange={(e) => setPickerSearch(e.target.value)}
+										placeholder="Search ingredients by name..."
+										aria-label="Search ingredients"
+										autoFocus
+									/>
+									{pickerSearch && (
+										<button
+											type="button"
+											className="picker-search-clear"
+											onClick={() => setPickerSearch("")}
+											aria-label="Clear search"
+										>
+											<X size={13} strokeWidth={2} />
+										</button>
+									)}
+								</div>
+
+								<div className="recipe-picker-categories">
+									{["all", ...Array.from(new Set((inventory || []).map((i) => i.category).filter(Boolean)))].map((cat) => (
+										<button
+											key={cat}
+											type="button"
+											className={`picker-cat-pill ${pickerCategory === cat ? "active" : ""}`}
+											onClick={() => setPickerCategory(cat)}
+										>
+											{cat === "all" ? "All Categories" : cat}
+										</button>
+									))}
+								</div>
+							</div>
+
+							<div className="recipe-picker-grid">
+								{(inventory || [])
+									.filter((item) => {
+										const name = safeItemName(item);
+										const matchesSearch = !pickerSearch || safeLower(name).includes(safeLower(pickerSearch));
+										const matchesCat = pickerCategory === "all" || item.category === pickerCategory;
+										return matchesSearch && matchesCat;
+									})
+									.map((item) => {
+										const isSelected = selectedInventoryItemIds.has(item.id);
+										const itemName = safeItemName(item);
+										return (
+											<div
+												key={item.id}
+												className={`recipe-picker-item-card ${isSelected ? "selected" : ""}`}
+												onClick={() => togglePickerItem(item.id)}
+												role="checkbox"
+												aria-checked={isSelected}
+												tabIndex={0}
+												onKeyDown={(e) => {
+													if (e.key === " " || e.key === "Enter") {
+														e.preventDefault();
+														togglePickerItem(item.id);
+													}
+												}}
+											>
+												<div className="picker-card-check">
+													{isSelected ? <Check size={13} strokeWidth={3} /> : null}
+												</div>
+												{item.image ? (
+													<img
+														src={item.image}
+														alt={itemName}
+														className="picker-card-thumb"
+													/>
+												) : null}
+												<div className="picker-card-info">
+													<strong className="picker-card-name">{itemName}</strong>
+													<div className="picker-card-meta">
+														<span className="picker-card-stock">
+															Stock: <strong>{item.quantity} {item.unit}</strong>
+														</span>
+														{item.category && (
+															<span className="picker-card-badge">{item.category}</span>
+														)}
+													</div>
+												</div>
+											</div>
+										);
+									})}
+							</div>
+
+							<div className="recipe-picker-footer">
+								<span className="picker-selected-summary">
+									<strong>{selectedInventoryItemIds.size}</strong> ingredient{selectedInventoryItemIds.size === 1 ? "" : "s"} selected
+								</span>
+								<div className="picker-footer-actions">
+									<button
+										type="button"
+										className="picker-cancel-btn"
+										onClick={() => setShowInventoryPicker(false)}
+									>
+										Cancel
+									</button>
+									<button
+										type="button"
+										className="picker-apply-btn"
+										onClick={applyInventoryPicker}
+									>
+										Apply Selected ({selectedInventoryItemIds.size})
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
 				</ErrorBoundary>
 			)}
 

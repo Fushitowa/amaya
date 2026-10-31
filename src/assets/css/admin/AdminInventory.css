@@ -2200,3 +2200,143 @@
   }
 }
 
+/* ==========================================================================
+   Inventory Item Image Attachment & Card Thumbnail
+   ========================================================================== */
+.inventory-image-field-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inventory-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 16px;
+  border: 1.5px dashed var(--inventory-line);
+  border-radius: 10px;
+  background: #fdfcfb;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: center;
+}
+
+.inventory-dropzone:hover {
+  border-color: var(--inventory-accent);
+  background: #fcf8f4;
+}
+
+.inventory-dropzone-icon {
+  color: var(--inventory-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.inventory-dropzone-text {
+  font-size: 13px;
+  color: var(--inventory-ink);
+  font-weight: 500;
+}
+
+.inventory-dropzone-text strong {
+  color: var(--inventory-accent);
+  font-weight: 700;
+}
+
+.inventory-dropzone small {
+  font-size: 11px;
+  color: var(--inventory-muted);
+}
+
+.inventory-form-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: #fdfaf6;
+  border: 1px solid var(--inventory-line);
+  border-radius: 10px;
+}
+
+.inventory-form-image-img {
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--inventory-line);
+  flex-shrink: 0;
+}
+
+.inventory-form-image-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inventory-img-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+  user-select: none;
+}
+
+.inventory-img-btn.change {
+  background: #ffffff;
+  border: 1px solid var(--inventory-line);
+  color: var(--inventory-ink);
+}
+
+.inventory-img-btn.change:hover {
+  background: #f7efe7;
+  border-color: var(--inventory-accent);
+}
+
+.inventory-img-btn.remove {
+  background: #ffffff;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+}
+
+.inventory-img-btn.remove:hover {
+  background: #fee2e2;
+}
+
+.admin-inventory-card-thumbnail {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--inventory-line);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.admin-inventory-table-item-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-inventory-table-thumbnail {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--inventory-line);
+}
+
+

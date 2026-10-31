@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordArchiveAudit } from "./archive.js";
+import { retargetRecipeUnits } from "../utils/recipeUnitSync.js";
 
 const router = Router();
 const mapItem = (row) => {
@@ -13,6 +14,7 @@ const mapItem = (row) => {
   return {
     id: Number(row.id),
     item: row.name,
+    image: row.image_url || "",
     category: row.category,
     quantity,
     unit: row.unit,
@@ -349,10 +351,11 @@ router.get("/:id/movements", requireAuth, requireRole("admin", "staff"), async (
 });
 
 router.post("/", requireAuth, requireRole("admin"), async (request, response) => {
-  const { item, category, unit } = request.body || {};
+  const { item, category, unit, image } = request.body || {};
   const name = String(item || "").trim();
   const cleanCategory = String(category || "Supplies").trim();
   const cleanUnit = String(unit || "pcs").trim();
+  const imageUrl = image != null ? String(image) : null;
   const quantity = Number(request.body.quantity || 0);
   const maximumStock = request.body.maximumStock == null || request.body.maximumStock === "" ? null : Number(request.body.maximumStock);
   const packedUnitError = unitWithAmountError(cleanUnit);
@@ -369,10 +372,10 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await connection.beginTransaction();
     const [created] = await connection.execute(
       `INSERT INTO inventory_items (
-         name, category, quantity, unit, maximum_stock,
+         name, image_url, category, quantity, unit, maximum_stock,
          purchase_price, package_quantity, package_unit, contents_per_package, unit_cost
-       ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, cleanCategory, cleanUnit, effectiveMaximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost],
+       ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, imageUrl, cleanCategory, cleanUnit, effectiveMaximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost],
     );
     await syncCupRow(connection, created.insertId, cleanCategory, name);
     if (quantity > 0) {
@@ -391,10 +394,11 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
 
 router.put("/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const id = Number(request.params.id);
-  const { item, category, unit } = request.body || {};
+  const { item, category, unit, image } = request.body || {};
   const name = String(item || "").trim();
   const cleanCategory = String(category || "").trim();
   const cleanUnit = String(unit || "").trim();
+  const imageUrl = image !== undefined ? (image ? String(image) : null) : undefined;
   const quantity = Number(request.body.quantity);
   const maximumStock = request.body.maximumStock == null || request.body.maximumStock === "" ? null : Number(request.body.maximumStock);
   const packedUnitError = unitWithAmountError(cleanUnit);
@@ -407,33 +411,20 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     await connection.beginTransaction();
     const [[current]] = await connection.execute("SELECT * FROM inventory_items WHERE id = ? AND is_archived = FALSE FOR UPDATE", [id]);
     if (!current) throw httpError(404, "Inventory item not found.");
+    // A unit change no longer blocks: menu recipes/add-ons follow the inventory unit (same transaction).
     if (String(current.unit).trim().toLowerCase() !== cleanUnit.toLowerCase()) {
-      const [linkedRows] = await connection.execute(
-        `SELECT DISTINCT mp.name FROM menu_products mp
-           JOIN product_ingredients pi ON pi.product_id = mp.id WHERE pi.inventory_item_id = ? AND mp.is_archived = FALSE
-         UNION
-         SELECT DISTINCT mp.name FROM menu_products mp
-           JOIN product_sizes ps ON ps.product_id = mp.id
-           JOIN product_size_ingredients psi ON psi.product_size_id = ps.id WHERE psi.inventory_item_id = ? AND mp.is_archived = FALSE
-         UNION
-         SELECT DISTINCT mp.name FROM menu_products mp
-           JOIN product_addons pa ON pa.product_id = mp.id WHERE pa.inventory_item_id = ? AND mp.is_archived = FALSE`,
-        [id, id, id],
-      );
-      if (linkedRows.length > 0) {
-        const productNames = linkedRows.map((row) => row.name).join(", ");
-        throw httpError(409, `This unit is used in recipes/add-ons for: ${productNames}. Remove it from those menu items before changing the inventory unit.`);
-      }
+      await retargetRecipeUnits(connection, id, current.unit, cleanUnit);
     }
 
     const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body, current);
+    const effectiveImage = imageUrl !== undefined ? imageUrl : current.image_url;
 
     await connection.execute(
       `UPDATE inventory_items SET
-         name = ?, category = ?, quantity = ?, unit = ?, maximum_stock = ?,
+         name = ?, image_url = ?, category = ?, quantity = ?, unit = ?, maximum_stock = ?,
          purchase_price = ?, package_quantity = ?, package_unit = ?, contents_per_package = ?, unit_cost = ?
        WHERE id = ?`,
-      [name, cleanCategory, quantity, cleanUnit, maximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost, id],
+      [name, effectiveImage, cleanCategory, quantity, cleanUnit, maximumStock, purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost, id],
     );
     await syncCupRow(connection, id, cleanCategory, name);
     const delta = quantity - Number(current.quantity);

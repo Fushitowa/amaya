@@ -10,9 +10,10 @@ import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const rangeOptions = [
-  { key: "1d", label: "Day 1", mode: "hourly" },
+  { key: "1d", label: "Today (Session)", mode: "hourly" },
   { key: "7d", label: "7 days", mode: "daily", days: 7, bucketDays: 1, axisStep: 1 },
   { key: "30d", label: "30 days", mode: "daily", days: 30, bucketDays: 1, axisStep: 5 },
+  { key: "all", label: "All Sessions", mode: "all" },
   { key: "custom", label: "Custom", mode: "custom" },
 ];
 
@@ -118,6 +119,22 @@ function AdminReport() {
       return { start, end, previousStart, isHourly: true, days: 1 };
     }
 
+    if (rangeKey === "all") {
+      const end = startOfDay(new Date());
+      end.setDate(end.getDate() + 1);
+      let minTimestamp = end.getTime() - 365 * 24 * 3600000;
+      if (orders.length > 0) {
+        const orderTimes = orders.map((o) => orderTimestamp(o)).filter((t) => t > 0);
+        if (orderTimes.length > 0) {
+          minTimestamp = Math.min(...orderTimes);
+        }
+      }
+      const start = startOfDay(new Date(minTimestamp));
+      const duration = Math.max(24 * 3600000, end.getTime() - start.getTime());
+      const previousStart = new Date(start.getTime() - duration);
+      return { start, end, previousStart, isAll: true };
+    }
+
     const end = startOfDay(new Date());
     end.setDate(end.getDate() + 1);
     const start = new Date(end);
@@ -209,9 +226,9 @@ function AdminReport() {
       return buckets;
     }
 
-    const bucketDays = range.bucketDays || 1;
     const totalDays = Math.max(1, Math.ceil((rangeBounds.end.getTime() - rangeBounds.start.getTime()) / (24 * 3600000)));
-    const bucketCount = Math.ceil(totalDays / bucketDays);
+    const bucketDays = rangeKey === "all" ? (totalDays > 60 ? 7 : totalDays > 14 ? 2 : 1) : (range.bucketDays || 1);
+    const bucketCount = Math.max(1, Math.ceil(totalDays / bucketDays));
 
     const buckets = Array.from({ length: bucketCount }, (_, index) => {
       const start = new Date(rangeBounds.start);
@@ -343,6 +360,18 @@ function AdminReport() {
       .slice(0, 6);
   }, [paidPeriodOrders]);
 
+  const cashierSales = useMemo(() => {
+    const totals = new Map();
+    paidPeriodOrders.forEach((order) => {
+      const name = order.cashier || "Staff";
+      const current = totals.get(name) || { name, orders: 0, revenue: 0 };
+      current.orders += 1;
+      current.revenue += orderTotal(order);
+      totals.set(name, current);
+    });
+    return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
+  }, [paidPeriodOrders]);
+
   const channelMix = useMemo(() => {
     const totals = new Map();
 
@@ -466,11 +495,12 @@ function AdminReport() {
   const handleExport = () => {
     if (!periodOrders.length) return;
 
-    const header = ["Order ID", "Date", "Customer", "Type", "Payment", "Status", "Items", "Total"];
+    const header = ["Order ID", "Date", "Customer", "Cashier in Charge", "Type", "Payment", "Status", "Items", "Total"];
     const rows = periodOrders.map((order) => [
       order.id,
       new Date(order.createdAt).toLocaleString(),
       order.customer,
+      order.cashier || "Staff",
       order.type,
       order.payment,
       order.status,
@@ -527,7 +557,7 @@ function AdminReport() {
             <section className="admin-report-panel trend-panel" aria-label="Revenue trend">
               <div className="panel-heading trend-heading">
                 <div>
-                  <h3>{rangeKey === "1d" ? "Day 1 (Hourly) performance" : rangeKey === "custom" ? "Custom range performance" : `Last ${range.label} performance`}</h3>
+                  <h3>{rangeKey === "1d" ? "Today's Session (Hourly) performance" : rangeKey === "all" ? "All Sessions & Historical Sales performance" : rangeKey === "custom" ? "Custom range performance" : `Last ${range.label} performance`}</h3>
                   <span className="trend-hero-total">{peso(periodSales)}</span>
                 </div>
                 <div className="trend-heading-actions">
@@ -656,7 +686,7 @@ function AdminReport() {
             <div className="panel-heading">
               <div>
                 <span className="admin-report-eyebrow">SALES SUMMARY</span>
-                <h3>{rangeKey === "1d" ? "Day 1 (Today)" : rangeKey === "custom" ? "Custom Range" : `Last ${range.label}`}</h3>
+                <h3>{rangeKey === "1d" ? "Today's Active Session" : rangeKey === "all" ? "All Sessions (All-Time)" : rangeKey === "custom" ? "Custom Range" : `Last ${range.label}`}</h3>
               </div>
               <span className="report-panel-icon">₱</span>
             </div>
@@ -822,6 +852,63 @@ function AdminReport() {
                 <span>◔</span>
                 <strong>No product sales in this period</strong>
                 <p>Once orders are placed, your best sellers will be ranked here.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="admin-report-panel" aria-label="Cashier attribution report">
+            <div className="panel-heading">
+              <div>
+                <span className="admin-report-eyebrow">STAFF ATTRIBUTION</span>
+                <h3>Cashiers in charge</h3>
+              </div>
+              <span className="inventory-count">{cashierSales.length} {cashierSales.length === 1 ? "cashier" : "cashiers"} active</span>
+            </div>
+
+            {cashierSales.length ? (
+              <div className="inventory-table-wrap">
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Cashier in Charge</th>
+                      <th scope="col">Orders Processed</th>
+                      <th scope="col">Total Sales Revenue</th>
+                      <th scope="col">Average Ticket</th>
+                      <th scope="col">Sales Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashierSales.map((cashier) => (
+                      <tr key={cashier.name}>
+                        <td>
+                          <strong style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                            👤 {cashier.name}
+                          </strong>
+                        </td>
+                        <td>{cashier.orders}</td>
+                        <td><strong>{peso(cashier.revenue)}</strong></td>
+                        <td>{peso(cashier.orders ? cashier.revenue / cashier.orders : 0)}</td>
+                        <td>
+                          <span className="report-share">
+                            <span className="report-share-track">
+                              <span
+                                className="report-share-bar"
+                                style={{ width: `${Math.max(4, revenueShare(cashier.revenue))}%` }}
+                              ></span>
+                            </span>
+                            {Math.round(revenueShare(cashier.revenue))}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="admin-report-empty">
+                <span>👤</span>
+                <strong>No cashier sales in this period</strong>
+                <p>Transactions processed at the counter will appear here attributed to the cashier in charge.</p>
               </div>
             )}
           </section>
