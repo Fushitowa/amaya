@@ -27,6 +27,9 @@ const migrations = [
   "019_inventory_categories_and_operational_families.sql",
   "020_dynamic_inventory_categories_and_reset_readiness.sql",
   "021_cashier_management_and_order_attribution.sql",
+  "022_repair_operational_family.sql",
+  "023_repair_login_display_name.sql",
+  "024_repair_inventory_categories.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -57,3 +60,6 @@ try {
 } finally {
   await connection.end();
 }
+
+
+

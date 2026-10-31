@@ -303,7 +303,7 @@ export async function saveProduct(connection, body, id = null) {
           `SELECT ii.id, ii.name, ii.unit, ii.category,
                   COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
              FROM inventory_items ii
-             LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+             LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
             WHERE ii.id = ? AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
           [entry.inventoryItemId],
         );
@@ -314,7 +314,7 @@ export async function saveProduct(connection, body, id = null) {
           `SELECT ii.id, ii.name, ii.unit, ii.category,
                   COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
              FROM inventory_items ii
-             LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+             LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
             WHERE LOWER(ii.name) = LOWER(?) AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
           [entry.name],
         );

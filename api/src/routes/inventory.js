@@ -51,7 +51,7 @@ const resolveCosting = (body = {}, current = {}) => {
   const parsedContents = rawContents === "" || rawContents == null ? 0 : Number(rawContents);
 
   if (purchasePrice > 0 && (!Number.isFinite(parsedPkgQty) || parsedPkgQty <= 0 || !Number.isFinite(parsedContents) || parsedContents <= 0)) {
-    throw httpError(400, "Enter how much is inside one package so unit cost can be calculated.");
+    throw httpError(400, "Enter a package quantity and the measurable contents per package to calculate unit cost.");
   }
 
   const packageQuantity = Number.isFinite(parsedPkgQty) && parsedPkgQty > 0 ? parsedPkgQty : 1;
@@ -104,7 +104,7 @@ router.get("/categories", requireAuth, requireRole("admin", "staff"), async (req
             c.is_active AS isActive,
             COUNT(i.id) AS itemCount
        FROM inventory_categories c
-       LEFT JOIN inventory_items i ON i.category = c.name AND i.is_archived = FALSE
+       LEFT JOIN inventory_items i ON i.category COLLATE utf8mb4_unicode_ci = c.name COLLATE utf8mb4_unicode_ci AND i.is_archived = FALSE
       WHERE (? = 1 OR c.is_active = TRUE)
       GROUP BY c.id
       ORDER BY c.display_order ASC, c.name ASC`,
@@ -321,7 +321,7 @@ router.get("/", requireAuth, requireRole("admin", "staff"), async (_request, res
   const [rows] = await pool.execute(`
     SELECT ii.*, COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
       FROM inventory_items ii
-      LEFT JOIN inventory_categories ic ON LOWER(ii.category) = LOWER(ic.name)
+      LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
      WHERE ii.is_archived = FALSE
      ORDER BY ii.category, ii.name
   `);

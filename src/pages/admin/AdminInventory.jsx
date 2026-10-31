@@ -401,19 +401,50 @@ function AdminInventory() {
     const unit = formValues.unit.trim();
     const packageUnit = formValues.packageUnit.trim() || "pack";
     const purchasePrice = formValues.purchasePrice.trim() === "" ? 0 : Number(formValues.purchasePrice);
-    const packageQuantity = formValues.packageQuantity.trim() === "" ? 0 : Number(formValues.packageQuantity);
+    const packageQuantity = formValues.packageQuantity.trim() === ""
+      ? (purchasePrice > 0 ? 0 : 1)
+      : Number(formValues.packageQuantity);
     const enteredContentsPerPackage = formValues.contentsPerPackage.trim() === "" ? 0 : Number(formValues.contentsPerPackage);
     const contentsPerPackage = enteredContentsPerPackage || 1;
-    const quantity = Number(formValues.quantity);
-    const maximumStock = formValues.maximumStock === "" ? null : Number(formValues.maximumStock);
+    const quantity = formValues.quantity.trim() === "" ? Number.NaN : Number(formValues.quantity);
+    const maximumStock = formValues.maximumStock.trim() === "" ? null : Number(formValues.maximumStock);
 
-    if (!itemName || !category || !unit || !Number.isFinite(quantity) || quantity < 0
-      || !Number.isFinite(purchasePrice) || purchasePrice < 0
-      || !Number.isFinite(packageQuantity) || packageQuantity <= 0
-      || !Number.isFinite(enteredContentsPerPackage) || enteredContentsPerPackage < 0
-      || (purchasePrice > 0 && enteredContentsPerPackage <= 0)
-      || (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0))) {
-      setActionError("Enter valid stock and costing values. If you enter a purchase price, also enter the amount inside each package.");
+    if (!itemName) {
+      setActionError("Enter an inventory item name.");
+      return;
+    }
+    if (!category) {
+      setActionError("Choose an inventory category.");
+      return;
+    }
+    if (!unit) {
+      setActionError("Choose a stock measurement unit.");
+      return;
+    }
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      setActionError("Enter a valid current stock quantity (zero or greater).");
+      return;
+    }
+    if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+      setActionError("Enter a valid purchase price (zero or greater), or leave it blank.");
+      return;
+    }
+    if (!Number.isFinite(packageQuantity) || packageQuantity <= 0) {
+      setActionError(purchasePrice > 0
+        ? "Enter how many packages you purchased; this is required to calculate unit cost."
+        : "Package quantity must be greater than zero, or leave it blank to use 1.");
+      return;
+    }
+    if (!Number.isFinite(enteredContentsPerPackage) || enteredContentsPerPackage < 0) {
+      setActionError("Enter a valid contents-per-package amount, or leave it blank.");
+      return;
+    }
+    if (purchasePrice > 0 && enteredContentsPerPackage <= 0) {
+      setActionError("Enter the measurable amount inside each package to calculate unit cost.");
+      return;
+    }
+    if (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0)) {
+      setActionError("Maximum stock must be greater than zero, or leave it blank.");
       return;
     }
 
@@ -1053,6 +1084,9 @@ function AdminInventory() {
                   }}
                   placeholder="e.g. 1, 5, 10"
                 />
+                <small className="inventory-field-helper">
+                  Leave blank to use 1 package. Enter a quantity when recording a purchase price.
+                </small>
               </label>
 
               <label>
