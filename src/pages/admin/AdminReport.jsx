@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
@@ -543,7 +542,6 @@ function AdminReport() {
             <h1>Sales &amp; Inventory Reports</h1>
           </div>
           <div className="admin-report-topbar-actions">
-            <PortalNotificationButton />
             <div className="admin-report-date">
               <span>REPORT DATE</span>
               <strong>{liveDate}</strong>

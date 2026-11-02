@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -187,7 +186,6 @@ export default function AdminArchive() {
             <h1>Archive & Trash Management</h1>
           </div>
           <div className="admin-archive-topbar-actions">
-            <PortalNotificationButton />
           </div>
         </header>
 

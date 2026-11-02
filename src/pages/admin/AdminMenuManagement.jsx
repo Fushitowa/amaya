@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import ErrorBoundary from "../../components/ErrorBoundary.jsx";
 import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useSidebar } from "../../context/useSidebar.jsx";
@@ -1294,7 +1293,6 @@ function AdminMenuManagement() {
 						<h1>Menu Management</h1>
 					</div>
 					<div className="admin-menu-topbar-actions" style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-						<PortalNotificationButton />
 						<Link
 							to="/admin/archive"
 							className="admin-menu-archive-button"

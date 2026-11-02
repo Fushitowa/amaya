@@ -298,6 +298,38 @@
   color: #8d4d4d;
 }
 
+.portal-notification-wrap--sidebar {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.portal-notification-trigger.amaya-sidebar-link {
+  font-family: inherit;
+  text-align: left;
+}
+
+.portal-notification-trigger.amaya-sidebar-link .portal-notification-badge {
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+
+.dark-mode .portal-notification-trigger.amaya-sidebar-link {
+  color: #f8e8d8;
+}
+
+.dark-mode .portal-notification-trigger.amaya-sidebar-link svg {
+  color: #eacb9e;
+}
+
+.portal-notification-panel--sidebar {
+  position: fixed;
+  z-index: 2000;
+  right: auto;
+  max-height: calc(100vh - 24px);
+}
+
 .amaya-sidebar-profile {
   display: flex;
   align-items: center;

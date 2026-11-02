@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -198,8 +197,6 @@ function AdminDashboard() {
           </div>
 
           <div className="admin-topbar-right">
-            <PortalNotificationButton />
-
           </div>
         </header>
 

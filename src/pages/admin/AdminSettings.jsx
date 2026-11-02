@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
@@ -219,7 +218,6 @@ function AdminSettings() {
 				<header className="admin-settings-topbar">
 					<div><span className="admin-settings-section-label">ADMIN PORTAL</span><h1>Settings</h1></div>
 					<div className="admin-settings-topbar-actions">
-						<PortalNotificationButton />
 					</div>
 				</header>
 

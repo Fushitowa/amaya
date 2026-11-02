@@ -16,6 +16,7 @@ import AdminCategories from "../pages/admin/AdminCategories.jsx";
 import AdminReport from "../pages/admin/AdminReport.jsx";
 import AdminSettings from "../pages/admin/AdminSettings.jsx";
 import AdminArchive from "../pages/admin/AdminArchive.jsx";
+import AdminNotifications from "../pages/admin/AdminNotifications.jsx";
 import { SidebarProvider } from "../context/SidebarContext.jsx";
 
 export default function PortalApp() {
@@ -43,6 +44,7 @@ export default function PortalApp() {
             <Route path="/admin/categories" element={<AdminCategories />} />
             <Route path="/admin/reports" element={<AdminReport />} />
             <Route path="/admin/archive" element={<AdminArchive />} />
+            <Route path="/admin/notifications" element={<AdminNotifications />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />

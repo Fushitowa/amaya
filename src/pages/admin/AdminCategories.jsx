@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -318,7 +317,6 @@ export default function AdminCategories() {
             <p>Configure operational logic, menu workflows, and warehouse classification.</p>
           </div>
           <div className="admin-categories-topbar-actions">
-            <PortalNotificationButton />
           </div>
         </header>
 

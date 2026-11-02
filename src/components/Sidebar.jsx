@@ -18,6 +18,7 @@ import {
 import amayaLogo from "../assets/images/amayalogo.png";
 import adminAvatar from "../assets/images/icon/admin1.svg";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
+import AdminNotificationNavItem from "./AdminNotificationNavItem.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const NAV_BY_ROLE = {
@@ -36,6 +37,7 @@ const NAV_BY_ROLE = {
         { key: "categories", to: "/admin/categories", label: "Categories", Icon: Tags },
         { key: "reports", to: "/admin/reports", label: "Reports", Icon: BarChart2 },
         { key: "archive", to: "/admin/archive", label: "Archive / Trash", Icon: Archive },
+        { key: "notifications", label: "Notifications", notification: true },
         { key: "settings", to: "/admin/settings", label: "Settings", Icon: Settings },
       ],
     },
@@ -116,6 +118,9 @@ function Sidebar({
           <div className="amaya-sidebar-section" key={section.label}>
             <span className="amaya-sidebar-section-label">{section.label}</span>
             {section.items.map((item) => {
+              if (item.notification) {
+                return <AdminNotificationNavItem key={item.key} active={item.key === activeTab} />;
+              }
               const isActive = item.key === activeTab;
               const count = item.countKey ? orderCount : null;
               const hasCount = Number.isFinite(count) && count > 0;
