@@ -14,7 +14,6 @@ import {
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -189,15 +188,6 @@ export default function AdminArchive() {
           </div>
           <div className="admin-archive-topbar-actions">
             <PortalNotificationButton />
-            <div className="admin-archive-user">
-              <div className="amaya-admin-avatar">
-                <img src={adminAvatar} alt="" aria-hidden="true" />
-              </div>
-              <div>
-                <strong>Administrator</strong>
-                <span>Admin</span>
-              </div>
-            </div>
           </div>
         </header>
 

@@ -20,7 +20,6 @@ import {
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -320,15 +319,6 @@ export default function AdminCategories() {
           </div>
           <div className="admin-categories-topbar-actions">
             <PortalNotificationButton />
-            <div className="admin-categories-user">
-              <div className="amaya-admin-avatar">
-                <img src={adminAvatar} alt="" aria-hidden="true" />
-              </div>
-              <div className="admin-categories-user-meta">
-                <strong>Store Admin</strong>
-                <span>Administrator</span>
-              </div>
-            </div>
           </div>
         </header>
 

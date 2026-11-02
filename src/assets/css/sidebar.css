@@ -298,6 +298,82 @@
   color: #8d4d4d;
 }
 
+.amaya-sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  margin-top: 12px;
+  padding: 12px 5px 0;
+  border-top: 1px solid #ece2d8;
+}
+
+.amaya-sidebar-profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  overflow: hidden;
+  border: 1px solid rgba(231, 229, 228, 0.85);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.08);
+}
+
+.amaya-sidebar-profile-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 7px;
+  object-fit: contain;
+}
+
+.amaya-sidebar-profile-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.amaya-sidebar-profile-copy strong {
+  overflow: hidden;
+  color: #3b3029;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amaya-sidebar-profile-copy span {
+  color: #9a8b80;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.dark-mode .amaya-sidebar-profile {
+  border-top-color: #463b31;
+}
+
+.dark-mode .amaya-sidebar-profile-copy strong {
+  color: #f5eee6;
+}
+
+.dark-mode .amaya-sidebar-profile-copy span {
+  color: #b8a896;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-profile {
+  justify-content: center;
+  min-height: 48px;
+  margin-top: 6px;
+  padding: 10px 0 0;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-profile-copy {
+  display: none;
+}
+
 /* ==========================================================================
    Shared <Sidebar /> layout contract
 

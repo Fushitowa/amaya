@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import amayaLogo from "../assets/images/amayalogo.png";
+import adminAvatar from "../assets/images/icon/admin1.svg";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -156,6 +157,17 @@ function Sidebar({
           <LogOut aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Log Out</span>
         </Link>
+        {role === "admin" && (
+          <div className="amaya-sidebar-profile" title="Administrator account">
+            <div className="amaya-sidebar-profile-avatar">
+              <img src={adminAvatar} alt="" aria-hidden="true" />
+            </div>
+            <div className="amaya-sidebar-profile-copy">
+              <strong>Administrator</strong>
+              <span>Admin</span>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );

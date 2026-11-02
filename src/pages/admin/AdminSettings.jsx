@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
@@ -221,7 +220,6 @@ function AdminSettings() {
 					<div><span className="admin-settings-section-label">ADMIN PORTAL</span><h1>Settings</h1></div>
 					<div className="admin-settings-topbar-actions">
 						<PortalNotificationButton />
-						<div className="admin-settings-user"><div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div><div><strong>Administrator</strong><span>Admin</span></div></div>
 					</div>
 				</header>
 

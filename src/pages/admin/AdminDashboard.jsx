@@ -13,7 +13,6 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import PortalNotificationButton from "../../components/PortalNotificationButton.jsx";
-import adminAvatar from "../../assets/images/icon/admin1.svg";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -201,14 +200,6 @@ function AdminDashboard() {
           <div className="admin-topbar-right">
             <PortalNotificationButton />
 
-            <div className="admin-user">
-              <div className="amaya-admin-avatar"><img src={adminAvatar} alt="" aria-hidden="true" /></div>
-
-              <div className="admin-user-info">
-                <strong>Administrator</strong>
-                <span>Admin</span>
-              </div>
-            </div>
           </div>
         </header>
 
