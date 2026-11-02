@@ -1082,58 +1082,45 @@
   transition: width 320ms ease;
 }
 
-.admin-inventory-progress > span.in-stock {
-  background: linear-gradient(90deg, #34d399, #059669);
-}
-
-.admin-inventory-progress > span.healthy {
+.admin-inventory-progress > span.health-green {
   background: linear-gradient(90deg, #4ade80, #16a34a);
 }
 
-.admin-inventory-progress > span.medium {
+.admin-inventory-progress > span.health-yellow-green {
+  background: linear-gradient(90deg, #a3e635, #65a30d);
+}
+
+.admin-inventory-progress > span.health-yellow {
   background: linear-gradient(90deg, #fde047, #eab308);
 }
 
-.admin-inventory-progress > span.low {
-  background: linear-gradient(90deg, #fb923c, #ea580c);
+.admin-inventory-progress > span.health-orange {
+  background: linear-gradient(90deg, #fdba74, #f97316);
 }
 
-.admin-inventory-progress > span.critical {
+.admin-inventory-progress > span.health-light-red {
+  background: linear-gradient(90deg, #fca5a5, #f87171);
+}
+
+.admin-inventory-progress > span.health-red {
   background: linear-gradient(90deg, #f87171, #dc2626);
 }
 
-.admin-inventory-progress > span.over-maximum {
-  background: linear-gradient(90deg, #fbbf24, #d97706);
-}
-
-.admin-inventory-progress > span.out-of-stock {
-  background: #e7e5e4;
+.admin-inventory-progress > span.health-dark-red {
+  background: linear-gradient(90deg, #b91c1c, #7f1d1d);
 }
 
 .admin-inventory-progress.no-maximum {
   background: repeating-linear-gradient(90deg, #f0efee 0 6px, #e7e5e4 6px 12px);
 }
 
-.admin-inventory-progress.critical {
-  background: #fee2e2;
-}
-
-.admin-inventory-progress.low {
-  background: #ffedd5;
-}
-
-.admin-inventory-progress.medium,
-.admin-inventory-progress.over-maximum {
-  background: #fef3c7;
-}
-
-.admin-inventory-progress.healthy {
-  background: #dcfce7;
-}
-
-.admin-inventory-progress.no-maximum.critical {
-  background: #fee2e2;
-}
+.admin-inventory-progress.health-green { background: #dcfce7; }
+.admin-inventory-progress.health-yellow-green { background: #ecfccb; }
+.admin-inventory-progress.health-yellow { background: #fef3c7; }
+.admin-inventory-progress.health-orange { background: #ffedd5; }
+.admin-inventory-progress.health-light-red { background: #fee2e2; }
+.admin-inventory-progress.health-red { background: #fecaca; }
+.admin-inventory-progress.health-dark-red { background: #fca5a5; }
 
 .admin-inventory-progress-note {
   display: block;

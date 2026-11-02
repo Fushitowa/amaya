@@ -212,19 +212,22 @@ function AdminInventory() {
     // No maximum set means there is no target to measure against, so no ratio (neutral bar).
     const ratio = hasMaximum ? Math.max(0, Math.min(1, entry.quantity / Number(entry.maximumStock))) : null;
     const isLowStock = hasMaximum && status !== "Out of Stock" && ratio <= 0.25;
-    const stockLevelKey = status === "Out of Stock"
-      ? "critical"
-      : status === "Over Maximum"
-        ? "over-maximum"
-        : ratio == null
-          ? "no-maximum"
-          : ratio <= 0.10
-            ? "critical"
-            : ratio <= 0.25
-              ? "low"
-              : ratio <= 0.60
-                ? "medium"
-                : "healthy";
+    // Health-bar color stages: green when full, then progressively warmer as stock falls.
+    const stockLevelKey = ratio == null
+      ? "no-maximum"
+      : ratio >= 0.86
+        ? "health-green"
+        : ratio >= 0.71
+          ? "health-yellow-green"
+          : ratio >= 0.56
+            ? "health-yellow"
+            : ratio >= 0.41
+              ? "health-orange"
+              : ratio >= 0.26
+                ? "health-light-red"
+                : ratio >= 0.11
+                  ? "health-red"
+                  : "health-dark-red";
     const unitCost = Number(entry.unitCost || entry.unit_cost || 0);
     const inventoryValue = Number((Number(entry.quantity || 0) * unitCost).toFixed(2));
     const packageSpec = `${entry.packageQuantity || 1} ${entry.packageUnit || "pack"}${entry.contentsPerPackage ? ` (${entry.contentsPerPackage} ${entry.unit})` : ""}`;
