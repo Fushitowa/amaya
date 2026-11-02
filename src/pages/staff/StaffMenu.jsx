@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import {
+  CakeSlice,
+  Coffee,
+  Cookie,
+  CupSoda,
+  GlassWater,
+  LayoutGrid,
+  Sandwich,
+  Settings,
+  ShoppingBag,
+  Utensils,
+} from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import MenuProductImage from "../../components/MenuProductImage.jsx";
@@ -51,6 +63,23 @@ const categoryDescriptions = {
   snacks: "Crispy bites, street food, and comfort snacks.",
 };
 
+const categoryIcons = {
+  all: LayoutGrid,
+  "foods / snacks": Utensils,
+  "fries & sip": Utensils,
+  "burgers and hotdogs": Sandwich,
+  desserts: CakeSlice,
+  dessert: CakeSlice,
+  milktea: CupSoda,
+  "milk tea": CupSoda,
+  "float series": CupSoda,
+  "fruity soda": GlassWater,
+  "fruity milk": GlassWater,
+  "iced coffee": Coffee,
+  drinks: CupSoda,
+  snacks: Cookie,
+};
+
 const getCategoryTitle = (key) => {
   if (!key) return "General";
   if (key === "all") return "All Items";
@@ -69,6 +98,7 @@ function StaffMenu() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerName, setCustomerName] = useState("Walk-in Customer");
+  const [customerNote, setCustomerNote] = useState("");
   const [orderType, setOrderType] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}");
@@ -334,6 +364,7 @@ function StaffMenu() {
         order,
         customerName: customerName.trim() || "Walk-in Customer",
         orderType,
+        notes: customerNote.trim() || undefined,
       },
     });
   };
@@ -387,12 +418,9 @@ function StaffMenu() {
         {/* Slim Horizontal Category Pill Row (Clean CSS classes, zero inline styles) */}
         <section className="staff-menu-category-tabs" aria-label="Menu categories">
           {dynamicCategories.map((key) => {
-            const isAll = key === "all";
             const label = getCategoryTitle(key);
-            const count = isAll
-              ? allFormattedProducts.length
-              : allFormattedProducts.filter((p) => p.category === key).length;
             const isActive = activeCategory === key;
+            const Icon = categoryIcons[String(key).toLowerCase().trim()] || Coffee;
 
             return (
               <button
@@ -402,8 +430,8 @@ function StaffMenu() {
                 onClick={() => setActiveCategory(key)}
                 aria-pressed={isActive}
               >
+                <span className="category-tab-icon" aria-hidden="true"><Icon size={15} strokeWidth={2} /></span>
                 <span className="category-tab-label">{label}</span>
-                <span className="category-tab-count">({count})</span>
               </button>
             );
           })}
@@ -429,27 +457,24 @@ function StaffMenu() {
                       src={item.image}
                       alt={item.title}
                       className="staff-menu-card-image"
-                      style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isOutOfStock ? 0.78 : 1 }}
-                      fallbackStyle={{ width: "100%", height: "100%" }}
+                      style={{ opacity: isOutOfStock ? 0.78 : 1 }}
                     />
-                    <span className="staff-menu-category-pill">
-                      {item.category || "Menu Item"}
-                    </span>
                     {isOutOfStock && (
                       <span className="staff-menu-out-of-stock-pill">
                         OUT OF STOCK
                       </span>
                     )}
-                    <span className="staff-menu-card-price">
-                      ₱{item.price.toFixed(2)}
-                    </span>
                   </div>
 
                   <div className="staff-menu-card-body">
-                    <div>
+                    <div className="staff-menu-card-meta">
+                      <span className="staff-menu-category-pill">{item.category || "Menu Item"}</span>
+                      <span className="staff-menu-card-price">₱{item.price.toFixed(2)}</span>
+                    </div>
+
+                    <div className="staff-menu-card-copy">
                       <h3
                         className="staff-menu-card-title"
-                        style={isOutOfStock ? { color: "#b91c1c" } : undefined}
                         title={item.title}
                       >
                         {item.title}
@@ -466,7 +491,7 @@ function StaffMenu() {
                         onClick={() => setCustomizingItem(item)}
                         title="Customize modifiers"
                       >
-                        ⚙ Customize
+                        <Settings size={13} strokeWidth={2} /> Customize
                       </button>
 
                       <button
@@ -501,172 +526,123 @@ function StaffMenu() {
       {/* Right Cart & POS Register Panel */}
       <aside className="staff-menu-order-panel">
         <div className="staff-menu-order-card">
-          {/* Cart Header */}
-          <div className="staff-menu-order-card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #eee5dc", paddingBottom: "14px" }}>
+          <div className="staff-menu-order-card-head">
             <div>
-              <span className="order-label" style={{ display: "block", fontSize: "10px", fontWeight: 800, color: "#8b5e3c", letterSpacing: "1px" }}>
-                CURRENT ORDER
+              <span className="order-label">
+                Current Order
               </span>
-              <span className="order-count" style={{ fontSize: "14px", fontWeight: 700, color: "#2d1f1a" }}>
-                {totalItems} item{totalItems === 1 ? "" : "s"}
+              <span className="order-count">
+                {totalItems} item{totalItems === 1 ? "" : "s"} · {order.length} line{order.length === 1 ? "" : "s"}
               </span>
             </div>
-
-            {order.length > 0 && (
-              <button
-                type="button"
-                className="clear-order-button"
-                onClick={clearCurrentOrder}
-                style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca", padding: "4px 8px", borderRadius: "6px", fontSize: "10px", fontWeight: 700, cursor: "pointer" }}
-              >
-                Clear
-              </button>
-            )}
+            <span className="staff-menu-order-status">Draft</span>
           </div>
 
-          {/* Customer & Type Selector */}
-          <div style={{ padding: "14px 0", borderBottom: "1px solid #eee5dc" }}>
-            <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#8a7c73", textTransform: "uppercase", marginBottom: "4px" }}>
-              Customer / Table
-            </label>
+          <section className="staff-menu-order-setup" aria-label="Order details">
+            <div className="staff-menu-order-type-group">
+              <span className="staff-menu-field-label">Order Type</span>
+              <div className="staff-menu-order-types">
+                {[{ name: "Takeout", Icon: ShoppingBag }, { name: "Dine-in", Icon: Utensils }].map(({ name, Icon }) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`staff-menu-order-type${orderType === name ? " active" : ""}`}
+                    onClick={() => setOrderType(name)}
+                    aria-pressed={orderType === name}
+                  >
+                    <Icon size={16} strokeWidth={2} aria-hidden="true" />{name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="staff-menu-order-field" htmlFor="staff-order-customer">
+              <span className="staff-menu-field-label">Customer Info</span>
             <input
+                id="staff-order-customer"
               type="text"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Customer Name or Table #"
-              style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #ded6ce", fontSize: "12px", color: "#2d1f1a", outline: "none", marginBottom: "8px" }}
+                placeholder="Walk-in Customer"
             />
+            </label>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px", margin: "6px 0" }}>
-              {["Takeout", "Dine-in"].map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setOrderType(type)}
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: "8px",
-                    border: orderType === type ? "1.5px solid #8b5e3c" : "1px solid #e5ded7",
-                    background: orderType === type ? "#fbf5ef" : "#ffffff",
-                    color: orderType === type ? "#70482f" : "#6a5749",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
+            <label className="staff-menu-order-field" htmlFor="staff-order-note">
+              <span className="staff-menu-field-label">Customer Note</span>
+              <textarea
+                id="staff-order-note"
+                rows="2"
+                value={customerNote}
+                onChange={(e) => setCustomerNote(e.target.value)}
+                placeholder="Add a note for the kitchen..."
+              />
+            </label>
+          </section>
+
+          <div className="staff-menu-order-list-heading">
+            <h2>Order List</h2>
+            {order.length > 0 && (
+              <button type="button" className="clear-order-button" onClick={clearCurrentOrder}>Remove all</button>
+            )}
           </div>
 
-          {/* Cart Items List */}
-          <div className="staff-menu-order-list" style={{ padding: "10px 0" }}>
+          <div className="staff-menu-order-list">
             {order.length > 0 ? (
-              order.map((item, idx) => (
-                <div
-                  className="staff-menu-order-row"
-                  key={`${item.title}-${idx}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 0",
-                    borderBottom: "1px dashed #efe7df",
-                    gap: "8px",
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#2d1f1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {item.title}
+              order.map((item, idx) => {
+                const catalogItem = allFormattedProducts.find((product) => product.id === item.productId);
+                const image = item.image || catalogItem?.image;
+                return (
+                  <article className="staff-menu-order-row" key={`${item.title}-${idx}`}>
+                    <div className="staff-menu-order-thumb">
+                      {image ? <MenuProductImage src={image} alt="" /> : <CupSoda size={24} strokeWidth={1.8} aria-hidden="true" />}
                     </div>
-                    <div style={{ fontSize: "10px", color: "#8a7c73" }}>
-                      {item.size || "Regular"}
-                      {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
-                      {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
+                    <div className="staff-menu-order-item">
+                      <div className="staff-menu-order-item-title" title={item.title}>{item.title}</div>
+                      <div className="staff-menu-order-item-meta">
+                        {item.size || "Regular"}{item.sugarLevel ? ` · ${item.sugarLevel}` : ""}{item.addons?.length ? ` · ${item.addons.join(", ")}` : ""}
+                      </div>
+                      {item.instructions || item.notes ? <div className="staff-menu-order-item-note">Note: {item.instructions || item.notes}</div> : null}
+                      <div className="staff-menu-order-item-price">₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</div>
                     </div>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5e3c", marginTop: "2px" }}>
-                      ₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}
+                    <div className="staff-menu-order-quantity">
+                      <button type="button" onClick={() => updateQuantity(idx, -1)} aria-label={`Decrease ${item.title} quantity`}>−</button>
+                      <span>{item.quantity}</span>
+                      <button type="button" onClick={() => updateQuantity(idx, 1)} aria-label={`Increase ${item.title} quantity`}>+</button>
+                      <button type="button" className="staff-menu-remove-item" onClick={() => removeItem(idx)} title="Remove item" aria-label={`Remove ${item.title}`}>
+                        ×
+                      </button>
                     </div>
-                  </div>
-
-                  {/* Quantity Stepper */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(idx, -1)}
-                      style={{ width: "22px", height: "22px", borderRadius: "4px", border: "1px solid #dcd4cc", background: "#faf8f6", color: "#5d4d43", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}
-                    >
-                      −
-                    </button>
-                    <span style={{ fontSize: "11px", fontWeight: 700, minWidth: "16px", textAlign: "center" }}>
-                      {item.quantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(idx, 1)}
-                      style={{ width: "22px", height: "22px", borderRadius: "4px", border: "1px solid #dcd4cc", background: "#faf8f6", color: "#5d4d43", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}
-                    >
-                      +
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeItem(idx)}
-                      style={{ background: "none", border: "none", color: "#b91c1c", fontSize: "14px", cursor: "pointer", marginLeft: "4px" }}
-                      title="Remove item"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              ))
+                  </article>
+                );
+              })
             ) : (
-              <div style={{ textAlign: "center", padding: "36px 12px", color: "#8a7c73" }}>
-                <span style={{ fontSize: "28px", display: "block", marginBottom: "8px" }}>🛒</span>
-                <strong style={{ display: "block", fontSize: "13px", color: "#3b2a20" }}>No items in order</strong>
-                <span style={{ fontSize: "11px" }}>Tap any item card to customize or Quick Add to fill cart.</span>
+              <div className="staff-menu-empty-order">
+                <span aria-hidden="true">🛒</span>
+                <strong>No items yet</strong>
+                <small>Choose a menu item to start this order.</small>
               </div>
             )}
           </div>
 
-          {/* Cart Footer & Checkout Button */}
-          <div style={{ borderTop: "1px solid #eee5dc", paddingTop: "14px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#7a6b63", marginBottom: "6px" }}>
+          <footer className="staff-menu-order-footer">
+            <div className="staff-menu-summary-line">
               <span>Subtotal</span>
               <span>₱{currentOrderTotal.toFixed(2)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", fontWeight: 800, color: "#2d1f1a", marginBottom: "14px" }}>
+            <div className="staff-menu-summary-line staff-menu-summary-total">
               <span>Total Due</span>
-              <span style={{ color: "#8b5e3c" }}>₱{currentOrderTotal.toFixed(2)}</span>
+              <span>₱{currentOrderTotal.toFixed(2)}</span>
             </div>
 
             <button
               type="button"
+              className="staff-menu-submit-order"
               disabled={order.length === 0}
               onClick={handlePlaceOrder}
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "none",
-                background: order.length > 0 ? "linear-gradient(135deg, #8b5e3c, #70482f)" : "#dcd4cc",
-                color: "#ffffff",
-                fontSize: "13px",
-                fontWeight: 700,
-                cursor: order.length > 0 ? "pointer" : "not-allowed",
-                boxShadow: order.length > 0 ? "0 8px 20px rgba(112, 72, 47, 0.25)" : "none",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                transition: "all 0.2s ease",
-              }}
             >
-              <span>Place Order & Checkout</span>
-              <span>→</span>
+              Place Order &amp; Checkout <span aria-hidden="true">→</span>
             </button>
-          </div>
+          </footer>
         </div>
       </aside>
 
