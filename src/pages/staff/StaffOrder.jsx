@@ -4,6 +4,7 @@ import {
   Banknote,
   CalendarDays,
   Check,
+  CheckCircle2,
   ClipboardList,
   Clock,
   CreditCard,
@@ -22,6 +23,7 @@ import {
 import searchIcon from "../../assets/images/icon/search.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
+import MenuProductImage from "../../components/MenuProductImage.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { findProductById, resolveProductSizes, useMenu } from "../../context/MenuContext.jsx";
@@ -177,8 +179,8 @@ function StaffOrder() {
           <section className="orders-page-header">
             <div>
               <span className="orders-eyebrow">ORDER MANAGEMENT</span>
-              <h2>Customer Orders</h2>
-              <p>View, update order statuses, and manage customer orders received by Amaya.</p>
+              <h2>Order Overview</h2>
+              <p>Track incoming orders and manage each step of service.</p>
             </div>
             <div className="orders-summary">
               <div className="summary-number">{activeOrdersCount}</div>
@@ -192,32 +194,32 @@ function StaffOrder() {
           {/* Top Summary Cards with dynamic metrics */}
           <section className="order-stats">
             <OrderStat
-              icon="≡"
+              Icon={ClipboardList}
               tone="total"
               label="Total Orders"
               value={totalOrdersCount}
-              note="All active"
+              note="All recorded orders"
             />
             <OrderStat
-              icon="◷"
+              Icon={Clock}
               tone="pending"
               label="Pending"
               value={pendingCount}
-              note="Need attention"
+              note="Awaiting preparation"
             />
             <OrderStat
-              icon="◌"
+              Icon={Utensils}
               tone="preparing"
               label="Preparing"
               value={preparingCount}
               note="In progress"
             />
             <OrderStat
-              icon="✓"
+              Icon={CheckCircle2}
               tone="completed"
               label="Completed"
               value={completedCount}
-              note="Fulfilled"
+              note="Successfully fulfilled"
             />
           </section>
 
@@ -336,6 +338,21 @@ function StaffOrder() {
                         <span className="order-card-total">
                           ₱{Number(order.total || 0).toFixed(2)}
                         </span>
+                      </div>
+
+                      <div className="order-card-items-preview" aria-label={`${itemCount} ordered items`}>
+                        {(order.items || []).slice(0, 3).map((item, itemIndex) => (
+                          <div className="order-card-item-preview" key={`${item.title}-${itemIndex}`} title={`${item.quantity || 1} × ${item.title}`}>
+                            <MenuProductImage
+                              src={productImageByName.get(item.title)}
+                              alt=""
+                              className="order-card-item-thumb-image"
+                            />
+                            <span>{item.quantity || 1}×</span>
+                          </div>
+                        ))}
+                        {itemCount > 3 && <span className="order-card-items-more">+{itemCount - 3}</span>}
+                        {!order.items?.length && <span className="order-card-items-empty">No item details</span>}
                       </div>
 
                       <hr className="order-card-divider" />
@@ -953,10 +970,10 @@ function StaffOrder() {
   );
 }
 
-function OrderStat({ icon, tone, label, value, note }) {
+function OrderStat({ Icon, tone, label, value, note }) {
   return (
     <div className="order-stat-card">
-      <div className={`order-stat-icon ${tone}`}>{icon}</div>
+      <div className={`order-stat-icon ${tone}`}><Icon size={20} strokeWidth={1.8} aria-hidden="true" /></div>
       <div className="order-stat-info">
         <span>{label}</span>
         <strong>{value}</strong>
