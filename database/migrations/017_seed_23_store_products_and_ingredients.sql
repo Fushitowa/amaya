@@ -1,5 +1,38 @@
 USE amaya;
 
+-- The product seed below uses three catalog fields that were not present in the
+-- original menu_products schema. Add them conditionally so this migration can
+-- run against both older databases and databases where the fields already exist.
+SET @product_type_sql = IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'menu_products' AND column_name = 'product_type') = 0,
+  'ALTER TABLE menu_products ADD COLUMN product_type VARCHAR(40) NOT NULL DEFAULT ''recipe_fixed''',
+  'SELECT 1'
+);
+PREPARE product_type_stmt FROM @product_type_sql;
+EXECUTE product_type_stmt;
+DEALLOCATE PREPARE product_type_stmt;
+
+SET @packaging_size_sql = IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'menu_products' AND column_name = 'packaging_size') = 0,
+  'ALTER TABLE menu_products ADD COLUMN packaging_size VARCHAR(80) NULL',
+  'SELECT 1'
+);
+PREPARE packaging_size_stmt FROM @packaging_size_sql;
+EXECUTE packaging_size_stmt;
+DEALLOCATE PREPARE packaging_size_stmt;
+
+SET @cost_price_sql = IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'menu_products' AND column_name = 'cost_price') = 0,
+  'ALTER TABLE menu_products ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0.00',
+  'SELECT 1'
+);
+PREPARE cost_price_stmt FROM @cost_price_sql;
+EXECUTE cost_price_stmt;
+DEALLOCATE PREPARE cost_price_stmt;
+
 -- ============================================================================
 -- 1. SEED & RESTOCK ESSENTIAL WHOLESALE INVENTORY ITEMS
 -- ============================================================================
@@ -67,7 +100,7 @@ ON DUPLICATE KEY UPDATE
 -- ============================================================================
 UPDATE menu_products
 SET name = 'Classic Milktea',
-    category_id = 1,
+    category_id = (SELECT id FROM menu_categories WHERE name = 'Milktea' LIMIT 1),
     product_type = 'recipe_fixed',
     packaging_size = '12oz',
     description = 'Signature freshly brewed black tea with rich creamer and brown sugar pearls',
@@ -94,29 +127,29 @@ DEALLOCATE PREPARE idx_stmt;
 -- ============================================================================
 INSERT INTO menu_products (category_id, product_type, name, description, base_price, cost_price, packaging_size, stock_quantity, is_available, is_featured, display_order)
 VALUES
-  (3, 'recipe_multisize', 'French Fries', 'Crispy shoestring fries tossed in your choice of Cheese, BBQ, or Sour Cream flavor.', 25.00, 10.82, NULL, 50, TRUE, TRUE, 1),
-  (3, 'recipe_fixed', 'Tempura', '4 pcs crispy street tempura with savory manong sauce', 20.00, 15.36, '4 pcs', 50, TRUE, FALSE, 2),
-  (3, 'recipe_fixed', 'Fishball', '16 pcs golden street fishballs with signature sauce', 20.00, 16.56, '16 pcs', 50, TRUE, FALSE, 3),
-  (3, 'recipe_fixed', 'Siomai', '4 pcs steamed pork siomai with chili garlic and toyomansi', 20.00, 14.69, '4 pcs', 45, TRUE, FALSE, 4),
-  (3, 'recipe_fixed', 'Lumpia', '4 pcs crispy fried lumpiang shanghai with sweet chili dip', 20.00, 13.91, '4 pcs', 35, TRUE, FALSE, 5),
-  (3, 'recipe_multisize', 'Takoyaki', 'Japanese octopus street balls with savory sauce, mayo & bonito', 30.00, 18.46, NULL, 40, TRUE, TRUE, 6),
-  (5, 'recipe_combo', 'Fries & Sip', 'Flavored fries paired with refreshing drink. Flavors: BBQ, Cheese, Sour Cream', 35.00, 15.94, 'Combo', 50, TRUE, TRUE, 1),
-  (6, 'recipe_fixed', 'Burger (Buy 1 Take 1)', 'Double burger special! 2 savory beef patties on toasted buns with dressing', 55.00, 20.29, '2 Burgers', 32, TRUE, TRUE, 1),
-  (6, 'recipe_fixed', 'Hotdog Bun', 'Juicy jumbo hotdog in warm bun topped with ketchup and mayo', 45.00, 21.33, 'Regular', 30, TRUE, FALSE, 2),
-  (4, 'recipe_fixed', 'Mango Graham Float', '500ml chilled dessert tub layered with sweet mangoes, graham & cream', 95.00, 63.20, '500ml tub', 25, TRUE, TRUE, 1),
-  (1, 'recipe_fixed', 'Taro Milktea', 'Rich nutty taro infused with creamy milk tea and pearls', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 1),
-  (1, 'recipe_fixed', 'Cookies and Cream Milktea', 'Creamy milk tea blended with crushed cookies and chewy boba', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 2),
-  (1, 'recipe_fixed', 'Chocolate Milktea', 'Deep decadent chocolate milk tea with black pearls', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 3),
-  (1, 'recipe_fixed', 'Classic Milktea', 'Signature freshly brewed black tea with rich creamer and brown sugar pearls', 39.00, 14.73, '12oz', 50, TRUE, TRUE, 4),
-  (2, 'recipe_multisize', 'Coke Float', 'Sparkling Coca-Cola crowned with soft vanilla ice cream and choco drizzle', 25.00, 13.92, NULL, 45, TRUE, TRUE, 1),
-  (2, 'recipe_multisize', 'Choco Float', 'Ice cold chocolate cooler topped with creamy ice cream and chocolate swirl', 25.00, 10.92, NULL, 45, TRUE, FALSE, 2),
-  (7, 'recipe_multisize', 'Blueberry Soda', 'Effervescent sparkling cooler infused with sweet wild blueberry syrup', 25.00, 14.53, NULL, 40, TRUE, FALSE, 1),
-  (7, 'recipe_multisize', 'Green Apple Soda', 'Crisp, tangy green apple sparkling soda served over ice', 25.00, 14.53, NULL, 40, TRUE, FALSE, 2),
-  (7, 'recipe_multisize', 'Strawberry Soda', 'Refreshing sparkling fruit soda bursting with sweet strawberry flavor', 25.00, 14.53, NULL, 40, TRUE, TRUE, 3),
-  (8, 'recipe_multisize', 'Strawberry Milk', 'Smooth, silky fresh milk swirled with luscious strawberry puree', 30.00, 20.03, NULL, 35, TRUE, TRUE, 1),
-  (8, 'recipe_multisize', 'Mango Milk', 'Rich fresh milk blended with ripe golden mango puree', 30.00, 20.03, NULL, 35, TRUE, FALSE, 2),
-  (9, 'recipe_fixed', 'Matcha Iced Coffee', 'Earthy premium Japanese matcha layered over cold brewed espresso and fresh milk', 39.00, 26.97, '12oz', 30, TRUE, TRUE, 1),
-  (9, 'recipe_fixed', 'Caramel Iced Coffee', 'Bold chilled espresso with buttery caramel swirl and fresh milk', 39.00, 30.50, '12oz', 30, TRUE, FALSE, 2)
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_multisize', 'French Fries', 'Crispy shoestring fries tossed in your choice of Cheese, BBQ, or Sour Cream flavor.', 25.00, 10.82, NULL, 50, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_fixed', 'Tempura', '4 pcs crispy street tempura with savory manong sauce', 20.00, 15.36, '4 pcs', 50, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_fixed', 'Fishball', '16 pcs golden street fishballs with signature sauce', 20.00, 16.56, '16 pcs', 50, TRUE, FALSE, 3),
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_fixed', 'Siomai', '4 pcs steamed pork siomai with chili garlic and toyomansi', 20.00, 14.69, '4 pcs', 45, TRUE, FALSE, 4),
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_fixed', 'Lumpia', '4 pcs crispy fried lumpiang shanghai with sweet chili dip', 20.00, 13.91, '4 pcs', 35, TRUE, FALSE, 5),
+  ((SELECT id FROM menu_categories WHERE name = 'Foods / Snacks' LIMIT 1), 'recipe_multisize', 'Takoyaki', 'Japanese octopus street balls with savory sauce, mayo & bonito', 30.00, 18.46, NULL, 40, TRUE, TRUE, 6),
+  ((SELECT id FROM menu_categories WHERE name = 'Fries & Sip' LIMIT 1), 'recipe_combo', 'Fries & Sip', 'Flavored fries paired with refreshing drink. Flavors: BBQ, Cheese, Sour Cream', 35.00, 15.94, 'Combo', 50, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Burgers and Hotdogs' LIMIT 1), 'recipe_fixed', 'Burger (Buy 1 Take 1)', 'Double burger special! 2 savory beef patties on toasted buns with dressing', 55.00, 20.29, '2 Burgers', 32, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Burgers and Hotdogs' LIMIT 1), 'recipe_fixed', 'Hotdog Bun', 'Juicy jumbo hotdog in warm bun topped with ketchup and mayo', 45.00, 21.33, 'Regular', 30, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Desserts' LIMIT 1), 'recipe_fixed', 'Mango Graham Float', '500ml chilled dessert tub layered with sweet mangoes, graham & cream', 95.00, 63.20, '500ml tub', 25, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Milktea' LIMIT 1), 'recipe_fixed', 'Taro Milktea', 'Rich nutty taro infused with creamy milk tea and pearls', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Milktea' LIMIT 1), 'recipe_fixed', 'Cookies and Cream Milktea', 'Creamy milk tea blended with crushed cookies and chewy boba', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Milktea' LIMIT 1), 'recipe_fixed', 'Chocolate Milktea', 'Deep decadent chocolate milk tea with black pearls', 39.00, 14.73, '12oz', 40, TRUE, FALSE, 3),
+  ((SELECT id FROM menu_categories WHERE name = 'Milktea' LIMIT 1), 'recipe_fixed', 'Classic Milktea', 'Signature freshly brewed black tea with rich creamer and brown sugar pearls', 39.00, 14.73, '12oz', 50, TRUE, TRUE, 4),
+  ((SELECT id FROM menu_categories WHERE name = 'Float Series' LIMIT 1), 'recipe_multisize', 'Coke Float', 'Sparkling Coca-Cola crowned with soft vanilla ice cream and choco drizzle', 25.00, 13.92, NULL, 45, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Float Series' LIMIT 1), 'recipe_multisize', 'Choco Float', 'Ice cold chocolate cooler topped with creamy ice cream and chocolate swirl', 25.00, 10.92, NULL, 45, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Fruity Soda' LIMIT 1), 'recipe_multisize', 'Blueberry Soda', 'Effervescent sparkling cooler infused with sweet wild blueberry syrup', 25.00, 14.53, NULL, 40, TRUE, FALSE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Fruity Soda' LIMIT 1), 'recipe_multisize', 'Green Apple Soda', 'Crisp, tangy green apple sparkling soda served over ice', 25.00, 14.53, NULL, 40, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Fruity Soda' LIMIT 1), 'recipe_multisize', 'Strawberry Soda', 'Refreshing sparkling fruit soda bursting with sweet strawberry flavor', 25.00, 14.53, NULL, 40, TRUE, TRUE, 3),
+  ((SELECT id FROM menu_categories WHERE name = 'Fruity Milk' LIMIT 1), 'recipe_multisize', 'Strawberry Milk', 'Smooth, silky fresh milk swirled with luscious strawberry puree', 30.00, 20.03, NULL, 35, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Fruity Milk' LIMIT 1), 'recipe_multisize', 'Mango Milk', 'Rich fresh milk blended with ripe golden mango puree', 30.00, 20.03, NULL, 35, TRUE, FALSE, 2),
+  ((SELECT id FROM menu_categories WHERE name = 'Iced Coffee' LIMIT 1), 'recipe_fixed', 'Matcha Iced Coffee', 'Earthy premium Japanese matcha layered over cold brewed espresso and fresh milk', 39.00, 26.97, '12oz', 30, TRUE, TRUE, 1),
+  ((SELECT id FROM menu_categories WHERE name = 'Iced Coffee' LIMIT 1), 'recipe_fixed', 'Caramel Iced Coffee', 'Bold chilled espresso with buttery caramel swirl and fresh milk', 39.00, 30.50, '12oz', 30, TRUE, FALSE, 2)
 ON DUPLICATE KEY UPDATE
   category_id = VALUES(category_id),
   product_type = VALUES(product_type),

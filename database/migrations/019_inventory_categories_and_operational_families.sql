@@ -1,28 +1,35 @@
 USE amaya;
 
 -- 1. Enhance menu_categories with operational_family
-ALTER TABLE menu_categories 
-ADD COLUMN IF NOT EXISTS operational_family ENUM('drink', 'fries', 'snack_pieces', 'single_fixed', 'general') NOT NULL DEFAULT 'general';
+SET @operational_family_sql = IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'menu_categories' AND column_name = 'operational_family') = 0,
+  'ALTER TABLE menu_categories ADD COLUMN operational_family ENUM(''drink'', ''fries'', ''snack_pieces'', ''single_fixed'', ''general'') NOT NULL DEFAULT ''general''',
+  'SELECT 1'
+);
+PREPARE operational_family_stmt FROM @operational_family_sql;
+EXECUTE operational_family_stmt;
+DEALLOCATE PREPARE operational_family_stmt;
 
 -- Backfill operational families for canonical menu categories
 UPDATE menu_categories 
    SET operational_family = 'drink' 
- WHERE name IN ('Milktea', 'Float Series', 'Fruity Soda', 'Fruity Milk', 'Iced Coffee')
+ WHERE name COLLATE utf8mb4_unicode_ci IN ('Milktea', 'Float Series', 'Fruity Soda', 'Fruity Milk', 'Iced Coffee')
    AND (operational_family IS NULL OR operational_family = 'general');
 
 UPDATE menu_categories 
    SET operational_family = 'fries' 
- WHERE name = 'Fries & Sip'
+ WHERE name COLLATE utf8mb4_unicode_ci = 'Fries & Sip'
    AND (operational_family IS NULL OR operational_family = 'general');
 
 UPDATE menu_categories 
    SET operational_family = 'snack_pieces' 
- WHERE name = 'Foods / Snacks'
+ WHERE name COLLATE utf8mb4_unicode_ci = 'Foods / Snacks'
    AND (operational_family IS NULL OR operational_family = 'general');
 
 UPDATE menu_categories 
    SET operational_family = 'single_fixed' 
- WHERE name IN ('Burgers and Hotdogs', 'Desserts')
+ WHERE name COLLATE utf8mb4_unicode_ci IN ('Burgers and Hotdogs', 'Desserts')
    AND (operational_family IS NULL OR operational_family = 'general');
 
 -- 2. Create inventory_categories table
@@ -60,7 +67,7 @@ ON DUPLICATE KEY UPDATE
 
 -- 4. Dynamically harvest any distinct categories currently in inventory_items
 INSERT IGNORE INTO inventory_categories (name, description, is_cup_category, is_system, display_order)
-SELECT DISTINCT category, 'Imported from existing inventory items', (category = 'Cups' OR category = 'Cups & Lids'), FALSE, 99
+SELECT DISTINCT category, 'Imported from existing inventory items', (category COLLATE utf8mb4_unicode_ci = 'Cups' OR category COLLATE utf8mb4_unicode_ci = 'Cups & Lids'), FALSE, 99
   FROM inventory_items
  WHERE category IS NOT NULL AND TRIM(category) != ''
-   AND category NOT IN (SELECT name FROM inventory_categories);
+   AND category COLLATE utf8mb4_unicode_ci NOT IN (SELECT name COLLATE utf8mb4_unicode_ci FROM inventory_categories);

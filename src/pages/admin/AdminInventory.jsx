@@ -211,6 +211,20 @@ function AdminInventory() {
     const hasMaximum = Number(entry.maximumStock) > 0;
     // No maximum set means there is no target to measure against, so no ratio (neutral bar).
     const ratio = hasMaximum ? Math.max(0, Math.min(1, entry.quantity / Number(entry.maximumStock))) : null;
+    const isLowStock = hasMaximum && status !== "Out of Stock" && ratio <= 0.25;
+    const stockLevelKey = status === "Out of Stock"
+      ? "critical"
+      : status === "Over Maximum"
+        ? "over-maximum"
+        : ratio == null
+          ? "no-maximum"
+          : ratio <= 0.10
+            ? "critical"
+            : ratio <= 0.25
+              ? "low"
+              : ratio <= 0.60
+                ? "medium"
+                : "healthy";
     const unitCost = Number(entry.unitCost || entry.unit_cost || 0);
     const inventoryValue = Number((Number(entry.quantity || 0) * unitCost).toFixed(2));
     const packageSpec = `${entry.packageQuantity || 1} ${entry.packageUnit || "pack"}${entry.contentsPerPackage ? ` (${entry.contentsPerPackage} ${entry.unit})` : ""}`;
@@ -221,7 +235,10 @@ function AdminInventory() {
       inventoryValue,
       packageSpec,
       status,
-      statusKey: status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
+      cardStatus: isLowStock ? "Low Stock" : status,
+      cardStatusKey: isLowStock ? "low-stock" : status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
+      stockLevelKey,
+      isLowStock,
       stockRatio: ratio == null ? null : Math.round(ratio * 100),
     };
   }).sort((left, right) => {
@@ -698,39 +715,39 @@ function AdminInventory() {
                         </div>
                         <div className="admin-inventory-card-badges">
                         {row.addedFromMenu && <span className="inventory-source-badge">Menu recipe</span>}
-                        <span className={`admin-inventory-badge ${row.statusKey}`}>{row.status}</span>
+                        <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
                       </div>
                       </div>
 
                       <div className="admin-inventory-card-stock">
                         <div>
-                          <span className="admin-inventory-card-label">Current quantity</span>
+                          <span className="admin-inventory-card-label">Current Quantity</span>
                           <p className="admin-inventory-card-qty">
                             {row.quantity}
                             <span>{row.unit}</span>
                           </p>
                         </div>
                         <div className="admin-inventory-card-max">
-                          <span className="admin-inventory-card-label">Maximum stock</span>
+                          <span className="admin-inventory-card-label">Maximum Stock</span>
                           <p>{row.maximumStock == null ? "Not set" : `${row.maximumStock} ${row.unit}`}</p>
                         </div>
                       </div>
 
                       <div
-                        className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""}`}
+                        className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
                         role="progressbar"
                         aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
-                        aria-valuetext={row.stockRatio == null ? "No maximum set" : undefined}
+                        aria-valuetext={row.stockRatio == null ? "No maximum set" : `${row.stockRatio}% of maximum stock${row.isLowStock ? ", low stock" : ""}`}
                         aria-valuemin={0}
                         aria-valuemax={100}
                         aria-label={`${row.item} stock level`}
-                        title={row.stockRatio == null ? "No maximum set" : undefined}
+                        title={row.stockRatio == null ? "Set maximum stock to track this level" : `${row.stockRatio}% of maximum stock${row.isLowStock ? " · Low stock" : ""}`}
                       >
                         {row.stockRatio == null
                           ? null
-                          : <span className={row.statusKey} style={{ width: `${row.stockRatio}%` }} />}
+                          : <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />}
                       </div>
-                      {row.stockRatio == null && <small className="admin-inventory-progress-note">No maximum set</small>}
+                      {row.stockRatio == null && <small className="admin-inventory-progress-note">Set maximum stock to track level</small>}
 
                       <div className="inventory-pricing-badges">
                         <span className="inventory-unit-cost-pill" title="Calculated unit cost">
