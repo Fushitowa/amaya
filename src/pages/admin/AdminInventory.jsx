@@ -23,6 +23,7 @@ import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
@@ -208,26 +209,22 @@ function AdminInventory() {
   // One row shape shared by both the grid and list views.
   const rows = useMemo(() => filteredInventory.map((entry) => {
     const status = getInventoryStatus(entry.quantity, entry.maximumStock);
-    const hasMaximum = Number(entry.maximumStock) > 0;
-    // No maximum set means there is no target to measure against, so no ratio (neutral bar).
-    const ratio = hasMaximum ? Math.max(0, Math.min(1, entry.quantity / Number(entry.maximumStock))) : null;
+    const { capacityPercent, reportedPercent: stockRatio, tone: stockHealthTone } = getStockHealth(
+      entry.quantity,
+      entry.maximumStock,
+      { overMaximum: status === "Over Maximum" },
+    );
+    const stockLevelKey = {
+      available: "health-green",
+      moderate: "health-moderate",
+      low: "health-low",
+      critical: "health-critical",
+      over: "health-over",
+      untracked: "no-maximum",
+    }[stockHealthTone];
+    const ratio = capacityPercent == null ? null : capacityPercent / 100;
+    const hasMaximum = ratio != null;
     const isLowStock = hasMaximum && status !== "Out of Stock" && ratio <= 0.25;
-    // Health-bar color stages: green when full, then progressively warmer as stock falls.
-    const stockLevelKey = ratio == null
-      ? "no-maximum"
-      : ratio >= 0.86
-        ? "health-green"
-        : ratio >= 0.71
-          ? "health-yellow-green"
-          : ratio >= 0.56
-            ? "health-yellow"
-            : ratio >= 0.41
-              ? "health-orange"
-              : ratio >= 0.26
-                ? "health-light-red"
-                : ratio >= 0.11
-                  ? "health-red"
-                  : "health-dark-red";
     const unitCost = Number(entry.unitCost || entry.unit_cost || 0);
     const inventoryValue = Number((Number(entry.quantity || 0) * unitCost).toFixed(2));
     const packageSpec = `${entry.packageQuantity || 1} ${entry.packageUnit || "pack"}${entry.contentsPerPackage ? ` (${entry.contentsPerPackage} ${entry.unit})` : ""}`;
@@ -242,7 +239,7 @@ function AdminInventory() {
       cardStatusKey: isLowStock ? "low-stock" : status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
       stockLevelKey,
       isLowStock,
-      stockRatio: ratio == null ? null : Math.round(ratio * 100),
+      stockRatio,
     };
   }).sort((left, right) => {
     if (sortBy === "quantity-asc") return left.quantity - right.quantity || left.item.localeCompare(right.item);

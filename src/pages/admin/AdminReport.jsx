@@ -4,6 +4,7 @@ import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
+import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -406,20 +407,12 @@ function AdminReport() {
     return inventory.map((entry) => {
       const status = getInventoryStatus(entry.quantity, entry.maximumStock);
       const quantity = Number(entry.quantity || 0);
-      const maximumStock = entry.maximumStock == null ? null : Number(entry.maximumStock);
-      const capacityPercent = maximumStock > 0 ? Math.min(100, Math.max(0, (quantity / maximumStock) * 100)) : null;
-      const reportedPercent = capacityPercent == null ? null : Math.round(capacityPercent);
-      const healthTone = status === "Over Maximum"
-        ? "over"
-        : reportedPercent == null
-          ? "untracked"
-          : reportedPercent <= 20
-            ? "critical"
-            : reportedPercent <= 40
-              ? "low"
-              : reportedPercent <= 70
-                ? "moderate"
-                : "available";
+      const maximumStock = entry.maximumStock == null || entry.maximumStock === "" ? null : Number(entry.maximumStock);
+      const { capacityPercent, reportedPercent, tone: healthTone } = getStockHealth(
+        quantity,
+        maximumStock,
+        { overMaximum: status === "Over Maximum" },
+      );
       const healthLabel = status === "Over Maximum"
         ? "Above maximum"
         : status === "Out of Stock"
