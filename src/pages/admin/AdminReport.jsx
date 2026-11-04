@@ -405,15 +405,46 @@ function AdminReport() {
   const stockReport = useMemo(() => {
     return inventory.map((entry) => {
       const status = getInventoryStatus(entry.quantity, entry.maximumStock);
+      const quantity = Number(entry.quantity || 0);
+      const maximumStock = entry.maximumStock == null ? null : Number(entry.maximumStock);
+      const capacityPercent = maximumStock > 0 ? Math.min(100, Math.max(0, (quantity / maximumStock) * 100)) : null;
+      const reportedPercent = capacityPercent == null ? null : Math.round(capacityPercent);
+      const healthTone = status === "Over Maximum"
+        ? "over"
+        : reportedPercent == null
+          ? "untracked"
+          : reportedPercent <= 20
+            ? "critical"
+            : reportedPercent <= 40
+              ? "low"
+              : reportedPercent <= 70
+                ? "moderate"
+                : "available";
+      const healthLabel = status === "Over Maximum"
+        ? "Above maximum"
+        : status === "Out of Stock"
+          ? "Out of stock"
+          : healthTone === "untracked"
+            ? "Maximum not set"
+            : healthTone === "critical"
+              ? "Critical"
+              : healthTone === "low"
+                ? "Running low"
+                : healthTone === "moderate"
+                  ? "Moderate"
+                  : "Healthy";
       return {
         id: entry.id,
         item: entry.item,
         category: entry.category,
-        quantity: entry.quantity,
+        quantity,
         unit: entry.unit,
-        maximumStock: entry.maximumStock,
+        maximumStock,
+        capacityPercent,
+        reportedPercent,
+        healthTone,
         tone: status === "In Stock" ? "available" : status === "Over Maximum" ? "over" : "critical",
-        label: status,
+        label: healthLabel,
       };
     });
   }, [inventory]);
@@ -422,6 +453,7 @@ function AdminReport() {
     total: stockReport.length,
     over: stockReport.filter((item) => item.tone === "over").length,
     critical: stockReport.filter((item) => item.tone === "critical").length,
+    healthy: stockReport.filter((item) => item.tone === "available").length,
   }), [stockReport]);
 
   const visibleStock = useMemo(() => {
@@ -912,38 +944,62 @@ function AdminReport() {
           </section>
 
           <section className="admin-report-panel inventory-panel" aria-label="Inventory report">
-            <div className="panel-heading">
+            <div className="panel-heading inventory-panel-heading">
               <div>
                 <span className="admin-report-eyebrow">INVENTORY REPORT</span>
                 <h3>Stock health</h3>
+                <p className="inventory-panel-description">A live view of tracked ingredients and supplies.</p>
               </div>
-              <span className="inventory-count">
-                {stockBreakdown.critical} out of stock · {stockBreakdown.over} above maximum
-              </span>
+              <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
             </div>
 
-            <div className="admin-report-range subtle" role="tablist" aria-label="Filter stock report">
-              {stockFilters.map((filter) => {
-                const count = filter === "all"
-                  ? stockReport.length
-                  : filter === "attention"
-                    ? stockBreakdown.critical + stockBreakdown.over
-                    : stockReport.length - stockBreakdown.critical - stockBreakdown.over;
+            <div className="stock-overview" aria-label="Inventory summary">
+              <div className="stock-overview-card total">
+                <span className="stock-overview-icon" aria-hidden="true">▤</span>
+                <div><span>Tracked items</span><strong>{stockBreakdown.total}</strong></div>
+              </div>
+              <div className="stock-overview-card healthy">
+                <span className="stock-overview-icon" aria-hidden="true">✓</span>
+                <div><span>In stock</span><strong>{stockBreakdown.healthy}</strong></div>
+              </div>
+              <div className="stock-overview-card critical">
+                <span className="stock-overview-icon" aria-hidden="true">!</span>
+                <div><span>Out of stock</span><strong>{stockBreakdown.critical}</strong></div>
+              </div>
+              <div className="stock-overview-card over">
+                <span className="stock-overview-icon" aria-hidden="true">↗</span>
+                <div><span>Above maximum</span><strong>{stockBreakdown.over}</strong></div>
+              </div>
+            </div>
 
-                return (
-                  <button
-                    key={filter}
-                    type="button"
-                    role="tab"
-                    aria-selected={filter === stockFilter}
-                    className={filter === stockFilter ? "active" : ""}
-                    onClick={() => setStockFilter(filter)}
-                  >
-                    {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
-                    <span>{count}</span>
-                  </button>
-                );
-              })}
+            <div className="stock-list-toolbar">
+              <div>
+                <strong>Inventory items</strong>
+                <span>Health thresholds: red ≤20% · orange ≤40% · amber ≤70% · green above 70%.</span>
+              </div>
+              <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
+                {stockFilters.map((filter) => {
+                  const count = filter === "all"
+                    ? stockReport.length
+                    : filter === "attention"
+                      ? stockBreakdown.critical + stockBreakdown.over
+                      : stockBreakdown.healthy;
+
+                  return (
+                    <button
+                      key={filter}
+                      type="button"
+                      role="tab"
+                      aria-selected={filter === stockFilter}
+                      className={filter === stockFilter ? "active" : ""}
+                      onClick={() => setStockFilter(filter)}
+                    >
+                      {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
+                      <span>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {inventoryLoading && inventory.length === 0 ? (
@@ -951,13 +1007,13 @@ function AdminReport() {
             ) : inventoryError && inventory.length === 0 ? (
               <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
             ) : visibleStock.length ? (
-              <div className="inventory-table-wrap">
-                <table className="inventory-table">
+              <div className="inventory-table-wrap stock-table-wrap">
+                <table className="inventory-table stock-table">
                   <thead>
                     <tr>
                       <th scope="col">Inventory item</th>
                       <th scope="col">Category</th>
-                      <th scope="col">Current quantity</th>
+                      <th scope="col">Stock level</th>
                       <th scope="col">Maximum stock</th>
                       <th scope="col">Status</th>
                     </tr>
@@ -967,10 +1023,31 @@ function AdminReport() {
                       <tr key={item.id ?? item.product}>
                         <td>{item.item}</td>
                         <td>{item.category}</td>
-                        <td>{item.quantity} {item.unit}</td>
+                        <td>
+                          <div className="stock-level-value">
+                            <span>{item.quantity.toLocaleString()} {item.unit}</span>
+                            {item.capacityPercent != null && (
+                              <span className={`stock-level-percent ${item.healthTone}`}>
+                                {item.reportedPercent}%
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`stock-level-track${item.capacityPercent == null ? " untracked" : ""}`}
+                            role={item.capacityPercent == null ? undefined : "progressbar"}
+                            aria-label={item.capacityPercent == null ? undefined : `${item.item} stock level`}
+                            aria-valuemin={item.capacityPercent == null ? undefined : 0}
+                            aria-valuemax={item.capacityPercent == null ? undefined : 100}
+                            aria-valuenow={item.reportedPercent ?? undefined}
+                            aria-valuetext={item.reportedPercent == null ? undefined : `${item.reportedPercent}% of maximum stock${item.healthTone === "critical" ? ", critically low" : item.healthTone === "low" ? ", running low" : item.healthTone === "moderate" ? ", moderate stock" : item.healthTone === "over" ? ", above maximum" : ", healthy stock"}`}
+                            title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of maximum stock`}
+                          >
+                            <span className={`stock-level-fill ${item.healthTone}`} style={{ width: `${item.capacityPercent ?? 0}%` }} />
+                          </div>
+                        </td>
                         <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock} ${item.unit}`}</td>
                         <td>
-                          <span className={`inventory-status ${item.tone}`}>{item.label}</span>
+                          <span className={`inventory-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span>
                         </td>
                       </tr>
                     ))}
