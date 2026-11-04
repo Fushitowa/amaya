@@ -76,6 +76,7 @@ function AdminReport() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59`;
   });
   const [stockFilter, setStockFilter] = useState("all");
+  const [stockSort, setStockSort] = useState("name");
   const [exportNotice, setExportNotice] = useState(false);
   const noticeTimer = useRef(null);
 
@@ -450,10 +451,32 @@ function AdminReport() {
   }), [stockReport]);
 
   const visibleStock = useMemo(() => {
-    if (stockFilter === "attention") return stockReport.filter((item) => item.tone !== "available");
-    if (stockFilter === "healthy") return stockReport.filter((item) => item.tone === "available");
-    return stockReport;
-  }, [stockFilter, stockReport]);
+    const filtered = stockFilter === "attention"
+      ? stockReport.filter((item) => item.tone !== "available")
+      : stockFilter === "healthy"
+        ? stockReport.filter((item) => item.tone === "available")
+        : stockReport;
+    const byName = (a, b) => String(a.item || "").localeCompare(String(b.item || ""));
+    const sorters = {
+      name: byName,
+      category: (a, b) => String(a.category || "").localeCompare(String(b.category || "")) || byName(a, b),
+      low: (a, b) => {
+        if (a.reportedPercent == null) return b.reportedPercent == null ? byName(a, b) : 1;
+        if (b.reportedPercent == null) return -1;
+        return a.reportedPercent - b.reportedPercent || byName(a, b);
+      },
+      high: (a, b) => {
+        if (a.reportedPercent == null) return b.reportedPercent == null ? byName(a, b) : 1;
+        if (b.reportedPercent == null) return -1;
+        return b.reportedPercent - a.reportedPercent || byName(a, b);
+      },
+      status: (a, b) => {
+        const priority = { critical: 0, low: 1, over: 2, moderate: 3, available: 4, untracked: 5 };
+        return priority[a.healthTone] - priority[b.healthTone] || byName(a, b);
+      },
+    };
+    return [...filtered].sort(sorters[stockSort] || byName);
+  }, [stockFilter, stockReport, stockSort]);
 
   const revenueShare = useCallback(
     (amount) => (periodSales > 0 ? (amount / periodSales) * 100 : 0),
@@ -970,28 +993,40 @@ function AdminReport() {
                 <strong>Inventory items</strong>
                 <span>Health thresholds: red ≤20% · orange ≤40% · amber ≤70% · green above 70%.</span>
               </div>
-              <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
-                {stockFilters.map((filter) => {
-                  const count = filter === "all"
-                    ? stockReport.length
-                    : filter === "attention"
-                      ? stockBreakdown.critical + stockBreakdown.over
-                      : stockBreakdown.healthy;
+              <div className="stock-toolbar-actions">
+                <label className="stock-sort-control">
+                  <span>Sort by</span>
+                  <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
+                    <option value="name">Item name</option>
+                    <option value="category">Category</option>
+                    <option value="low">Stock level: low to high</option>
+                    <option value="high">Stock level: high to low</option>
+                    <option value="status">Health status</option>
+                  </select>
+                </label>
+                <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
+                  {stockFilters.map((filter) => {
+                    const count = filter === "all"
+                      ? stockReport.length
+                      : filter === "attention"
+                        ? stockBreakdown.critical + stockBreakdown.over
+                        : stockBreakdown.healthy;
 
-                  return (
-                    <button
-                      key={filter}
-                      type="button"
-                      role="tab"
-                      aria-selected={filter === stockFilter}
-                      className={filter === stockFilter ? "active" : ""}
-                      onClick={() => setStockFilter(filter)}
-                    >
-                      {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
-                      <span>{count}</span>
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={filter}
+                        type="button"
+                        role="tab"
+                        aria-selected={filter === stockFilter}
+                        className={filter === stockFilter ? "active" : ""}
+                        onClick={() => setStockFilter(filter)}
+                      >
+                        {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
+                        <span>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
