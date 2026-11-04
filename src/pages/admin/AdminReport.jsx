@@ -63,7 +63,7 @@ function AdminReport() {
   const { orders = [] } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
 
-  const [rangeKey, setRangeKey] = useState("1d");
+  const [rangeKey, setRangeKey] = useState("all");
   const [customStart, setCustomStart] = useState(() => {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, "0");
@@ -142,7 +142,7 @@ function AdminReport() {
     previousStart.setDate(previousStart.getDate() - (range.days || 7));
 
     return { start, end, previousStart, isDaily: true };
-  }, [rangeKey, range.days, customStart, customEnd]);
+  }, [rangeKey, range.days, customStart, customEnd, orders]);
 
   const periodOrders = useMemo(() => orders.filter((order) => {
     const timestamp = orderTimestamp(order);
