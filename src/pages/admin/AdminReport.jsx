@@ -87,6 +87,8 @@ function AdminReport() {
   });
   const [stockFilter, setStockFilter] = useState("all");
   const [stockSort, setStockSort] = useState("name");
+  const [restockModalOpen, setRestockModalOpen] = useState(false);
+  const [restockNotice, setRestockNotice] = useState("");
   const [exportNotice, setExportNotice] = useState(false);
   const noticeTimer = useRef(null);
 
@@ -95,6 +97,20 @@ function AdminReport() {
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (!restockModalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setRestockModalOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [restockModalOpen]);
 
   const liveDate = useMemo(() => new Date().toLocaleDateString("en-US", {
     month: "long",
@@ -424,7 +440,8 @@ function AdminReport() {
     return inventory.map((entry) => {
       const status = getInventoryStatus(entry.quantity, entry.maximumStock);
       const quantity = Number(entry.quantity || 0);
-      const maximumStock = entry.maximumStock == null || entry.maximumStock === "" ? null : Number(entry.maximumStock);
+      const parsedMaximumStock = entry.maximumStock == null || entry.maximumStock === "" ? null : Number(entry.maximumStock);
+      const maximumStock = Number.isFinite(parsedMaximumStock) && parsedMaximumStock > 0 ? parsedMaximumStock : null;
       const { capacityPercent, reportedPercent, tone: healthTone } = getStockHealth(
         quantity,
         maximumStock,
@@ -465,6 +482,14 @@ function AdminReport() {
     critical: stockReport.filter((item) => item.tone === "critical").length,
     healthy: stockReport.filter((item) => item.tone === "available").length,
   }), [stockReport]);
+
+  const restockItems = useMemo(() => stockReport
+    .filter((item) => item.tone === "critical" || item.healthTone === "critical" || item.healthTone === "low")
+    .sort((a, b) => {
+      const aPriority = a.quantity <= 0 ? 0 : a.healthTone === "critical" ? 1 : 2;
+      const bPriority = b.quantity <= 0 ? 0 : b.healthTone === "critical" ? 1 : 2;
+      return aPriority - bPriority || String(a.item || "").localeCompare(String(b.item || ""));
+    }), [stockReport]);
 
   const visibleStock = useMemo(() => {
     const filtered = stockFilter === "attention"
@@ -588,6 +613,44 @@ function AdminReport() {
     setExportNotice(true);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setExportNotice(false), 2600);
+  };
+
+  const handleCopyRestockList = async () => {
+    if (!restockItems.length) return;
+
+    const now = new Date();
+    const dateStamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const lines = [
+      "AMAYA RESTOCK LIST",
+      `Generated: ${now.toLocaleString()}`,
+      `Items needing restock: ${restockItems.length}`,
+      "",
+      ...restockItems.flatMap((item, index) => [
+        `${index + 1}. ${item.item}`,
+        `   Status: ${item.label}${item.reportedPercent == null ? "" : ` (${item.reportedPercent}% of maximum stock)`}`,
+        `   Category: ${item.category || "Uncategorized"}`,
+        `   On hand: ${item.quantity.toLocaleString()} ${item.unit}`,
+        `   Maximum stock: ${item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}`,
+        `   Estimated refill to maximum: ${item.maximumStock == null ? "Set maximum stock first" : `${Math.max(0, item.maximumStock - item.quantity).toLocaleString()} ${item.unit}`}`,
+        "",
+      ]),
+    ];
+    const restockText = lines.join("\n");
+    const url = URL.createObjectURL(new Blob([restockText], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `amaya-restock-list-${dateStamp}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    try {
+      await navigator.clipboard.writeText(restockText);
+      setRestockNotice("Restock list copied and downloaded as a .txt file for Notepad.");
+    } catch {
+      setRestockNotice("Restock list downloaded as a .txt file for Notepad. Clipboard access was unavailable.");
+    }
   };
 
   return (
@@ -1005,7 +1068,18 @@ function AdminReport() {
                 <h3>Stock health</h3>
                 <p className="inventory-panel-description">A live view of tracked ingredients and supplies.</p>
               </div>
-              <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
+              <div className="inventory-panel-actions">
+                <button
+                  type="button"
+                  className="restock-open-button"
+                  onClick={() => { setRestockNotice(""); setRestockModalOpen(true); }}
+                  aria-haspopup="dialog"
+                  aria-label={`View restock list, ${restockItems.length} items need attention`}
+                >
+                  View restock list <span>{restockItems.length}</span>
+                </button>
+                <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
+              </div>
             </div>
 
             <div className="stock-overview" aria-label="Inventory summary">
@@ -1142,6 +1216,75 @@ function AdminReport() {
           ) : null}
         </div>
       </main>
+      {restockModalOpen && (
+        <div
+          className="restock-modal-backdrop"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setRestockModalOpen(false); }}
+        >
+          <section
+            className="restock-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="restock-modal-title"
+            aria-describedby="restock-modal-description"
+          >
+            <header className="restock-modal-header">
+              <div>
+                <span className="admin-report-eyebrow">INVENTORY ACTION</span>
+                <h2 id="restock-modal-title">Out of stock &amp; running low</h2>
+                <p id="restock-modal-description">Review items at 40% stock or below. Suggested refill quantities bring each item back to its maximum level.</p>
+              </div>
+              <button type="button" className="restock-modal-close" onClick={() => setRestockModalOpen(false)} aria-label="Close restock list" autoFocus>×</button>
+            </header>
+
+            <div className="restock-modal-summary">
+              <strong>{restockItems.length}</strong>
+              <span>{restockItems.length === 1 ? "item needs" : "items need"} restocking</span>
+            </div>
+
+            {restockItems.length ? (
+              <div className="restock-table-wrap">
+                <table className="restock-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Ingredient / item</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">On hand</th>
+                      <th scope="col">Maximum</th>
+                      <th scope="col">Estimated refill</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {restockItems.map((item) => (
+                      <tr key={item.id}>
+                        <td><strong>{item.item}</strong><small>{item.category || "Uncategorized"}</small></td>
+                        <td><span className={`restock-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span></td>
+                        <td>{item.quantity.toLocaleString()} {item.unit}</td>
+                        <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}</td>
+                        <td><strong>{item.maximumStock == null ? "Set maximum first" : `${Math.max(0, item.maximumStock - item.quantity).toLocaleString()} ${item.unit}`}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="restock-empty-state">
+                <span aria-hidden="true">✓</span>
+                <strong>Everything is in good shape</strong>
+                <p>No items are out of stock or below 40% of their maximum level.</p>
+              </div>
+            )}
+
+            <footer className="restock-modal-footer">
+              <p role="status" aria-live="polite">{restockNotice || "Copying also downloads a .txt file that can be opened in Notepad."}</p>
+              <div>
+                <button type="button" className="restock-secondary-button" onClick={() => setRestockModalOpen(false)}>Close</button>
+                <button type="button" className="restock-copy-button" onClick={handleCopyRestockList} disabled={!restockItems.length}>Copy restock list</button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

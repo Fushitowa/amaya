@@ -100,6 +100,11 @@
 .inventory-panel-heading { align-items: center; }
 .inventory-panel-heading h3 { margin-top: 5px; font-size: 24px; }
 .inventory-panel-description { margin: 7px 0 0; color: var(--report-muted); font-size: 12px; }
+.inventory-panel-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; }
+.restock-open-button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border: 1px solid #e4d9cf; border-radius: 8px; background: #fff; color: var(--report-accent-dark); font: 700 10px "DM Sans", sans-serif; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+.restock-open-button:hover { transform: translateY(-1px); border-color: #c8a588; background: #fffaf5; }
+.restock-open-button > span { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #f3ebe4; color: var(--report-accent-dark); font-size: 9px; font-variant-numeric: tabular-nums; }
+.restock-open-button:focus-visible, .restock-modal button:focus-visible { outline: 2px solid var(--report-accent); outline-offset: 2px; }
 .inventory-live-note { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #e7eee7; border-radius: 999px; background: #f6faf6; color: #63836a; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .inventory-live-note > span { width: 7px; height: 7px; border-radius: 50%; background: #6caa75; box-shadow: 0 0 0 3px rgba(108, 170, 117, .13); }
 .stock-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
@@ -155,6 +160,42 @@
 .inventory-status.untracked { border-color: #eae5df; background: #f7f5f2; color: #786d64; }
 .stock-filter-tabs button:focus-visible { outline: 2px solid var(--report-accent); outline-offset: 2px; }
 
+.restock-modal-backdrop { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 24px; background: rgba(39, 29, 23, .48); backdrop-filter: blur(3px); }
+.restock-modal { display: flex; flex-direction: column; width: min(100%, 980px); max-height: min(88vh, 900px); overflow: hidden; border: 1px solid rgba(255,255,255,.7); border-radius: 14px; background: #fffdfb; box-shadow: 0 24px 80px rgba(34, 24, 18, .25); }
+.restock-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 24px 26px 18px; border-bottom: 1px solid var(--report-line); }
+.restock-modal-header h2 { margin: 6px 0 0; color: var(--report-ink); font: 700 23px "Playfair Display", serif; }
+.restock-modal-header p { margin: 7px 0 0; max-width: 70ch; color: var(--report-muted); font-size: 11.5px; line-height: 1.5; }
+.restock-modal-close { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; border: 1px solid #ece4de; border-radius: 8px; background: #fff; color: #76685e; font-size: 22px; line-height: 1; cursor: pointer; }
+.restock-modal-summary { display: flex; align-items: baseline; gap: 8px; padding: 16px 26px 12px; }
+.restock-modal-summary strong { color: var(--report-ink); font-size: 21px; font-variant-numeric: tabular-nums; }
+.restock-modal-summary span { color: var(--report-muted); font-size: 11px; }
+.restock-table-wrap { min-height: 0; overflow: auto; padding: 0 26px; }
+.restock-table { width: 100%; min-width: 720px; border-collapse: collapse; }
+.restock-table th { padding: 11px 10px; border-bottom: 1px solid var(--report-line); color: var(--report-muted); font-size: 9px; font-weight: 700; letter-spacing: .7px; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.restock-table td { padding: 12px 10px; border-bottom: 1px solid #f0ebe7; color: #5b4c43; font-size: 11px; vertical-align: middle; white-space: nowrap; }
+.restock-table tbody tr:hover { background: #fdf9f5; }
+.restock-table th:first-child, .restock-table td:first-child { padding-left: 0; }
+.restock-table th:last-child, .restock-table td:last-child { padding-right: 0; }
+.restock-table td:first-child strong, .restock-table td:first-child small { display: block; }
+.restock-table td:first-child strong { color: var(--report-ink); font-size: 11.5px; }
+.restock-table td:first-child small { margin-top: 3px; color: var(--report-muted); font-size: 9.5px; }
+.restock-table td:last-child strong { color: var(--report-accent-dark); font-variant-numeric: tabular-nums; }
+.restock-status { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid transparent; border-radius: 999px; font-size: 9px; font-weight: 700; }
+.restock-status > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.restock-status.critical { border-color: #f0dfdb; background: #fbf1ef; color: #a56452; }
+.restock-status.low { border-color: #f3dfd4; background: #fff4ee; color: #bd613e; }
+.restock-empty-state { display: grid; justify-items: center; gap: 7px; margin: 10px 26px 0; padding: 36px 20px; border: 1px dashed #e3dbd4; border-radius: 10px; background: #fdfaf8; text-align: center; }
+.restock-empty-state > span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #eaf3eb; color: #5d8d64; font-size: 18px; font-weight: 700; }
+.restock-empty-state strong { color: var(--report-ink); font-size: 13px; }
+.restock-empty-state p { margin: 0; color: var(--report-muted); font-size: 11px; }
+.restock-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 26px; border-top: 1px solid var(--report-line); background: #fff; }
+.restock-modal-footer p { margin: 0; color: var(--report-muted); font-size: 10px; line-height: 1.45; }
+.restock-modal-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
+.restock-secondary-button, .restock-copy-button { min-height: 36px; padding: 0 13px; border: 1px solid #e4d9cf; border-radius: 8px; background: #fff; color: #6b5548; font: 700 10px "DM Sans", sans-serif; cursor: pointer; }
+.restock-copy-button { border-color: var(--report-accent-dark); background: var(--report-accent-dark); color: #fff; }
+.restock-copy-button:hover:not(:disabled) { background: var(--report-accent); }
+.restock-copy-button:disabled { opacity: .45; cursor: not-allowed; }
+
 .admin-report-empty { display: grid; justify-items: center; gap: 5px; margin-top: 24px; padding: 34px 20px; border: 1px dashed #e2d7ce; border-radius: 9px; background: #fdfaf8; text-align: center; }.admin-report-empty > span { font-size: 22px; color: var(--report-accent); opacity: .55; }.admin-report-empty strong { font-size: 12.5px; }.admin-report-empty p { margin: 0; max-width: 42ch; color: var(--report-muted); font-size: 11.5px; }.admin-report-empty.compact { margin-top: 18px; padding: 20px; }
 
 .admin-report-insights { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }.admin-report-insight { padding: 15px 16px; border: 1px solid var(--report-line); border-left: 3px solid #d8b28f; border-radius: 8px; background: #fff; }.admin-report-insight span, .admin-report-insight strong { display: block; }.admin-report-insight span { color: var(--report-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }.admin-report-insight strong { margin-top: 6px; font-size: 12.5px; line-height: 1.45; }.admin-report-insight.positive { border-left-color: var(--report-positive); }.admin-report-insight.warning { border-left-color: var(--report-critical); }
@@ -164,6 +205,7 @@
 @media (max-width: 900px) { .admin-report-sidebar { width: 72px; flex-basis: 72px; padding: 22px 10px; }.admin-report-brand { justify-content: center; padding: 0 0 22px; }.admin-report-brand div, .admin-report-nav-label { display: none; }.admin-report-nav-link { justify-content: center; padding: 0; font-size: 0; }.admin-report-nav-link > span { font-size: 18px; }.admin-report-topbar { padding: 18px 24px; }.admin-report-content { padding: 30px; }.admin-report-sales-layout { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .admin-report-heading { align-items: flex-start; flex-direction: column; }.admin-report-heading-actions { width: 100%; flex-direction: column; }.admin-report-date { border-left-width: 3px; }.admin-report-export { align-self: stretch; }.admin-report-range { width: 100%; overflow-x: auto; }.admin-report-stats, .admin-report-insights { grid-template-columns: 1fr; }.report-status-row { grid-template-columns: repeat(2, 1fr); }.inventory-table { min-width: 460px; } }
 @media (max-width: 720px) { .stock-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }.stock-list-toolbar { align-items: flex-start; flex-direction: column; }.stock-toolbar-actions { width: 100%; align-items: flex-start; flex-direction: column; }.stock-sort-control { width: 100%; justify-content: space-between; }.stock-sort-control select { flex: 1; max-width: none; }.stock-filter-tabs { max-width: 100%; overflow-x: auto; }.stock-filter-tabs button { padding: 0 8px; }.inventory-live-note { font-size: 9px; } }
+@media (max-width: 720px) { .inventory-panel-heading { align-items: flex-start; flex-direction: column; }.inventory-panel-actions { justify-content: flex-start; }.restock-modal-backdrop { padding: 12px; }.restock-modal { max-height: 94vh; }.restock-modal-header { padding: 20px 18px 15px; }.restock-modal-header h2 { font-size: 20px; }.restock-modal-summary { padding: 13px 18px 10px; }.restock-table-wrap { padding: 0 18px; }.restock-modal-footer { align-items: stretch; flex-direction: column; padding: 14px 18px; }.restock-modal-footer > div { justify-content: flex-end; } }
 @media (max-width: 720px) { .cashier-panel-heading { align-items: flex-start; flex-direction: column; }.cashier-summary { grid-template-columns: 1fr; gap: 8px; }.cashier-summary-card { padding: 12px 14px; }.cashier-summary-card strong { font-size: 17px; }.cashier-table-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (max-width: 600px) { .admin-report-topbar-actions { gap: 12px; }.admin-report-user { padding-left: 12px; }.admin-report-user > div:last-child { display: none; }.admin-report-content { padding: 25px 17px; }.admin-report-heading h2 { font-size: 27px; }.sales-summary, .weekly-sales, .inventory-panel, .cashier-panel, .trend-panel, .channel-panel, .products-panel { padding: 19px; } .admin-report-hero-grid .admin-report-stats { grid-template-columns: 1fr; } .trend-heading { flex-direction: column; align-items: flex-start; gap: 12px; } }
 @media (max-width: 420px) { .stock-overview { gap: 8px; }.stock-overview-card { min-height: 68px; gap: 9px; padding: 11px 10px; }.stock-overview-icon { width: 30px; height: 30px; flex-basis: 30px; }.stock-filter-tabs { width: 100%; }.stock-filter-tabs button { gap: 5px; font-size: 9px; } }

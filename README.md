@@ -49,6 +49,12 @@ A Tkinter Python GUI (`scripts/amaya_control_panel.py`) accompanied by a windowl
 * **Complete Logical Remediation:** 8 defect clusters remediated across financial reporting (strict Paid-only recognized revenue/COGS), exact cash checkout fallbacks, dynamic recipe-backed serving availability (`recipeServings`), and cumulative cart ingredient stock ceilings.
 * **Engineering Ledger:** See [CHANGELOG.md](CHANGELOG.md) and [docs/LOGICAL_AUDIT_AND_REMEDIATION_LOG.md](docs/LOGICAL_AUDIT_AND_REMEDIATION_LOG.md) for full technical diffs and verification benchmarks.
 
+### 9. 📋 Stock Health Restock List (Fushi / Ken)
+* **Reports → Stock health:** The **View restock list** action opens a focused list of out-of-stock, critical (20% or less), and running-low (21–40%) inventory items.
+* **Restock guidance:** Each row shows the current quantity, maximum stock, health status, and estimated quantity needed to return to the configured maximum.
+* **Copy and Notepad workflow:** **Copy restock list** copies the full list to the clipboard and downloads it as a dated `.txt` file that can be opened in Notepad. Browsers cannot write directly into or launch Notepad, so the downloaded text file is the portable handoff.
+* **Feature update by:** Fushi (Ken), [@Fushitowa](https://github.com/Fushitowa).
+
 ---
 
 ## 🧮 The Mathematical Inventory-to-Menu Costing Engine
