@@ -44,6 +44,16 @@ function orderItemList(order) {
   return Array.isArray(order.items) ? order.items : [];
 }
 
+function initials(name) {
+  return String(name || "Staff")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("") || "S";
+}
+
 function niceCeil(value) {
   if (!(value > 0)) return 0;
 
@@ -372,6 +382,12 @@ function AdminReport() {
     });
     return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
   }, [paidPeriodOrders]);
+
+  const cashierSummary = useMemo(() => {
+    const orders = cashierSales.reduce((sum, cashier) => sum + cashier.orders, 0);
+    const revenue = cashierSales.reduce((sum, cashier) => sum + cashier.revenue, 0);
+    return { orders, revenue, averageTicket: orders ? revenue / orders : 0 };
+  }, [cashierSales]);
 
   const channelMix = useMemo(() => {
     const totals = new Map();
@@ -902,57 +918,80 @@ function AdminReport() {
             )}
           </section>
 
-          <section className="admin-report-panel" aria-label="Cashier attribution report">
-            <div className="panel-heading">
+          <section className="admin-report-panel cashier-panel" aria-label="Cashier attribution report">
+            <div className="panel-heading cashier-panel-heading">
               <div>
                 <span className="admin-report-eyebrow">STAFF ATTRIBUTION</span>
                 <h3>Cashiers in charge</h3>
+                <p className="cashier-panel-description">Paid sales attributed to each cashier in the selected period.</p>
               </div>
-              <span className="inventory-count">{cashierSales.length} {cashierSales.length === 1 ? "cashier" : "cashiers"} active</span>
+              <span className="cashier-active-note"><span aria-hidden="true" />{cashierSales.length} {cashierSales.length === 1 ? "cashier" : "cashiers"} with sales</span>
             </div>
 
             {cashierSales.length ? (
-              <div className="inventory-table-wrap">
-                <table className="inventory-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Cashier in Charge</th>
-                      <th scope="col">Orders Processed</th>
-                      <th scope="col">Total Sales Revenue</th>
-                      <th scope="col">Average Ticket</th>
-                      <th scope="col">Sales Share</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashierSales.map((cashier) => (
-                      <tr key={cashier.name}>
-                        <td>
-                          <strong style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                            👤 {cashier.name}
-                          </strong>
-                        </td>
-                        <td>{cashier.orders}</td>
-                        <td><strong>{peso(cashier.revenue)}</strong></td>
-                        <td>{peso(cashier.orders ? cashier.revenue / cashier.orders : 0)}</td>
-                        <td>
-                          <span className="report-share">
-                            <span className="report-share-track">
-                              <span
-                                className="report-share-bar"
-                                style={{ width: `${Math.max(4, revenueShare(cashier.revenue))}%` }}
-                              ></span>
-                            </span>
-                            {Math.round(revenueShare(cashier.revenue))}%
-                          </span>
-                        </td>
+              <>
+                <div className="cashier-summary" aria-label="Cashier sales summary">
+                  <div className="cashier-summary-card">
+                    <span>Orders processed</span>
+                    <strong>{cashierSummary.orders.toLocaleString()}</strong>
+                  </div>
+                  <div className="cashier-summary-card revenue">
+                    <span>Attributed revenue</span>
+                    <strong>{peso(cashierSummary.revenue)}</strong>
+                  </div>
+                  <div className="cashier-summary-card">
+                    <span>Average ticket</span>
+                    <strong>{peso(cashierSummary.averageTicket)}</strong>
+                  </div>
+                </div>
+                <div className="cashier-table-heading">
+                  <strong>Cashier performance</strong>
+                  <span>Ranked by attributed sales</span>
+                </div>
+                <div className="inventory-table-wrap cashier-table-wrap">
+                  <table className="inventory-table cashier-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Rank</th>
+                        <th scope="col">Cashier</th>
+                        <th scope="col">Orders</th>
+                        <th scope="col">Sales revenue</th>
+                        <th scope="col">Average ticket</th>
+                        <th scope="col">Sales share</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {cashierSales.map((cashier, index) => (
+                        <tr key={cashier.name}>
+                          <td><span className="cashier-rank">{String(index + 1).padStart(2, "0")}</span></td>
+                          <td><div className="cashier-person"><span aria-hidden="true">{initials(cashier.name)}</span><strong>{cashier.name}</strong></div></td>
+                          <td>{cashier.orders}</td>
+                          <td><strong>{peso(cashier.revenue)}</strong></td>
+                          <td>{peso(cashier.orders ? cashier.revenue / cashier.orders : 0)}</td>
+                          <td>
+                            <div className="cashier-share">
+                              <div
+                                className="cashier-share-track"
+                                role="progressbar"
+                                aria-label={`${cashier.name} sales share`}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={Math.round(revenueShare(cashier.revenue))}
+                              >
+                                <span style={{ width: `${revenueShare(cashier.revenue)}%` }} />
+                              </div>
+                              <strong>{Math.round(revenueShare(cashier.revenue))}%</strong>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             ) : (
               <div className="admin-report-empty">
-                <span>👤</span>
+                <span>◎</span>
                 <strong>No cashier sales in this period</strong>
                 <p>Transactions processed at the counter will appear here attributed to the cashier in charge.</p>
               </div>
