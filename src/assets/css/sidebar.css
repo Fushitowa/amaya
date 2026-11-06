@@ -18,6 +18,45 @@
   will-change: width, flex-basis;
 }
 
+.amaya-sidebar.amaya-sidebar--admin-frame {
+  width: 260px;
+  flex: 0 0 260px;
+  height: calc(100vh - 20px);
+  height: calc(100dvh - 20px);
+  min-height: 0;
+  margin: 10px;
+  border: 1px solid #e7d7c7;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffdf9 0%, #fbf6f0 58%, #f7eee6 100%);
+  box-shadow: 0 8px 24px rgba(91, 61, 40, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-brand {
+  border-bottom-color: #eadccd;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #d2bdab transparent;
+  scrollbar-width: thin;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar {
+  width: 5px;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #d2bdab;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-bottom {
+  border-top-color: #eadccd;
+  background: rgba(255, 255, 255, 0.32);
+}
+
 .amaya-sidebar-brand {
   display: flex;
   align-items: center;
@@ -440,6 +479,15 @@
   .amaya-sidebar {
     width: 88px;
     flex-basis: 88px;
+  }
+
+  .amaya-sidebar.amaya-sidebar--admin-frame {
+    width: 72px;
+    flex-basis: 72px;
+    margin: 8px;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+    border-radius: 14px;
   }
 
   .amaya-sidebar-brand {

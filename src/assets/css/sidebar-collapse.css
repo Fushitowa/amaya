@@ -390,6 +390,19 @@
   margin: 0 auto !important;
 }
 
+.amaya-sidebar.amaya-sidebar--admin-frame.amaya-sidebar--collapsed,
+.sidebar-collapsed .amaya-sidebar.amaya-sidebar--admin-frame {
+  top: 8px !important;
+  width: 72px !important;
+  flex: 0 0 72px !important;
+  flex-basis: 72px !important;
+  min-width: 72px !important;
+  max-width: 72px !important;
+  height: calc(100vh - 16px) !important;
+  height: calc(100dvh - 16px) !important;
+  margin: 8px !important;
+}
+
 /* Normalize and smoothly adjust main content area across all admin and staff pages */
 .admin-dashboard.sidebar-collapsed .admin-main,
 .admin-inventory-page.sidebar-collapsed .admin-inventory-main,
