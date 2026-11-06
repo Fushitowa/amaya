@@ -1206,10 +1206,22 @@ function AdminReport() {
 
           {insights.length ? (
             <section className="admin-report-insights" aria-label="Report highlights">
+              <div className="report-highlights-heading">
+                <div>
+                  <span className="admin-report-eyebrow">PERIOD SUMMARY</span>
+                  <h3>Report highlights</h3>
+                  <p>Key signals from the selected reporting period.</p>
+                </div>
+              </div>
               {insights.map((insight) => (
                 <div key={insight.label} className={`admin-report-insight ${insight.tone}`}>
-                  <span>{insight.label}</span>
-                  <strong>{insight.value}</strong>
+                  <span className="report-insight-icon" aria-hidden="true">
+                    {insight.label === "Best day" ? "↗" : insight.label === "Top channel" ? "◉" : insight.label === "Best seller" ? "★" : "!"}
+                  </span>
+                  <div className="report-insight-copy">
+                    <span>{insight.label}</span>
+                    <strong>{insight.value}</strong>
+                  </div>
                 </div>
               ))}
             </section>
