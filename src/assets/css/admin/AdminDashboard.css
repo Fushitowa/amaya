@@ -45,6 +45,13 @@ body {
   background: linear-gradient(180deg, #f8f2ee 0%, #f5f0ed 100%);
 }
 
+.admin-dashboard > .amaya-sidebar.admin-dashboard-navigation {
+  border: 1px solid #e7d7c7;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffdf9 0%, #fbf6f0 58%, #f7eee6 100%);
+  box-shadow: 0 8px 24px rgba(91, 61, 40, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
 .admin-sidebar {
   width: 280px;
   height: 100vh;

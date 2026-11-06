@@ -184,6 +184,7 @@ function AdminDashboard() {
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <Sidebar
         role="admin"
+        className="admin-dashboard-navigation"
         activeTab="dashboard" orderCount={orders.length}
         sidebarCollapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
