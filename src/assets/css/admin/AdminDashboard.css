@@ -1390,7 +1390,9 @@ body {
   *::after {
     scroll-behavior: auto !important;
 
-    transition: none !important;
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 120ms !important;
   }
 
 }
@@ -2336,7 +2338,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .admin-dashboard .dock-chip,
   .admin-dashboard .admin-content,
-  .admin-dashboard .admin-content .admin-stat-card { transition: none !important; }
+  .admin-dashboard .admin-content .admin-stat-card {
+    transition-duration: 120ms !important;
+  }
 }
 
 /* ---- Magnet header: hero scrolls away, its bottom 56px strip sticks to the top and holds the stat chips ---- */
@@ -2736,8 +2740,9 @@ body {
   .admin-dashboard *,
   .admin-dashboard *::before,
   .admin-dashboard *::after {
-    animation: none !important;
-    transition: none !important;
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 120ms !important;
   }
 }
 
@@ -2922,19 +2927,25 @@ body {
 .ad-orders::-webkit-scrollbar { width: 10px; }
 .ad-orders::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 99px; background: rgba(90,62,43,.28) padding-box; }
 .ad-orders li { display: flex; align-items: center; gap: 12px; padding: 12px 8px; }
+.ad-orders:not(.ad-stock-list) li { padding: 0; }
+.ad-order-btn { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; touch-action: manipulation; transition: background-color 140ms ease, transform 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+.ad-order-btn:active { transform: scale(0.988); transition-duration: 0ms; }
+@media (hover: hover) and (pointer: fine) {
+  .ad-order-btn:hover { background: rgba(139, 94, 60, 0.06); }
+}
 .ad-orders li + li { border-top: 1px solid #f0e8e0; }
 .ad-dot { width: 11px; height: 11px; flex: 0 0 11px; border-radius: 50%; background: #cfc6bd; }
-.ad-dot.pending { background: #e0a526; } .ad-dot.preparing { background: #3b78d1; } .ad-dot.completed { background: #2e9d57; }
+.ad-dot.pending { background: #e0a526; } .ad-dot.preparing { background: #3b78d1; } .ad-dot.completed { background: #2e9d57; } .ad-dot.cancelled { background: #c24135; }
 .ad-order-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ad-order-text strong { font-size: 15px; } .ad-order-text small { font-size: 12.5px; color: #8a7c73; }
 .ad-order-end { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .ad-order-end b { font-size: 14.5px; color: #3a2618; }
 .ad-order-end em { font-style: normal; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 7px; background: #eee; color: #555; }
-.ad-order-end em.pending { background: #fff1d6; color: #8a5a00; } .ad-order-end em.preparing { background: #e1ecfb; color: #1f4f96; } .ad-order-end em.completed { background: #e3f3e8; color: #15803d; }
+.ad-order-end em.pending { background: #fff1d6; color: #8a5a00; } .ad-order-end em.preparing { background: #e1ecfb; color: #1f4f96; } .ad-order-end em.completed { background: #e3f3e8; color: #15803d; } .ad-order-end em.cancelled { background: #fdeae8; color: #9c2b21; }
 .ad-empty { margin: 8px 0; text-align: center; color: #8a7c73; font-size: 14px; }
 .ad-fab { position: fixed; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 40; min-height: 56px; display: inline-flex; align-items: center; gap: 10px; padding: 0 22px 0 18px; border-radius: 18px; background: #f0bd78; color: #3a2618; font: 700 15.5px "Roboto", "DM Sans", sans-serif; text-decoration: none; box-shadow: 0 6px 16px rgba(58,38,24,.35); }
 .ad-fab:active { transform: scale(.94); }
-@media (prefers-reduced-motion: reduce) { .ad-backdrop { animation: none; } .ad-bar i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .ad-backdrop { animation-duration: 1ms; } .ad-bar i, .ad-order-btn { transition-duration: 120ms; } }
 
 
 /* ==========================================================================
@@ -4485,4 +4496,69 @@ body {
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
   }
+}
+
+.admin-dashboard .orders-receipt-row.is-clickable {
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-dashboard .orders-receipt-row.is-clickable:hover td {
+    background-color: rgba(139, 94, 60, 0.06);
+  }
+}
+
+.admin-dashboard .orders-ticket-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.admin-dashboard .orders-ticket-btn:active {
+  transform: scale(0.96);
+  transition-duration: 0ms;
+}
+
+.admin-dashboard .orders-ticket-btn:focus-visible {
+  outline: 2px solid #8b5e3c;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.admin-dashboard .order-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: #eee7df;
+  color: #5b493b;
+}
+
+.admin-dashboard .order-status-pill.status-pending {
+  background: #fff1d6;
+  color: #8a5a00;
+}
+
+.admin-dashboard .order-status-pill.status-preparing {
+  background: #e1ecfb;
+  color: #1f4f96;
+}
+
+.admin-dashboard .order-status-pill.status-completed {
+  background: #e3f3e8;
+  color: #15803d;
+}
+
+.admin-dashboard .order-status-pill.status-cancelled {
+  background: #fdeae8;
+  color: #9c2b21;
 }

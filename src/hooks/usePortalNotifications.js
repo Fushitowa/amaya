@@ -26,30 +26,44 @@ export function usePortalNotifications() {
   const [preferences, setPreferences] = useState(readAdminPreferences);
 
   const refresh = useCallback(() => {
-    setNotifications(readStaffNotifications());
-    loadNotifications().then(setNotifications);
+    loadNotifications().then(setNotifications).catch(() => {});
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const syncRemote = () => {
+      loadNotifications()
+        .then((list) => {
+          if (active) setNotifications(list);
+        })
+        .catch(() => {});
+    };
+    const handleLocalUpdate = () => {
+      setNotifications(readStaffNotifications());
+      syncRemote();
+    };
     const handlePreferences = () => setPreferences(readAdminPreferences());
     const handleStorage = (event) => {
-      if (event.key === STAFF_NOTIFICATIONS_KEY) refresh();
+      if (event.key === STAFF_NOTIFICATIONS_KEY) handleLocalUpdate();
       if (event.key === "amaya-admin-notifications") handlePreferences();
     };
-    window.addEventListener(STAFF_NOTIFY_EVENT, refresh);
-    window.addEventListener("amaya:notifications-updated", refresh);
+
+    window.addEventListener(STAFF_NOTIFY_EVENT, handleLocalUpdate);
+    window.addEventListener("amaya:notifications-updated", syncRemote);
     window.addEventListener("amaya-admin-notification-preferences", handlePreferences);
     window.addEventListener("storage", handleStorage);
-    const poll = window.setInterval(refresh, 12000);
-    refresh();
+    const poll = window.setInterval(syncRemote, 12000);
+    syncRemote();
+
     return () => {
-      window.removeEventListener(STAFF_NOTIFY_EVENT, refresh);
-      window.removeEventListener("amaya:notifications-updated", refresh);
+      active = false;
+      window.removeEventListener(STAFF_NOTIFY_EVENT, handleLocalUpdate);
+      window.removeEventListener("amaya:notifications-updated", syncRemote);
       window.removeEventListener("amaya-admin-notification-preferences", handlePreferences);
       window.removeEventListener("storage", handleStorage);
       window.clearInterval(poll);
     };
-  }, [refresh]);
+  }, []);
 
   const visibleNotifications = useMemo(() => {
     if (!preferences.notifications) return [];

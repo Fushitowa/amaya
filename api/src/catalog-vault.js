@@ -12,6 +12,7 @@ const BACKUPS_DIR = path.join(ROOT_DIR, "database", "backups");
 const LATEST_BACKUP_PATH = path.join(BACKUPS_DIR, "catalog_vault_latest.json");
 
 const SNAPSHOT_TABLES = [
+  "business_settings",
   "menu_categories",
   "menu_products",
   "product_sizes",
@@ -21,21 +22,19 @@ const SNAPSHOT_TABLES = [
   "inventory_categories",
   "inventory_items",
   "inventory_cups",
-  "inventory_movements",
-  "inventory_alert_states",
-  "inventory_inactivity_states",
+  "cashier_sessions",
   "orders",
   "order_items",
   "order_item_addons",
   "order_inventory_consumptions",
+  "order_status_events",
+  "inventory_movements",
+  "inventory_alert_states",
+  "inventory_inactivity_states",
 ];
 
-// Tables to clear during archive-clean (complete zero-state operational reset)
-const CLEAN_DELETE_TABLES = [
-  "order_inventory_consumptions",
-  "order_item_addons",
-  "order_items",
-  "orders",
+// By default archive-clean ONLY clears catalog/inventory tables, preserving orders, sessions, and movements.
+const CLEAN_CATALOG_TABLES = [
   "product_size_ingredients",
   "product_ingredients",
   "product_addons",
@@ -45,16 +44,26 @@ const CLEAN_DELETE_TABLES = [
   "inventory_cups",
   "inventory_alert_states",
   "inventory_inactivity_states",
-  "inventory_movements",
   "inventory_items",
   "inventory_categories",
+];
+
+// Only cleared when explicit --purge-transactions CLI flag is passed
+const CLEAN_TRANSACTION_TABLES = [
+  "order_status_events",
+  "order_inventory_consumptions",
+  "order_item_addons",
+  "order_items",
+  "orders",
+  "inventory_movements",
+  "cashier_sessions",
 ];
 
 // Tables to re-insert during recover after upserting categories
 const RECOVER_DATA_TABLES = [
+  "business_settings",
   "inventory_items",
   "inventory_cups",
-  "inventory_movements",
   "inventory_alert_states",
   "inventory_inactivity_states",
   "menu_products",
@@ -62,10 +71,13 @@ const RECOVER_DATA_TABLES = [
   "product_addons",
   "product_ingredients",
   "product_size_ingredients",
+  "cashier_sessions",
   "orders",
   "order_items",
   "order_item_addons",
   "order_inventory_consumptions",
+  "order_status_events",
+  "inventory_movements",
 ];
 
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -167,6 +179,9 @@ async function fetchSnapshotFromDb(connection) {
       inventoryCategories: tables.inventory_categories.length,
       inventoryItems: tables.inventory_items.length,
       inventoryCups: tables.inventory_cups.length,
+      cashierSessions: tables.cashier_sessions.length,
+      orders: tables.orders.length,
+      inventoryMovements: tables.inventory_movements.length,
     },
     tables,
   };
@@ -271,7 +286,7 @@ async function runStatus() {
   }
 }
 
-async function runArchiveAndClean(force = false) {
+async function runArchiveAndClean(force = false, purgeTransactions = false) {
   await mkdir(BACKUPS_DIR, { recursive: true });
   const connection = await pool.getConnection();
 
@@ -327,7 +342,11 @@ async function runArchiveAndClean(force = false) {
     try {
       await connection.query("SET FOREIGN_KEY_CHECKS = 0");
 
-      for (const table of CLEAN_DELETE_TABLES) {
+      const tablesToClean = purgeTransactions
+        ? [...CLEAN_TRANSACTION_TABLES, ...CLEAN_CATALOG_TABLES]
+        : CLEAN_CATALOG_TABLES;
+
+      for (const table of tablesToClean) {
         if (await tableExists(connection, table)) {
           await connection.query(`DELETE FROM \`${table}\``);
           try {
@@ -338,7 +357,7 @@ async function runArchiveAndClean(force = false) {
         }
       }
 
-      const note = `Archived ${liveMenuCount} menu products & ${liveInventoryCount} inventory items to Vault (${path.basename(timestampedPath)}) and cleaned active catalog.`;
+      const note = `Archived ${liveMenuCount} menu products & ${liveInventoryCount} inventory items to Vault (${path.basename(timestampedPath)}) and cleaned active catalog${purgeTransactions ? " (including transactions)" : " (orders & accounts preserved)"}.`;
       await connection.query(
         `INSERT INTO archive_audit_logs (entity_type, entity_id, entity_name, action, actor_name, note)
          VALUES ('catalog_vault', 0, 'Inventory & Menu Catalog', 'vault_archived_and_cleaned', 'Control Panel', ?)`,
@@ -358,7 +377,9 @@ async function runArchiveAndClean(force = false) {
     }
 
     console.log(
-      `[Catalog Vault] Clean slate ready! Active Menu Products = 0, Active Inventory Items = 0 (Categories, Orders & Accounts preserved).`,
+      purgeTransactions
+        ? `[Catalog Vault] Clean slate ready! Active Menu Products = 0, Active Inventory Items = 0, Transactions purged (Categories & Accounts preserved).`
+        : `[Catalog Vault] Clean slate ready! Active Menu Products = 0, Active Inventory Items = 0 (Categories, Orders & Accounts preserved).`,
     );
     const payload = {
       ok: true,
@@ -376,7 +397,7 @@ async function runArchiveAndClean(force = false) {
   }
 }
 
-async function runRecover(customFilename = null) {
+async function runRecover(customFilename = null, purgeTransactions = false) {
   await mkdir(BACKUPS_DIR, { recursive: true });
   const targetPath = customFilename
     ? path.isAbsolute(customFilename)
@@ -421,8 +442,12 @@ async function runRecover(customFilename = null) {
     try {
       await connection.query("SET FOREIGN_KEY_CHECKS = 0");
 
-      // 1. Clear active catalog & inventory tables before restoring exact archived rows
-      for (const table of CLEAN_DELETE_TABLES) {
+      // 1. Clear active catalog & inventory tables (and transactions only if --purge-transactions)
+      const tablesToClear = purgeTransactions
+        ? [...CLEAN_TRANSACTION_TABLES, ...CLEAN_CATALOG_TABLES]
+        : CLEAN_CATALOG_TABLES;
+
+      for (const table of tablesToClear) {
         if (await tableExists(connection, table)) {
           await connection.query(`DELETE FROM \`${table}\``);
           try {
@@ -438,10 +463,12 @@ async function runRecover(customFilename = null) {
       await upsertRowsIntoTable(connection, "inventory_categories", tables.inventory_categories || [], true);
 
       // 3. Re-insert all archived rows preserving primary keys, timestamps, decimals, and recipes
+      const transactionTableSet = new Set(["business_settings", ...CLEAN_TRANSACTION_TABLES]);
       for (const table of RECOVER_DATA_TABLES) {
         const rows = tables[table] || [];
         if (rows.length > 0) {
-          await upsertRowsIntoTable(connection, table, rows, false);
+          const useUpsert = transactionTableSet.has(table);
+          await upsertRowsIntoTable(connection, table, rows, useUpsert);
         }
       }
 
@@ -491,14 +518,15 @@ async function main() {
   const command = (process.argv[2] || "status").toLowerCase();
   const arg = process.argv[3] || null;
   const force = process.argv.includes("--force");
+  const purgeTransactions = process.argv.includes("--purge-transactions");
 
   try {
     if (command === "status") {
       await runStatus();
     } else if (command === "archive-clean") {
-      await runArchiveAndClean(force);
+      await runArchiveAndClean(force, purgeTransactions);
     } else if (command === "recover") {
-      await runRecover(arg && !arg.startsWith("--") ? arg : null);
+      await runRecover(arg && !arg.startsWith("--") ? arg : null, purgeTransactions);
     } else {
       console.error(`Unknown catalog-vault command: '${command}'. Use: status | archive-clean | recover`);
       process.exitCode = 1;

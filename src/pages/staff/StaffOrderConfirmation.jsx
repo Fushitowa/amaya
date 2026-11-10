@@ -54,6 +54,7 @@ function StaffOrderConfirmation() {
   const [cashTendered, setCashTendered] = useState("");
   const [isNarrow, setIsNarrow] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   // PENDING until the order is created, then PAID (counter sales settle immediately).
   const [paymentStatus, setPaymentStatus] = useState("PENDING");
 
@@ -102,6 +103,7 @@ function StaffOrderConfirmation() {
     }
     if (isShort || isSubmitting) return;
 
+    setSubmitError("");
     setIsSubmitting(true);
 
     const baseNotes = String(location.state?.notes || "").trim();
@@ -126,29 +128,37 @@ function StaffOrderConfirmation() {
         });
       } catch (error) {
         setIsSubmitting(false);
-        window.alert(error.message);
+        setSubmitError(error?.message || "Unable to complete checkout. Please check shift status and stock.");
         return;
       }
     }
 
     const orderId = savedOrder?.id || `AM-${String(Date.now()).slice(-6)}`;
+    const persistedTotal = Number.isFinite(Number(savedOrder?.total)) ? Number(savedOrder.total) : subtotal;
+    const persistedCashTendered = isCash
+      ? (Number.isFinite(Number(savedOrder?.cashTendered)) ? Number(savedOrder.cashTendered) : tenderedAmount)
+      : persistedTotal;
+    const persistedChangeDue = isCash
+      ? (Number.isFinite(Number(savedOrder?.changeDue)) ? Number(savedOrder.changeDue) : changeDue)
+      : 0;
 
     // Order created successfully: a counter sale settles immediately.
     setPaymentStatus(PAYMENT_STATUS_PAID.toUpperCase());
 
     navigate("/staff/receipt", {
       state: {
-        order,
-        customerName: customerName.trim() || "Walk-in Customer",
-        orderType,
-        paymentMethod: selectedPayment,
+        order: savedOrder?.items?.length ? savedOrder.items : order,
+        customerName: savedOrder?.customer || customerName.trim() || "Walk-in Customer",
+        orderType: savedOrder?.type || orderType,
+        paymentMethod: savedOrder?.paymentMethod || selectedPayment,
         paymentStatus: PAYMENT_STATUS_PAID,
-        cashTendered: isCash ? tenderedAmount : subtotal,
-        changeDue: isCash ? changeDue : 0,
-        subtotal,
-        total: subtotal,
+        cashTendered: persistedCashTendered,
+        changeDue: persistedChangeDue,
+        subtotal: persistedTotal,
+        total: persistedTotal,
         orderId,
-        cashierName: user?.displayName || "Cashier 1",
+        cashierName: savedOrder?.cashier || user?.displayName || "Cashier 1",
+        createdAt: savedOrder?.createdAt,
         notes: combinedNotes || undefined,
       },
     });
@@ -177,6 +187,13 @@ function StaffOrderConfirmation() {
         </header>
 
         <main className="am-scroll">
+          {submitError && (
+            <div className="confirm-error-banner" role="alert">
+              <span>{submitError}</span>
+              <button type="button" onClick={() => setSubmitError("")} aria-label="Dismiss error">×</button>
+            </div>
+          )}
+
           <section className="am-hero">
             <span className="am-hero-label">Total due</span>
             <strong className="am-hero-amount">₱{subtotal.toFixed(2)}</strong>
@@ -374,6 +391,13 @@ function StaffOrderConfirmation() {
         </header>
 
         <div className="amaya-confirm-body" style={{ padding: "24px 28px 28px" }}>
+          {submitError && (
+            <div className="confirm-error-banner" role="alert">
+              <span>{submitError}</span>
+              <button type="button" onClick={() => setSubmitError("")} aria-label="Dismiss error">×</button>
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",
@@ -448,7 +472,7 @@ function StaffOrderConfirmation() {
                       fontWeight: 700,
                       fontSize: "13px",
                       cursor: "pointer",
-                      transition: "all 0.15s ease",
+                      transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
                     }}
                   >
                     {type}
@@ -516,7 +540,7 @@ function StaffOrderConfirmation() {
                         background: isSelected ? theme.earthSoft : theme.card,
                         cursor: "pointer",
                         textAlign: "left",
-                        transition: "all 0.15s ease",
+                        transition: "background-color 150ms ease, border-color 150ms ease",
                       }}
                     >
                       <span
@@ -589,7 +613,7 @@ function StaffOrderConfirmation() {
                             fontSize: "12.5px",
                             fontWeight: 700,
                             cursor: "pointer",
-                            transition: "all 0.15s ease",
+                            transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
                           }}
                         >
                           Exact
@@ -613,7 +637,7 @@ function StaffOrderConfirmation() {
                             fontSize: "12.5px",
                             fontWeight: 700,
                             cursor: "pointer",
-                            transition: "all 0.15s ease",
+                            transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
                           }}
                         >
                           ₱{amount}

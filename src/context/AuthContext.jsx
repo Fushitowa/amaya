@@ -1,12 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { apiRequest, setAuthToken } from "../utils/api.js";
+import { apiRequest, getAuthToken, setAuthToken } from "../utils/api.js";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(() => !sessionStorage.getItem("amaya-session-token"));
+  const [authReady, setAuthReady] = useState(() => !getAuthToken());
 
   useEffect(() => {
     const handleUnauthorized = () => setUser(null);
@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true;
-    const token = sessionStorage.getItem("amaya-session-token");
+    const token = getAuthToken();
     if (!token) return undefined;
     apiRequest("/auth/me")
       .then((profile) => { if (active) setUser(profile); })
@@ -32,15 +32,31 @@ export function AuthProvider({ children }) {
     });
     setAuthToken(result.token);
     setUser(result.user);
+    window.dispatchEvent(new CustomEvent("amaya:session-changed", { detail: { user: result.user } }));
     return result.user;
+  }, []);
+
+  const switchCashier = useCallback(async (password) => {
+    const result = await apiRequest("/auth/switch-cashier", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    setAuthToken(result.token);
+    setUser(result.user);
+    window.dispatchEvent(new CustomEvent("amaya:session-changed", { detail: { user: result.user } }));
+    return result;
   }, []);
 
   const logout = useCallback(() => {
     setAuthToken(null);
     setUser(null);
+    window.dispatchEvent(new CustomEvent("amaya:session-changed", { detail: { user: null } }));
   }, []);
 
-  const value = useMemo(() => ({ user, authReady, login, logout }), [user, authReady, login, logout]);
+  const value = useMemo(
+    () => ({ user, authReady, login, switchCashier, logout }),
+    [user, authReady, login, switchCashier, logout],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

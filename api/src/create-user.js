@@ -40,14 +40,20 @@ if (!['admin', 'staff'].includes(role) || !username || username.length > 80) {
 } else {
   try {
     const password = await askHidden("Choose a password (input hidden): ");
-    if (password.length < 8 || password.length > 128) throw new Error("Use a password between 8 and 128 characters.");
+    const minLength = role === "staff" ? 6 : 8;
+    if (password.length < minLength || Buffer.byteLength(password, "utf8") > 72) {
+      throw new Error(`Use a password with at least ${minLength} characters and at most 72 bytes.`);
+    }
     const confirmation = await askHidden("Confirm password (input hidden): ");
     if (password !== confirmation) throw new Error("Passwords did not match.");
     const passwordHash = await bcrypt.hash(password, 12);
-    await pool.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", [username, passwordHash, role]);
+    await pool.execute(
+      "INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)",
+      [username, username, passwordHash, role],
+    );
     console.log(`${role} account created for ${username}.`);
   } catch (error) {
-    console.error(error.code === "ER_DUP_ENTRY" ? "That username already exists." : error.message);
+    console.error(error.code === "ER_DUP_ENTRY" ? "That username or display name already exists." : error.message);
     process.exitCode = 1;
   } finally {
     await pool.end();

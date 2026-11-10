@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
@@ -139,6 +140,52 @@ export default function AdminArchive() {
     );
   };
 
+  const formatArchiveDate = (value) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString();
+  };
+
+  const formatAuditDateTime = (value) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+  };
+
+  const getPinTone = (daysRemaining) => {
+    const days = Number(daysRemaining ?? 30);
+    if (days <= 3) return "critical";
+    if (days <= 7) return "amber";
+    return "sage";
+  };
+
+  const retentionDays = Number(archiveData.retentionDays || 30);
+
+  const activeLedgerMeta = useMemo(() => {
+    if (activeTab === "inventory") {
+      return {
+        eyebrow: "WAREHOUSE RECOVERY",
+        title: "Archived Inventory Stock",
+        bookmarkLabel: "STOCK",
+        bookmarkTone: "amber",
+      };
+    }
+    if (activeTab === "audit") {
+      return {
+        eyebrow: "COMPLIANCE LEDGER",
+        title: "Permanent Audit Trail",
+        bookmarkLabel: "AUDIT",
+        bookmarkTone: "sage",
+      };
+    }
+    return {
+      eyebrow: "MENU RECOVERY",
+      title: "Archived Menu Catalog",
+      bookmarkLabel: "MENU",
+      bookmarkTone: "terracotta",
+    };
+  }, [activeTab]);
+
   const filteredMenuItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return archiveData.menuProducts;
@@ -173,26 +220,26 @@ export default function AdminArchive() {
 
   const emptyTrashButton = (
     <div className="admin-archive-grid-bar">
-    <p className="admin-archive-note">
-      <Clock size={14} />
-      <span>Kept for <strong>30 days</strong>, then purged automatically.</span>
-    </p>
-    <button
-      type="button"
-      className="admin-archive-empty-button"
-      disabled={archiveData.counts.totalArchived === 0 || isProcessing}
-      onClick={() =>
-        setDeleteModal({
-          isOpen: true,
-          type: "empty",
-          id: null,
-          name: `all ${archiveData.counts.totalArchived} archived items`,
-        })
-      }
-    >
-      <Trash2 size={16} />
-      <span>Empty Trash</span>
-    </button>
+      <p className="admin-archive-note">
+        <Clock size={14} aria-hidden="true" />
+        <span>Kept for <strong>{retentionDays} days</strong>, then purged automatically.</span>
+      </p>
+      <button
+        type="button"
+        className="admin-archive-empty-button"
+        disabled={archiveData.counts.totalArchived === 0 || isProcessing}
+        onClick={() =>
+          setDeleteModal({
+            isOpen: true,
+            type: "empty",
+            id: null,
+            name: `all ${archiveData.counts.totalArchived} archived items`,
+          })
+        }
+      >
+        <Trash2 size={15} aria-hidden="true" />
+        <span>Empty Trash</span>
+      </button>
     </div>
   );
   return (
@@ -206,11 +253,23 @@ export default function AdminArchive() {
 
       <main className="admin-archive-main">
         <header className="admin-archive-topbar">
-          <div>
-            <span className="admin-archive-section-label">ADMIN PORTAL</span>
-            <h1>Archive & Trash Management</h1>
+          <div className="admin-archive-topbar-title">
+            <span className="admin-archive-section-label">
+              <i className="topbar-label-pin" aria-hidden="true" />
+              ADMIN PORTAL
+            </span>
+            <h1>Archive &amp; Trash Management</h1>
+            <p className="admin-archive-subtitle">
+              Restore removed menu or stock entries within {retentionDays} days, or inspect immutable ledger logs.
+            </p>
           </div>
           <div className="admin-archive-topbar-actions">
+            <div className="archive-pinned-status">
+              <span className="archive-status-pin" aria-hidden="true" />
+              <span>VAULT STATUS</span>
+              <strong>{archiveData.counts.totalArchived} Stored Items</strong>
+              <small>{retentionDays}-day rolling retention</small>
+            </div>
           </div>
         </header>
 
@@ -218,12 +277,11 @@ export default function AdminArchive() {
           {notice && (
             <div className="admin-inventory-notice" role="status">
               <CheckCircle2 size={16} aria-hidden="true" />
-              <span style={{ flex: 1, fontWeight: "500" }}>{notice}</span>
+              <span>{notice}</span>
               <button
                 type="button"
                 onClick={() => setNotice("")}
                 aria-label="Dismiss message"
-                
               >
                 ×
               </button>
@@ -231,46 +289,51 @@ export default function AdminArchive() {
           )}
 
           {error && (
-            <div className="admin-inventory-sync-warning" role="alert" style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#f9e9e5", color: "#a56452", padding: "0.75rem 1rem", borderRadius: "10px" }}>
+            <div className="admin-inventory-sync-warning admin-archive-error" role="alert">
               <AlertTriangle size={16} aria-hidden="true" />
-              <span style={{ flex: 1, fontWeight: "500" }}>{error}</span>
+              <span>{error}</span>
               <button
                 type="button"
                 onClick={() => setError("")}
                 aria-label="Dismiss error"
-                style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#a56452" }}
               >
                 ×
               </button>
             </div>
           )}
 
-          <section className="admin-archive-toolbar">
-            <div className="admin-archive-tabs" role="tablist">
+          <section className="admin-archive-toolbar" aria-label="Archive filter controls">
+            <div className="admin-archive-tabs" role="tablist" aria-label="Archive sections">
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === "menu"}
                 className={`admin-archive-tab ${activeTab === "menu" ? "active" : ""}`}
                 onClick={() => setActiveTab("menu")}
               >
-                <Coffee size={15} />
+                <Coffee size={15} aria-hidden="true" />
                 <span>Menu Items</span>
                 <span className="admin-archive-tab-count">{archiveData.counts.menu}</span>
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === "inventory"}
                 className={`admin-archive-tab ${activeTab === "inventory" ? "active" : ""}`}
                 onClick={() => setActiveTab("inventory")}
               >
-                <Package size={15} />
+                <Package size={15} aria-hidden="true" />
                 <span>Inventory Items</span>
                 <span className="admin-archive-tab-count">{archiveData.counts.inventory}</span>
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === "audit"}
                 className={`admin-archive-tab ${activeTab === "audit" ? "active" : ""}`}
                 onClick={() => setActiveTab("audit")}
               >
-                <FileText size={15} />
+                <FileText size={15} aria-hidden="true" />
                 <span>Audit Trail</span>
                 <span className="admin-archive-tab-count">{archiveData.counts.audit}</span>
               </button>
@@ -278,254 +341,365 @@ export default function AdminArchive() {
 
             <div className="admin-archive-toolbar-right">
               <div className="admin-archive-search">
-              <Search size={15} color="#857b72" />
-              <input
-                type="text"
-                placeholder={
-                  activeTab === "menu"
-                    ? "Search archived menu items…"
-                    : activeTab === "inventory"
-                    ? "Search archived inventory…"
-                    : "Search audit logs…"
-                }
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+                <Search size={15} aria-hidden="true" />
+                <input
+                  type="text"
+                  aria-label={
+                    activeTab === "menu"
+                      ? "Search archived menu items"
+                      : activeTab === "inventory"
+                      ? "Search archived inventory"
+                      : "Search audit logs"
+                  }
+                  placeholder={
+                    activeTab === "menu"
+                      ? "Search archived menu items…"
+                      : activeTab === "inventory"
+                      ? "Search archived inventory…"
+                      : "Search audit logs…"
+                  }
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    className="archive-search-clear"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear search"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             </div>
           </section>
 
           <div className="admin-archive-workspace">
-            <div className="admin-archive-big-box custom-menu-scrollbar">
-              {loading ? (
-                <div className="archive-empty-state">
-                  <strong>Loading archive…</strong>
-                  <span>Fetching items and audit history.</span>
-                </div>
-              ) : activeTab === "menu" ? (
-                filteredMenuItems.length === 0 ? (
-                  <div className="archive-empty-state">
-                    <Archive size={36} color="#857b72" strokeWidth={1.5} />
-                    <strong>No archived menu items</strong>
-                    <span>Menu items deleted from Menu Management will appear here.</span>
+            <section
+              className="admin-archive-big-box archive-notebook-sheet"
+              aria-label={activeLedgerMeta.title}
+            >
+              <div className="archive-notebook-spine" aria-hidden="true">
+                {Array.from({ length: 10 }).map((_, idx) => (
+                  <span key={idx} className="archive-spine-ring">
+                    <i className="archive-spine-hole" />
+                    <b className="archive-spine-wire" />
+                  </span>
+                ))}
+              </div>
+
+              <div
+                className={`archive-notebook-bookmark ${activeLedgerMeta.bookmarkTone}`}
+                aria-hidden="true"
+              >
+                <span className="archive-bookmark-eyelet" />
+                <span className="archive-bookmark-text">{activeLedgerMeta.bookmarkLabel}</span>
+              </div>
+
+              <div className="archive-notebook-page">
+                <div className="archive-ledger-header">
+                  <div className="archive-ledger-heading">
+                    <span className="archive-ledger-eyebrow">{activeLedgerMeta.eyebrow}</span>
+                    <h2>{activeLedgerMeta.title}</h2>
                   </div>
-                ) : (
-                  <div className="admin-archive-grid">
-                    {emptyTrashButton}
-                    {filteredMenuItems.map((item) => (
-                      <article className="archive-item-card" key={item.id}>
-                        <div className="archive-item-header">
-                          {item.image_url ? (
-                            <img className="archive-item-image" src={item.image_url} alt={item.name} />
-                          ) : (
-                            <div className="archive-item-image">
-                              {item.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="archive-item-info">
-                            <span className="archive-item-category">{item.category}</span>
-                            <h4 className="archive-item-name">{item.name}</h4>
-                            <span className="archive-item-price">₱{Number(item.base_price).toFixed(2)}</span>
-                          </div>
-                        </div>
 
-                        <div className="archive-item-body">
-                          {getCountdownBadge(item.daysRemaining)}
-                          <div>
-                            <strong>Archived:</strong> {new Date(item.archivedAt || item.archived_at || Date.now()).toLocaleDateString()} by {item.archived_by_username || "Admin"}
-                          </div>
-                          <div>
-                            <strong>Auto-purge:</strong> {new Date(item.expiresAt || item.expires_at || Date.now()).toLocaleDateString()}
-                          </div>
-                        </div>
-
-                        <div className="archive-item-footer">
-                          <button
-                            type="button"
-                            className="archive-restore-btn"
-                            disabled={isProcessing}
-                            onClick={() => handleRestore("menu", item.id, item.name)}
-                          >
-                            <RotateCcw size={14} /> Restore
-                          </button>
-                          <button
-                            type="button"
-                            className="archive-delete-btn"
-                            disabled={isProcessing}
-                            onClick={() =>
-                              setDeleteModal({
-                                isOpen: true,
-                                type: "menu",
-                                id: item.id,
-                                name: item.name,
-                              })
-                            }
-                          >
-                            <Trash2 size={14} /> Delete
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-
-                  </div>
-                )
-              ) : activeTab === "inventory" ? (
-                filteredInventoryItems.length === 0 ? (
-                  <div className="archive-empty-state">
-                    <Package size={36} color="#857b72" strokeWidth={1.5} />
-                    <strong>No archived inventory items</strong>
-                    <span>Inventory items removed from Inventory Management will appear here.</span>
-                  </div>
-                ) : (
-                  <div className="admin-archive-grid">
-                    {emptyTrashButton}
-                    {filteredInventoryItems.map((item) => (
-                      <article className="archive-item-card" key={item.id}>
-                        <div className="archive-item-header">
-                          <div className="archive-item-image">
-                            <Package size={24} />
-                          </div>
-                          <div className="archive-item-info">
-                            <span className="archive-item-category">{item.category}</span>
-                            <h4 className="archive-item-name">{item.name}</h4>
-                            <span className="archive-item-price">
-                              {Number(item.quantity)} {item.unit} in stock
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="archive-item-body">
-                          {getCountdownBadge(item.daysRemaining)}
-                          <div>
-                            <strong>Archived:</strong> {new Date(item.archivedAt || item.archived_at || Date.now()).toLocaleDateString()} by {item.archived_by_username || "Admin"}
-                          </div>
-                          <div>
-                            <strong>Auto-purge:</strong> {new Date(item.expiresAt || item.expires_at || Date.now()).toLocaleDateString()}
-                          </div>
-                        </div>
-
-                        <div className="archive-item-footer">
-                          <button
-                            type="button"
-                            className="archive-restore-btn"
-                            disabled={isProcessing}
-                            onClick={() => handleRestore("inventory", item.id, item.name)}
-                          >
-                            <RotateCcw size={14} /> Restore
-                          </button>
-                          <button
-                            type="button"
-                            className="archive-delete-btn"
-                            disabled={isProcessing}
-                            onClick={() =>
-                              setDeleteModal({
-                                isOpen: true,
-                                type: "inventory",
-                                id: item.id,
-                                name: item.name,
-                              })
-                            }
-                          >
-                            <Trash2 size={14} /> Delete
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )
-              ) : (
-                <div className="archive-audit-table-card">
-                  {filteredAuditLogs.length === 0 ? (
-                    <div className="archive-empty-state">
-                      <FileText size={36} color="#857b72" strokeWidth={1.5} />
-                      <strong>No audit logs found</strong>
-                      <span>Archive, restore, and purge actions will be recorded here.</span>
+                  {activeTab === "audit" ? (
+                    <div className="admin-archive-grid-bar">
+                      <p className="admin-archive-note">
+                        <FileText size={14} aria-hidden="true" />
+                        <span>
+                          Showing <strong>{filteredAuditLogs.length}</strong> audit {filteredAuditLogs.length === 1 ? "entry" : "entries"}
+                        </span>
+                      </p>
                     </div>
                   ) : (
-                    <table className="archive-audit-table">
-                      <thead>
-                        <tr>
-                          <th>Date & Time</th>
-                          <th>Action</th>
-                          <th>Type</th>
-                          <th>Item Name</th>
-                          <th>Actor</th>
-                          <th>Note</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAuditLogs.map((log) => (
-                          <tr key={log.id}>
-                            <td>{new Date(log.created_at || log.timestamp || Date.now()).toLocaleString()}</td>
-                            <td>
-                              <span className={`audit-action-badge ${log.action}`}>
-                                {log.action.replace("_", " ")}
-                              </span>
-                            </td>
-                            <td>{log.entity_type === "menu_product" ? "Menu Product" : "Inventory Item"}</td>
-                            <td><strong>{log.entity_name}</strong></td>
-                            <td>{log.actor_name}</td>
-                            <td style={{ color: "#857b72" }}>{log.note || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    emptyTrashButton
                   )}
                 </div>
-              )}
-            </div>
+
+                <div className="admin-archive-scroll custom-menu-scrollbar">
+                  <div className="archive-tab-stage" key={activeTab}>
+                    {loading ? (
+                      <div className="archive-empty-state">
+                        <Clock size={34} strokeWidth={1.6} aria-hidden="true" />
+                        <strong>Loading archive…</strong>
+                        <span>Fetching archived items and audit history.</span>
+                      </div>
+                    ) : activeTab === "menu" ? (
+                      filteredMenuItems.length === 0 ? (
+                        <div className="archive-empty-state">
+                          <Archive size={36} strokeWidth={1.5} aria-hidden="true" />
+                          <strong>No archived menu items</strong>
+                          <span>
+                            {search.trim()
+                              ? "No archived menu products match your current filter."
+                              : "Menu items deleted from Menu Management will appear here."}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="admin-archive-grid">
+                          {filteredMenuItems.map((item, idx) => (
+                            <article
+                              className="archive-item-card archive-pinned-card"
+                              key={item.id}
+                              style={{ "--i": Math.min(idx, 8) }}
+                            >
+                              <div
+                                className={`archive-paper-pin ${getPinTone(item.daysRemaining)}`}
+                                aria-hidden="true"
+                              >
+                                <span className="pin-shadow" />
+                                <span className="pin-needle" />
+                                <span className="pin-collar" />
+                                <span className="pin-head">
+                                  <span className="pin-glint" />
+                                </span>
+                              </div>
+
+                              <div className="archive-card-inner">
+                                <div className="archive-item-header">
+                                  {item.image_url ? (
+                                    <img className="archive-item-image" src={item.image_url} alt={item.name} />
+                                  ) : (
+                                    <div className="archive-item-image">
+                                      {(item.name || "?").charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div className="archive-item-info">
+                                    <span className="archive-item-category">{item.category}</span>
+                                    <h4 className="archive-item-name" title={item.name}>{item.name}</h4>
+                                    <span className="archive-item-price">₱{Number(item.base_price).toFixed(2)}</span>
+                                  </div>
+                                </div>
+
+                                <div className="archive-item-body">
+                                  {getCountdownBadge(item.daysRemaining)}
+                                  <div className="archive-meta-row">
+                                    <strong>Archived:</strong> {formatArchiveDate(item.archivedAt || item.archived_at)} by {item.archived_by_username || "Admin"}
+                                  </div>
+                                  <div className="archive-meta-row">
+                                    <strong>Auto-purge:</strong> {formatArchiveDate(item.expiresAt || item.expires_at)}
+                                  </div>
+                                </div>
+
+                                <div className="archive-item-footer">
+                                  <button
+                                    type="button"
+                                    className="archive-restore-btn"
+                                    disabled={isProcessing}
+                                    onClick={() => handleRestore("menu", item.id, item.name)}
+                                  >
+                                    <RotateCcw size={14} aria-hidden="true" /> Restore
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="archive-delete-btn"
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      setDeleteModal({
+                                        isOpen: true,
+                                        type: "menu",
+                                        id: item.id,
+                                        name: item.name,
+                                      })
+                                    }
+                                  >
+                                    <Trash2 size={14} aria-hidden="true" /> Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )
+                    ) : activeTab === "inventory" ? (
+                      filteredInventoryItems.length === 0 ? (
+                        <div className="archive-empty-state">
+                          <Package size={36} strokeWidth={1.5} aria-hidden="true" />
+                          <strong>No archived inventory items</strong>
+                          <span>
+                            {search.trim()
+                              ? "No archived inventory entries match your current filter."
+                              : "Inventory items removed from Inventory Management will appear here."}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="admin-archive-grid">
+                          {filteredInventoryItems.map((item, idx) => (
+                            <article
+                              className="archive-item-card archive-pinned-card"
+                              key={item.id}
+                              style={{ "--i": Math.min(idx, 8) }}
+                            >
+                              <div
+                                className={`archive-paper-pin ${getPinTone(item.daysRemaining)}`}
+                                aria-hidden="true"
+                              >
+                                <span className="pin-shadow" />
+                                <span className="pin-needle" />
+                                <span className="pin-collar" />
+                                <span className="pin-head">
+                                  <span className="pin-glint" />
+                                </span>
+                              </div>
+
+                              <div className="archive-card-inner">
+                                <div className="archive-item-header">
+                                  <div className="archive-item-image">
+                                    <Package size={24} aria-hidden="true" />
+                                  </div>
+                                  <div className="archive-item-info">
+                                    <span className="archive-item-category">{item.category}</span>
+                                    <h4 className="archive-item-name" title={item.name}>{item.name}</h4>
+                                    <span className="archive-item-price">
+                                      {Number(item.quantity)} {item.unit} in stock
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="archive-item-body">
+                                  {getCountdownBadge(item.daysRemaining)}
+                                  <div className="archive-meta-row">
+                                    <strong>Archived:</strong> {formatArchiveDate(item.archivedAt || item.archived_at)} by {item.archived_by_username || "Admin"}
+                                  </div>
+                                  <div className="archive-meta-row">
+                                    <strong>Auto-purge:</strong> {formatArchiveDate(item.expiresAt || item.expires_at)}
+                                  </div>
+                                </div>
+
+                                <div className="archive-item-footer">
+                                  <button
+                                    type="button"
+                                    className="archive-restore-btn"
+                                    disabled={isProcessing}
+                                    onClick={() => handleRestore("inventory", item.id, item.name)}
+                                  >
+                                    <RotateCcw size={14} aria-hidden="true" /> Restore
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="archive-delete-btn"
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      setDeleteModal({
+                                        isOpen: true,
+                                        type: "inventory",
+                                        id: item.id,
+                                        name: item.name,
+                                      })
+                                    }
+                                  >
+                                    <Trash2 size={14} aria-hidden="true" /> Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <div className="archive-audit-table-card">
+                        {filteredAuditLogs.length === 0 ? (
+                          <div className="archive-empty-state">
+                            <FileText size={36} strokeWidth={1.5} aria-hidden="true" />
+                            <strong>No audit logs found</strong>
+                            <span>Archive, restore, and purge actions will be recorded here.</span>
+                          </div>
+                        ) : (
+                          <div className="archive-audit-table-wrap">
+                            <table className="archive-audit-table">
+                              <thead>
+                                <tr>
+                                  <th>Date &amp; Time</th>
+                                  <th>Action</th>
+                                  <th>Type</th>
+                                  <th>Item Name</th>
+                                  <th>Actor</th>
+                                  <th>Note</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredAuditLogs.map((log) => (
+                                  <tr key={log.id}>
+                                    <td>{formatAuditDateTime(log.created_at || log.timestamp)}</td>
+                                    <td>
+                                      <span className={`audit-action-badge ${log.action}`}>
+                                        {log.action.replace("_", " ")}
+                                      </span>
+                                    </td>
+                                    <td>{log.entity_type === "menu_product" ? "Menu Product" : "Inventory Item"}</td>
+                                    <td><strong>{log.entity_name}</strong></td>
+                                    <td>{log.actor_name}</td>
+                                    <td className="audit-note-cell">{log.note || "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <aside className="admin-archive-vertical-metrics" aria-label="Archive summary">
-              <article className="archive-metric-card">
+              <article className="archive-metric-card tone-amber">
+                <span className="archive-slip-pin amber" aria-hidden="true" />
                 <div className="archive-metric-head">
                   <span className="archive-metric-icon amber">
-                    <Coffee size={20} strokeWidth={2} />
+                    <Coffee size={19} strokeWidth={2} aria-hidden="true" />
                   </span>
                   <span className="metric-badge neutral">Menu</span>
                 </div>
-                <div>
+                <div className="archive-metric-body">
                   <span className="archive-metric-label">Archived Menu Items</span>
                   <div className="archive-metric-value">{archiveData.counts.menu}</div>
                   <span className="archive-metric-hint">Preserved products</span>
                 </div>
               </article>
 
-              <article className="archive-metric-card">
+              <article className="archive-metric-card tone-green">
+                <span className="archive-slip-pin green" aria-hidden="true" />
                 <div className="archive-metric-head">
                   <span className="archive-metric-icon emerald">
-                    <Package size={20} strokeWidth={2} />
+                    <Package size={19} strokeWidth={2} aria-hidden="true" />
                   </span>
                   <span className="metric-badge emerald">Inventory</span>
                 </div>
-                <div>
+                <div className="archive-metric-body">
                   <span className="archive-metric-label">Archived Inventory</span>
                   <div className="archive-metric-value">{archiveData.counts.inventory}</div>
-                  <span className="archive-metric-hint">Supplies & ingredients</span>
+                  <span className="archive-metric-hint">Supplies &amp; ingredients</span>
                 </div>
               </article>
 
-              <article className="archive-metric-card">
+              <article className="archive-metric-card tone-blue">
+                <span className="archive-slip-pin blue" aria-hidden="true" />
                 <div className="archive-metric-head">
                   <span className="archive-metric-icon blue">
-                    <Clock size={20} strokeWidth={2} />
+                    <Clock size={19} strokeWidth={2} aria-hidden="true" />
                   </span>
                   <span className="metric-badge neutral">Auto-Purge</span>
                 </div>
-                <div>
+                <div className="archive-metric-body">
                   <span className="archive-metric-label">Retention Lifecycle</span>
-                  <div className="archive-metric-value">30 Days</div>
+                  <div className="archive-metric-value">{retentionDays} Days</div>
                   <span className="archive-metric-hint">Automatic rolling purge</span>
                 </div>
               </article>
 
-              <article className="archive-metric-card">
+              <article className="archive-metric-card tone-plum">
+                <span className="archive-slip-pin plum" aria-hidden="true" />
                 <div className="archive-metric-head">
                   <span className="archive-metric-icon purple">
-                    <FileText size={20} strokeWidth={2} />
+                    <FileText size={19} strokeWidth={2} aria-hidden="true" />
                   </span>
                   <span className="metric-badge neutral">Audit</span>
                 </div>
-                <div>
+                <div className="archive-metric-body">
                   <span className="archive-metric-label">Audit Log Entries</span>
                   <div className="archive-metric-value">{archiveData.counts.audit}</div>
                   <span className="archive-metric-hint">Permanent history</span>
@@ -546,9 +720,19 @@ export default function AdminArchive() {
             className="archive-modal-card"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="archive-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3>Permanently Delete?</h3>
+            <div className="archive-paper-pin critical" aria-hidden="true">
+              <span className="pin-shadow" />
+              <span className="pin-needle" />
+              <span className="pin-collar" />
+              <span className="pin-head">
+                <span className="pin-glint" />
+              </span>
+            </div>
+            <span className="archive-modal-eyebrow">PERMANENT REMOVAL</span>
+            <h3 id="archive-modal-title">Permanently Delete?</h3>
             <p>
               Are you sure you want to permanently delete <strong>{deleteModal.name}</strong>?
               This action <strong>cannot be undone</strong> and will be logged in the permanent audit trail.

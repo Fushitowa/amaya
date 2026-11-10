@@ -22,6 +22,8 @@ describe("Tala & Kathie End-to-End Suite: Menu & Inventory Order Integration (St
       const [snackCatResult] = await connection.execute(
         "INSERT INTO menu_categories (name, operational_family) VALUES ('E2E Snacks', 'general') ON DUPLICATE KEY UPDATE operational_family = 'general', id = LAST_INSERT_ID(id)"
       );
+      assert(drinkCatResult.insertId > 0, "E2E Drinks category must resolve");
+      assert(snackCatResult.insertId > 0, "E2E Snacks category must resolve");
 
       // 2. SETUP: Inventory items
       const [cup16Result] = await connection.execute(

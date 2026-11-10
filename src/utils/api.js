@@ -43,4 +43,28 @@ export async function apiRequest(path, options = {}) {
   return payload;
 }
 
+export async function apiFetchBlob(path, options = {}) {
+  const token = getAuthToken();
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  } catch {
+    throw new Error("Could not reach the Amaya API. Make sure the API server is running.");
+  }
+
+  if (response.status === 401) {
+    setAuthToken(null);
+    window.dispatchEvent(new Event("amaya:unauthorized"));
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || `Download failed (${response.status}).`);
+  }
+  return response.blob();
+}
+
 export { API_BASE_URL };
+

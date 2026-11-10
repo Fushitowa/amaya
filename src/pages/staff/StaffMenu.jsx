@@ -20,8 +20,10 @@ import {
 
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
+import StaffOperationsBar from "../../components/StaffOperationsBar.jsx";
 import MenuProductImage from "../../components/MenuProductImage.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu, resolveProductSizes } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
@@ -54,23 +56,6 @@ const categoryTitles = {
   snacks: "Snacks",
 };
 
-const categoryDescriptions = {
-  all: "Browse the complete Amaya Drinks & Bites menu.",
-  "foods / snacks": "Crispy bites, street food, and comfort snacks.",
-  "fries & sip": "Crispy seasoned fries paired with your favorite drink.",
-  "burgers and hotdogs": "Grilled patties, savory franks, and loaded toasted buns.",
-  desserts: "Sweet signature treats, sundaes, and dessert bites.",
-  dessert: "Sweet signature treats, sundaes, and dessert bites.",
-  milktea: "Creamy, rich milk teas with custom sweetness & toppings.",
-  "milk tea": "Creamy, rich milk teas with custom sweetness & toppings.",
-  "float series": "Chilled flavored sodas crowned with velvety soft ice cream.",
-  "fruity soda": "Sparkling, effervescent fruit-infused coolers.",
-  "fruity milk": "Silky fresh milk blends swirled with luscious fruit purees.",
-  "iced coffee": "Bold espresso pours brewed cold over fresh milk and ice.",
-  drinks: "Refreshing coolers, fruit juices, and classic café sodas.",
-  snacks: "Crispy bites, street food, and comfort snacks.",
-};
-
 const categoryIcons = {
   all: LayoutGrid,
   "foods / snacks": Utensils,
@@ -97,6 +82,8 @@ const getCategoryTitle = (key) => {
 
 function StaffMenu() {
   const { darkMode } = useTheme();
+  const { user } = useAuth() || {};
+  const cashierName = user?.displayName || "Cashier";
   const { products = [] } = useMenu() || {};
   const { orders = [] } = useOrders() || {};
   const navigate = useNavigate();
@@ -471,6 +458,8 @@ function StaffMenu() {
             </div>
 
             <div className="staff-menu-top-utility">
+              <StaffOperationsBar variant="compact" darkMode={darkMode} />
+
               <StaffNotificationBell />
 
               <div className="staff-menu-user" title="Active POS Cashier">
@@ -478,7 +467,7 @@ function StaffMenu() {
                   <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
                 </div>
                 <div className="staff-menu-user-info">
-                  <strong>Staff User</strong>
+                  <strong>{cashierName}</strong>
                   <span>Barista &amp; Cashier</span>
                 </div>
               </div>

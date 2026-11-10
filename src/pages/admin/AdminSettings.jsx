@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Menu } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
@@ -36,6 +37,7 @@ function AdminSettings() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const { businessSettings, saveBusinessSettings } = useBusiness();
 	const [settingsDraft, setSettingsDraft] = useState({});
+	const [targetFoodCostDraft, setTargetFoodCostDraft] = useState(null);
 	const settings = { ...defaultBusinessSettings, ...businessSettings, ...settingsDraft };
 	const [preferences, setPreferences] = useState(readNotificationPreferences);
 	const { notifications, orderAlerts, inventoryAlerts } = preferences;
@@ -43,6 +45,7 @@ function AdminSettings() {
 	const [saveError, setSaveError] = useState("");
 	const [lastSaved, setLastSaved] = useState(null);
 	const [statusClock, setStatusClock] = useState(() => new Date());
+	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const storeOpen = isStoreOpen(settings.openingTime, settings.closingTime, statusClock);
 	// Cashier Team State
 	const [cashiers, setCashiers] = useState([]);
@@ -51,12 +54,14 @@ function AdminSettings() {
 	const [newCashier, setNewCashier] = useState({ displayName: "", password: "" });
 	const [cashierTarget, setCashierTarget] = useState(null);
 	const [targetPassword, setTargetPassword] = useState("");
+	const [renameTarget, setRenameTarget] = useState(null);
+	const [renameDisplayName, setRenameDisplayName] = useState("");
 	const [cashierActionLoading, setCashierActionLoading] = useState(false);
 	const [cashierFeedback, setCashierFeedback] = useState(null);
+	const [cashierModalError, setCashierModalError] = useState("");
 
 	const loadCashiers = useCallback(async () => {
 		try {
-			setCashiersLoading(true);
 			const data = await apiRequest("/auth/cashiers");
 			setCashiers(data || []);
 		} catch (err) {
@@ -67,25 +72,74 @@ function AdminSettings() {
 	}, []);
 
 	useEffect(() => {
-		loadCashiers();
-	}, [loadCashiers]);
+		let active = true;
+		apiRequest("/auth/cashiers")
+			.then((data) => {
+				if (active) setCashiers(data || []);
+			})
+			.catch((err) => {
+				console.error("Failed to load cashiers:", err);
+			})
+			.finally(() => {
+				if (active) setCashiersLoading(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
 	const handleAddCashier = async (e) => {
 		e.preventDefault();
-		if (!newCashier.displayName.trim() || !newCashier.password) return;
+		const displayName = newCashier.displayName.trim();
+		if (!displayName) {
+			setCashierModalError("Enter a cashier display name.");
+			return;
+		}
+		if (newCashier.password.length < 6) {
+			setCashierModalError("Cashier password must be at least 6 characters.");
+			return;
+		}
 		setCashierActionLoading(true);
+		setCashierModalError("");
 		setCashierFeedback(null);
 		try {
 			const res = await apiRequest("/auth/cashiers", {
 				method: "POST",
-				body: JSON.stringify({ displayName: newCashier.displayName.trim(), password: newCashier.password }),
+				body: JSON.stringify({ displayName, password: newCashier.password }),
 			});
 			setCashierFeedback({ type: "success", message: res.message || "Cashier added successfully." });
 			setShowAddCashier(false);
 			setNewCashier({ displayName: "", password: "" });
 			await loadCashiers();
 		} catch (err) {
-			setCashierFeedback({ type: "error", message: err.message || "Failed to add cashier." });
+			setCashierModalError(err.message || "Failed to add cashier.");
+		} finally {
+			setCashierActionLoading(false);
+		}
+	};
+
+	const handleRenameCashier = async (e) => {
+		e.preventDefault();
+		if (!renameTarget) return;
+		const trimmed = renameDisplayName.trim();
+		if (trimmed.length < 2) {
+			setCashierModalError("Display name must be at least 2 characters.");
+			return;
+		}
+		setCashierActionLoading(true);
+		setCashierModalError("");
+		setCashierFeedback(null);
+		try {
+			const res = await apiRequest(`/auth/cashiers/${renameTarget.id}`, {
+				method: "PUT",
+				body: JSON.stringify({ displayName: trimmed }),
+			});
+			setCashierFeedback({ type: "success", message: res.message || `Renamed cashier to ${trimmed}.` });
+			setRenameTarget(null);
+			setRenameDisplayName("");
+			await loadCashiers();
+		} catch (err) {
+			setCashierModalError(err.message || "Failed to rename cashier.");
 		} finally {
 			setCashierActionLoading(false);
 		}
@@ -93,8 +147,13 @@ function AdminSettings() {
 
 	const handleChangeCashierPassword = async (e) => {
 		e.preventDefault();
-		if (!cashierTarget || !targetPassword) return;
+		if (!cashierTarget) return;
+		if (targetPassword.length < 6) {
+			setCashierModalError("Cashier password must be at least 6 characters.");
+			return;
+		}
 		setCashierActionLoading(true);
+		setCashierModalError("");
 		setCashierFeedback(null);
 		try {
 			const res = await apiRequest(`/auth/cashiers/${cashierTarget.id}/password`, {
@@ -105,7 +164,7 @@ function AdminSettings() {
 			setCashierTarget(null);
 			setTargetPassword("");
 		} catch (err) {
-			setCashierFeedback({ type: "error", message: err.message || "Failed to update cashier password." });
+			setCashierModalError(err.message || "Failed to update cashier password.");
 		} finally {
 			setCashierActionLoading(false);
 		}
@@ -142,18 +201,35 @@ function AdminSettings() {
 		}
 	}, [preferences]);
 	useEffect(() => {
-		if (!showPasswordForm) return undefined;
+		if (!showPasswordForm && !showAddCashier && !cashierTarget && !renameTarget) return undefined;
 		const closeOnEscape = (event) => {
-			if (event.key === "Escape" && !passwordSaving) setShowPasswordForm(false);
+			if (event.key !== "Escape") return;
+			if (showPasswordForm && !passwordSaving) setShowPasswordForm(false);
+			if (!cashierActionLoading) {
+				if (showAddCashier) setShowAddCashier(false);
+				if (cashierTarget) setCashierTarget(null);
+				if (renameTarget) setRenameTarget(null);
+			}
 		};
 		window.addEventListener("keydown", closeOnEscape);
 		return () => window.removeEventListener("keydown", closeOnEscape);
-	}, [showPasswordForm, passwordSaving]);
+	}, [showPasswordForm, passwordSaving, showAddCashier, cashierTarget, renameTarget, cashierActionLoading]);
 
 	const updateSetting = (event) => {
 		const { name, value } = event.target;
 		setSettingsDraft((current) => ({ ...current, [name]: value }));
 		setSaveError("");
+		if (saveState !== "saving") setSaveState("dirty");
+	};
+
+	const handleTargetFoodCostChange = (event) => {
+		const raw = event.target.value;
+		setTargetFoodCostDraft(raw);
+		setSaveError("");
+		if (raw !== "" && Number.isFinite(Number(raw))) {
+			const clampedPct = Math.max(10, Math.min(90, Math.round(Number(raw))));
+			setSettingsDraft((current) => ({ ...current, targetFoodCost: Number((clampedPct / 100).toFixed(2)) }));
+		}
 		if (saveState !== "saving") setSaveState("dirty");
 	};
 
@@ -165,8 +241,13 @@ function AdminSettings() {
 		setSaveState("saving");
 		setSaveError("");
 		try {
-			await saveBusinessSettings(settings);
+			const normalizedFoodCost = Math.max(
+				0.1,
+				Math.min(0.9, Number(settings.targetFoodCost ?? defaultBusinessSettings.targetFoodCost ?? 0.3)),
+			);
+			await saveBusinessSettings({ ...settings, targetFoodCost: normalizedFoodCost });
 			setSettingsDraft({});
+			setTargetFoodCostDraft(null);
 			setLastSaved(new Date());
 			saveTimers.current = [
 				setTimeout(() => setSaveState("success"), 250),
@@ -205,18 +286,32 @@ function AdminSettings() {
 		}
 	};
 
+	const targetFoodCostPctDisplay = targetFoodCostDraft ?? String(Math.round(Number(settings.targetFoodCost ?? 0.3) * 100));
+
 	return (
-		<div className={`admin-settings-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+		<div className={`admin-settings-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      {mobileNavOpen && <div className="admin-settings-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <Sidebar
         role="admin"
         activeTab="settings"
-        sidebarCollapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
+        sidebarCollapsed={mobileNavOpen ? false : sidebarCollapsed}
+        onToggle={() => (window.matchMedia("(max-width: 900px)").matches ? setMobileNavOpen((prev) => !prev) : toggleSidebar())}
       />
 
 			<main className="admin-settings-main">
 				<header className="admin-settings-topbar">
-					<div><span className="admin-settings-section-label">ADMIN PORTAL</span><h1>Settings</h1></div>
+					<div className="admin-settings-topbar-left">
+						<button
+							type="button"
+							className="settings-mobile-menu-btn"
+							onClick={() => setMobileNavOpen((prev) => !prev)}
+							aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
+							aria-expanded={mobileNavOpen}
+						>
+							<Menu size={20} strokeWidth={2.2} aria-hidden="true" />
+						</button>
+						<div><span className="admin-settings-section-label">ADMIN PORTAL</span><h1>Settings</h1></div>
+					</div>
 					<div className="admin-settings-topbar-actions">
 					</div>
 				</header>
@@ -226,7 +321,7 @@ function AdminSettings() {
 						<div>
 							<span className="admin-settings-eyebrow">WORKSPACE CONTROL</span>
 							<h2>Keep Amaya running smoothly.</h2>
-							<p>Manage your cafe profile, operating hours, and admin alerts from one place.</p>
+							<p>Manage your cafe profile, operating hours, food cost targets, and cashier team from one place.</p>
 						</div>
 						<div className={`admin-settings-save-state is-${saveState}`}><span className="settings-status-dot"></span>{saveState === "success" ? "Changes saved" : saveState === "saving" ? "Saving changes" : saveState === "error" ? "Save failed" : saveState === "dirty" ? "Unsaved changes" : lastSaved ? "Settings saved" : "Ready to configure"}</div>
 					</section>
@@ -252,6 +347,25 @@ function AdminSettings() {
 									</div>
 									<div className={`admin-settings-hours-note ${storeOpen ? "is-open" : "is-closed"}`}><span aria-hidden="true">●</span> Store is currently {storeOpen ? "open" : "closed"}<strong>Today, {formatBusinessTime(settings.openingTime)} - {formatBusinessTime(settings.closingTime)}</strong></div>
 								</section>
+
+								<section className="admin-settings-card">
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">%</div><div><h3>Financial targets</h3><p>Default food cost target used for menu pricing recommendations and financial variance reports.</p></div></div>
+									<div className="admin-settings-fields hours-fields">
+										<label>
+											Target food cost (%)
+											<input
+												type="number"
+												name="targetFoodCostPct"
+												min="10"
+												max="90"
+												step="1"
+												value={targetFoodCostPctDisplay}
+												onChange={handleTargetFoodCostChange}
+												onBlur={() => setTargetFoodCostDraft(null)}
+											/>
+										</label>
+									</div>
+								</section>
 							</div>
 
 							<div className="admin-settings-secondary-column">
@@ -268,16 +382,16 @@ function AdminSettings() {
 									<div className="security-row"><div><strong>Two-factor authentication</strong><span>Not configured for this account.</span></div><span className="security-badge">Unavailable</span></div>
 								</section>
 
-								<section className="admin-settings-card cashiers-card" style={{ marginTop: "16px" }}>
+								<section className="admin-settings-card cashiers-card">
 									<div className="admin-settings-card-header" style={{ justifyContent: "space-between", alignItems: "flex-start", width: "100%", gap: "10px" }}>
 										<div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-											<div className="admin-settings-card-icon">👥</div>
+											<div className="admin-settings-card-icon">CS</div>
 											<div>
 												<h3>Counter Cashiers</h3>
-												<p>All cashiers login using <strong>staff</strong> with their unique password.</p>
+												<p>All cashiers sign in with <strong>staff</strong> and their personal password.</p>
 											</div>
 										</div>
-										<button type="button" className="settings-secondary-button" style={{ background: "var(--settings-accent, #8B5E3C)", color: "#fff", borderColor: "var(--settings-accent, #8B5E3C)", fontWeight: "bold", whiteSpace: "nowrap" }} onClick={() => { setCashierFeedback(null); setShowAddCashier(true); }}>
+										<button type="button" className="settings-secondary-button settings-add-cashier-btn" onClick={() => { setCashierFeedback(null); setCashierModalError(""); setShowAddCashier(true); }}>
 											+ Add Cashier
 										</button>
 									</div>
@@ -289,32 +403,35 @@ function AdminSettings() {
 									)}
 
 									{cashiersLoading ? (
-										<div style={{ padding: "8px 0", fontSize: "11px", color: "var(--settings-muted)" }}>Loading cashier team...</div>
+										<div style={{ padding: "8px 0", fontSize: "12px", color: "var(--settings-muted)" }}>Loading cashier team...</div>
 									) : cashiers.length === 0 ? (
-										<div style={{ padding: "8px 0", fontSize: "11px", color: "var(--settings-muted)" }}>No cashiers configured yet. Click "+ Add Cashier" to create one.</div>
+										<div style={{ padding: "8px 0", fontSize: "12px", color: "var(--settings-muted)" }}>No cashiers configured yet. Click &ldquo;+ Add Cashier&rdquo; to create one.</div>
 									) : (
 										<div className="cashiers-list">
 											{cashiers.map((c) => (
-												<div key={c.id} className="security-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "11px 0" }}>
+												<div key={c.id} className="security-row cashier-row-item">
 													<div>
 														<div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-															<strong style={{ fontSize: "12px" }}>👤 {c.displayName}</strong>
-															<span style={{ padding: "1px 5px", background: "#f0ece7", border: "1px solid #dfd4ca", borderRadius: "4px", fontSize: "9px", color: "#6b5548", fontWeight: "bold" }}>
+															<strong style={{ fontSize: "13px" }}>{c.displayName}</strong>
+															<span style={{ padding: "2px 6px", background: "#f0ece7", border: "1px solid #dfd4ca", borderRadius: "4px", fontSize: "10px", color: "#6b5548", fontWeight: "bold" }}>
 																login: staff
 															</span>
-															<span style={{ padding: "1px 5px", borderRadius: "4px", fontSize: "9px", fontWeight: "bold", background: c.isActive ? "#E9F5EC" : "#FEE2E2", color: c.isActive ? "#15803D" : "#B91C1C" }}>
+															<span style={{ padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", background: c.isActive ? "#E9F5EC" : "#FEE2E2", color: c.isActive ? "#15803D" : "#B91C1C" }}>
 																{c.isActive ? "Active" : "Inactive"}
 															</span>
 														</div>
-														<span style={{ fontSize: "10px", color: "var(--settings-muted)", marginTop: "2px" }}>
-															Identified in sales reports by entered password
+														<span style={{ fontSize: "11px", color: "var(--settings-muted)", marginTop: "2px" }}>
+															Attributed in shift logs &amp; sales reports
 														</span>
 													</div>
-													<div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
-														<button type="button" className="settings-secondary-button" style={{ padding: "5px 8px", fontSize: "9px" }} onClick={() => { setCashierFeedback(null); setCashierTarget(c); setTargetPassword(""); }}>
-															Key 🔑
+													<div className="cashier-row-actions">
+														<button type="button" className="settings-secondary-button" onClick={() => { setCashierFeedback(null); setCashierModalError(""); setRenameTarget(c); setRenameDisplayName(c.displayName || ""); }}>
+															Rename
 														</button>
-														<button type="button" className="settings-secondary-button" style={{ padding: "5px 8px", fontSize: "9px", color: c.isActive ? "#b91c1c" : "#15803d" }} onClick={() => handleToggleCashier(c.id)}>
+														<button type="button" className="settings-secondary-button" onClick={() => { setCashierFeedback(null); setCashierModalError(""); setCashierTarget(c); setTargetPassword(""); }}>
+															Password
+														</button>
+														<button type="button" className="settings-secondary-button" style={{ color: c.isActive ? "#b91c1c" : "#15803d" }} onClick={() => handleToggleCashier(c.id)}>
 															{c.isActive ? "Disable" : "Enable"}
 														</button>
 													</div>
@@ -353,7 +470,7 @@ function AdminSettings() {
 				<div className="admin-settings-modal-backdrop" role="presentation" onClick={() => !cashierActionLoading && setShowAddCashier(false)}>
 					<form className="admin-settings-password-modal" onSubmit={handleAddCashier} role="dialog" aria-modal="true" aria-labelledby="add-cashier-title" onClick={(event) => event.stopPropagation()}>
 						<div className="admin-settings-card-header">
-							<div className="admin-settings-card-icon">👥</div>
+							<div className="admin-settings-card-icon">CS</div>
 							<div>
 								<h3 id="add-cashier-title">Add Counter Cashier</h3>
 								<p>Username is automatically <strong>staff</strong>.</p>
@@ -364,7 +481,7 @@ function AdminSettings() {
 							Cashier identifier / name
 							<input
 								type="text"
-								placeholder="e.g. Cashier 2, Cashier X, Maria"
+								placeholder="e.g. Cashier 2, Maria"
 								value={newCashier.displayName}
 								onChange={(e) => setNewCashier((cur) => ({ ...cur, displayName: e.target.value }))}
 								required
@@ -375,17 +492,50 @@ function AdminSettings() {
 							Assigned cashier password
 							<input
 								type="password"
-								placeholder="e.g. staff 2"
+								placeholder="Minimum 6 characters"
 								minLength={6}
 								value={newCashier.password}
 								onChange={(e) => setNewCashier((cur) => ({ ...cur, password: e.target.value }))}
 								required
 							/>
 						</label>
-						{cashierFeedback?.type === "error" && <p className="settings-password-feedback is-error" role="alert">{cashierFeedback.message}</p>}
+						{cashierModalError && <p className="settings-password-feedback is-error" role="alert">{cashierModalError}</p>}
 						<div className="admin-settings-password-actions">
 							<button type="button" onClick={() => setShowAddCashier(false)} disabled={cashierActionLoading}>Cancel</button>
 							<button type="submit" disabled={cashierActionLoading}>{cashierActionLoading ? "Creating…" : "Create Cashier"}</button>
+						</div>
+					</form>
+				</div>
+			)}
+
+			{renameTarget && (
+				<div className="admin-settings-modal-backdrop" role="presentation" onClick={() => !cashierActionLoading && setRenameTarget(null)}>
+					<form className="admin-settings-password-modal" onSubmit={handleRenameCashier} role="dialog" aria-modal="true" aria-labelledby="rename-cashier-title" onClick={(event) => event.stopPropagation()}>
+						<div className="admin-settings-card-header">
+							<div className="admin-settings-card-icon">ID</div>
+							<div>
+								<h3 id="rename-cashier-title">Rename Cashier</h3>
+								<p>Update display name for <strong>{renameTarget.displayName}</strong>.</p>
+							</div>
+							<button type="button" onClick={() => setRenameTarget(null)} disabled={cashierActionLoading} aria-label="Close form">×</button>
+						</div>
+						<label>
+							New display name
+							<input
+								type="text"
+								placeholder="e.g. Maria S."
+								minLength={2}
+								maxLength={80}
+								value={renameDisplayName}
+								onChange={(e) => setRenameDisplayName(e.target.value)}
+								required
+								autoFocus
+							/>
+						</label>
+						{cashierModalError && <p className="settings-password-feedback is-error" role="alert">{cashierModalError}</p>}
+						<div className="admin-settings-password-actions">
+							<button type="button" onClick={() => setRenameTarget(null)} disabled={cashierActionLoading}>Cancel</button>
+							<button type="submit" disabled={cashierActionLoading}>{cashierActionLoading ? "Saving…" : "Save Name"}</button>
 						</div>
 					</form>
 				</div>
@@ -395,7 +545,7 @@ function AdminSettings() {
 				<div className="admin-settings-modal-backdrop" role="presentation" onClick={() => !cashierActionLoading && setCashierTarget(null)}>
 					<form className="admin-settings-password-modal" onSubmit={handleChangeCashierPassword} role="dialog" aria-modal="true" aria-labelledby="edit-cashier-title" onClick={(event) => event.stopPropagation()}>
 						<div className="admin-settings-card-header">
-							<div className="admin-settings-card-icon">🔑</div>
+							<div className="admin-settings-card-icon">PW</div>
 							<div>
 								<h3 id="edit-cashier-title">Change Cashier Password</h3>
 								<p>Update password for <strong>{cashierTarget.displayName}</strong>.</p>
@@ -414,7 +564,7 @@ function AdminSettings() {
 								autoFocus
 							/>
 						</label>
-						{cashierFeedback?.type === "error" && <p className="settings-password-feedback is-error" role="alert">{cashierFeedback.message}</p>}
+						{cashierModalError && <p className="settings-password-feedback is-error" role="alert">{cashierModalError}</p>}
 						<div className="admin-settings-password-actions">
 							<button type="button" onClick={() => setCashierTarget(null)} disabled={cashierActionLoading}>Cancel</button>
 							<button type="submit" disabled={cashierActionLoading}>{cashierActionLoading ? "Updating…" : "Save New Password"}</button>

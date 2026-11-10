@@ -59,20 +59,26 @@ function StaffReceipt() {
     return () => window.clearTimeout(timer);
   }, [location.state?.testPrint, orderNumber, printPreferences.autoPrintReceipt]);
 
+  const createdAt = location.state?.createdAt;
+
   const date = useMemo(() => {
-    return new Date().toLocaleDateString("en-US", {
+    const parsed = createdAt ? new Date(createdAt) : null;
+    const target = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
+    return target.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
-  }, []);
+  }, [createdAt]);
 
   const time = useMemo(() => {
-    return new Date().toLocaleTimeString([], {
+    const parsed = createdAt ? new Date(createdAt) : null;
+    const target = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
+    return target.toLocaleTimeString([], {
       hour: "numeric",
       minute: "2-digit",
     });
-  }, []);
+  }, [createdAt]);
 
   const handlePrint = () => {
     window.print();

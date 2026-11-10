@@ -445,6 +445,90 @@
 	border-radius: 18px;
 }
 
+.admin-settings-topbar-left {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.settings-mobile-menu-btn {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border: 1px solid var(--settings-line);
+	border-radius: 10px;
+	background: #fff;
+	color: var(--settings-ink);
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1), border-color 140ms ease, background-color 140ms ease;
+}
+
+.settings-mobile-menu-btn:active {
+	transform: scale(0.95);
+	transition-duration: 0ms;
+}
+
+.admin-settings-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 1150;
+	background: rgba(34, 22, 14, 0.44);
+}
+
+.settings-add-cashier-btn {
+	background: var(--settings-accent, #8b5e3c);
+	color: #fff;
+	border-color: var(--settings-accent, #8b5e3c);
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.cashier-row-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 12px 0;
+}
+
+.cashier-row-actions {
+	display: flex;
+	gap: 6px;
+	flex-shrink: 0;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.settings-secondary-button,
+.admin-settings-toggle,
+.admin-settings-save-button,
+.admin-settings-password-actions button {
+	touch-action: manipulation;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.settings-secondary-button:hover {
+		border-color: var(--settings-accent);
+		background: #fbf6f1;
+		color: var(--settings-accent-dark);
+	}
+
+	.settings-add-cashier-btn:hover {
+		background: var(--settings-accent-dark, #70482f);
+		border-color: var(--settings-accent-dark, #70482f);
+		color: #fff;
+	}
+}
+
+.settings-secondary-button:active,
+.admin-settings-save-button:active:not(:disabled) {
+	transform: scale(0.97);
+	transition-duration: 0ms;
+}
+
 @media (max-width: 1100px) {
 	.admin-settings-layout {
 		grid-template-columns: 1fr;
@@ -452,6 +536,41 @@
 
 	.admin-settings-secondary-column {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 900px) {
+	.settings-mobile-menu-btn {
+		display: inline-flex;
+	}
+
+	.admin-settings-page > .amaya-sidebar.amaya-sidebar--admin-frame {
+		position: fixed;
+		top: 0;
+		left: 0;
+		bottom: 0;
+		z-index: 1200;
+		width: 268px;
+		flex-basis: 268px;
+		max-width: 84vw;
+		margin: 0;
+		height: 100dvh;
+		border-radius: 0 18px 18px 0;
+		transform: translateX(-105%);
+		visibility: hidden;
+		transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 240ms;
+	}
+
+	.admin-settings-page.mobile-nav-open > .amaya-sidebar.amaya-sidebar--admin-frame {
+		transform: translateX(0);
+		visibility: visible;
+		box-shadow: 12px 0 36px rgba(18, 12, 8, 0.32);
+		transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+	}
+
+	.admin-settings-page.mobile-nav-open > .amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-brand {
+		justify-content: flex-start;
+		padding: 22px 18px 18px;
 	}
 }
 
@@ -484,13 +603,20 @@
 		padding: 16px;
 		border-radius: 12px;
 	}
+
+	.cashier-row-item {
+		flex-direction: column;
+		align-items: flex-start;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.admin-settings-card,
 	.admin-settings-toggle,
 	.admin-settings-toggle span,
-	.admin-settings-save-button {
-		transition: none;
+	.admin-settings-save-button,
+	.settings-mobile-menu-btn,
+	.admin-settings-page > .amaya-sidebar.amaya-sidebar--admin-frame {
+		transition-duration: 120ms !important;
 	}
 }

@@ -1,0 +1,334 @@
+/* ==========================================================================
+   STAFF SHIFT SESSION & CASHIER SWITCHER CONTROLS (/ui-animation calibrated)
+   ========================================================================== */
+
+.sop-compact {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sop-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid #dfd0c0;
+  background: #ffffff;
+  color: #3d281e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 100ms ease;
+}
+
+.sop-chip-btn.is-open {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.sop-chip-btn.is-closed {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.sop-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.sop-panel-card {
+  background: #ffffff;
+  border: 1px solid #ebdcd0;
+  border-radius: 14px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sop-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sop-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sop-panel-metric {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #faf4ec;
+  border: 1px solid #ede0d2;
+}
+
+.sop-panel-metric span {
+  display: block;
+  font-size: 0.72rem;
+  color: #7b6659;
+  font-weight: 700;
+}
+
+.sop-panel-metric strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.96rem;
+  color: #2d1f1a;
+}
+
+.sop-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sop-chip-btn:hover {
+    background: #f5ebe0;
+    border-color: #bfa389;
+  }
+  .sop-chip-btn.is-open:hover {
+    background: #dcfce7;
+  }
+  .sop-chip-btn.is-closed:hover {
+    background: #fef3c7;
+  }
+}
+
+.sop-chip-btn:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
+}
+
+.sop-chip-btn:focus-visible {
+  outline: 2px solid #8b5e3c;
+  outline-offset: 2px;
+}
+
+/* Modal dialog */
+.sop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(24, 16, 12, 0.56);
+  backdrop-filter: blur(4px);
+  animation: sopBackdropIn 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.sop-backdrop.is-closing {
+  animation: sopBackdropOut 150ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes sopBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sopBackdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sop-dialog {
+  width: min(500px, 100%);
+  background: #fdfaf5;
+  color: #2d1f1a;
+  border: 1px solid #e5d5c6;
+  border-radius: 16px;
+  box-shadow: 0 24px 56px rgba(24, 16, 12, 0.28);
+  overflow: hidden;
+  outline: none;
+  transform-origin: center;
+  animation: sopDialogIn 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.sop-backdrop.is-closing .sop-dialog {
+  animation: sopDialogOut 150ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes sopDialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes sopDialogOut {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+}
+
+.sop-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: #f8f1e7;
+  border-bottom: 1px solid #eadfd4;
+}
+
+.sop-dialog-head h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.sop-dialog-body {
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.sop-input,
+.sop-textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid #d7c3ae;
+  background: #ffffff;
+  color: #2d1f1a;
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.sop-textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.sop-summary-box {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8f1e7;
+  border: 1px solid #eadfd4;
+  font-size: 0.8rem;
+}
+
+.sop-summary-box span {
+  display: block;
+  color: #7b6659;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sop-summary-box strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.94rem;
+}
+
+.sop-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  border: 1px solid #d7c3ae;
+  background: #ffffff;
+  color: #3d281e;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+
+.sop-btn.primary {
+  background: #70482f;
+  border-color: #70482f;
+  color: #ffffff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sop-btn:hover:not(:disabled) {
+    background: #f5ebe0;
+  }
+  .sop-btn.primary:hover:not(:disabled) {
+    background: #5a3823;
+  }
+}
+
+.sop-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0ms;
+}
+
+.sop-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .sop-panel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sop-backdrop,
+  .sop-backdrop.is-closing,
+  .sop-dialog,
+  .sop-backdrop.is-closing .sop-dialog {
+    animation-duration: 120ms;
+    animation-timing-function: ease;
+    transform: none;
+  }
+  .sop-chip-btn,
+  .sop-btn {
+    transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  }
+  .sop-chip-btn:active,
+  .sop-btn:active:not(:disabled) {
+    transform: none;
+  }
+}

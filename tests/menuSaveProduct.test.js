@@ -16,6 +16,7 @@ describe("Tala Test Suite: saveProduct Validation & Integrity (Step 2 & 3a)", ()
       const [catResult] = await connection.execute(
         "INSERT INTO menu_categories (name, operational_family) VALUES ('Test Drinks', 'drink') ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
       );
+      assert(catResult.insertId > 0, "Test Drinks category must resolve");
       const testCatName = "Test Drinks";
 
       // Ensure test inventory items exist in transaction

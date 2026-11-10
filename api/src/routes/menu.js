@@ -26,9 +26,21 @@ const explainPackedUnit = (name, value, fieldName) => {
 	return `For â€œ${name}â€, put ${match[1]} in Amount per serving and â€œ${match[2]}â€ in Recipe unit. Keep the amount and unit in separate fields.`;
 };
 
-export function toProduct(row, sizes, addons, ingredients, sizeIngredients, includeInventory) {
+export function toProduct(
+  row,
+  sizes,
+  addons,
+  ingredients,
+  sizeIngredients,
+  includeInventory,
+  includeCost = includeInventory,
+  targetFoodCost = 0.3,
+) {
+  const showInventory = Boolean(includeInventory);
+  const showCost = Boolean(includeCost);
+  const rowCostPrice = Number(row.cost_price || 0);
   const mapIngredient = (entry) => {
-    const line = includeInventory
+    const line = showCost
       ? calculateLineCost(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit, entry.unit_cost)
       : null;
     return {
@@ -38,9 +50,11 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
       unit: entry.unit || entry.inventory_unit,
       stockUnit: entry.inventory_unit,
       quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.unit || entry.inventory_unit, entry.inventory_unit),
-      ...(includeInventory ? {
+      ...(showInventory ? {
         inventoryQuantity: Number(entry.inventory_quantity),
         maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
+      } : {}),
+      ...(showCost ? {
         unitCost: Number(entry.unit_cost || 0),
         lineCost: line.cost,
         costComplete: line.complete,
@@ -62,14 +76,29 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
       const ownRows = sizeIngredients.filter((entry) => Number(entry.product_size_id) === Number(size.id));
       const recipeRows = ownRows.length ? ownRows : rawIngredients;
       const recipes = ownRows.length ? ownRows.map(mapIngredient) : productIngredients;
-      const sizeCostSummary = includeInventory
-        ? summarizeCosting(size.price, recipes.map((recipe) => ({ cost: recipe.lineCost, complete: recipe.costComplete })))
-        : null;
+      let sizeCostSummary = null;
+      if (showCost) {
+        if (recipes.length > 0) {
+          sizeCostSummary = summarizeCosting(
+            size.price,
+            recipes.map((recipe) => ({ cost: recipe.lineCost, complete: recipe.costComplete })),
+            targetFoodCost,
+          );
+        } else if (rowCostPrice > 0) {
+          sizeCostSummary = summarizeCosting(
+            size.price,
+            [{ cost: rowCostPrice, complete: true }],
+            targetFoodCost,
+          );
+        } else {
+          sizeCostSummary = summarizeCosting(size.price, [], targetFoodCost);
+        }
+      }
       return {
         label: size.label,
         price: Number(size.price),
         stock: recipeRows.length ? recipeServings(recipeRows) : Number(row.stock_quantity),
-        ingredients: includeInventory ? recipes : [],
+        ingredients: showInventory ? recipes : [],
         ...(sizeCostSummary ? sizeCostSummary : {}),
       };
     });
@@ -84,9 +113,22 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
   const effectiveStock = productSizes.length
     ? Math.max(...productSizes.map((s) => s.stock))
     : rawIngredients.length ? recipeServings(rawIngredients) : Number(row.stock_quantity);
-  const baseCostSummary = includeInventory && rawIngredients.length
-    ? summarizeCosting(row.base_price, productIngredients.map((r) => ({ cost: r.lineCost, complete: r.costComplete })))
-    : null;
+  let baseCostSummary = null;
+  if (showCost) {
+    if (rawIngredients.length > 0) {
+      baseCostSummary = summarizeCosting(
+        row.base_price,
+        productIngredients.map((r) => ({ cost: r.lineCost, complete: r.costComplete })),
+        targetFoodCost,
+      );
+    } else if (rowCostPrice > 0) {
+      baseCostSummary = summarizeCosting(
+        row.base_price,
+        [{ cost: rowCostPrice, complete: true }],
+        targetFoodCost,
+      );
+    }
+  }
   const activeCostSummary = primarySize || baseCostSummary;
   return {
     id: Number(row.id),
@@ -98,7 +140,8 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
     stock: effectiveStock,
     available: Boolean(row.is_available),
     featured: Boolean(row.is_featured),
-    ...(includeInventory ? {
+    ...(showCost ? {
+      costPrice: rowCostPrice,
       cost: activeCostSummary?.cost ?? 0,
       costComplete: Boolean(activeCostSummary?.costComplete),
       grossProfit: activeCostSummary?.grossProfit ?? null,
@@ -108,21 +151,23 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
     } : {}),
     sizes: productSizes,
     addons: addons.filter((entry) => Number(entry.product_id) === Number(row.id)).map((entry) => {
-      const addonLine = includeInventory
+      const addonLine = showCost
         ? calculateLineCost(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit, entry.unit_cost)
         : null;
-      const addonSummary = includeInventory ? summarizeCosting(entry.price, [addonLine]) : null;
+      const addonSummary = showCost ? summarizeCosting(entry.price, [addonLine], targetFoodCost) : null;
       return {
         label: entry.label,
         price: Number(entry.price),
-        ...(includeInventory && entry.inventory_item_id != null ? { inventoryItemId: Number(entry.inventory_item_id) } : {}),
+        ...(showInventory && entry.inventory_item_id != null ? { inventoryItemId: Number(entry.inventory_item_id) } : {}),
         quantityUsed: entry.quantity_used == null ? null : Number(entry.quantity_used),
         unit: entry.usage_unit || entry.inventory_unit || "pcs",
         stockUnit: entry.inventory_unit || "pcs",
         quantityInStockUnit: entry.quantity_used == null ? null : toInventoryQuantity(entry.quantity_used, entry.usage_unit || entry.inventory_unit, entry.inventory_unit),
-        ...(includeInventory ? {
+        ...(showInventory ? {
           inventoryQuantity: Number(entry.inventory_quantity || 0),
           maximumStock: entry.maximum_stock == null ? null : Number(entry.maximum_stock),
+        } : {}),
+        ...(showCost ? {
           unitCost: Number(entry.unit_cost || 0),
           cost: addonSummary.cost,
           costComplete: addonSummary.costComplete,
@@ -131,12 +176,17 @@ export function toProduct(row, sizes, addons, ingredients, sizeIngredients, incl
         } : {}),
       };
     }),
-    ingredients: includeInventory ? productIngredients : [],
+    ingredients: showInventory ? productIngredients : [],
   };
 }
 
 // db defaults to the shared pool; tests pass a transaction connection.
-export async function listProducts(includeUnavailable = false, includeInventory = false, db = pool) {
+export async function listProducts(
+  includeUnavailable = false,
+  includeInventory = false,
+  db = pool,
+  includeCost = includeInventory,
+) {
   const [products] = await db.execute(
     `SELECT p.*, c.name AS category
        FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
@@ -144,6 +194,18 @@ export async function listProducts(includeUnavailable = false, includeInventory 
       ORDER BY p.display_order, p.name`,
   );
   if (!products.length) return [];
+  let targetFoodCost = 0.3;
+  if (includeCost) {
+    try {
+      const [[settingsRow]] = await db.execute("SELECT target_food_cost FROM business_settings WHERE id = 1 LIMIT 1");
+      const parsedTarget = Number(settingsRow?.target_food_cost);
+      if (Number.isFinite(parsedTarget) && parsedTarget > 0 && parsedTarget < 1) {
+        targetFoodCost = parsedTarget;
+      }
+    } catch {
+      targetFoodCost = 0.3;
+    }
+  }
   const ids = products.map((product) => product.id);
   const marks = ids.map(() => "?").join(",");
   const [addonResult, ingredientResult, sizeResult] = await Promise.all([
@@ -169,15 +231,20 @@ export async function listProducts(includeUnavailable = false, includeInventory 
   const sizes = sizeRows;
   const addons = addonRows;
   const ingredients = ingredientRows;
-  return products.map((product) => toProduct(product, sizes, addons, ingredients, sizeIngredients, includeInventory));
+  return products.map((product) =>
+    toProduct(product, sizes, addons, ingredients, sizeIngredients, includeInventory, includeCost, targetFoodCost),
+  );
 }
 
 function normalizeRecipeEntries(entries, description) {
   return (Array.isArray(entries) ? entries : []).map((ingredient) => {
+    const rawInventoryItemId = ingredient?.inventoryItemId;
+    const parsedInventoryItemId = rawInventoryItemId != null && rawInventoryItemId !== "" ? Number(rawInventoryItemId) : null;
+    const inventoryItemId = Number.isSafeInteger(parsedInventoryItemId) && parsedInventoryItemId > 0 ? parsedInventoryItemId : null;
     const name = String(ingredient?.name || ingredient?.item || "").trim();
     const rawQuantity = String(ingredient?.quantityUsed ?? "").trim();
     const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
-    if (attachedAmount) throw httpError(400, `For â€œ${name || "this ingredient"}â€, enter only ${attachedAmount[1]} in Amount per serving and â€œ${attachedAmount[2]}â€ in Recipe unit.`);
+    if (attachedAmount) throw httpError(400, `For “${name || "this ingredient"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
     const quantityUsed = Number(ingredient?.quantityUsed);
     const unit = String(ingredient?.unit || "pcs").trim();
     const stockUnit = String(ingredient?.stockUnit || unit).trim();
@@ -189,7 +256,7 @@ function normalizeRecipeEntries(entries, description) {
       || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
       throw httpError(400, `${description} needs a name, stock unit, recipe unit, and positive amount up to 100,000 with at most 6 decimal places.`);
     }
-    return { name, unit, stockUnit, quantityUsed };
+    return { inventoryItemId, name, unit, stockUnit, quantityUsed };
   });
 }
 
@@ -206,6 +273,11 @@ export async function saveProduct(connection, body, id = null) {
   const description = String(body?.description || "").trim();
   if (!name || name.length > 160 || !category || category.length > 100) throw httpError(400, "Product name and category are required.");
   const basePrice = toMoney(body.basePrice ?? body.price, "Product price");
+  const hasCostInput = body?.costPrice !== undefined || body?.cost_price !== undefined;
+  const rawCost = body?.costPrice ?? body?.cost_price;
+  const parsedCostPrice = hasCostInput
+    ? (rawCost === "" || rawCost == null ? "0.00" : toMoney(rawCost, "Product cost price"))
+    : null;
   const stock = Number(body.stock ?? 0);
   if (!Number.isSafeInteger(stock) || stock < 0) throw httpError(400, "Stock must be a non-negative whole number.");
   const image = body.image == null ? null : String(body.image);
@@ -224,19 +296,24 @@ export async function saveProduct(connection, body, id = null) {
   const categoryId = categoryRows[0].id;
   const operationalFamily = categoryRows[0].operationalFamily || "general";
   let productId = id;
-  const values = [categoryId, name, description || null, image, basePrice, stock, body.available !== false, Boolean(body.featured)];
   if (id == null) {
+    const costPrice = parsedCostPrice ?? "0.00";
     const [result] = await connection.execute(
-      `INSERT INTO menu_products (category_id, name, description, image_url, base_price, stock_quantity, is_available, is_featured)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, values,
+      `INSERT INTO menu_products (category_id, name, description, image_url, base_price, cost_price, stock_quantity, is_available, is_featured)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [categoryId, name, description || null, image, basePrice, costPrice, stock, body.available !== false, Boolean(body.featured)],
     );
     productId = result.insertId;
   } else {
-    const [existing] = await connection.execute("SELECT id FROM menu_products WHERE id = ? AND is_archived = FALSE", [id]);
+    const [existing] = await connection.execute(
+      "SELECT id, cost_price FROM menu_products WHERE id = ? AND is_archived = FALSE",
+      [id],
+    );
     if (!existing.length) throw httpError(404, "Menu item not found.");
+    const effectiveCostPrice = parsedCostPrice !== null ? parsedCostPrice : existing[0].cost_price;
     await connection.execute(
-      `UPDATE menu_products SET category_id = ?, name = ?, description = ?, image_url = ?, base_price = ?, stock_quantity = ?, is_available = ?, is_featured = ? WHERE id = ?`,
-      [...values, id],
+      `UPDATE menu_products SET category_id = ?, name = ?, description = ?, image_url = ?, base_price = ?, cost_price = ?, stock_quantity = ?, is_available = ?, is_featured = ? WHERE id = ?`,
+      [categoryId, name, description || null, image, basePrice, effectiveCostPrice, stock, body.available !== false, Boolean(body.featured), id],
     );
   }
 
@@ -271,6 +348,9 @@ export async function saveProduct(connection, body, id = null) {
     return entries;
   });
   const addonInputs = addons.map((addon) => {
+    const rawInventoryItemId = addon?.inventoryItemId;
+    const parsedInventoryItemId = rawInventoryItemId != null && rawInventoryItemId !== "" ? Number(rawInventoryItemId) : null;
+    const inventoryItemId = Number.isSafeInteger(parsedInventoryItemId) && parsedInventoryItemId > 0 ? parsedInventoryItemId : null;
     const label = String(addon?.label || "").trim();
     const unit = String(addon?.unit || "pcs").trim();
     const stockUnit = String(addon?.stockUnit || unit).trim();
@@ -286,7 +366,7 @@ export async function saveProduct(connection, body, id = null) {
       || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
       throw httpError(400, "Each add-on needs a name, price, stock unit, recipe unit, and positive usage amount up to 100,000 with at most 6 decimal places.");
     }
-    return { label, unit, stockUnit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
+    return { inventoryItemId, label, unit, stockUnit, quantityUsed, price: toMoney(addon.price ?? 0, "Add-on price") };
   });
   if (new Set(addonInputs.map((entry) => entry.label.toLocaleLowerCase())).size !== addonInputs.length) {
     throw httpError(400, "Each add-on name can only appear once per menu item.");
@@ -544,7 +624,8 @@ router.get("/", optionalAuth, async (request, response) => {
   const includeUnavailable = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))
     && request.query.all === "true";
   const includeInventory = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role));
-  response.json(await listProducts(includeUnavailable, includeInventory));
+  const includeCost = Boolean(request.authUser && request.authUser.role === "admin");
+  response.json(await listProducts(includeUnavailable, includeInventory, pool, includeCost));
 });
 
 router.post("/", requireAuth, requireRole("admin"), async (request, response) => {
@@ -553,7 +634,7 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await connection.beginTransaction();
     const id = await saveProduct(connection, request.body);
     await connection.commit();
-    response.status(201).json((await listProducts(true, true)).find((product) => product.id === Number(id)));
+    response.status(201).json((await listProducts(true, true, pool, true)).find((product) => product.id === Number(id)));
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -569,7 +650,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     await connection.beginTransaction();
     await saveProduct(connection, request.body, id);
     await connection.commit();
-    response.json((await listProducts(true, true)).find((product) => product.id === id));
+    response.json((await listProducts(true, true, pool, true)).find((product) => product.id === id));
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -597,7 +678,7 @@ router.delete("/:id", requireAuth, requireRole("admin"), async (request, respons
     entityName: existing.name,
     action: "archived",
     actorId: request.authUser?.sub || null,
-    actorName: request.authUser?.username || "Admin",
+    actorName: request.authUser?.displayName || request.authUser?.username || "Admin",
     note: "Moved to 30-day Archive from Menu Management",
     metadata: { category: existing.category || "Uncategorized", basePrice: Number(existing.base_price) },
   });

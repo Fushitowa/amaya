@@ -62,16 +62,29 @@ export async function permanentlyDeleteInventoryItem(id, { actorId = null, actor
   if (Number(orderUsage.consumptions) > 0) {
     throw httpError(409, "This item was consumed in recorded customer orders and cannot be permanently deleted.");
   }
+  const [[movementHistory]] = await pool.execute(
+    "SELECT COUNT(*) AS movements FROM inventory_movements WHERE inventory_item_id = ?",
+    [id],
+  );
+  if (Number(movementHistory.movements) > 0) {
+    throw httpError(409, "This item has recorded inventory movement history and cannot be permanently deleted.");
+  }
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const [[existing]] = await connection.execute("SELECT id, name FROM inventory_items WHERE id = ? FOR UPDATE", [id]);
     if (!existing) throw httpError(404, "Inventory item not found.");
+    const [[txMovements]] = await connection.execute(
+      "SELECT COUNT(*) AS movements FROM inventory_movements WHERE inventory_item_id = ?",
+      [id],
+    );
+    if (Number(txMovements.movements) > 0) {
+      throw httpError(409, "This item has recorded inventory movement history and cannot be permanently deleted.");
+    }
     await connection.execute("DELETE FROM product_ingredients WHERE inventory_item_id = ?", [id]);
     await connection.execute("DELETE FROM product_size_ingredients WHERE inventory_item_id = ?", [id]);
     await connection.execute("UPDATE product_addons SET inventory_item_id = NULL WHERE inventory_item_id = ?", [id]);
-    await connection.execute("DELETE FROM inventory_movements WHERE inventory_item_id = ?", [id]);
     await connection.execute("DELETE FROM inventory_items WHERE id = ?", [id]);
     await recordArchiveAudit(connection, {
       entityType: "inventory_item",
@@ -86,7 +99,7 @@ export async function permanentlyDeleteInventoryItem(id, { actorId = null, actor
     return existing;
   } catch (error) {
     await connection.rollback();
-    if (error.code === "ER_ROW_IS_REFERENCED_2") throw httpError(409, "This item has related order history and cannot be permanently deleted.");
+    if (error.code === "ER_ROW_IS_REFERENCED_2") throw httpError(409, "This item has related order or movement history and cannot be permanently deleted.");
     throw error;
   } finally {
     connection.release();
@@ -183,7 +196,7 @@ router.get("/", requireAuth, requireRole("admin"), async (_request, response) =>
   const [menuRows, inventoryRows, auditRows] = await Promise.all([
     pool.execute(
       `SELECT p.id, p.name, p.description, p.image_url, p.base_price, p.stock_quantity,
-              p.archived_at, c.name AS category, u.username AS archived_by_name
+              p.archived_at, c.name AS category, COALESCE(NULLIF(u.display_name, ''), u.username) AS archived_by_name
          FROM menu_products p
          LEFT JOIN menu_categories c ON c.id = p.category_id
          LEFT JOIN users u ON u.id = p.archived_by
@@ -192,7 +205,7 @@ router.get("/", requireAuth, requireRole("admin"), async (_request, response) =>
     ),
     pool.execute(
       `SELECT i.id, i.name, i.category, i.quantity, i.unit, i.maximum_stock,
-              i.archived_at, u.username AS archived_by_name,
+              i.archived_at, COALESCE(NULLIF(u.display_name, ''), u.username) AS archived_by_name,
               (SELECT COUNT(*) FROM order_inventory_consumptions oic WHERE oic.inventory_item_id = i.id) AS order_consumptions
          FROM inventory_items i
          LEFT JOIN users u ON u.id = i.archived_by
@@ -274,7 +287,7 @@ router.post("/restore/:type/:id", requireAuth, requireRole("admin"), async (requ
   const id = Number(request.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid item ID.");
   const actorId = Number(request.authUser?.sub) || null;
-  const actorName = request.authUser?.username || "admin";
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
 
   if (type === "menu") {
     const [[existing]] = await pool.execute("SELECT id, name, is_archived FROM menu_products WHERE id = ?", [id]);
@@ -320,7 +333,7 @@ router.post("/restore/:type/:id", requireAuth, requireRole("admin"), async (requ
 // DELETE /api/archive/empty -> permanently deletes all archived items that can be purged
 router.delete("/empty", requireAuth, requireRole("admin"), async (request, response) => {
   const actorId = Number(request.authUser?.sub) || null;
-  const actorName = request.authUser?.username || "admin";
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
 
   const [archivedMenu] = await pool.execute("SELECT id, name FROM menu_products WHERE is_archived = TRUE");
   let deletedMenu = 0;
@@ -365,7 +378,7 @@ router.delete("/:type/:id", requireAuth, requireRole("admin"), async (request, r
   const id = Number(request.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid item ID.");
   const actorId = Number(request.authUser?.sub) || null;
-  const actorName = request.authUser?.username || "admin";
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
 
   if (type === "menu") {
     const deleted = await permanentlyDeleteMenuProduct(id, {

@@ -175,9 +175,11 @@ describe("Tala Test Suite: Menu Cup & Sizing Business Rules", () => {
       return Number.isFinite(amount) && amount > 0 ? amount : 0;
     };
 
-    assert.equal(sizeQty(ingredients[0], "12oz"), 1, "12oz cup active for 12oz size");
-    assert.equal(sizeQty(ingredients[1], "12oz"), 0, "16oz cup inactive (0) for 12oz size");
-    assert.equal(sizeQty(ingredients[0], "16oz"), 0, "12oz cup inactive (0) for 16oz size");
+    const chosenCup = ingredients.find((ing) => ing.inventoryItemId === size.cupId);
+    assert.ok(chosenCup, "Selected cup must exist in ingredient list");
+    assert.equal(sizeQty(chosenCup, size.label), 1, "12oz cup active for 12oz size");
+    assert.equal(sizeQty(ingredients[1], size.label), 0, "16oz cup inactive (0) for 12oz size");
+    assert.equal(sizeQty(chosenCup, "16oz"), 0, "12oz cup inactive (0) for 16oz size");
     assert.equal(sizeQty(ingredients[1], "16oz"), 1, "16oz cup active for 16oz size");
   });
 });

@@ -1883,7 +1883,7 @@
   .stat-card:hover,
   .quick-action:hover {
     transform: none;
-    transition: none;
+    transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
   }
 }
 
@@ -1909,6 +1909,7 @@
 @keyframes sd-fade { from { opacity: 0; } to { opacity: 1; } }
 .sd-main { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 16px calc(104px + env(safe-area-inset-bottom, 0px)); background: #f6f1ec; color: #2d1f1a; font-family: "Roboto", "DM Sans", system-ui, sans-serif; }
 .sd-appbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 4px; min-height: 68px; margin: 0 -16px 4px; padding: 8px 12px 8px 4px; background: #f6f1ec; }
+.sd-ops-strip { padding: 0 2px 10px; }
 .sd-icon-btn { width: 48px; height: 48px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #2d1f1a; }
 .sd-icon-btn:active { background: rgba(90,62,43,.14); }
 .sd-appbar-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -1945,14 +1946,15 @@
 .sd-recent-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; color: inherit; text-decoration: none; }
 .sd-recent-row:active { background: #faf5ef; }
 .sd-dot { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: #cfc6bd; }
-.sd-dot.pending { background: #e0a526; } .sd-dot.preparing { background: #3b78d1; } .sd-dot.completed { background: #2e9d57; }
+.sd-dot.pending { background: #e0a526; } .sd-dot.preparing { background: #3b78d1; } .sd-dot.completed { background: #2e9d57; } .sd-dot.cancelled { background: #dc2626; }
 .sd-recent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sd-recent-text strong { font-size: 15.5px; font-weight: 600; }
 .sd-recent-text small { font-size: 12.5px; color: #8a7c73; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sd-recent-end { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .sd-recent-end b { font-size: 15px; color: #3a2618; }
 .sd-recent-end em { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 7px; background: #eee; color: #555; }
-.sd-recent-end em.pending { background: #fff1d6; color: #8a5a00; } .sd-recent-end em.preparing { background: #e1ecfb; color: #1f4f96; } .sd-recent-end em.completed { background: #e3f3e8; color: #15803d; }
+.sd-recent-end em.pending { background: #fff1d6; color: #8a5a00; } .sd-recent-end em.preparing { background: #e1ecfb; color: #1f4f96; } .sd-recent-end em.completed { background: #e3f3e8; color: #15803d; } .sd-recent-end em.cancelled { background: #fef2f2; color: #b91c1c; }
+.order-status.cancelled { background: #fef2f2; color: #b91c1c; }
 .sd-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 36px 16px; color: #8a7c73; text-align: center; }
 .sd-empty strong { color: #2d1f1a; font-size: 16px; }
 .sd-fab { position: fixed; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 40; min-height: 56px; display: inline-flex; align-items: center; gap: 10px; padding: 0 22px 0 18px; border-radius: 18px; background: #f0bd78; color: #3a2618; font: 700 15.5px "Roboto", "DM Sans", sans-serif; text-decoration: none; box-shadow: 0 6px 16px rgba(58,38,24,.35); transition: transform .15s; }
@@ -1974,7 +1976,7 @@
   border: 3px solid transparent;
   border-radius: 99px;
   background: rgba(90, 62, 43, 0.28) padding-box;
-  transition: background 0.2s;
+  transition: background-color 0.2s;
 }
 .sd-recent:hover::-webkit-scrollbar-thumb,
 .sd-recent::-webkit-scrollbar-thumb:active { background: #8b5e3c padding-box; }

@@ -17,7 +17,9 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
+import StaffOperationsBar from "../../components/StaffOperationsBar.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { getOrderTime, isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
@@ -29,6 +31,8 @@ import "../../assets/css/sidebar-collapse.css";
 
 function StaffDashboard() {
   const { darkMode } = useTheme();
+  const { user } = useAuth() || {};
+  const cashierName = user?.displayName || "Cashier";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { orders = [] } = useOrders() || {};
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -107,6 +111,10 @@ function StaffDashboard() {
             </div>
             <StaffNotificationBell />
           </header>
+
+          <div className="sd-ops-strip">
+            <StaffOperationsBar variant="compact" darkMode={darkMode} />
+          </div>
 
           <section className="sd-hero" aria-label="Today's revenue">
             <span className="sd-hero-date">{liveDate}</span>
@@ -201,6 +209,7 @@ function StaffDashboard() {
           </div>
 
           <div className="topbar-right">
+            <StaffOperationsBar variant="compact" darkMode={darkMode} />
             <StaffNotificationBell />
 
             <div className="staff-user">
@@ -208,7 +217,7 @@ function StaffDashboard() {
                 <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
               </div>
               <div className="staff-user-info">
-                <strong>Staff User</strong>
+                <strong>{cashierName}</strong>
                 <span>Barista & Cashier</span>
               </div>
             </div>
@@ -220,7 +229,7 @@ function StaffDashboard() {
           <PortalHero
             label="Staff Portal · Barista & Cashier"
             greeting={greetingTime}
-            highlight="Staff!"
+            highlight={`${cashierName}!`}
             subtitle="Here is what is currently happening at Amaya’s Drinks & Bites today."
             date={liveDate}
             statusTitle="Terminal active"

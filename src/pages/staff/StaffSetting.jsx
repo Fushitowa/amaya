@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Check, Menu, Moon, Palette, Printer, Sun, User } from "lucide-react";
 
+import { useAuth } from "../../context/AuthContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
+import StaffOperationsBar from "../../components/StaffOperationsBar.jsx";
 import NotificationIcon from "../../components/NotificationIcon.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
+import { apiRequest } from "../../utils/api.js";
 
 import "../../assets/css/staff/staff-setting.css";
 import "../../assets/css/portal-user.css";
@@ -34,11 +38,46 @@ function readStaffPreferences() {
 
 function StaffSetting() {
   const { darkMode, toggleDarkMode } = useTheme();
+  const { user } = useAuth() || {};
+  const cashierName = user?.displayName || "Cashier";
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
+  );
   const [preferences, setPreferences] = useState(readStaffPreferences);
   const { notifications, orderAlerts, inventoryAlerts, audioChime, autoPrintReceipt, printerPaperSize, printLogoOnReceipt, defaultOrderType, stationName } = preferences;
   const [toastMessage, setToastMessage] = useState(null);
+  const [currentSession, setCurrentSession] = useState(null);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let active = true;
+    const syncSession = () => {
+      apiRequest("/sessions/current")
+        .then((res) => {
+          if (active) setCurrentSession(res?.session || null);
+        })
+        .catch(() => {});
+    };
+    syncSession();
+    window.addEventListener("amaya:session-changed", syncSession);
+    return () => {
+      active = false;
+      window.removeEventListener("amaya:session-changed", syncSession);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const sync = () => {
+      setIsMobile(query.matches);
+      if (!query.matches) setMobileNavOpen(false);
+    };
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!toastMessage) return undefined;
@@ -72,26 +111,51 @@ function StaffSetting() {
         total: 1,
         cashTendered: 1,
         changeDue: 0,
+        cashierName,
       },
     });
   };
 
   return (
-    <div className={`staff-settings-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div
+      className={`staff-settings-page ${darkMode ? "dark-mode" : ""} ${
+        sidebarCollapsed ? "sidebar-collapsed" : ""
+      } ${isMobile ? "is-mobile" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}
+    >
+      {mobileNavOpen && (
+        <div
+          className="ss-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Sidebar Navigation */}
       <Sidebar
         role="staff"
         activeTab="settings"
-        sidebarCollapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((c) => !c)}
+        sidebarCollapsed={isMobile ? false : sidebarCollapsed}
+        onToggle={() => (isMobile ? setMobileNavOpen(false) : setSidebarCollapsed((c) => !c))}
       />
 
       {/* Main Settings Content */}
       <main className="staff-settings-main">
         <header className="staff-settings-topbar">
           <div className="settings-topbar-left">
-            <span className="settings-page-label">STAFF PORTAL</span>
-            <h1>Portal & POS Settings</h1>
+            {isMobile && (
+              <button
+                type="button"
+                className="settings-mobile-nav-btn"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open navigation menu"
+              >
+                <Menu size={20} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+            )}
+            <div>
+              <span className="settings-page-label">STAFF PORTAL</span>
+              <h1>Portal &amp; POS Settings</h1>
+            </div>
           </div>
 
           <div className="settings-topbar-right">
@@ -102,8 +166,8 @@ function StaffSetting() {
                 <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
               </div>
               <div className="settings-user-info">
-                <strong>Staff User</strong>
-                <span>Barista & Cashier</span>
+                <strong>{cashierName}</strong>
+                <span>Barista &amp; Cashier</span>
               </div>
             </div>
           </div>
@@ -112,7 +176,7 @@ function StaffSetting() {
         <div className="settings-content">
           <section className="settings-intro">
             <div>
-              <span className="settings-eyebrow">PREFERENCES & HARDWARE</span>
+              <span className="settings-eyebrow">PREFERENCES &amp; HARDWARE</span>
               <h2>Station Configuration</h2>
               <p>
                 Configure receipt printer options, live order alerts, staff profile status, and counter workstation settings.
@@ -121,6 +185,7 @@ function StaffSetting() {
 
             <button
               type="button"
+              className="settings-save-btn"
               onClick={handleSaveSettings}
               style={{
                 padding: "10px 22px",
@@ -138,15 +203,19 @@ function StaffSetting() {
             </button>
           </section>
 
-          <div className="settings-layout" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", alignItems: "start" }}>
+          <section className="settings-ops-section" aria-label="Cashier shift and terminal controls">
+            <StaffOperationsBar variant="panel" darkMode={darkMode} />
+          </section>
+
+          <div className="settings-layout" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "24px", alignItems: "start" }}>
             {/* Card 1: Staff Profile & Duty Status */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
-                  👤
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <User size={18} strokeWidth={2} aria-hidden="true" />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Staff Profile & Station</h3>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Staff Profile &amp; Station</h3>
                   <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Assigned workstation and active shift status</p>
                 </div>
               </div>
@@ -154,11 +223,28 @@ function StaffSetting() {
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Active Cashier</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Current signed-in terminal profile</span>
+                  </div>
+                  <strong style={{ fontSize: "13px", color: "#70482f" }}>{cashierName}</strong>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
+                  <div>
                     <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Shift Status</strong>
                     <span style={{ fontSize: "12px", color: "#8a7c73" }}>Current working status</span>
                   </div>
-                  <span style={{ padding: "5px 12px", borderRadius: "20px", background: "#e7f4ea", color: "#2e7d32", fontSize: "12px", fontWeight: 700 }}>
-                    ● On Duty
+                  <span
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "20px",
+                      background: currentSession?.status === "open" ? "#e7f4ea" : "#fef3c7",
+                      color: currentSession?.status === "open" ? "#2e7d32" : "#92400e",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {currentSession?.status === "open" ? "On Duty · Shift Open" : "Shift Closed"}
                   </span>
                 </div>
 
@@ -169,6 +255,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="text"
+                    aria-label="Counter Terminal"
                     value={stationName}
                     onChange={(e) => updatePreference("stationName", e.target.value)}
                     style={{ width: "170px", padding: "7px 12px", borderRadius: "8px", border: "1px solid #dcd4cc", fontSize: "13px", textAlign: "right" }}
@@ -177,11 +264,11 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Role & Permissions</strong>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Role &amp; Permissions</strong>
                     <span style={{ fontSize: "12px", color: "#8a7c73" }}>Access level</span>
                   </div>
                   <span style={{ fontSize: "13px", fontWeight: 600, color: "#8b5e3c" }}>
-                    Staff / Cashier & Barista
+                    Staff / Cashier &amp; Barista
                   </span>
                 </div>
 
@@ -200,8 +287,8 @@ function StaffSetting() {
             {/* Card 2: Receipt Printer & Hardware Setup */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
-                  ⎙
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Printer size={18} strokeWidth={2} aria-hidden="true" />
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Receipt Printer Setup</h3>
@@ -245,6 +332,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Auto-Print on Checkout"
                     checked={autoPrintReceipt}
                     onChange={(e) => updatePreference("autoPrintReceipt", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -258,6 +346,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Print Store Logo"
                     checked={printLogoOnReceipt}
                     onChange={(e) => updatePreference("printLogoOnReceipt", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -282,7 +371,8 @@ function StaffSetting() {
                       gap: "6px",
                     }}
                   >
-                    <span>⎙</span> Test Print Receipt Slip
+                    <Printer size={14} strokeWidth={2.1} aria-hidden="true" />
+                    Test Print Receipt Slip
                   </button>
                 </div>
               </div>
@@ -295,7 +385,7 @@ function StaffSetting() {
                   <NotificationIcon size={18} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Notifications & Alerts</h3>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Notifications &amp; Alerts</h3>
                   <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Manage order chime, queue alerts, and popup toasts</p>
                 </div>
               </div>
@@ -308,6 +398,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="New Order Alerts"
                     checked={orderAlerts}
                     onChange={(e) => updatePreference("orderAlerts", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -321,6 +412,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Audio Chime"
                     checked={audioChime}
                     onChange={(e) => updatePreference("audioChime", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -334,6 +426,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="System Notifications"
                     checked={notifications}
                     onChange={(e) => updatePreference("notifications", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -347,6 +440,7 @@ function StaffSetting() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Inventory Limit Alerts"
                     checked={inventoryAlerts}
                     onChange={(e) => updatePreference("inventoryAlerts", e.target.checked)}
                     style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#8b5e3c" }}
@@ -359,6 +453,7 @@ function StaffSetting() {
                     <span style={{ fontSize: "12px", color: "#8a7c73" }}>Preselected service type</span>
                   </div>
                   <select
+                    aria-label="Default Order Type"
                     value={defaultOrderType}
                     onChange={(e) => updatePreference("defaultOrderType", e.target.value)}
                     style={{ padding: "7px 12px", borderRadius: "8px", border: "1px solid #ded6ce", fontSize: "13px", color: "#2d1f1a" }}
@@ -373,11 +468,11 @@ function StaffSetting() {
             {/* Card 4: Display & Appearance */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
-                  🎨
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Palette size={18} strokeWidth={2} aria-hidden="true" />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Display & Themes</h3>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Display &amp; Themes</h3>
                   <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Adjust POS interface contrast and appearance</p>
                 </div>
               </div>
@@ -392,6 +487,9 @@ function StaffSetting() {
                     type="button"
                     onClick={toggleDarkMode}
                     style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
                       padding: "7px 14px",
                       borderRadius: "8px",
                       border: "1px solid #ded6ce",
@@ -402,7 +500,8 @@ function StaffSetting() {
                       cursor: "pointer",
                     }}
                   >
-                    {darkMode ? "🌙 Dark Mode" : "☀️ Light Mode"}
+                    {darkMode ? <Moon size={14} aria-hidden="true" /> : <Sun size={14} aria-hidden="true" />}
+                    <span>{darkMode ? "Dark Mode" : "Light Mode"}</span>
                   </button>
                 </div>
 
@@ -446,10 +545,15 @@ function StaffSetting() {
       {/* Toast Notification */}
       {toastMessage && (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             position: "fixed",
             bottom: "24px",
             right: "24px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
             background: "#2d1f1a",
             color: "#ffffff",
             padding: "12px 20px",
@@ -460,7 +564,8 @@ function StaffSetting() {
             zIndex: 1200,
           }}
         >
-          ✓ {toastMessage}
+          <Check size={14} strokeWidth={2.5} aria-hidden="true" />
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>

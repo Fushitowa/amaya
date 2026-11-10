@@ -24,6 +24,7 @@ import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { formatUnitCost } from "../../utils/inventoryFormatting.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
@@ -36,13 +37,6 @@ const inventoryUnitGroups = [
   { label: "Count", options: [["pcs", "Pieces (pcs)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
 ];
 const packageUnitOptions = ["pack", "box", "bag", "bottle", "can", "sack", "set", "tub", "jar", "carton"];
-
-export function formatUnitCost(cost) {
-  const num = Number(cost || 0);
-  if (!Number.isFinite(num) || num <= 0) return "0.00";
-  const fixed3 = num.toFixed(3);
-  return fixed3.endsWith("0") ? num.toFixed(2) : fixed3;
-}
 
 function createEmptyInventoryForm() {
   return {
@@ -165,6 +159,8 @@ function AdminInventory() {
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState("");
   const [restockBatchCost, setRestockBatchCost] = useState("");
+  const [restockSupplierName, setRestockSupplierName] = useState("");
+  const [restockReferenceNo, setRestockReferenceNo] = useState("");
   const [itemToDelete, setItemToDelete] = useState(null);
   const [movementHistory, setMovementHistory] = useState({ item: null, rows: [], loading: false, error: "" });
   const [actionError, setActionError] = useState("");
@@ -291,6 +287,8 @@ function AdminInventory() {
       setEditingItem(null);
       setRestockItem(null);
       setRestockBatchCost("");
+      setRestockSupplierName("");
+      setRestockReferenceNo("");
       setItemToDelete(null);
       setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
@@ -360,6 +358,8 @@ function AdminInventory() {
       setRestockQuantity("");
     }
     setRestockBatchCost("");
+    setRestockSupplierName("");
+    setRestockReferenceNo("");
     setActionError("");
   };
 
@@ -387,10 +387,16 @@ function AdminInventory() {
     setIsSaving(true);
     setActionError("");
     try {
-      await restockInventoryItem(restockItem.id, quantity, restockBatchCost);
+      await restockInventoryItem(restockItem.id, quantity, {
+        batchCost: restockBatchCost,
+        supplierName: restockSupplierName.trim() || undefined,
+        referenceNo: restockReferenceNo.trim() || undefined,
+      });
       setNotice(`${restockItem.item} restocked by ${quantity} ${restockItem.unit}.`);
       setRestockItem(null);
       setRestockBatchCost("");
+      setRestockSupplierName("");
+      setRestockReferenceNo("");
     } catch (error) {
       setActionError(error.message || "Could not restock this item.");
     } finally {
@@ -1638,7 +1644,7 @@ function AdminInventory() {
       )}
 
       {restockItem && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => { if (!isSaving) { setRestockItem(null); setRestockBatchCost(""); } }}>
+        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => { if (!isSaving) { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); } }}>
           <form className="admin-inventory-modal inventory-action-modal" onSubmit={handleRestock} role="dialog" aria-modal="true" aria-labelledby="restock-dialog-title" onClick={(event) => event.stopPropagation()}>
             <div className="admin-inventory-modal-header">
               <div>
@@ -1646,7 +1652,7 @@ function AdminInventory() {
                 <h3 id="restock-dialog-title">Restock {restockItem.item}</h3>
                 <p>Current: {restockItem.quantity} {restockItem.unit} · Maximum: {restockItem.maximumStock == null ? "Not set" : `${restockItem.maximumStock} ${restockItem.unit}`}</p>
               </div>
-              <button type="button" onClick={() => { setRestockItem(null); setRestockBatchCost(""); }} disabled={isSaving} aria-label="Close restock form">×</button>
+              <button type="button" onClick={() => { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); }} disabled={isSaving} aria-label="Close restock form">×</button>
             </div>
             <label className="inventory-restock-field">
               Quantity to add ({restockItem.unit})
@@ -1665,6 +1671,28 @@ function AdminInventory() {
               />
               <small>Enter total batch cost to recalculate weighted-average unit cost.</small>
             </label>
+            <div className="inventory-restock-meta-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.75rem" }}>
+              <label className="inventory-restock-field">
+                Supplier Name — Optional
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={restockSupplierName}
+                  onChange={(event) => setRestockSupplierName(event.target.value)}
+                  placeholder="e.g. Bukidnon Dairy"
+                />
+              </label>
+              <label className="inventory-restock-field">
+                Reference / Receipt No. — Optional
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={restockReferenceNo}
+                  onChange={(event) => setRestockReferenceNo(event.target.value)}
+                  placeholder="e.g. INV-2026-041"
+                />
+              </label>
+            </div>
             {Number(restockBatchCost) > 0 && Number(restockQuantity) > 0 && (
               <div className="inventory-costing-preview-box" style={{ marginTop: "0.75rem" }}>
                 <div className="costing-preview-header">
@@ -1693,7 +1721,7 @@ function AdminInventory() {
             )}
             {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
             <div className="admin-inventory-modal-actions">
-              <button type="button" className="modal-cancel" onClick={() => { setRestockItem(null); setRestockBatchCost(""); }} disabled={isSaving}>Cancel</button>
+              <button type="button" className="modal-cancel" onClick={() => { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); }} disabled={isSaving}>Cancel</button>
               <button type="submit" className="modal-save" disabled={isSaving}>{isSaving ? "Adding stock…" : "Confirm restock"}</button>
             </div>
           </form>

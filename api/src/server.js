@@ -12,11 +12,13 @@ import settingsRoutes from "./routes/settings.js";
 import notificationRoutes, { runInventoryAlertCheck } from "./routes/notifications.js";
 import archiveRoutes, { runArchivePurgeCheck } from "./routes/archive.js";
 import decisionRoutes from "./routes/decisions.js";
+import sessionRoutes from "./routes/sessions.js";
+import reportRoutes from "./routes/reports.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
 
-const lanOriginRegex = /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
+const lanOriginRegex = /^http:\/\/(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$/;
 const configuredOrigins = (process.env.WEB_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean);
 const devOrigins = ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", lanOriginRegex];
 const allowedOrigins = [...new Set([...configuredOrigins, ...devOrigins])];
@@ -44,11 +46,12 @@ app.get("/api/health", async (_request, response) => {
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: process.env.NODE_ENV === "production" ? 20 : 1000,
+  limit: process.env.NODE_ENV === "test" ? 1000 : (process.env.NODE_ENV === "production" ? 10 : 15),
   standardHeaders: "draft-8",
   legacyHeaders: false,
 });
 app.post("/api/auth/login", loginLimiter);
+app.post("/api/auth/switch-cashier", loginLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
@@ -57,6 +60,8 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/archive", archiveRoutes);
 app.use("/api/decisions", decisionRoutes);
+app.use("/api/sessions", sessionRoutes);
+app.use("/api/reports", reportRoutes);
 
 app.use((request, response) => {
   response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });

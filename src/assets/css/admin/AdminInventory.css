@@ -585,13 +585,21 @@
   font: 700 12px / 1 "DM Sans", sans-serif;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 160ms ease;
+  touch-action: manipulation;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
-.admin-inventory-bar-actions button:hover {
-  background: #faf7f4;
-  border-color: #cbbfb3;
-  color: #2e261f;
+@media (hover: hover) and (pointer: fine) {
+  .admin-inventory-bar-actions button:hover {
+    background: #faf7f4;
+    border-color: #cbbfb3;
+    color: #2e261f;
+  }
+}
+
+.admin-inventory-bar-actions button:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .admin-inventory-bar-actions button.restock {
@@ -602,9 +610,11 @@
   box-shadow: 0 2px 6px rgba(58, 38, 24, 0.16);
 }
 
-.admin-inventory-bar-actions button.restock:hover {
-  background: #25170d;
-  transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+  .admin-inventory-bar-actions button.restock:hover {
+    background: #25170d;
+    transform: translateY(-1px);
+  }
 }
 
 .admin-inventory-bar-actions button.danger {
@@ -1269,11 +1279,19 @@
   color: #78716c;
   font: 600 13px "DM Sans", sans-serif;
   cursor: pointer;
-  transition: all 160ms ease;
+  touch-action: manipulation;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.admin-inventory-viewtoggle button:hover {
-  color: #3a2618;
+@media (hover: hover) and (pointer: fine) {
+  .admin-inventory-viewtoggle button:hover {
+    color: #3a2618;
+  }
+}
+
+.admin-inventory-viewtoggle button:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .admin-inventory-viewtoggle button.active {
@@ -1615,7 +1633,8 @@
   cursor: pointer;
   white-space: nowrap;
   box-sizing: border-box;
-  transition: all 160ms ease;
+  touch-action: manipulation;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .admin-inventory-card-actions button span {
@@ -1627,10 +1646,17 @@
   line-height: 1;
 }
 
-.admin-inventory-card-actions button:hover {
-  background: #faf7f4;
-  border-color: #cbbfb3;
-  color: #2e261f;
+@media (hover: hover) and (pointer: fine) {
+  .admin-inventory-card-actions button:hover {
+    background: #faf7f4;
+    border-color: #cbbfb3;
+    color: #2e261f;
+  }
+}
+
+.admin-inventory-card-actions button:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .admin-inventory-card-actions button.restock {
@@ -2296,15 +2322,18 @@
   border-radius: 6px;
   text-decoration: none;
   border: 1px solid #eadac8;
-  transition: all 150ms ease;
+  touch-action: manipulation;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
   text-transform: none;
   letter-spacing: normal;
 }
 
-.admin-inventory-manage-category-link:hover {
-  background: #ebd8c5;
-  color: #5a3d28;
-  border-color: #d8c2ad;
+@media (hover: hover) and (pointer: fine) {
+  .admin-inventory-manage-category-link:hover {
+    background: #ebd8c5;
+    color: #5a3d28;
+    border-color: #d8c2ad;
+  }
 }
 
 .admin-inventory-sort select,
@@ -2715,11 +2744,11 @@
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  touch-action: manipulation;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 1px 2px rgba(45, 31, 26, 0.05);
 }
 
-.inventory-field-help-btn:hover,
 .inventory-field-help-btn:focus-visible,
 .inventory-field-help-btn.is-active {
   background: #8b5e3c;
@@ -2728,6 +2757,16 @@
   transform: scale(1.1);
   box-shadow: 0 2px 8px rgba(139, 94, 60, 0.3);
   outline: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inventory-field-help-btn:hover {
+    background: #8b5e3c;
+    color: #ffffff;
+    border-color: #70482f;
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(139, 94, 60, 0.3);
+  }
 }
 
 .inventory-field-help-popover {
@@ -2861,13 +2900,16 @@
   border-radius: 10px;
   background: #fdfcfb;
   cursor: pointer;
-  transition: all 150ms ease;
+  touch-action: manipulation;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
   text-align: center;
 }
 
-.inventory-dropzone:hover {
-  border-color: var(--inventory-accent);
-  background: #fcf8f4;
+@media (hover: hover) and (pointer: fine) {
+  .inventory-dropzone:hover {
+    border-color: var(--inventory-accent);
+    background: #fcf8f4;
+  }
 }
 
 .inventory-dropzone-icon {
@@ -2929,7 +2971,8 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 120ms ease;
+  touch-action: manipulation;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
   user-select: none;
 }
 
@@ -2939,9 +2982,11 @@
   color: var(--inventory-ink);
 }
 
-.inventory-img-btn.change:hover {
-  background: #f7efe7;
-  border-color: var(--inventory-accent);
+@media (hover: hover) and (pointer: fine) {
+  .inventory-img-btn.change:hover {
+    background: #f7efe7;
+    border-color: var(--inventory-accent);
+  }
 }
 
 .inventory-img-btn.remove {
@@ -2950,8 +2995,16 @@
   color: #dc2626;
 }
 
-.inventory-img-btn.remove:hover {
-  background: #fee2e2;
+@media (hover: hover) and (pointer: fine) {
+  .inventory-img-btn.remove:hover {
+    background: #fee2e2;
+  }
+}
+
+.inventory-field-help-btn:active,
+.inventory-img-btn:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .admin-inventory-table-item-cell {
@@ -3236,7 +3289,13 @@
   color: #6a584c;
   font: 600 11.5px "DM Sans", sans-serif;
   cursor: pointer;
-  transition: all 150ms ease;
+  touch-action: manipulation;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+}
+
+.ai-viewtoggle button:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .ai-viewtoggle button.active {

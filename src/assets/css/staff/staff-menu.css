@@ -473,13 +473,16 @@
   gap: 5px;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  touch-action: manipulation;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.category-tab-btn:hover {
-  background: #f7f3ef;
-  border-color: #d1b8a5;
-  color: #3d2f27;
+@media (hover: hover) and (pointer: fine) {
+  .category-tab-btn:hover {
+    background: #f7f3ef;
+    border-color: #d1b8a5;
+    color: #3d2f27;
+  }
 }
 
 .category-tab-btn.active {

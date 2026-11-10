@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import ErrorBoundary from "../../components/ErrorBoundary.jsx";
-import { Menu, Pencil, AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { Menu, Pencil, AlertTriangle, Archive, ArrowUpDown, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Settings2, Sparkles, Star, Trash2, Utensils, X } from "lucide-react";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
@@ -170,6 +171,7 @@ const computeInventoryBasedSizePrice = (sizeCost, baseCost, basePrice, factor, i
 function AdminMenuManagement() {
 	const { products = [], menuError, addProduct, updateProduct, deleteProduct } = useMenu() || {};
 	const { inventory = [], refreshInventory } = useInventory() || {};
+	const { businessSettings } = useBusiness() || {};
 	const cupInventoryItems = useMemo(() => {
 		return (inventory || [])
 			.filter((item) => item && (item.isCupCategory || item.is_cup_category || item.category === "Cups" || item.category === "Cups & Lids") && !item.isArchived)
@@ -198,13 +200,41 @@ function AdminMenuManagement() {
 	const [isMobile, setIsMobile] = useState(
 		() => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
 	);
+
+	const emptyForm = () => ({ name: "", price: "", costPrice: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
+	const [formValues, setFormValues] = useState(emptyForm);
+	const [editingSizeIndex, setEditingSizeIndex] = useState(null);
+	const editingSizeRef = useRef(null);
+	const [addonDraft, setAddonDraft] = useState({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
+	const [recipeError, setRecipeError] = useState("");
+	const [menuActionError, setMenuActionError] = useState("");
+	const [syncNotice, setSyncNotice] = useState("");
+	const syncTimer = useRef(null);
+
+	// Multi-select inventory picker state
+	const [showInventoryPicker, setShowInventoryPicker] = useState(false);
+	const [pickerSearch, setPickerSearch] = useState("");
+	const [pickerCategory, setPickerCategory] = useState("all");
+	const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState(new Set());
+
+	// Target food cost percentage for suggested pricing (synced from Business Settings, overridable per item session)
+	const configuredFoodCostPct = useMemo(
+		() => Math.max(10, Math.min(90, Math.round(Number(businessSettings?.targetFoodCost ?? 0.3) * 100))),
+		[businessSettings?.targetFoodCost],
+	);
+	const [targetFoodCostOverride, setTargetFoodCostOverride] = useState(null);
+	const targetFoodCostPct = targetFoodCostOverride ?? configuredFoodCostPct;
+	const targetCostOptions = useMemo(
+		() => Array.from(new Set([configuredFoodCostPct, 30, 40, 50, 60])).sort((a, b) => a - b),
+		[configuredFoodCostPct],
+	);
+
 	useEffect(() => {
 		const query = window.matchMedia("(max-width: 800px)");
 		const sync = () => setIsMobile(query.matches);
 		query.addEventListener("change", sync);
 		return () => query.removeEventListener("change", sync);
 	}, []);
-	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
 
 	const inventoryLookup = useMemo(() => {
 		const byId = new Map();
@@ -222,7 +252,7 @@ function AdminMenuManagement() {
 		return { byId, byName };
 	}, [inventory]);
 
-	const findInventoryItem = (queryOrList, maybeQuery = null, maybeId = null) => {
+	const findInventoryItem = useCallback((queryOrList, maybeQuery = null, maybeId = null) => {
 		if (Array.isArray(queryOrList)) {
 			return findInventoryItemInList(queryOrList, maybeQuery, maybeId);
 		}
@@ -235,7 +265,7 @@ function AdminMenuManagement() {
 			return inventoryLookup.byName.get(clean);
 		}
 		return undefined;
-	};
+	}, [inventoryLookup]);
 
 	const categoryFamilyMap = useMemo(() => {
 		const map = new Map();
@@ -274,23 +304,6 @@ function AdminMenuManagement() {
 			isMounted = false;
 		};
 	}, []);
-
-	const [formValues, setFormValues] = useState(emptyForm());
-	const [editingSizeIndex, setEditingSizeIndex] = useState(null);
-	const editingSizeRef = useRef(null);
-	const [addonDraft, setAddonDraft] = useState({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
-	const [recipeError, setRecipeError] = useState("");
-	const [syncNotice, setSyncNotice] = useState("");
-	const syncTimer = useRef(null);
-
-	// Multi-select inventory picker state
-	const [showInventoryPicker, setShowInventoryPicker] = useState(false);
-	const [pickerSearch, setPickerSearch] = useState("");
-	const [pickerCategory, setPickerCategory] = useState("all");
-	const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState(new Set());
-
-	// Target food cost percentage for suggested pricing (defaults to 40%, adjustable e.g. 30%, 40%, 50%, 60%)
-	const [targetFoodCostPct, setTargetFoodCostPct] = useState(40);
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -347,6 +360,8 @@ function AdminMenuManagement() {
 		setEditingProduct(null);
 		setFormValues(emptyForm());
 		setEditingSizeIndex(null);
+		setTargetFoodCostOverride(null);
+		setMenuActionError("");
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
@@ -892,6 +907,7 @@ function AdminMenuManagement() {
 		setShowForm(false);
 		setEditingProduct(null);
 		setEditingSizeIndex(null);
+		setTargetFoodCostOverride(null);
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
@@ -918,25 +934,28 @@ function AdminMenuManagement() {
 	const pageProducts = visibleProducts.slice((safePage - 1) * MENU_PAGE_SIZE, safePage * MENU_PAGE_SIZE);
 
 	const toggleAvailability = async (id) => {
+		setMenuActionError("");
 		try {
 			await updateProduct(id, { available: !products.find((product) => product.id === id)?.available });
 		} catch (error) {
-			window.alert(error.message);
+			setMenuActionError(error?.message || "Could not update product availability.");
 		}
 	};
 
 	const handleDelete = (product) => {
 		if (!product) return;
+		setMenuActionError("");
 		setItemToDelete(product);
 	};
 
 	const confirmDelete = async () => {
 		if (!itemToDelete) return;
+		setMenuActionError("");
 		try {
 			await deleteProduct(itemToDelete.id);
 			setItemToDelete(null);
 		} catch (error) {
-			window.alert(error.message);
+			setMenuActionError(error?.message || "Could not archive this menu item.");
 		}
 	};
 
@@ -944,6 +963,8 @@ function AdminMenuManagement() {
 		if (!product) return;
 		setEditingProduct(product);
 		setEditingSizeIndex(null);
+		setTargetFoodCostOverride(null);
+		setMenuActionError("");
 
 		const rawSizes = Array.isArray(product.sizes) ? product.sizes : [];
 		const rawIngredients = Array.isArray(product.ingredients) ? product.ingredients.filter(Boolean) : [];
@@ -1030,6 +1051,7 @@ function AdminMenuManagement() {
 		setFormValues({
 			name: String(product.name || ""),
 			price: String(product.price || "").replace(/[^0-9.]/g, ""),
+			costPrice: product.costPrice != null && Number.isFinite(Number(product.costPrice)) ? String(product.costPrice) : "",
 			stock: product.stock != null ? String(product.stock) : "",
 			description: product.description != null ? String(product.description) : "",
 			category: product.category != null ? String(product.category) : (dbCategories[0]?.name || ""),
@@ -1066,6 +1088,11 @@ function AdminMenuManagement() {
 		const numericPrice = Number(formValues.price);
 
 		if (!name || !description || !Number.isFinite(numericPrice) || numericPrice < 0) return;
+
+		if (formValues.costPrice !== "" && (!Number.isFinite(Number(formValues.costPrice)) || Number(formValues.costPrice) < 0)) {
+			setRecipeError("Direct cost price must be a non-negative number.");
+			return;
+		}
 
 		// Clean and validate variation sizes
 		const cleanSizes = (formValues.sizes || [])
@@ -1176,6 +1203,9 @@ function AdminMenuManagement() {
 		const productData = {
 			name,
 			price: `₱${safeToFixed(productBasePrice, 2)}`,
+			...(formValues.costPrice !== "" && Number.isFinite(Number(formValues.costPrice))
+				? { costPrice: Number(formValues.costPrice) }
+				: { costPrice: null }),
 			description,
 			category: formValues.category,
 			image: formValues.image || "",
@@ -1193,13 +1223,13 @@ function AdminMenuManagement() {
 			setSyncNotice(`${name} saved successfully.`);
 			closeForm();
 		} catch (error) {
-			setRecipeError(error.message);
-			window.alert(error.message);
+			setRecipeError(error?.message || "Could not save this menu item.");
 		}
 	};
 
 	const availableCount = useMemo(() => (products || []).filter((product) => product?.available).length, [products]);
 	const lowStockCount = useMemo(() => (products || []).filter((product) => product?.stock > 0 && product?.stock <= 7).length, [products]);
+	const outOfStockCount = useMemo(() => (products || []).filter((product) => (product?.stock ?? 0) === 0).length, [products]);
 	const featuredCount = useMemo(() => (products || []).filter((product) => product?.featured).length, [products]);
 	const categoryCounts = useMemo(() => {
 		const map = new Map();
@@ -1214,7 +1244,7 @@ function AdminMenuManagement() {
 	const sizeCostingsByIndex = useMemo(() => {
 		const formPrice = Number(formValues?.price) || 0;
 		const ingredients = (formValues?.ingredients || []).filter(Boolean);
-		const effectiveTargetFraction = Math.max(0.1, Math.min(0.9, (Number(targetFoodCostPct) || 40) / 100));
+		const effectiveTargetFraction = Math.max(0.1, Math.min(0.9, (Number(targetFoodCostPct) || 30) / 100));
 
 		return (formValues?.sizes || []).map((size, idx) => {
 			const sizeLabel = size?.label;
@@ -1258,7 +1288,7 @@ function AdminMenuManagement() {
 				suggestedPrice,
 			};
 		});
-	}, [formValues?.price, formValues?.sizes, formValues?.ingredients, inventoryLookup, targetFoodCostPct]);
+	}, [findInventoryItem, formValues?.price, formValues?.sizes, formValues?.ingredients, targetFoodCostPct]);
 
 	const applySuggestedSizePrice = (index, suggestedPrice) => {
 		if (suggestedPrice == null) return;
@@ -1326,6 +1356,13 @@ function AdminMenuManagement() {
 						</select>
 					</div>
 
+					{menuActionError && (
+						<div className="admin-menu-action-error" role="alert">
+							<span>{menuActionError}</span>
+							<button type="button" onClick={() => setMenuActionError("")} aria-label="Dismiss error">×</button>
+						</div>
+					)}
+
 					<ul className="am-grid">
 						{pageProducts.map((product) => (
 							<li key={product.id} className={`am-card ${!product.available ? "off" : ""}`}>
@@ -1379,111 +1416,219 @@ function AdminMenuManagement() {
 				</main>
 			) : (
 			<main className="admin-menu-main">
-				<header className="admin-menu-topbar">
-					<div>
-						<span className="admin-menu-section-label">ADMIN PORTAL</span>
-						<h1>Menu Management</h1>
+				<header className="admin-menu-topbar storefront-topbar">
+					<div className="admin-menu-topbar-brand">
+						<span className="admin-menu-topbar-crest" aria-hidden="true">
+							<Utensils size={20} strokeWidth={2} />
+						</span>
+						<div className="admin-menu-topbar-copy">
+							<div className="admin-menu-topbar-eyebrow">
+								<span className="admin-menu-section-label">Storefront Catalog</span>
+								<span className="admin-menu-topbar-live-pill">
+									<span className="topbar-live-dot" aria-hidden="true" />
+									{availableCount} of {products.length} Live
+								</span>
+							</div>
+							<h1>Menu Management</h1>
+							<p className="admin-menu-topbar-sub">Organize counter items, plated pricing, and live recipe availability.</p>
+						</div>
 					</div>
-					<div className="admin-menu-topbar-actions" style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-						<Link
-							to="/admin/archive"
-							className="admin-menu-archive-button"
-							style={{
-								display: "inline-flex",
-								alignItems: "center",
-								gap: "0.4rem",
-								padding: "0.65rem 1rem",
-								borderRadius: "10px",
-								background: "#ffffff",
-								color: "#2e261f",
-								fontWeight: "600",
-								fontSize: "0.88rem",
-								textDecoration: "none",
-								border: "1px solid #ece4df",
-								boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-							}}
-						>
-							<Archive size={16} /> View Archive
+					<div className="admin-menu-topbar-actions">
+						{outOfStockCount > 0 ? (
+							<span className="admin-menu-status-chip alert" role="status">
+								<AlertTriangle size={14} strokeWidth={2.2} aria-hidden="true" />
+								<span>{outOfStockCount} out of stock</span>
+							</span>
+						) : lowStockCount > 0 ? (
+							<span className="admin-menu-status-chip warn" role="status">
+								<Clock size={14} strokeWidth={2.2} aria-hidden="true" />
+								<span>{lowStockCount} low stock</span>
+							</span>
+						) : (
+							<span className="admin-menu-status-chip ready" role="status">
+								<CheckCircle2 size={14} strokeWidth={2.2} aria-hidden="true" />
+								<span>Board ready</span>
+							</span>
+						)}
+						<Link to="/admin/archive" className="admin-menu-archive-button">
+							<Archive size={15} strokeWidth={2.1} aria-hidden="true" />
+							<span>View Archive</span>
 						</Link>
-						<button type="button" className="admin-menu-add-button" onClick={openAddForm}><span>+</span> Add new item</button>
+						<button type="button" className="admin-menu-add-button" onClick={openAddForm}>
+							<Plus size={16} strokeWidth={2.4} aria-hidden="true" />
+							<span>Add new item</span>
+						</button>
 					</div>
 				</header>
 
 				<div className="admin-menu-content custom-menu-scrollbar">
 					<div className="admin-menu-workspace">
 						<div className="admin-menu-main-pane">
+							<section className="admin-menu-panel menu-storefront-board">
+								<div className="menu-board-curtain" aria-hidden="true">
+									<div className="menu-board-curtain-seal">
+										<Utensils size={18} strokeWidth={2} />
+										<span>AMAYA STOREFRONT MENU</span>
+									</div>
+								</div>
 
-							<section className="admin-menu-panel">
+								<div className="menu-board-marquee">
+									<div className="menu-board-marquee-left">
+										<span className="menu-board-marquee-badge">
+											<Utensils size={12} strokeWidth={2.2} aria-hidden="true" />
+											<span>AMAYA CAFÉ · IN-STORE MENU BOARD</span>
+										</span>
+									</div>
+									<div className="menu-board-marquee-meta" aria-hidden="true">
+										<span>{availableCount} On Board</span>
+										<span className="menu-board-meta-dot" />
+										<span>{featuredCount} Featured</span>
+									</div>
+								</div>
+
 								<div className="admin-menu-toolbar">
-									<div className="admin-menu-tabs" role="tablist" aria-label="Menu categories">
-										{categories.map((category) => (
-											<button
-												type="button"
-												key={category}
-												className={activeCategory === category ? "active" : ""}
-												onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
-											>
-												{category}
-												<span>{categoryCounts.get(category) || 0}</span>
-											</button>
-										))}
+									<div className="admin-menu-tabs">
+										<div className="admin-menu-tabs-scroll" role="tablist" aria-label="Menu categories">
+											{categories.map((category) => (
+												<button
+													type="button"
+													role="tab"
+													aria-selected={activeCategory === category}
+													key={category}
+													className={activeCategory === category ? "active" : ""}
+													onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
+												>
+													{category}
+													<span>{categoryCounts.get(category) || 0}</span>
+												</button>
+											))}
+										</div>
 										<Link
 											to="/admin/categories"
-											style={{
-												display: "inline-flex",
-												alignItems: "center",
-												gap: "4px",
-												padding: "6px 12px",
-												fontSize: "0.78rem",
-												fontWeight: "600",
-												color: "#5a3d28",
-												background: "#f5ece5",
-												borderRadius: "8px",
-												textDecoration: "none",
-												marginLeft: "4px"
-											}}
+											className="admin-menu-manage-link"
 											title="Manage Categories in Database"
 										>
-											⚙ Manage
+											<Settings2 size={13} strokeWidth={2.1} aria-hidden="true" />
+											<span>Manage</span>
 										</Link>
 									</div>
 									<div className="admin-menu-toolbar-actions">
 										<label className="admin-menu-search">
-											<span>⌕</span>
-											<input value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search menu items" aria-label="Search menu items" />
+											<Search size={14} strokeWidth={2.1} aria-hidden="true" />
+											<input
+												value={search}
+												onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }}
+												placeholder="Search menu items"
+												aria-label="Search menu items"
+											/>
+											{search && (
+												<button
+													type="button"
+													className="admin-menu-search-clear"
+													onClick={() => { setSearch(""); setCurrentPage(1); }}
+													aria-label="Clear search"
+												>
+													<X size={13} strokeWidth={2.2} aria-hidden="true" />
+												</button>
+											)}
 										</label>
-										<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
-											<option value="popular">Sort: Featured first</option>
-											<option value="name">Sort: Name A–Z</option>
-											<option value="price">Sort: Price low to high</option>
-										</select>
+										<div className="admin-menu-sort-wrap">
+											<ArrowUpDown size={13} strokeWidth={2.1} className="admin-menu-sort-icon" aria-hidden="true" />
+											<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
+												<option value="popular">Sort: Featured first</option>
+												<option value="name">Sort: Name A–Z</option>
+												<option value="price">Sort: Price low to high</option>
+											</select>
+										</div>
 									</div>
 								</div>
 
 								<div className="admin-menu-grid-wrap custom-menu-scrollbar">
+									<div className="menu-board-section-banner">
+										<div className="menu-board-section-title">
+											<span className="menu-board-eyebrow">
+												{search.trim() ? "Filtered Store Listing" : "Current Store Listing"}
+											</span>
+											<div className="menu-board-heading-row">
+												<h3>{activeCategory}</h3>
+												<span className="menu-board-count-pill">
+													{visibleProducts.length} {visibleProducts.length === 1 ? "listing" : "listings"}
+												</span>
+											</div>
+										</div>
+										<div className="menu-board-ribbon">
+											<span>{visibleProducts.filter((item) => item?.available).length} Live in Store</span>
+										</div>
+									</div>
+
+									{menuActionError && (
+										<div className="admin-menu-action-error" role="alert">
+											<span>{menuActionError}</span>
+											<button type="button" onClick={() => setMenuActionError("")} aria-label="Dismiss error">×</button>
+										</div>
+									)}
+
 									<div className="admin-menu-grid" key={`${activeCategory}-${safePage}-${sortBy}`}>
 										{pageProducts.map((product, index) => (
 											<article
-												className={`admin-product-card ${!product.available ? "unavailable" : ""}`}
+												className={`admin-product-card store-menu-card ${!product.available ? "unavailable" : ""}`}
 												key={product.id}
 												style={{ "--card-index": Math.min(index, 11) }}
 											>
 												<div
-													className="admin-product-image"
+													className={`admin-product-image ${!product.image ? "image-unavailable" : ""}`}
 													onClick={() => openEditForm(product)}
 													role="button"
 													tabIndex={0}
-													onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditForm(product); } }}
+													onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditForm(product); } }}
 													title={`Click to edit ${product.name}`}
-													style={{ cursor: "pointer" }}
 												>
-													<img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.classList.add("image-unavailable"); }} />
-													{product.featured && <span className="featured-label">★ Featured</span>}
-													<button type="button" className="product-menu-button" aria-label={`Edit ${product.name}`} onClick={(e) => { e.stopPropagation(); openEditForm(product); }}>•••</button>
+													{product.image && (
+														<img
+															src={product.image}
+															alt={product.name}
+															loading="lazy"
+															onError={(event) => {
+																event.currentTarget.style.display = "none";
+																event.currentTarget.parentElement.classList.add("image-unavailable");
+															}}
+														/>
+													)}
+													<span className="store-menu-img-fallback" aria-hidden="true">
+														<Coffee size={24} strokeWidth={1.75} />
+													</span>
+													{product.featured && (
+														<span className="featured-label">
+															<Star size={10} fill="currentColor" strokeWidth={2.2} aria-hidden="true" />
+															<span>Featured</span>
+														</span>
+													)}
+													<button
+														type="button"
+														className="product-menu-button"
+														aria-label={`Edit ${product.name}`}
+														onClick={(e) => { e.stopPropagation(); openEditForm(product); }}
+													>
+														<Pencil size={13} strokeWidth={2.1} aria-hidden="true" />
+													</button>
+													{!product.available && (
+														<span className="store-menu-hidden-stamp">Hidden</span>
+													)}
 												</div>
 												<div className="admin-product-body">
-													<div className="admin-product-meta"><span>{product.category}</span><strong>{product.price}</strong></div>
-													<h4>{product.name}</h4>
+													<div className="admin-product-meta store-menu-card-eyebrow">
+														<span>{product.category}</span>
+														{Array.isArray(product.sizes) && product.sizes.length > 0 && (
+															<small className="store-menu-size-count">
+																{product.sizes.length} {product.sizes.length === 1 ? "size" : "sizes"}
+															</small>
+														)}
+													</div>
+													<div className="store-menu-leader-row">
+														<h4 title={product.name}>{product.name}</h4>
+														<span className="store-menu-leader-dots" aria-hidden="true" />
+														<strong className="store-menu-price">{product.price}</strong>
+													</div>
 													<div className="admin-product-footer">
 														<span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
 															{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
@@ -1493,13 +1638,22 @@ function AdminMenuManagement() {
 															<span></span>
 															<small>{product.available ? "Available" : "Hidden"}</small>
 														</label>
-														<button type="button" className="product-delete-button" onClick={() => handleDelete(product)} aria-label={`Delete ${product.name}`}>Delete</button>
+														<button
+															type="button"
+															className="product-delete-button"
+															onClick={() => handleDelete(product)}
+															aria-label={`Delete ${product.name}`}
+															title={`Delete ${product.name}`}
+														>
+															<Trash2 size={13} strokeWidth={2.1} aria-hidden="true" />
+														</button>
 													</div>
 												</div>
 											</article>
 										))}
 										{!visibleProducts.length && (
 											<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
+												<Coffee size={28} strokeWidth={1.7} aria-hidden="true" />
 												<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
 												<span>{menuError || "Try another category or search term."}</span>
 											</div>
@@ -1630,6 +1784,12 @@ function AdminMenuManagement() {
 								<em>{itemToDelete.price}</em>
 							</div>
 						</div>
+
+						{menuActionError && (
+							<p className="menu-recipe-error" role="alert">
+								{menuActionError}
+							</p>
+						)}
 
 						<div className="delete-confirm-actions">
 							<button type="button" className="delete-confirm-cancel" onClick={() => setItemToDelete(null)}>
@@ -1855,6 +2015,22 @@ function AdminMenuManagement() {
 											</div>
 										</label>
 
+										<label className="menu-builder-field">
+											Direct Cost Price — Optional
+											<div className="menu-builder-price">
+												<span aria-hidden="true">₱</span>
+												<input
+													type="number"
+													value={formValues.costPrice ?? ""}
+													onChange={(event) => setFormValues((prev) => ({ ...prev, costPrice: event.target.value }))}
+													inputMode="decimal"
+													step="0.01"
+													placeholder="Recipe fallback if blank"
+													min="0"
+												/>
+											</div>
+										</label>
+
 										<div className="menu-builder-field">
 											Stock Quantity
 											<input
@@ -1911,12 +2087,12 @@ function AdminMenuManagement() {
 											<div className="menu-target-cost-selector" title="Choose target food cost percentage used to compute suggested serving price">
 												<span className="target-cost-label">Target Cost:</span>
 												<div className="target-cost-pills">
-													{[30, 40, 50, 60].map((pct) => (
+													{targetCostOptions.map((pct) => (
 														<button
 															key={pct}
 															type="button"
 															className={`target-cost-pill ${targetFoodCostPct === pct ? "active" : ""}`}
-															onClick={() => setTargetFoodCostPct(pct)}
+															onClick={() => setTargetFoodCostOverride(pct)}
 														>
 															{pct}%
 														</button>
@@ -2481,12 +2657,19 @@ function AdminMenuManagement() {
 						</div>
 
 						<footer className="menu-builder-footer">
-							<button type="button" className="menu-builder-cancel" onClick={closeForm}>
-								Cancel
-							</button>
-							<button type="submit" className="menu-builder-save" disabled={categoriesLoading}>
-								{categoriesLoading ? "Loading..." : (editingProduct ? "Save Item" : "Add Item")}
-							</button>
+							{recipeError && (
+								<p className="menu-builder-footer-error" role="alert">
+									{recipeError}
+								</p>
+							)}
+							<div className="menu-builder-footer-actions">
+								<button type="button" className="menu-builder-cancel" onClick={closeForm}>
+									Cancel
+								</button>
+								<button type="submit" className="menu-builder-save" disabled={categoriesLoading}>
+									{categoriesLoading ? "Loading..." : (editingProduct ? "Save Item" : "Add Item")}
+								</button>
+							</div>
 						</footer>
 					</form>
 				</div>

@@ -30,6 +30,10 @@ const migrations = [
   "022_repair_operational_family.sql",
   "023_repair_login_display_name.sql",
   "024_repair_inventory_categories.sql",
+  "025_migration_sync_and_drift_reconciliation.sql",
+  "026_order_audit_void_and_addon_cogs.sql",
+  "027_structured_inventory_movements.sql",
+  "028_cashier_sessions.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -37,6 +41,7 @@ const connection = await mysql.createConnection({
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "amaya",
+  timezone: "+08:00",
   multipleStatements: true,
 });
 

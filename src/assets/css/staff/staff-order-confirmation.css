@@ -181,14 +181,39 @@
 }
 .am-field input:focus { border-color: var(--am-primary); box-shadow: 0 0 0 1px var(--am-primary); }
 .am-field input.err { border-color: var(--am-danger); box-shadow: 0 0 0 1px var(--am-danger); }
-.am-field span { position: absolute; left: 16px; top: 8px; font-size: 12px; color: var(--am-muted); pointer-events: none; transition: all .15s; }
-.am-field input:placeholder-shown:not(:focus) + span { top: 18px; font-size: 16px; }
+.am-field span { position: absolute; left: 16px; top: 8px; font-size: 12px; color: var(--am-muted); pointer-events: none; transform-origin: left top; transition: transform 150ms ease, color 150ms ease; }
+.am-field input:placeholder-shown:not(:focus) + span { transform: translate3d(0, 10px, 0) scale(1.333); }
 .am-field-money input { padding-left: 34px; font-size: 20px; font-weight: 600; }
 .am-field-money b { position: absolute; left: 16px; bottom: 11px; font-size: 20px; color: var(--am-primary); z-index: 1; }
 .am-field-money span { left: 34px; }
-.am-field-money input:placeholder-shown:not(:focus) + span { left: 16px; }
+.am-field-money input:placeholder-shown:not(:focus) + span { transform: translate3d(-18px, 10px, 0) scale(1.333); }
+.confirm-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+.confirm-error-banner button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #b91c1c;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
 .am-pay-list { display: flex; flex-direction: column; gap: 8px; }
-.am-pay { display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 10px 16px; border: 1px solid var(--am-outline); border-radius: 16px; background: var(--am-surface); text-align: left; transition: background .2s, border-color .2s; }
+.am-pay { display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 10px 16px; border: 1px solid var(--am-outline); border-radius: 16px; background: var(--am-surface); text-align: left; touch-action: manipulation; transition: background-color .2s, border-color .2s, transform 100ms ease; }
 .am-pay.on { background: var(--am-tonal); border-color: var(--am-primary); }
 .am-pay-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--am-bg); }
 .am-pay-icon img { width: 24px; height: 24px; object-fit: contain; }
@@ -200,7 +225,7 @@
 .am-pay.on .am-radio::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--am-primary); }
 .am-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .am-chips::-webkit-scrollbar { display: none; }
-.am-chips button { flex: 0 0 auto; height: 40px; padding: 0 18px; border: 1px solid var(--am-outline); border-radius: 10px; background: var(--am-surface); color: var(--am-text); font-size: 14px; font-weight: 500; transition: background .2s; }
+.am-chips button { flex: 0 0 auto; height: 40px; padding: 0 18px; border: 1px solid var(--am-outline); border-radius: 10px; background: var(--am-surface); color: var(--am-text); font-size: 14px; font-weight: 500; touch-action: manipulation; transition: background-color .2s, border-color .2s, color .2s, transform 100ms ease; }
 .am-chips button.on { background: var(--am-primary); border-color: var(--am-primary); color: #fff; }
 .am-change { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-radius: 20px; background: var(--am-green-c); color: var(--am-green); }
 .am-change span { font-size: 14px; font-weight: 500; }
@@ -227,7 +252,8 @@
 .am-fab {
   min-height: 56px; display: inline-flex; align-items: center; gap: 10px; padding: 0 22px; border: 0; border-radius: 16px;
   background: var(--am-primary); color: #fff; font-size: 15px; font-weight: 600; box-shadow: 0 4px 12px rgba(90,62,43,.35);
-  transition: transform .15s, box-shadow .15s;
+  touch-action: manipulation;
+  transition: transform .15s, box-shadow .15s, background-color 150ms ease;
 }
-.am-fab:active:not(:disabled) { transform: scale(.96); }
+.am-fab:active:not(:disabled) { transform: scale(.96); transition-duration: 0ms; }
 .am-fab:disabled { background: #dcd4cc; box-shadow: none; cursor: not-allowed; }

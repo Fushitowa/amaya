@@ -1,7 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../utils/api.js";
-import { notifyInventoryLevels } from "../utils/notifications.js";
 import { useAuth } from "./AuthContext.jsx";
 
 const InventoryContext = createContext(null);
@@ -71,17 +70,14 @@ function InventoryProvider({ children }) {
     load();
     const interval = window.setInterval(load, 30000);
     window.addEventListener("amaya:stock-mutated", load);
+    window.addEventListener("amaya:session-changed", load);
     return () => {
       active = false;
       window.clearInterval(interval);
       window.removeEventListener("amaya:stock-mutated", load);
+      window.removeEventListener("amaya:session-changed", load);
     };
   }, [refreshCategories, userId]);
-
-  useEffect(() => {
-    if (!userId || loadedUserId !== userId) return;
-    notifyInventoryLevels().catch(() => {});
-  }, [inventory, loadedUserId, userId]);
 
   const value = useMemo(() => ({
     inventory: user ? inventory : [],
@@ -139,12 +135,18 @@ function InventoryProvider({ children }) {
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return saved;
     },
-    restockInventoryItem: async (id, quantity, batchCost) => {
+    restockInventoryItem: async (id, quantity, metaOrBatchCost) => {
+      const isMetaObj = metaOrBatchCost !== null && typeof metaOrBatchCost === "object";
+      const batchCost = isMetaObj ? metaOrBatchCost.batchCost : metaOrBatchCost;
+      const supplierName = isMetaObj ? String(metaOrBatchCost.supplierName || "").trim() : "";
+      const referenceNo = isMetaObj ? String(metaOrBatchCost.referenceNo || "").trim() : "";
       const payload = {
         quantity,
         ...(batchCost !== undefined && batchCost !== null && String(batchCost).trim() !== ""
           ? { batchCost: Number(batchCost) }
           : {}),
+        ...(supplierName ? { supplierName } : {}),
+        ...(referenceNo ? { referenceNo } : {}),
       };
       const saved = await apiRequest(`/inventory/${id}/restock`, { method: "POST", body: JSON.stringify(payload) });
       setInventory((current) => current.map((item) => item.id === id ? saved : item));

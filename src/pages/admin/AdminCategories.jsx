@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
   Coffee,
+  Cookie,
   Edit2,
   FolderTree,
   Layers,
   Package,
   Plus,
   RefreshCw,
+  Scale,
   Search,
+  ShieldCheck,
   Sliders,
+  Tag,
   Tags,
   Trash2,
   UtensilsCrossed,
@@ -22,7 +29,6 @@ import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
-import { apiRequest } from "../../utils/api.js";
 
 import "./AdminCategories.css";
 import "../../assets/css/portal-user.css";
@@ -32,27 +38,37 @@ import "../../assets/css/sidebar-collapse.css";
 const OPERATIONAL_FAMILY_CONFIG = {
   drink: {
     label: "Beverage Workflow",
+    shortLabel: "Beverage",
     badgeClass: "badge-family-drink",
+    Icon: Coffee,
     desc: "Uses volumetric liquid/powder recipes, cup-size isolation, dynamic modifiers, and scarcest-ingredient stock bounding.",
   },
   fries: {
     label: "Weighed Mass (Fries)",
+    shortLabel: "Weighted",
     badgeClass: "badge-family-fries",
+    Icon: Scale,
     desc: "Uses gram-based weight tiers (Regular/Large/Jumbo), seasoning powders, oil absorption, and paper cones.",
   },
   snack_pieces: {
     label: "Discrete Pieces (Snacks)",
+    shortLabel: "Pieces",
     badgeClass: "badge-family-snack",
+    Icon: Cookie,
     desc: "Uses piece counts (4s/6s/12s), bamboo skewers/paper boats, and dipping sauce portions.",
   },
   single_fixed: {
     label: "Single Fixed Price",
+    shortLabel: "Fixed Price",
     badgeClass: "badge-family-fixed",
+    Icon: Tag,
     desc: "Fixed assembly units sold without size dropdowns (burgers, hotdogs, single treats).",
   },
   general: {
     label: "Standard Item",
+    shortLabel: "Standard",
     badgeClass: "badge-family-general",
+    Icon: FolderTree,
     desc: "Default catalog category behavior.",
   },
 };
@@ -78,8 +94,11 @@ export default function AdminCategories() {
 
   const [activeTab, setActiveTab] = useState("menu"); // "menu" | "inventory"
   const [search, setSearch] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all"); // "all" | "cups" | "custom"
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState({ type: "", message: "" });
+  const noticeTimerRef = useRef(null);
 
   // Modal State for Create / Edit
   const [modalState, setModalState] = useState({
@@ -106,7 +125,7 @@ export default function AdminCategories() {
     reassignTargetId: "",
   });
 
-  // Keyboard accessibility: Escape key to close modals
+  // Keyboard accessibility: Escape key to close modals + clean up notice timeout
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
@@ -115,14 +134,28 @@ export default function AdminCategories() {
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+      }
+    };
   }, []);
 
   const showNotice = (type, message) => {
     setNotice({ type, message });
-    setTimeout(() => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = setTimeout(() => {
       setNotice({ type: "", message: "" });
     }, 4500);
+  };
+
+  const handleTabSwitch = (nextTab) => {
+    setActiveTab(nextTab);
+    setFamilyFilter("all");
+    setRoleFilter("all");
   };
 
   const handleRefresh = async () => {
@@ -145,6 +178,8 @@ export default function AdminCategories() {
   const filteredMenuCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
     return (menuCategories || []).filter((cat) => {
+      const fam = cat.operationalFamily || "general";
+      if (familyFilter !== "all" && fam !== familyFilter) return false;
       if (!query) return true;
       return (
         String(cat.name || "").toLowerCase().includes(query) ||
@@ -152,44 +187,129 @@ export default function AdminCategories() {
         String(cat.operationalFamily || "").toLowerCase().includes(query)
       );
     });
-  }, [menuCategories, search]);
+  }, [menuCategories, search, familyFilter]);
 
   const filteredInventoryCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
     return (inventoryCategories || []).filter((cat) => {
+      if (roleFilter === "cups" && !cat.isCupCategory) return false;
+      if (roleFilter === "custom" && cat.isCupCategory) return false;
       if (!query) return true;
       return (
         String(cat.name || "").toLowerCase().includes(query) ||
         String(cat.description || "").toLowerCase().includes(query)
       );
     });
-  }, [inventoryCategories, search]);
+  }, [inventoryCategories, search, roleFilter]);
 
-  // Totals summary
+  // Totals & family breakdown
   const totals = useMemo(() => {
     const menuCount = menuCategories.length;
     const invCount = inventoryCategories.length;
+    const activeMenuCount = menuCategories.filter((c) => c.isActive !== false).length;
+    const activeInvCount = inventoryCategories.filter((c) => c.isActive !== false).length;
     const totalProducts = menuCategories.reduce((acc, c) => acc + Number(c.productCount || 0), 0);
     const totalItems = inventoryCategories.reduce((acc, c) => acc + Number(c.itemCount || 0), 0);
     const cupCount = inventoryCategories.filter((c) => Boolean(c.isCupCategory)).length;
-    return { menuCount, invCount, totalProducts, totalItems, cupCount };
+    const totalAll = menuCount + invCount;
+    const menuShare = totalAll > 0 ? menuCount / totalAll : 0.5;
+    return {
+      menuCount,
+      invCount,
+      activeMenuCount,
+      activeInvCount,
+      totalProducts,
+      totalItems,
+      cupCount,
+      totalAll,
+      menuShare,
+    };
   }, [menuCategories, inventoryCategories]);
 
-  // Open Add Modal
-  const openAddModal = () => {
-    const highestOrder = activeTab === "menu"
-      ? Math.max(0, ...(menuCategories || []).map((c) => Number(c.displayOrder || 0))) + 1
-      : Math.max(0, ...(inventoryCategories || []).map((c) => Number(c.displayOrder || 0))) + 1;
+  const menuFamilyCounts = useMemo(() => {
+    const counts = { all: menuCategories.length };
+    Object.keys(OPERATIONAL_FAMILY_CONFIG).forEach((key) => {
+      counts[key] = 0;
+    });
+    menuCategories.forEach((cat) => {
+      const fam = cat.operationalFamily || "general";
+      counts[fam] = (counts[fam] || 0) + 1;
+    });
+    return counts;
+  }, [menuCategories]);
+
+  const activeList = activeTab === "menu" ? filteredMenuCategories : filteredInventoryCategories;
+  const rawActiveTotal = activeTab === "menu" ? menuCategories.length : inventoryCategories.length;
+  const activeShownCount = activeList.length;
+  const activeTabLiveCount = activeList.filter((c) => c.isActive !== false).length;
+  const activeTabHiddenCount = activeList.length - activeTabLiveCount;
+  const hasActiveFilter =
+    Boolean(search.trim()) ||
+    (activeTab === "menu" ? familyFilter !== "all" : roleFilter !== "all");
+
+  const listRef = useRef(null);
+  const [scrollCue, setScrollCue] = useState({
+    canUp: false,
+    canDown: false,
+    isScrollable: false,
+  });
+
+  const updateScrollCue = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const isScrollable = el.scrollHeight - el.clientHeight > 6;
+    const canUp = el.scrollTop > 8;
+    const canDown = el.scrollHeight - el.clientHeight - el.scrollTop > 8;
+    setScrollCue((prev) =>
+      prev.canUp === canUp && prev.canDown === canDown && prev.isScrollable === isScrollable
+        ? prev
+        : { canUp, canDown, isScrollable }
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = listRef.current;
+    const frameId = requestAnimationFrame(updateScrollCue);
+    let observer = null;
+    if (el && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(updateScrollCue);
+      observer.observe(el);
+    }
+    window.addEventListener("resize", updateScrollCue);
+    return () => {
+      cancelAnimationFrame(frameId);
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", updateScrollCue);
+    };
+  }, [activeTab, familyFilter, roleFilter, activeShownCount, search, updateScrollCue]);
+
+  const handleScrollMore = () => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollBy({
+      top: Math.max(200, Math.round(el.clientHeight * 0.65)),
+      behavior: "smooth",
+    });
+  };
+
+  // Open Add Modal (supports optional preset workflow/role overrides)
+  const openAddModal = (overrides = {}) => {
+    const preset = overrides && !overrides.nativeEvent ? overrides : {};
+    const targetTab = preset.tab || activeTab;
+    const highestOrder =
+      targetTab === "menu"
+        ? Math.max(0, ...(menuCategories || []).map((c) => Number(c.displayOrder || 0))) + 1
+        : Math.max(0, ...(inventoryCategories || []).map((c) => Number(c.displayOrder || 0))) + 1;
 
     setModalState({
       isOpen: true,
       mode: "create",
-      tab: activeTab,
+      tab: targetTab,
       id: null,
       name: "",
       description: "",
-      operationalFamily: "general",
-      isCupCategory: false,
+      operationalFamily: preset.operationalFamily || "general",
+      isCupCategory: Boolean(preset.isCupCategory),
       displayOrder: highestOrder,
       isActive: true,
     });
@@ -231,10 +351,10 @@ export default function AdminCategories() {
         };
         if (modalState.mode === "create") {
           await addMenuCategory(payload);
-          showNotice("success", `Menu category “${payload.name}” created successfully!`);
+          showNotice("success", `Menu category "${payload.name}" created successfully.`);
         } else {
           await updateMenuCategory(modalState.id, payload);
-          showNotice("success", `Menu category “${payload.name}” updated successfully!`);
+          showNotice("success", `Menu category "${payload.name}" updated successfully.`);
         }
       } else {
         const payload = {
@@ -246,10 +366,10 @@ export default function AdminCategories() {
         };
         if (modalState.mode === "create") {
           await addInventoryCategory(payload);
-          showNotice("success", `Inventory category “${payload.name}” created successfully!`);
+          showNotice("success", `Inventory category "${payload.name}" created successfully.`);
         } else {
           await updateInventoryCategory(modalState.id, payload);
-          showNotice("success", `Inventory category “${payload.name}” updated successfully!`);
+          showNotice("success", `Inventory category "${payload.name}" updated successfully.`);
         }
       }
       setModalState((prev) => ({ ...prev, isOpen: false }));
@@ -281,17 +401,25 @@ export default function AdminCategories() {
     try {
       if (deleteModal.tab === "menu") {
         await deleteMenuCategory(deleteModal.id);
-        showNotice("success", `Menu category “${deleteModal.name}” deleted.`);
+        showNotice("success", `Menu category "${deleteModal.name}" deleted.`);
       } else {
         if (deleteModal.count > 0 && deleteModal.reassignTargetId) {
           await reassignAndDeleteCategory(deleteModal.id, Number(deleteModal.reassignTargetId));
-          showNotice("success", `Inventory category “${deleteModal.name}” deleted and items reassigned.`);
+          showNotice("success", `Inventory category "${deleteModal.name}" deleted and items reassigned.`);
         } else {
           await deleteInventoryCategory(deleteModal.id);
-          showNotice("success", `Inventory category “${deleteModal.name}” deleted.`);
+          showNotice("success", `Inventory category "${deleteModal.name}" deleted.`);
         }
       }
-      setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false, reassignTargetId: "" });
+      setDeleteModal({
+        isOpen: false,
+        tab: "menu",
+        id: null,
+        name: "",
+        count: 0,
+        isSystem: false,
+        reassignTargetId: "",
+      });
     } catch (err) {
       showNotice("error", err.message || "Failed to delete category.");
     } finally {
@@ -309,14 +437,40 @@ export default function AdminCategories() {
       />
 
       <main className="admin-categories-main">
-        {/* Canonical Top Header matching Amaya Design System */}
+        {/* Canonical Brass & Espresso Top Header */}
         <header className="admin-categories-topbar">
-          <div className="admin-categories-head-main">
-            <span className="admin-categories-eyebrow">CATALOG ARCHITECTURE</span>
-            <h1>Category Management</h1>
-            <p>Configure operational logic, menu workflows, and warehouse classification.</p>
+          <div className="admin-categories-topbar-brand">
+            <span className="admin-categories-topbar-crest" aria-hidden="true">
+              <Tags size={20} strokeWidth={2} />
+            </span>
+            <div className="admin-categories-head-main">
+              <div className="admin-categories-topbar-eyebrow">
+                <span className="admin-categories-eyebrow">CATALOG ARCHITECTURE</span>
+                <span className="admin-categories-live-pill">
+                  <span className="categories-live-dot" aria-hidden="true" />
+                  {totals.activeMenuCount + totals.activeInvCount} of {totals.totalAll} Active
+                </span>
+              </div>
+              <h1>Category Management</h1>
+              <p>Configure operational logic, menu workflows, and warehouse classification.</p>
+            </div>
           </div>
+
           <div className="admin-categories-topbar-actions">
+            <span className="admin-categories-status-chip" role="status">
+              <Coffee size={13} strokeWidth={2.2} aria-hidden="true" />
+              <span>
+                {totals.cupCount} cup {totals.cupCount === 1 ? "group" : "groups"} mapped
+              </span>
+            </span>
+            <Link to="/admin/menu" className="admin-categories-menu-link">
+              <span>Menu Board</span>
+              <ArrowUpRight size={14} strokeWidth={2.2} aria-hidden="true" />
+            </Link>
+            <Link to="/admin/inventory" className="admin-categories-topbar-add">
+              <span>Inventory Board</span>
+              <ArrowUpRight size={14} strokeWidth={2.2} aria-hidden="true" />
+            </Link>
           </div>
         </header>
 
@@ -325,7 +479,7 @@ export default function AdminCategories() {
           {notice.message && (
             <div
               className={`categories-notice ${notice.type === "success" ? "notice-success" : "notice-error"}`}
-              role="status"
+              role={notice.type === "error" ? "alert" : "status"}
             >
               {notice.type === "success" ? (
                 <CheckCircle2 size={18} aria-hidden="true" />
@@ -346,41 +500,52 @@ export default function AdminCategories() {
 
           {/* 2-Column Harmonized Workspace */}
           <div className="admin-categories-workspace">
-            {/* Primary Left Column */}
+            {/* Primary Left Column: Brass-Tabbed Catalog Index Cabinet */}
             <div className="admin-categories-main-pane">
-              <div className="categories-control-panel">
-                <div className="categories-tab-group" role="tablist" aria-label="Category Types">
-                  <button
-                    className={`categories-tab-btn ${activeTab === "menu" ? "active" : ""}`}
-                    onClick={() => setActiveTab("menu")}
-                    role="tab"
-                    aria-selected={activeTab === "menu"}
-                  >
-                    <UtensilsCrossed size={16} aria-hidden="true" />
-                    <span>Menu Categories</span>
-                    <span className="tab-pill-badge">{menuCategories.length}</span>
-                  </button>
+              <section className="categories-cabinet" aria-label="Catalog index cabinet">
+                {/* Walnut Drawer Crown with Stepped Divider Tabs */}
+                <div className="categories-cabinet-crown">
+                  <div className="categories-tab-group" role="tablist" aria-label="Category Types">
+                    <button
+                      type="button"
+                      className={`categories-tab-btn ${activeTab === "menu" ? "active" : ""}`}
+                      onClick={() => handleTabSwitch("menu")}
+                      role="tab"
+                      aria-selected={activeTab === "menu"}
+                    >
+                      <UtensilsCrossed size={15} strokeWidth={2.1} aria-hidden="true" />
+                      <span>Menu Categories</span>
+                      <span className="tab-pill-badge">{menuCategories.length}</span>
+                    </button>
 
-                  <button
-                    className={`categories-tab-btn ${activeTab === "inventory" ? "active" : ""}`}
-                    onClick={() => setActiveTab("inventory")}
-                    role="tab"
-                    aria-selected={activeTab === "inventory"}
-                  >
-                    <Package size={16} aria-hidden="true" />
-                    <span>Inventory Categories</span>
-                    <span className="tab-pill-badge">{inventoryCategories.length}</span>
-                  </button>
+                    <button
+                      type="button"
+                      className={`categories-tab-btn ${activeTab === "inventory" ? "active" : ""}`}
+                      onClick={() => handleTabSwitch("inventory")}
+                      role="tab"
+                      aria-selected={activeTab === "inventory"}
+                    >
+                      <Package size={15} strokeWidth={2.1} aria-hidden="true" />
+                      <span>Inventory Categories</span>
+                      <span className="tab-pill-badge">{inventoryCategories.length}</span>
+                    </button>
+                  </div>
+
+                  <div className="categories-cabinet-seal" aria-hidden="true">
+                    <Layers size={12} strokeWidth={2.2} />
+                    <span>{activeTab === "menu" ? "POS WORKFLOWS" : "WAREHOUSE GROUPS"}</span>
+                  </div>
                 </div>
 
-                <div className="categories-actions-group">
+                {/* Seamless Parchment Command Strip */}
+                <div className="categories-control-panel">
                   <div className="categories-search-box">
-                    <Search size={16} className="search-icon" aria-hidden="true" />
+                    <Search size={15} className="search-icon" aria-hidden="true" />
                     <input
                       type="text"
                       placeholder={
                         activeTab === "menu"
-                          ? "Search menu categories..."
+                          ? "Search menu categories or workflow..."
                           : "Search inventory categories..."
                       }
                       value={search}
@@ -399,304 +564,499 @@ export default function AdminCategories() {
                         onClick={() => setSearch("")}
                         aria-label="Clear search"
                       >
-                        <X size={14} aria-hidden="true" />
+                        <X size={13} aria-hidden="true" />
                       </button>
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    className="categories-refresh-btn"
-                    onClick={handleRefresh}
-                    disabled={loading}
-                    title="Refresh categories"
-                    aria-label="Refresh categories"
-                  >
-                    <RefreshCw size={16} className={loading ? "spin" : ""} aria-hidden="true" />
-                  </button>
+                  <div className="categories-actions-group">
+                    <span className="categories-tally-chip">
+                      <strong>{activeShownCount}</strong> of {rawActiveTotal} shown
+                    </span>
 
-                  <button type="button" className="categories-add-btn" onClick={openAddModal}>
-                    <Plus size={16} aria-hidden="true" />
-                    <span>Add {activeTab === "menu" ? "Menu Category" : "Inventory Category"}</span>
-                  </button>
+                    <button
+                      type="button"
+                      className="categories-refresh-btn"
+                      onClick={handleRefresh}
+                      disabled={loading}
+                      title="Refresh categories"
+                      aria-label="Refresh categories"
+                    >
+                      <RefreshCw size={15} className={loading ? "spin" : ""} aria-hidden="true" />
+                    </button>
+
+                    <button type="button" className="categories-add-btn" onClick={openAddModal}>
+                      <Plus size={15} strokeWidth={2.3} aria-hidden="true" />
+                      <span>Add {activeTab === "menu" ? "Menu" : "Inventory"} Category</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Categories Content Table */}
-              <div className="categories-table-container">
-                {activeTab === "menu" ? (
-                  <div className="categories-table-wrap">
-                    <table className="categories-table">
-                      <thead>
-                        <tr>
-                          <th style={{ width: "80px" }}>Order</th>
-                          <th>Category Name</th>
-                          <th>Operational Logic</th>
-                          <th>Description</th>
-                          <th style={{ width: "130px" }}>Products</th>
-                          <th style={{ width: "110px" }}>Status</th>
-                          <th style={{ width: "120px", textAlign: "right" }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredMenuCategories.length === 0 ? (
-                          <tr>
-                            <td colSpan="7" className="categories-empty-cell">
-                              <FolderTree size={32} className="empty-icon" aria-hidden="true" />
-                              <p>No menu categories found matching “{search}”.</p>
-                            </td>
-                          </tr>
-                        ) : (
-                          filteredMenuCategories.map((cat) => {
+                {/* Operational Family / System Role Quick Filter Rail */}
+                <div className="categories-schema-strip">
+                  <span className="categories-schema-label">
+                    <Sliders size={12} strokeWidth={2.2} aria-hidden="true" />
+                    <span>{activeTab === "menu" ? "Workflow:" : "Role:"}</span>
+                  </span>
+
+                  {activeTab === "menu" ? (
+                    <div className="categories-filter-pills" role="group" aria-label="Filter by operational workflow">
+                      <button
+                        type="button"
+                        className={`schema-filter-pill ${familyFilter === "all" ? "is-selected" : ""}`}
+                        onClick={() => setFamilyFilter("all")}
+                        aria-pressed={familyFilter === "all"}
+                      >
+                        <span>All</span>
+                        <em>{menuFamilyCounts.all}</em>
+                      </button>
+                      {Object.entries(OPERATIONAL_FAMILY_CONFIG).map(([key, cfg]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`schema-filter-pill ${familyFilter === key ? "is-selected" : ""}`}
+                          onClick={() => setFamilyFilter(key)}
+                          aria-pressed={familyFilter === key}
+                          title={cfg.desc}
+                        >
+                          <span>{cfg.shortLabel}</span>
+                          <em>{menuFamilyCounts[key] || 0}</em>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="categories-filter-pills" role="group" aria-label="Filter by inventory role">
+                      <button
+                        type="button"
+                        className={`schema-filter-pill ${roleFilter === "all" ? "is-selected" : ""}`}
+                        onClick={() => setRoleFilter("all")}
+                        aria-pressed={roleFilter === "all"}
+                      >
+                        <span>All Groups</span>
+                        <em>{inventoryCategories.length}</em>
+                      </button>
+                      <button
+                        type="button"
+                        className={`schema-filter-pill ${roleFilter === "cups" ? "is-selected" : ""}`}
+                        onClick={() => setRoleFilter("cups")}
+                        aria-pressed={roleFilter === "cups"}
+                      >
+                        <span>Cup Packaging</span>
+                        <em>{totals.cupCount}</em>
+                      </button>
+                      <button
+                        type="button"
+                        className={`schema-filter-pill ${roleFilter === "custom" ? "is-selected" : ""}`}
+                        onClick={() => setRoleFilter("custom")}
+                        aria-pressed={roleFilter === "custom"}
+                      >
+                        <span>Custom Groups</span>
+                        <em>{Math.max(0, inventoryCategories.length - totals.cupCount)}</em>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Archival Index Slips Canvas */}
+                <div className="categories-index-canvas">
+                  <div className="categories-index-cols-head" aria-hidden="true">
+                    <span>Index</span>
+                    <span>Category &amp; Notes</span>
+                    <span>{activeTab === "menu" ? "Operational Logic" : "System Role"}</span>
+                    <span>{activeTab === "menu" ? "Products" : "Stock Items"}</span>
+                    <span>Status</span>
+                    <span className="cols-head-right">Actions</span>
+                  </div>
+
+                  <div
+                    className={`categories-index-list-frame ${scrollCue.canUp ? "has-scroll-up" : ""} ${scrollCue.canDown ? "has-scroll-down" : ""}`}
+                  >
+                    <div
+                      ref={listRef}
+                      onScroll={updateScrollCue}
+                      className="categories-index-list custom-categories-scrollbar"
+                      key={`${activeTab}-${familyFilter}-${roleFilter}`}
+                      tabIndex={0}
+                      aria-label={activeTab === "menu" ? "Menu categories list" : "Inventory categories list"}
+                    >
+                    {activeTab === "menu" ? (
+                      filteredMenuCategories.length === 0 ? (
+                        <div className="categories-empty-state">
+                          <span className="categories-empty-medallion" aria-hidden="true">
+                            <FolderTree size={24} strokeWidth={1.8} />
+                          </span>
+                          <h4>No menu categories match this filter</h4>
+                          <p>
+                            {search.trim()
+                              ? `No menu categories found matching "${search}".`
+                              : "Try clearing the workflow filter or add a new menu category."}
+                          </p>
+                          {hasActiveFilter ? (
+                            <button
+                              type="button"
+                              className="categories-empty-reset"
+                              onClick={() => {
+                                setSearch("");
+                                setFamilyFilter("all");
+                              }}
+                            >
+                              Clear search &amp; filters
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="categories-empty-reset"
+                              onClick={() => openAddModal()}
+                            >
+                              Create Menu Category
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {filteredMenuCategories.map((cat, idx) => {
                             const familyConfig =
                               OPERATIONAL_FAMILY_CONFIG[cat.operationalFamily] ||
                               OPERATIONAL_FAMILY_CONFIG.general;
-                            const hasProducts = Number(cat.productCount || 0) > 0;
+                            const FamilyIcon = familyConfig.Icon;
+                            const productCount = Number(cat.productCount || 0);
+                            const hasProducts = productCount > 0;
                             return (
-                              <tr key={cat.id} className={!cat.isActive ? "row-inactive" : ""}>
-                                <td>
+                              <article
+                                key={cat.id}
+                                className={`category-index-slip ${cat.isActive === false ? "row-inactive" : ""}`}
+                                style={{ "--slip-index": Math.min(idx, 9) }}
+                              >
+                                <div className="category-slip-spine">
                                   <span className="order-badge">#{cat.displayOrder}</span>
-                                </td>
-                                <td>
+                                </div>
+
+                                <div className="category-slip-identity">
                                   <div className="category-name-cell">
-                                    <span className="category-title">{cat.name}</span>
+                                    <h3 className="category-title">{cat.name}</h3>
                                   </div>
-                                </td>
-                                <td>
+                                  <p className={`category-desc ${!cat.description ? "is-empty-desc" : ""}`}>
+                                    {cat.description || "No description notes added."}
+                                  </p>
+                                </div>
+
+                                <div className="category-slip-workflow">
                                   <span
                                     className={`family-badge ${familyConfig.badgeClass}`}
                                     title={familyConfig.desc}
                                   >
-                                    {familyConfig.label}
+                                    <FamilyIcon size={12} strokeWidth={2.2} aria-hidden="true" />
+                                    <span>{familyConfig.label}</span>
                                   </span>
-                                </td>
-                                <td>
-                                  <span className="category-desc">{cat.description || "—"}</span>
-                                </td>
-                                <td>
+                                </div>
+
+                                <div className="category-slip-count">
                                   <span
                                     className={`count-badge ${hasProducts ? "count-active" : "count-zero"}`}
                                   >
-                                    {cat.productCount}{" "}
-                                    {cat.productCount === 1 ? "product" : "products"}
+                                    {productCount} {productCount === 1 ? "product" : "products"}
                                   </span>
-                                </td>
-                                <td>
+                                </div>
+
+                                <div className="category-slip-status">
                                   <span
-                                    className={`status-pill ${cat.isActive ? "status-active" : "status-disabled"}`}
+                                    className={`status-pill ${cat.isActive !== false ? "status-active" : "status-disabled"}`}
                                   >
-                                    {cat.isActive ? "Active" : "Inactive"}
+                                    <span className="status-dot" aria-hidden="true" />
+                                    <span>{cat.isActive !== false ? "Active" : "Inactive"}</span>
                                   </span>
-                                </td>
-                                <td>
-                                  <div className="category-action-buttons">
-                                    <button
-                                      type="button"
-                                      className="action-btn edit-btn"
-                                      onClick={() => openEditModal(cat, "menu")}
-                                      title="Edit category"
-                                      aria-label={`Edit ${cat.name} category`}
-                                    >
-                                      <Edit2 size={16} aria-hidden="true" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`action-btn delete-btn ${hasProducts ? "btn-disabled" : ""}`}
-                                      onClick={() => !hasProducts && promptDelete(cat, "menu")}
-                                      disabled={hasProducts}
-                                      aria-label={`Delete ${cat.name} category`}
-                                      title={
-                                        hasProducts
-                                          ? `Cannot delete: ${cat.productCount} product(s) assigned`
-                                          : `Delete ${cat.name} category`
-                                      }
-                                    >
-                                      <Trash2 size={16} aria-hidden="true" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
+                                </div>
+
+                                <div className="category-slip-actions category-action-buttons">
+                                  <button
+                                    type="button"
+                                    className="action-btn edit-btn"
+                                    onClick={() => openEditModal(cat, "menu")}
+                                    title="Edit category"
+                                    aria-label={`Edit ${cat.name} category`}
+                                  >
+                                    <Edit2 size={15} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`action-btn delete-btn ${hasProducts ? "btn-disabled" : ""}`}
+                                    onClick={() => !hasProducts && promptDelete(cat, "menu")}
+                                    disabled={hasProducts}
+                                    aria-label={`Delete ${cat.name} category`}
+                                    title={
+                                      hasProducts
+                                        ? `Cannot delete: ${productCount} product(s) assigned`
+                                        : `Delete ${cat.name} category`
+                                    }
+                                  >
+                                    <Trash2 size={15} aria-hidden="true" />
+                                  </button>
+                                </div>
+                              </article>
                             );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="categories-table-wrap">
-                    <table className="categories-table">
-                      <thead>
-                        <tr>
-                          <th style={{ width: "80px" }}>Order</th>
-                          <th>Category Name</th>
-                          <th>System Role</th>
-                          <th>Description</th>
-                          <th style={{ width: "130px" }}>Stock Items</th>
-                          <th style={{ width: "110px" }}>Status</th>
-                          <th style={{ width: "120px", textAlign: "right" }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredInventoryCategories.length === 0 ? (
-                          <tr>
-                            <td colSpan="7" className="categories-empty-cell">
-                              <FolderTree size={32} className="empty-icon" aria-hidden="true" />
-                              <p>No inventory categories found matching “{search}”.</p>
-                            </td>
-                          </tr>
+                          })}
+                        </>
+                      )
+                    ) : filteredInventoryCategories.length === 0 ? (
+                      <div className="categories-empty-state">
+                        <span className="categories-empty-medallion" aria-hidden="true">
+                          <FolderTree size={24} strokeWidth={1.8} />
+                        </span>
+                        <h4>No inventory groups match this filter</h4>
+                        <p>
+                          {search.trim()
+                            ? `No inventory categories found matching "${search}".`
+                            : "Try resetting the role filter or add a new warehouse classification."}
+                        </p>
+                        {hasActiveFilter ? (
+                          <button
+                            type="button"
+                            className="categories-empty-reset"
+                            onClick={() => {
+                              setSearch("");
+                              setRoleFilter("all");
+                            }}
+                          >
+                            Clear search &amp; filters
+                          </button>
                         ) : (
-                          filteredInventoryCategories.map((cat) => {
-                            const hasItems = Number(cat.itemCount || 0) > 0;
-                            return (
-                              <tr key={cat.id} className={!cat.isActive ? "row-inactive" : ""}>
-                                <td>
-                                  <span className="order-badge">#{cat.displayOrder}</span>
-                                </td>
-                                <td>
-                                  <div className="category-name-cell">
-                                    <span className="category-title">{cat.name}</span>
-                                  </div>
-                                </td>
-                                <td>
-                                  <div className="role-badge-group">
-                                    {cat.isCupCategory && (
-                                      <span
-                                        className="family-badge badge-cup"
-                                        title="Auto-synchronizes drink cup containers"
-                                      >
-                                        <Coffee size={12} aria-hidden="true" /> Cups Container
-                                      </span>
-                                    )}
-                                    {!cat.isCupCategory && (
-                                      <span className="family-badge badge-custom">Custom</span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>
-                                  <span className="category-desc">{cat.description || "—"}</span>
-                                </td>
-                                <td>
-                                  <span
-                                    className={`count-badge ${hasItems ? "count-active" : "count-zero"}`}
-                                  >
-                                    {cat.itemCount} {cat.itemCount === 1 ? "item" : "items"}
-                                  </span>
-                                </td>
-                                <td>
-                                  <span
-                                    className={`status-pill ${cat.isActive ? "status-active" : "status-disabled"}`}
-                                  >
-                                    {cat.isActive ? "Active" : "Inactive"}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="category-action-buttons">
-                                    <button
-                                      type="button"
-                                      className="action-btn edit-btn"
-                                      onClick={() => openEditModal(cat, "inventory")}
-                                      title="Edit category"
-                                      aria-label={`Edit ${cat.name} category`}
-                                    >
-                                      <Edit2 size={16} aria-hidden="true" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="action-btn delete-btn"
-                                      onClick={() => promptDelete(cat, "inventory")}
-                                      aria-label={`Delete ${cat.name} category`}
-                                      title={
-                                        hasItems
-                                          ? `${cat.itemCount} item(s) assigned. Click to reassign & delete.`
-                                          : `Delete ${cat.name} category`
-                                      }
-                                    >
-                                      <Trash2 size={16} aria-hidden="true" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
+                          <button
+                            type="button"
+                            className="categories-empty-reset"
+                            onClick={() => openAddModal()}
+                          >
+                            Create Inventory Category
+                          </button>
                         )}
-                      </tbody>
-                    </table>
+                      </div>
+                    ) : (
+                      <>
+                        {filteredInventoryCategories.map((cat, idx) => {
+                          const itemCount = Number(cat.itemCount || 0);
+                          const hasItems = itemCount > 0;
+                          return (
+                            <article
+                              key={cat.id}
+                              className={`category-index-slip ${cat.isActive === false ? "row-inactive" : ""}`}
+                              style={{ "--slip-index": Math.min(idx, 9) }}
+                            >
+                              <div className="category-slip-spine">
+                                <span className="order-badge">#{cat.displayOrder}</span>
+                              </div>
+
+                              <div className="category-slip-identity">
+                                <div className="category-name-cell">
+                                  <h3 className="category-title">{cat.name}</h3>
+                                </div>
+                                <p className={`category-desc ${!cat.description ? "is-empty-desc" : ""}`}>
+                                  {cat.description || "No warehouse classification notes added."}
+                                </p>
+                              </div>
+
+                              <div className="category-slip-workflow">
+                                <div className="role-badge-group">
+                                  {cat.isCupCategory ? (
+                                    <span
+                                      className="family-badge badge-cup"
+                                      title="Auto-synchronizes drink cup containers"
+                                    >
+                                      <Coffee size={12} strokeWidth={2.2} aria-hidden="true" />
+                                      <span>Cups Container</span>
+                                    </span>
+                                  ) : (
+                                    <span className="family-badge badge-custom">
+                                      <Package size={12} strokeWidth={2} aria-hidden="true" />
+                                      <span>Custom</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="category-slip-count">
+                                <span
+                                  className={`count-badge ${hasItems ? "count-active" : "count-zero"}`}
+                                >
+                                  {itemCount} {itemCount === 1 ? "item" : "items"}
+                                </span>
+                              </div>
+
+                              <div className="category-slip-status">
+                                <span
+                                  className={`status-pill ${cat.isActive !== false ? "status-active" : "status-disabled"}`}
+                                >
+                                  <span className="status-dot" aria-hidden="true" />
+                                  <span>{cat.isActive !== false ? "Active" : "Inactive"}</span>
+                                </span>
+                              </div>
+
+                              <div className="category-slip-actions category-action-buttons">
+                                <button
+                                  type="button"
+                                  className="action-btn edit-btn"
+                                  onClick={() => openEditModal(cat, "inventory")}
+                                  title="Edit category"
+                                  aria-label={`Edit ${cat.name} category`}
+                                >
+                                  <Edit2 size={15} aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="action-btn delete-btn"
+                                  onClick={() => promptDelete(cat, "inventory")}
+                                  aria-label={`Delete ${cat.name} category`}
+                                  title={
+                                    hasItems
+                                      ? `${itemCount} item(s) assigned. Click to reassign & delete.`
+                                      : `Delete ${cat.name} category`
+                                  }
+                                >
+                                  <Trash2 size={15} aria-hidden="true" />
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </>
+                    )}
+                    </div>
+
+                    {scrollCue.canDown && (
+                      <button
+                        type="button"
+                        className="categories-scroll-more-pill"
+                        onClick={handleScrollMore}
+                        aria-label="Scroll down to view more categories"
+                      >
+                        <span>Scroll for more</span>
+                        <ChevronDown size={13} strokeWidth={2.4} aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+
+                {/* Cabinet Lower Molded Footer Trim */}
+                <div className="categories-cabinet-footer">
+                  <span className="cabinet-footer-note">
+                    <ShieldCheck size={14} strokeWidth={2.1} aria-hidden="true" />
+                    <span>Display order sequences tabs across Staff POS and Admin views</span>
+                  </span>
+                  <span className="cabinet-footer-summary">
+                    {activeTabLiveCount} active
+                    {activeTabHiddenCount > 0 ? ` · ${activeTabHiddenCount} inactive` : ""}
+                    {scrollCue.isScrollable ? " · Scroll list" : ""}
+                  </span>
+                </div>
+              </section>
             </div>
 
-            {/* Right Column: Sticky Side-Rail */}
+            {/* Right Column: Sticky Architect Summary Dossier */}
             <aside className="admin-categories-side-rail" aria-label="Catalog statistics and shortcuts">
-              {/* Stat Card 1: Menu Categories */}
-              <div className="side-rail-card">
-                <div className="side-rail-card-head">
-                  <div className="side-rail-icon icon-menu">
-                    <UtensilsCrossed size={18} aria-hidden="true" />
+              {/* Card 1: Interactive Catalog Split Overview */}
+              <div className="side-rail-card side-rail-dossier-card">
+                <div className="side-rail-dossier-head">
+                  <span className="side-rail-eyebrow">CATALOG INDEX</span>
+                  <h4>Schema Overview</h4>
+                </div>
+
+                <div className="side-rail-split-list">
+                  <button
+                    type="button"
+                    className={`side-rail-split-item ${activeTab === "menu" ? "is-current" : ""}`}
+                    onClick={() => handleTabSwitch("menu")}
+                  >
+                    <div className="side-rail-icon icon-menu">
+                      <UtensilsCrossed size={17} aria-hidden="true" />
+                    </div>
+                    <div className="side-rail-split-copy">
+                      <strong>Menu Categories</strong>
+                      <span>{totals.totalProducts} mapped products</span>
+                    </div>
+                    <span className="side-rail-split-num">{totals.menuCount}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`side-rail-split-item ${activeTab === "inventory" ? "is-current" : ""}`}
+                    onClick={() => handleTabSwitch("inventory")}
+                  >
+                    <div className="side-rail-icon icon-inventory">
+                      <Package size={17} aria-hidden="true" />
+                    </div>
+                    <div className="side-rail-split-copy">
+                      <strong>Inventory Groups</strong>
+                      <span>{totals.totalItems} classified items</span>
+                    </div>
+                    <span className="side-rail-split-num">{totals.invCount}</span>
+                  </button>
+                </div>
+
+                <div className="side-rail-ratio-wrap" aria-hidden="true">
+                  <div className="side-rail-ratio-track">
+                    <div
+                      className="side-rail-ratio-fill"
+                      style={{ transform: `scaleX(${totals.menuShare})` }}
+                    />
                   </div>
-                  <div>
-                    <span className="side-rail-eyebrow">STORE CATALOG</span>
-                    <h4>Menu Categories</h4>
+                  <div className="side-rail-ratio-legend">
+                    <span>Menu {totals.menuCount}</span>
+                    <span>Inventory {totals.invCount}</span>
                   </div>
                 </div>
-                <div className="side-rail-metric">
-                  <span className="side-rail-num">{totals.menuCount}</span>
-                  <span className="side-rail-meta">{totals.totalProducts} active products mapped</span>
-                </div>
+
                 <p className="side-rail-desc">
-                  Categories define POS ordering screens, recipe scaling, and beverage cup logic.
+                  Categories define POS ordering screens, recipe scaling, cup rules, and stock audits.
                 </p>
               </div>
 
-              {/* Stat Card 2: Inventory Commodities */}
-              <div className="side-rail-card">
-                <div className="side-rail-card-head">
-                  <div className="side-rail-icon icon-inventory">
-                    <Package size={18} aria-hidden="true" />
+              {/* Card 2 (Menu Tab): Workflow Blueprints moved cleanly to Right Architect Rail */}
+              {activeTab === "menu" && (
+                <section className="side-rail-card categories-templates-deck" aria-label="Workflow Blueprints">
+                  <div className="categories-templates-head">
+                    <span className="side-rail-eyebrow">WORKFLOW BLUEPRINTS</span>
+                    <h4>Quick POS Presets</h4>
+                    <span className="categories-templates-hint">
+                      Add a pre-configured menu category workflow
+                    </span>
                   </div>
-                  <div>
-                    <span className="side-rail-eyebrow">WAREHOUSE STOCK</span>
-                    <h4>Inventory Groups</h4>
+                  <div className="categories-templates-grid">
+                    {Object.entries(OPERATIONAL_FAMILY_CONFIG)
+                      .filter(([key]) => key !== "general")
+                      .map(([key, cfg]) => {
+                        const TplIcon = cfg.Icon;
+                        const usedCount = menuFamilyCounts[key] || 0;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className="categories-template-card"
+                            title={cfg.desc}
+                            onClick={() => openAddModal({ tab: "menu", operationalFamily: key })}
+                          >
+                            <span className={`categories-template-icon ${cfg.badgeClass}`} aria-hidden="true">
+                              <TplIcon size={14} strokeWidth={2.2} />
+                            </span>
+                            <div className="categories-template-copy">
+                              <div className="categories-template-title-row">
+                                <strong>{cfg.label}</strong>
+                                <span className={`categories-template-tag ${usedCount > 0 ? "in-use" : ""}`}>
+                                  {usedCount > 0 ? `${usedCount} mapped` : "Available"}
+                                </span>
+                              </div>
+                              <p>{cfg.desc}</p>
+                            </div>
+                            <span className="categories-template-plus" aria-hidden="true">
+                              <Plus size={14} strokeWidth={2.4} />
+                            </span>
+                          </button>
+                        );
+                      })}
                   </div>
-                </div>
-                <div className="side-rail-metric">
-                  <span className="side-rail-num">{totals.invCount}</span>
-                  <span className="side-rail-meta">{totals.totalItems} commodities classified</span>
-                </div>
-                <p className="side-rail-desc">
-                  Groups raw ingredients, consumables, packaging, and cups for inventory audits.
-                </p>
-              </div>
+                </section>
+              )}
 
-              {/* Stat Card 3: Relational Integrity & Packaging */}
-              <div className="side-rail-card side-rail-card-accent">
-                <div className="side-rail-card-head">
-                  <div className="side-rail-icon icon-relational">
-                    <Layers size={18} aria-hidden="true" />
-                  </div>
-                  <div>
-                    <span className="side-rail-eyebrow">DATA SAFETY</span>
-                    <h4>Relational Integrity</h4>
-                  </div>
-                </div>
-                <div className="side-rail-metric">
-                  <span className="side-rail-num side-rail-success">100% Active</span>
-                  <span className="side-rail-meta">Cascade protection active</span>
-                </div>
-                <div className="side-rail-badge-list">
-                  <div className="side-rail-badge-item">
-                    <Coffee size={14} aria-hidden="true" />
-                    <span>{totals.cupCount} Cup packaging groups</span>
-                  </div>
-                  <div className="side-rail-badge-item">
-                    <CheckCircle2 size={14} aria-hidden="true" />
-                    <span>Zero orphan product safeguards</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Add CTA Card */}
+              {/* Card 2: Quick Add CTA Card */}
               <div className="side-rail-card side-rail-cta-card">
+                <span className="side-rail-cta-eyebrow">ARCHITECT ACTION</span>
                 <h4>Need another category?</h4>
                 <p>Define operational rules and structure before assigning catalog items.</p>
                 <button
@@ -704,7 +1064,7 @@ export default function AdminCategories() {
                   className="side-rail-cta-btn"
                   onClick={openAddModal}
                 >
-                  <Plus size={16} aria-hidden="true" />
+                  <Plus size={16} strokeWidth={2.4} aria-hidden="true" />
                   <span>New {activeTab === "menu" ? "Menu Category" : "Inventory Category"}</span>
                 </button>
               </div>
@@ -715,16 +1075,21 @@ export default function AdminCategories() {
 
       {/* Add / Edit Category Modal */}
       {modalState.isOpen && (
-        <div className="categories-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="categories-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="categories-modal-heading"
+        >
           <div className="categories-modal-card">
             <div className="categories-modal-header">
               <div className="modal-header-title">
-                <h3>
+                <span className="modal-header-eyebrow">
+                  {modalState.tab === "menu" ? "MENU CLASSIFICATION" : "WAREHOUSE CLASSIFICATION"}
+                </span>
+                <h3 id="categories-modal-heading">
                   {modalState.mode === "create" ? "Add New Category" : "Edit Category"}
                 </h3>
-                <span className="modal-header-sub">
-                  Target: {modalState.tab === "menu" ? "Menu Products" : "Warehouse Inventory"}
-                </span>
               </div>
               <button
                 type="button"
@@ -738,7 +1103,9 @@ export default function AdminCategories() {
 
             <form onSubmit={handleSaveCategory} className="categories-modal-form">
               <div className="form-group">
-                <label className="form-label" htmlFor="cat-name-input">Category Name *</label>
+                <label className="form-label" htmlFor="cat-name-input">
+                  Category Name *
+                </label>
                 <input
                   id="cat-name-input"
                   type="text"
@@ -753,17 +1120,29 @@ export default function AdminCategories() {
 
               {modalState.tab === "menu" ? (
                 <div className="form-group">
-                  <label className="form-label" htmlFor="operational-family-select">Operational Logic Family</label>
+                  <label className="form-label" htmlFor="operational-family-select">
+                    Operational Logic Family
+                  </label>
                   <select
                     id="operational-family-select"
                     value={modalState.operationalFamily}
-                    onChange={(e) => setModalState({ ...modalState, operationalFamily: e.target.value })}
+                    onChange={(e) =>
+                      setModalState({ ...modalState, operationalFamily: e.target.value })
+                    }
                     className="form-select"
                   >
-                    <option value="drink">Beverage Workflow (Drink sizes with required cups from Inventory)</option>
-                    <option value="fries">Weighed Mass (Fries: Regular, Medium, Large tiers)</option>
-                    <option value="snack_pieces">Discrete Pieces (Snacks: 4s, 6s, 12s piece counts)</option>
-                    <option value="single_fixed">Single Fixed Price (Burgers, Hotdogs, Fixed foods)</option>
+                    <option value="drink">
+                      Beverage Workflow (Drink sizes with required cups from Inventory)
+                    </option>
+                    <option value="fries">
+                      Weighed Mass (Fries: Regular, Medium, Large tiers)
+                    </option>
+                    <option value="snack_pieces">
+                      Discrete Pieces (Snacks: 4s, 6s, 12s piece counts)
+                    </option>
+                    <option value="single_fixed">
+                      Single Fixed Price (Burgers, Hotdogs, Fixed foods)
+                    </option>
                     <option value="general">Standard Item (General catalog behavior)</option>
                   </select>
                   <span className="form-hint">
@@ -776,18 +1155,25 @@ export default function AdminCategories() {
                     <input
                       type="checkbox"
                       checked={modalState.isCupCategory}
-                      onChange={(e) => setModalState({ ...modalState, isCupCategory: e.target.checked })}
+                      onChange={(e) =>
+                        setModalState({ ...modalState, isCupCategory: e.target.checked })
+                      }
                     />
-                    <span className="checkbox-label">Contains Beverage Cup Packaging (Auto-deducted by POS)</span>
+                    <span className="checkbox-label">
+                      Contains Beverage Cup Packaging (Auto-deducted by POS)
+                    </span>
                   </label>
                   <span className="form-hint">
-                    Identifies items in this category as drink cups (any size) for recipe assignment and inventory deduction at POS checkout.
+                    Identifies items in this category as drink cups (any size) for recipe assignment
+                    and inventory deduction at POS checkout.
                   </span>
                 </div>
               )}
 
               <div className="form-group">
-                <label className="form-label" htmlFor="cat-desc-input">Description</label>
+                <label className="form-label" htmlFor="cat-desc-input">
+                  Description
+                </label>
                 <textarea
                   id="cat-desc-input"
                   rows={3}
@@ -801,7 +1187,9 @@ export default function AdminCategories() {
 
               <div className="form-row">
                 <div className="form-group form-col">
-                  <label className="form-label" htmlFor="cat-display-order">Display Order</label>
+                  <label className="form-label" htmlFor="cat-display-order">
+                    Display Order
+                  </label>
                   <input
                     id="cat-display-order"
                     type="number"
@@ -835,7 +1223,11 @@ export default function AdminCategories() {
                   Cancel
                 </button>
                 <button type="submit" className="btn-save" disabled={loading}>
-                  {loading ? "Saving..." : modalState.mode === "create" ? "Create Category" : "Save Changes"}
+                  {loading
+                    ? "Saving..."
+                    : modalState.mode === "create"
+                      ? "Create Category"
+                      : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -845,13 +1237,18 @@ export default function AdminCategories() {
 
       {/* Delete Confirmation Modal */}
       {deleteModal.isOpen && (
-        <div className="categories-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="categories-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="categories-delete-heading"
+        >
           <div className="categories-modal-card delete-confirm-card">
             <div className="delete-confirm-header">
-              <div className="delete-icon-box">
-                <AlertTriangle size={24} aria-hidden="true" />
+              <div className="delete-icon-box" aria-hidden="true">
+                <AlertTriangle size={22} />
               </div>
-              <h3>Confirm Category Deletion</h3>
+              <h3 id="categories-delete-heading">Confirm Category Deletion</h3>
             </div>
             <div className="delete-confirm-body">
               <p>
@@ -859,14 +1256,21 @@ export default function AdminCategories() {
                 <strong>“{deleteModal.name}”</strong>?
               </p>
               {deleteModal.count > 0 && deleteModal.tab === "inventory" ? (
-                <div style={{ marginTop: "14px", padding: "12px", background: "#fef3c7", borderRadius: "8px", border: "1px solid #fde68a", textAlign: "left" }}>
-                  <p style={{ margin: "0 0 8px 0", color: "#92400e", fontSize: "0.88rem", fontWeight: 600 }}>
-                    ⚠️ {deleteModal.count} inventory item(s) are currently in this category. Reassign them before deleting:
+                <div className="delete-reassign-box">
+                  <p className="delete-reassign-title">
+                    <AlertTriangle size={15} strokeWidth={2.2} aria-hidden="true" />
+                    <span>
+                      {deleteModal.count} inventory item(s) are currently in this category.
+                      Reassign them before deleting:
+                    </span>
                   </p>
                   <select
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #d97706", fontSize: "0.88rem", background: "#ffffff" }}
+                    className="delete-reassign-select"
                     value={deleteModal.reassignTargetId || ""}
-                    onChange={(e) => setDeleteModal((prev) => ({ ...prev, reassignTargetId: e.target.value }))}
+                    onChange={(e) =>
+                      setDeleteModal((prev) => ({ ...prev, reassignTargetId: e.target.value }))
+                    }
+                    aria-label="Destination category for reassignment"
                   >
                     <option value="">-- Select Destination Category --</option>
                     {inventoryCategories
@@ -888,7 +1292,17 @@ export default function AdminCategories() {
               <button
                 type="button"
                 className="btn-cancel"
-                onClick={() => setDeleteModal({ isOpen: false, tab: "menu", id: null, name: "", count: 0, isSystem: false, reassignTargetId: "" })}
+                onClick={() =>
+                  setDeleteModal({
+                    isOpen: false,
+                    tab: "menu",
+                    id: null,
+                    name: "",
+                    count: 0,
+                    isSystem: false,
+                    reassignTargetId: "",
+                  })
+                }
               >
                 Cancel
               </button>
@@ -896,7 +1310,12 @@ export default function AdminCategories() {
                 type="button"
                 className="btn-delete-confirm"
                 onClick={confirmDelete}
-                disabled={loading || (deleteModal.count > 0 && deleteModal.tab === "inventory" && !deleteModal.reassignTargetId)}
+                disabled={
+                  loading ||
+                  (deleteModal.count > 0 &&
+                    deleteModal.tab === "inventory" &&
+                    !deleteModal.reassignTargetId)
+                }
               >
                 {loading
                   ? "Deleting..."

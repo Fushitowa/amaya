@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -15,12 +15,15 @@ import {
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
+import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { isToday, useOrders } from "../../context/OrdersContext.jsx";
+import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
+import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminDashboard.css";
+import "../../assets/css/order-details-modal.css";
 import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
@@ -28,11 +31,14 @@ import "../../assets/css/sidebar-collapse.css";
 
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
-  const { orders } = useOrders();
+  const { orders, confirmOrder, voidOrder } = useOrders();
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
   const { products = [] } = useMenu() || {};
   const [salesRange, setSalesRange] = useState("today");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [serverSummary, setServerSummary] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const modalTriggerRef = useRef(null);
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
   );
@@ -44,26 +50,37 @@ function AdminDashboard() {
     return () => query.removeEventListener("change", sync);
   }, []);
 
-  // 1. Total Sales (strictly from verified Paid orders)
-  const paidOrders = useMemo(() => orders.filter((order) => order.payment === "Paid"), [orders]);
+  const loadServerSummary = useCallback(() => {
+    return apiRequest("/orders/summary")
+      .then((data) => {
+        if (data && typeof data === "object") setServerSummary(data);
+        return data;
+      })
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const syncSummary = () => {
+      apiRequest("/orders/summary")
+        .then((data) => {
+          if (active && data && typeof data === "object") setServerSummary(data);
+        })
+        .catch(() => {});
+    };
+    syncSummary();
+    window.addEventListener("amaya:stock-mutated", syncSummary);
+    window.addEventListener("amaya:session-changed", syncSummary);
+    return () => {
+      active = false;
+      window.removeEventListener("amaya:stock-mutated", syncSummary);
+      window.removeEventListener("amaya:session-changed", syncSummary);
+    };
+  }, [orders]);
+
+  // 1. Total Sales (strictly from non-cancelled verified Paid orders)
+  const paidOrders = useMemo(() => orders.filter((order) => isOrderPaid(order)), [orders]);
   const allTimeSales = useMemo(() => paidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [paidOrders]);
-  const allTimeCogs = useMemo(
-    () =>
-      paidOrders.reduce(
-        (sum, order) =>
-          sum +
-          (order.items || []).reduce(
-            (itemSum, item) =>
-              itemSum +
-              (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
-            0,
-          ),
-        0,
-      ),
-    [paidOrders],
-  );
-  const allTimeProfit = allTimeSales - allTimeCogs;
-  const allTimeMarginPercent = allTimeSales > 0 ? (allTimeProfit / allTimeSales) * 100 : 0;
 
   const todaysPaidOrders = useMemo(() => paidOrders.filter((order) => isToday(order.createdAt)), [paidOrders]);
   const todaysSales = useMemo(() => todaysPaidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [todaysPaidOrders]);
@@ -103,20 +120,43 @@ function AdminDashboard() {
   }, [inventory]);
 
   // 4. Current Budget / Cash Drawer Float
-  // Note: Operating cash float requires End-of-Day cash reconciliation record. We report real cash collected today.
   const todaysCashCollected = useMemo(() => {
     return todaysPaidOrders
       .filter((order) => (order.paymentMethod || "Cash").toLowerCase() === "cash")
       .reduce((sum, order) => sum + Number(order.total || 0), 0);
   }, [todaysPaidOrders]);
 
-  const todaysMarginPercent = todaysSales > 0 ? (todaysProfit / todaysSales) * 100 : 0;
+  const effectiveAllTimeSales = serverSummary?.allTimeSales ?? allTimeSales;
+  const effectiveTodaysSales = serverSummary?.todaySales ?? todaysSales;
+  const effectiveTodaysCogs = serverSummary?.todayCogs ?? todaysCogs;
+  const effectiveTodaysProfit = serverSummary?.todayGrossProfit ?? todaysProfit;
+  const effectiveAllTimeUnits = serverSummary?.allTimeUnitsSold ?? allTimeUnitsSold;
+  const effectiveTodaysUnits = serverSummary?.todayUnitsSold ?? todaysUnitsSold;
+  const effectiveTodaysPaidCount = serverSummary?.todayPaidOrders ?? todaysPaidOrders.length;
+  const effectiveTodaysCashCollected = serverSummary?.todayCashCollected ?? todaysCashCollected;
+  const effectiveTodaysMarginPercent = effectiveTodaysSales > 0 ? (effectiveTodaysProfit / effectiveTodaysSales) * 100 : 0;
+
   const todaysCashOrders = useMemo(() => {
     return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() === "cash");
   }, [todaysPaidOrders]);
   const todaysNonCashOrders = useMemo(() => {
     return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() !== "cash");
   }, [todaysPaidOrders]);
+
+  const productImageByName = useMemo(() => {
+    const map = {};
+    for (const product of products || []) {
+      const key = String(product?.name || "").trim().toLowerCase();
+      if (key && product?.image) map[key] = product.image;
+    }
+    return map;
+  }, [products]);
+
+  const openOrderModal = useCallback((order, event) => {
+    if (!order) return;
+    modalTriggerRef.current = event?.currentTarget || null;
+    setSelectedOrder(order);
+  }, []);
 
   const [stockFilter, setStockFilter] = useState("all");
 
@@ -320,7 +360,7 @@ function AdminDashboard() {
       let bucketTotal = 0;
       let bucketCogs = 0;
       orders.forEach((order) => {
-        if (order.payment !== "Paid") return;
+        if (!isOrderPaid(order)) return;
         const createdAt = new Date(order.createdAt);
         if (createdAt >= bucket.start && createdAt < bucket.end) {
           bucketTotal += Number(order.total || 0);
@@ -385,13 +425,39 @@ function AdminDashboard() {
       observer?.disconnect();
     };
   }, [isMobile]);
+
+  const orderModalNode = selectedOrder ? (
+    <OrderDetailsModal
+      key={selectedOrder.id}
+      order={selectedOrder}
+      portal="admin"
+      productImageByName={productImageByName}
+      canVoid
+      canViewCostBreakdown
+      onConfirmOrder={async (ord) => {
+        const updated = await confirmOrder(ord?.id ?? ord);
+        loadServerSummary();
+        if (updated) setSelectedOrder(updated);
+        return updated;
+      }}
+      onVoidOrder={async (ord, payload) => {
+        const updated = await voidOrder(ord?.id ?? ord, payload);
+        loadServerSummary();
+        if (updated) setSelectedOrder(updated);
+        return updated;
+      }}
+      triggerRef={modalTriggerRef}
+      onClosed={() => setSelectedOrder(null)}
+    />
+  ) : null;
+
   if (isMobile) {
     const ranges = [["today", "Today"], ["week", "7 days"], ["month", "30 days"], ["year", "Year"]];
     const metrics = [
-      { label: "Units sold", value: `${todaysUnitsSold}`, Icon: ShoppingBag, tone: "amber" },
-      { label: "Cash today", value: `₱${todaysCashCollected.toFixed(0)}`, Icon: Coins, tone: "green" },
+      { label: "Units sold", value: `${effectiveTodaysUnits}`, Icon: ShoppingBag, tone: "amber" },
+      { label: "Cash today", value: `₱${effectiveTodaysCashCollected.toFixed(0)}`, Icon: Coins, tone: "green" },
       { label: "Inventory", value: `₱${inventoryAssetValue.toFixed(0)}`, Icon: Warehouse, tone: "blue" },
-      { label: "Margin", value: `${todaysMarginPercent.toFixed(0)}%`, Icon: TrendingUp, tone: "plum" },
+      { label: "Margin", value: `${effectiveTodaysMarginPercent.toFixed(0)}%`, Icon: TrendingUp, tone: "plum" },
     ];
     const topList = rankedProducts.filter((x) => x.unitsSold > 0).slice(0, 8);
     const recent = displayOrders.slice(0, 15);
@@ -408,9 +474,9 @@ function AdminDashboard() {
 
           <section className="ad-hero" aria-label="Today's sales">
             <span className="ad-hero-label">Today&apos;s sales (paid)</span>
-            <strong className="ad-hero-amount">₱{todaysSales.toFixed(2)}</strong>
-            <span className="ad-hero-pill"><TrendingUp size={14} aria-hidden="true" />₱{todaysProfit.toFixed(2)} profit</span>
-            <span className="ad-hero-sub">{todaysPaidOrders.length} order{todaysPaidOrders.length === 1 ? "" : "s"} settled · All-time ₱{allTimeSales.toFixed(2)}</span>
+            <strong className="ad-hero-amount">₱{effectiveTodaysSales.toFixed(2)}</strong>
+            <span className="ad-hero-pill"><TrendingUp size={14} aria-hidden="true" />₱{effectiveTodaysProfit.toFixed(2)} profit</span>
+            <span className="ad-hero-sub">{effectiveTodaysPaidCount} order{effectiveTodaysPaidCount === 1 ? "" : "s"} settled · All-time ₱{effectiveAllTimeSales.toFixed(2)}</span>
           </section>
 
           <section className="ad-metrics" aria-label="Key metrics">
@@ -476,9 +542,16 @@ function AdminDashboard() {
               <ul className="ad-orders">
                 {recent.map((o) => (
                   <li key={o.id}>
-                    <span className={`ad-dot ${String(o.status).toLowerCase()}`} aria-hidden="true" />
-                    <span className="ad-order-text"><strong>#{o.id}</strong><small>{(o.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0)} items · {o.type || "Counter"}</small></span>
-                    <span className="ad-order-end"><b>₱{Number(o.total || 0).toFixed(2)}</b><em className={String(o.status).toLowerCase()}>{o.status}</em></span>
+                    <button
+                      type="button"
+                      className="ad-order-btn"
+                      onClick={(e) => openOrderModal(o, e)}
+                      aria-label={`View details for order ${o.id}`}
+                    >
+                      <span className={`ad-dot ${String(o.status).toLowerCase()}`} aria-hidden="true" />
+                      <span className="ad-order-text"><strong>#{o.id}</strong><small>{(o.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0)} items · {o.type || "Counter"}</small></span>
+                      <span className="ad-order-end"><b>₱{Number(o.total || 0).toFixed(2)}</b><em className={String(o.status).toLowerCase()}>{o.status}</em></span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -511,6 +584,7 @@ function AdminDashboard() {
         </main>
 
         <Link to="/admin/menu" className="ad-fab"><Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add item</Link>
+        {orderModalNode}
       </div>
     );
   }
@@ -537,10 +611,10 @@ function AdminDashboard() {
             statusTitle="System active"
             />
             <div className="admin-header-dock" aria-hidden={!docked}>
-              <div className="dock-chip stat-card-sales"><CircleDollarSign size={15} strokeWidth={1.9} /><span>Sales</span><strong>₱{todaysSales.toFixed(2)}</strong></div>
-              <div className="dock-chip stat-card-orders"><ShoppingBag size={15} strokeWidth={1.9} /><span>Sold</span><strong>{todaysUnitsSold} units</strong></div>
+              <div className="dock-chip stat-card-sales"><CircleDollarSign size={15} strokeWidth={1.9} /><span>Sales</span><strong>₱{effectiveTodaysSales.toFixed(2)}</strong></div>
+              <div className="dock-chip stat-card-orders"><ShoppingBag size={15} strokeWidth={1.9} /><span>Sold</span><strong>{effectiveTodaysUnits} units</strong></div>
               <div className="dock-chip stat-card-pending"><Warehouse size={15} strokeWidth={1.9} /><span>Inventory</span><strong>₱{inventoryAssetValue.toFixed(2)}</strong></div>
-              <div className="dock-chip stat-card-products"><Coins size={15} strokeWidth={1.9} /><span>Cash</span><strong>₱{todaysCashCollected.toFixed(2)}</strong></div>
+              <div className="dock-chip stat-card-products"><Coins size={15} strokeWidth={1.9} /><span>Cash</span><strong>₱{effectiveTodaysCashCollected.toFixed(2)}</strong></div>
             </div>
           </div>
           <section className="admin-stats">
@@ -550,21 +624,21 @@ function AdminDashboard() {
               <div className="stat-info">
                 <span>Today's Sales (Paid)</span>
                 <div className="stat-metric-row">
-                  <h3>₱{todaysSales.toFixed(2)}</h3>
+                  <h3>₱{effectiveTodaysSales.toFixed(2)}</h3>
                   <div
                     className="stat-profit-pill"
-                    title={`Today's COGS: ₱${todaysCogs.toFixed(2)} • Margin: ${todaysMarginPercent.toFixed(1)}%`}
+                    title={`Today's COGS: ₱${effectiveTodaysCogs.toFixed(2)} • Margin: ${effectiveTodaysMarginPercent.toFixed(1)}%`}
                   >
                     <TrendingUp size={11} strokeWidth={2.4} />
-                    <span className="profit-text">₱{todaysProfit.toFixed(2)} profit</span>
+                    <span className="profit-text">₱{effectiveTodaysProfit.toFixed(2)} profit</span>
                   </div>
                 </div>
                 <small>
-                  {todaysPaidOrders.length
-                    ? `${todaysPaidOrders.length} order${todaysPaidOrders.length === 1 ? "" : "s"} settled today`
+                  {effectiveTodaysPaidCount
+                    ? `${effectiveTodaysPaidCount} order${effectiveTodaysPaidCount === 1 ? "" : "s"} settled today`
                     : "0 orders settled today"}
                   {" • "}
-                  <span title="All-time sales across all sessions">All-time: ₱{allTimeSales.toFixed(2)}</span>
+                  <span title="All-time sales across all sessions">All-time: ₱{effectiveAllTimeSales.toFixed(2)}</span>
                 </small>
               </div>
             </div>
@@ -574,13 +648,13 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Today's Products Sold</span>
-                <h3>{todaysUnitsSold} units</h3>
+                <h3>{effectiveTodaysUnits} units</h3>
                 <small>
-                  {todaysUnitsSold > 0
-                    ? `Sold across ${todaysPaidOrders.length} order${todaysPaidOrders.length === 1 ? "" : "s"} today`
+                  {effectiveTodaysUnits > 0
+                    ? `Sold across ${effectiveTodaysPaidCount} order${effectiveTodaysPaidCount === 1 ? "" : "s"} today`
                     : "0 units sold yet today"}
                   {" • "}
-                  <span title="All-time units sold across all sessions">All-time: {allTimeUnitsSold} units</span>
+                  <span title="All-time units sold across all sessions">All-time: {effectiveAllTimeUnits} units</span>
                 </small>
               </div>
             </div>
@@ -604,7 +678,7 @@ function AdminDashboard() {
 
               <div className="stat-info">
                 <span>Today's Cash in Drawer</span>
-                <h3>₱{todaysCashCollected.toFixed(2)}</h3>
+                <h3>₱{effectiveTodaysCashCollected.toFixed(2)}</h3>
                 <small className="metric-note">
                   {todaysCashOrders.length
                     ? `${todaysCashOrders.length} cash transaction${todaysCashOrders.length === 1 ? "" : "s"} today`
@@ -732,7 +806,7 @@ function AdminDashboard() {
                         fontSize: "11px",
                         fontWeight: "700",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
+                        transition: "background-color 150ms ease, color 150ms ease",
                       }}
                     >
                       Today's Session ({todaysOrders.length})
@@ -749,7 +823,7 @@ function AdminDashboard() {
                         fontSize: "11px",
                         fontWeight: "700",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
+                        transition: "background-color 150ms ease, color 150ms ease",
                       }}
                     >
                       All Recent ({orders.length})
@@ -783,11 +857,22 @@ function AdminDashboard() {
                         displayOrders.slice(0, ordersTab === "today" ? 30 : 10).map((order, idx) => (
                           <tr
                             key={order.id}
-                            className="orders-receipt-row"
+                            className="orders-receipt-row is-clickable"
                             style={{ "--ticket-index": idx }}
+                            onClick={(e) => openOrderModal(order, e)}
                           >
                             <td>
-                              <strong className="orders-ticket-code">{order.id}</strong>
+                              <button
+                                type="button"
+                                className="orders-ticket-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openOrderModal(order, e);
+                                }}
+                                title={`Inspect order #${order.id}`}
+                              >
+                                <strong className="orders-ticket-code">{order.id}</strong>
+                              </button>
                             </td>
                             <td>{order.customer || "Walk-in Customer"}</td>
                             <td>
@@ -1092,7 +1177,7 @@ function AdminDashboard() {
         </div>
 
       </main>
-
+      {orderModalNode}
     </div>
   );
 }

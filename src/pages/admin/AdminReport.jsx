@@ -1,124 +1,511 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Download,
+  Filter,
+  Menu,
+  Package,
+  Receipt,
+  Search,
+  User,
+  X,
+} from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
+import StaffActivityModal from "../../components/StaffActivityModal.jsx";
+import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { isOrderPaid, useOrders } from "../../context/OrdersContext.jsx";
+import {
+  getPaymentMethodLabel,
+  getPaymentStatusLabel,
+  useOrders,
+} from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
+import { useMenu } from "../../context/MenuContext.jsx";
+import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
+import {
+  compactPeso,
+  downloadAuthenticatedCsv,
+  formatDateTime,
+  getManilaDateInputValue,
+  getMovementLabel,
+  getMovementTone,
+  initials,
+  peso,
+} from "../../utils/staffActivityFormatters.js";
+import { usePrefersReducedMotion } from "../../utils/usePrefersReducedMotion.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const rangeOptions = [
-  { key: "1d", label: "Today (Session)", mode: "hourly" },
-  { key: "7d", label: "7 days", mode: "daily", days: 7, bucketDays: 1, axisStep: 1 },
-  { key: "30d", label: "30 days", mode: "daily", days: 30, bucketDays: 1, axisStep: 5 },
-  { key: "all", label: "All Sessions", mode: "all" },
-  { key: "custom", label: "Custom", mode: "custom" },
+const RANGE_OPTIONS = [
+  { key: "today", label: "Today (Session)", bookmark: "TODAY" },
+  { key: "7d", label: "7 days", bookmark: "7D" },
+  { key: "30d", label: "30 days", bookmark: "30D" },
+  { key: "all", label: "All Sessions", bookmark: "ALL TIME" },
+  { key: "custom", label: "Custom", bookmark: "CUSTOM" },
 ];
 
-const stockFilters = ["all", "attention", "healthy"];
+const STOCK_FILTERS = ["all", "attention", "healthy"];
 
-const orderStatuses = ["Pending", "Preparing", "Completed"];
+const ROSTER_FILTERS = [
+  { key: "all", label: "All Staff" },
+  { key: "with_sales", label: "With Sales" },
+  { key: "inactive", label: "Inactive" },
+];
 
-const peso = (value) => `₱${Number(value || 0).toFixed(2)}`;
+const ROSTER_SORTS = [
+  { key: "grossSales", label: "Revenue (High -> Low)" },
+  { key: "ordersCount", label: "Orders Count" },
+  { key: "attributedGrossProfit", label: "Gross Profit" },
+  { key: "averageTicket", label: "Average Ticket" },
+  { key: "displayName", label: "Staff Name (A-Z)" },
+];
 
-const compactPeso = (value) => `₱${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
+const MOVEMENT_FILTERS = [
+  { key: "", label: "All Movements" },
+  { key: "restock", label: "Restock" },
+  { key: "usage", label: "Order Usage" },
+  { key: "adjustment", label: "Adjustment" },
+  { key: "spoilage", label: "Void Spoilage" },
+  { key: "void_restore", label: "Void Restore" },
+];
 
-function startOfDay(date) {
-  const normalized = new Date(date);
-  normalized.setHours(0, 0, 0, 0);
-  return normalized;
-}
+const ORDER_STATUS_FILTERS = ["All", "Pending", "Preparing", "Completed", "Cancelled"];
+const PAYMENT_METHOD_FILTERS = ["All", "Cash", "GCash", "Card"];
 
-function orderTotal(order) {
-  return Number(order.total || 0);
-}
-
-function orderTimestamp(order) {
-  const parsed = new Date(order.createdAt);
-  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
-}
-
-function orderItemList(order) {
-  return Array.isArray(order.items) ? order.items : [];
-}
-
-function initials(name) {
-  return String(name || "Staff")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("") || "S";
-}
+const RESTOCK_FOCUSABLE = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(", ");
 
 function niceCeil(value) {
   if (!(value > 0)) return 0;
-
   const magnitude = 10 ** Math.floor(Math.log10(value));
   const scaled = value / magnitude;
   const step = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 2.5 ? 2.5 : scaled <= 5 ? 5 : 10;
-
   return step * magnitude;
 }
 
-function percentChange(current, previous) {
-  if (previous <= 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+function getManilaHour(iso) {
+  if (!iso) return 0;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return 0;
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    hour: "numeric",
+    hour12: false,
+  }).format(parsed);
+  const hour = Number.parseInt(formatted, 10);
+  return Number.isFinite(hour) ? hour % 24 : 0;
+}
+
+function formatHourLabel(hour) {
+  const normalized = ((hour % 24) + 24) % 24;
+  if (normalized === 0) return "12 AM";
+  if (normalized === 12) return "12 PM";
+  return normalized < 12 ? `${normalized} AM` : `${normalized - 12} PM`;
+}
+
+function buildRangeSearchParams({ rangeKey, from, to, staffId, extra = {} }) {
+  const params = new URLSearchParams();
+  params.set("rangeKey", rangeKey);
+  if (rangeKey === "custom") {
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+  }
+  if (staffId) params.set("staffId", String(staffId));
+  Object.entries(extra).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== "") {
+      params.set(k, String(v));
+    }
+  });
+  return params;
+}
+
+function formatDeltaBadge(deltaObj, rangeKey) {
+  if (rangeKey === "all" || !deltaObj) {
+    return { text: "All-time cumulative total", tone: "flat" };
+  }
+  if (deltaObj.percent === null) {
+    if (deltaObj.change > 0) return { text: "New vs ₱0.00 prior", tone: "up" };
+    return { text: "No change", tone: "flat" };
+  }
+  if (deltaObj.percent === 0) return { text: "No change", tone: "flat" };
+  return {
+    text: `${deltaObj.percent > 0 ? "▲" : "▼"} ${Math.abs(deltaObj.percent).toFixed(1)}% vs prior`,
+    tone: deltaObj.percent > 0 ? "up" : "down",
+  };
+}
+
+async function fetchAllTodayPaidOrders({ from, to, rangeKey, staffId }) {
+  const baseParams = buildRangeSearchParams({
+    rangeKey,
+    from,
+    to,
+    staffId,
+    extra: { page: 1, limit: 200 },
+  });
+  const first = await apiRequest(`/reports/orders?${baseParams.toString()}`);
+  const items = Array.isArray(first?.items) ? [...first.items] : [];
+  const total = Number(first?.total || items.length);
+  const totalPages = Math.min(15, Math.ceil(total / 200));
+  if (totalPages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) => {
+        const p = buildRangeSearchParams({
+          rangeKey,
+          from,
+          to,
+          staffId,
+          extra: { page: i + 2, limit: 200 },
+        });
+        return apiRequest(`/reports/orders?${p.toString()}`);
+      }),
+    );
+    rest.forEach((chunk) => {
+      if (Array.isArray(chunk?.items)) items.push(...chunk.items);
+    });
+  }
+  return items;
 }
 
 function AdminReport() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
-  const { orders = [] } = useOrders() || {};
+  const { orders = [], confirmOrder, voidOrder } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
+  const { products: menuProducts = [] } = useMenu() || {};
+  const prefersReducedMotion = usePrefersReducedMotion();
 
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Period + Staff Filter State
   const [rangeKey, setRangeKey] = useState("all");
-  const [customStart, setCustomStart] = useState(() => {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00`;
-  });
-  const [customEnd, setCustomEnd] = useState(() => {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59`;
-  });
+  const [customStart, setCustomStart] = useState(() => getManilaDateInputValue(-6));
+  const [customEnd, setCustomEnd] = useState(() => getManilaDateInputValue(0));
+  const [staffFilterId, setStaffFilterId] = useState(null);
+
+  // Refresh nonce triggered by socketless mutation events or Confirm/Void actions
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  // Stock Section State
   const [stockFilter, setStockFilter] = useState("all");
   const [stockSort, setStockSort] = useState("name");
-  const [restockModalOpen, setRestockModalOpen] = useState(false);
-  const [restockNotice, setRestockNotice] = useState("");
-  const [exportNotice, setExportNotice] = useState(false);
-  const noticeTimer = useRef(null);
 
-  const range = rangeOptions.find((option) => option.key === rangeKey) || rangeOptions[0];
+  // Restock Requisition Notebook Modal
+  const [restockModalOpen, setRestockModalOpen] = useState(false);
+  const [restockClosing, setRestockClosing] = useState(false);
+  const [restockNotice, setRestockNotice] = useState("");
+  const restockTriggerRef = useRef(null);
+  const restockDialogRef = useRef(null);
+  const restockCloseTimerRef = useRef(null);
+
+  // Products Show-All Toggle
+  const [productsShowAll, setProductsShowAll] = useState(false);
+
+  // Staff Attribution Roster Filters
+  const [rosterFilter, setRosterFilter] = useState("all");
+  const [rosterSort, setRosterSort] = useState("grossSales");
+
+  // Modals State + Focus Triggers
+  const [selectedStaffMember, setSelectedStaffMember] = useState(null);
+  const staffTriggerRef = useRef(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const orderTriggerRef = useRef(null);
+
+  // Export CSV state
+  const [exportType, setExportType] = useState("orders");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNotice, setExportNotice] = useState("");
+  const [exportError, setExportError] = useState("");
+  const exportTimerRef = useRef(null);
+
+  // Period Inventory Activity Ledger Filters & Pagination
+  const [movTypeFilter, setMovTypeFilter] = useState("");
+  const [movSearch, setMovSearch] = useState("");
+  const [movPage, setMovPage] = useState(1);
+
+  // Period Order Ledger Filters & Pagination
+  const [ordersSearch, setOrdersSearch] = useState("");
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState("All");
+  const [ordersPaymentFilter, setOrdersPaymentFilter] = useState("All");
+  const [ordersPage, setOrdersPage] = useState(1);
+
+  // Core Summary + Staff + Products + Hourly State (keyed to eliminate sync setState in effect)
+  const [coreState, setCoreState] = useState({
+    queryKey: "",
+    financial: null,
+    staffPerf: null,
+    productsData: null,
+    todayOrdersForHourly: [],
+    error: "",
+  });
+
+  // Movements State
+  const [movState, setMovState] = useState({
+    queryKey: "",
+    data: null,
+    error: "",
+  });
+
+  // Orders Ledger State
+  const [ordersState, setOrdersState] = useState({
+    queryKey: "",
+    data: null,
+    error: "",
+  });
+
+  const customRangeInvalid = rangeKey === "custom" && Boolean(customStart && customEnd && customStart > customEnd);
+  const rangeOption = RANGE_OPTIONS.find((option) => option.key === rangeKey) || RANGE_OPTIONS[0];
+
+  const activeRangeParams = useMemo(() => ({
+    rangeKey,
+    from: rangeKey === "custom" ? customStart : undefined,
+    to: rangeKey === "custom" ? customEnd : undefined,
+    label: rangeKey === "custom" && customStart && customEnd ? `${customStart} to ${customEnd}` : rangeOption.label,
+  }), [rangeKey, customStart, customEnd, rangeOption.label]);
+
+  const coreQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${refreshNonce}`;
+  const movQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${movTypeFilter}|${movSearch.trim()}|${movPage}|${refreshNonce}`;
+  const ordersQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${ordersStatusFilter}|${ordersPaymentFilter}|${ordersSearch.trim()}|${ordersPage}|${refreshNonce}`;
+
+  const productImageByName = useMemo(() => {
+    const map = new Map();
+    (menuProducts || []).forEach((product) => {
+      if (product?.name && product?.image) {
+        map.set(String(product.name).trim().toLowerCase(), product.image);
+      }
+    });
+    return map;
+  }, [menuProducts]);
+
+  // Listen to stock/order/session mutations across portal
+  useEffect(() => {
+    const bump = () => setRefreshNonce((n) => n + 1);
+    window.addEventListener("amaya:stock-mutated", bump);
+    window.addEventListener("amaya:session-changed", bump);
+    return () => {
+      window.removeEventListener("amaya:stock-mutated", bump);
+      window.removeEventListener("amaya:session-changed", bump);
+    };
+  }, []);
 
   useEffect(() => () => {
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    if (exportTimerRef.current) window.clearTimeout(exportTimerRef.current);
+    if (restockCloseTimerRef.current) window.clearTimeout(restockCloseTimerRef.current);
   }, []);
+
+  // Load Financial Summary, Staff Performance, Products, and Intra-day Hourly Orders for "today"
+  useEffect(() => {
+    if (customRangeInvalid) return undefined;
+    let active = true;
+
+    const summaryParams = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+      staffId: staffFilterId,
+    });
+    const staffParams = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+    });
+    const productParams = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+      staffId: staffFilterId,
+      extra: { limit: 200, sortBy: "sales", sortDir: "desc" },
+    });
+
+    const isHourlyDay = rangeKey === "today" || (rangeKey === "custom" && customStart === customEnd);
+
+    Promise.all([
+      apiRequest(`/reports/financial-summary?${summaryParams.toString()}`),
+      apiRequest(`/reports/staff-performance?${staffParams.toString()}`),
+      apiRequest(`/reports/products?${productParams.toString()}`),
+      isHourlyDay
+        ? fetchAllTodayPaidOrders({ rangeKey, from: customStart, to: customEnd, staffId: staffFilterId })
+        : Promise.resolve([]),
+    ])
+      .then(([financial, staffPerf, productsData, todayOrdersForHourly]) => {
+        if (!active) return;
+        setCoreState({
+          queryKey: coreQueryKey,
+          financial,
+          staffPerf,
+          productsData,
+          todayOrdersForHourly,
+          error: "",
+        });
+      })
+      .catch((err) => {
+        if (!active) return;
+        setCoreState((prev) => ({
+          ...prev,
+          queryKey: coreQueryKey,
+          error: err?.message || "Failed to load report metrics.",
+        }));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [coreQueryKey, customEnd, customRangeInvalid, customStart, rangeKey, staffFilterId]);
+
+  // Load Period Inventory Activity Ledger
+  useEffect(() => {
+    if (customRangeInvalid) return undefined;
+    let active = true;
+    const params = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+      staffId: staffFilterId,
+      extra: {
+        type: movTypeFilter || undefined,
+        search: movSearch.trim() || undefined,
+        page: movPage,
+        limit: 15,
+      },
+    });
+
+    apiRequest(`/reports/inventory-activity?${params.toString()}`)
+      .then((data) => {
+        if (!active) return;
+        setMovState({ queryKey: movQueryKey, data, error: "" });
+      })
+      .catch((err) => {
+        if (!active) return;
+        setMovState((prev) => ({
+          ...prev,
+          queryKey: movQueryKey,
+          error: err?.message || "Failed to load inventory activity.",
+        }));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [customEnd, customRangeInvalid, customStart, movPage, movQueryKey, movSearch, movTypeFilter, rangeKey, staffFilterId]);
+
+  // Load Period Order Ledger
+  useEffect(() => {
+    if (customRangeInvalid) return undefined;
+    let active = true;
+    const params = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+      staffId: staffFilterId,
+      extra: {
+        status: ordersStatusFilter !== "All" ? ordersStatusFilter : undefined,
+        paymentMethod: ordersPaymentFilter !== "All" ? ordersPaymentFilter : undefined,
+        search: ordersSearch.trim() || undefined,
+        page: ordersPage,
+        limit: 15,
+      },
+    });
+
+    apiRequest(`/reports/orders?${params.toString()}`)
+      .then((data) => {
+        if (!active) return;
+        setOrdersState({ queryKey: ordersQueryKey, data, error: "" });
+      })
+      .catch((err) => {
+        if (!active) return;
+        setOrdersState((prev) => ({
+          ...prev,
+          queryKey: ordersQueryKey,
+          error: err?.message || "Failed to load period orders.",
+        }));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [customEnd, customRangeInvalid, customStart, ordersPage, ordersPaymentFilter, ordersQueryKey, ordersSearch, ordersStatusFilter, rangeKey, staffFilterId]);
+
+  // Mobile nav Escape dismiss
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileNavOpen]);
+
+  // Restock Notebook Modal focus management & trap
+  const closeRestockModal = useCallback(() => {
+    if (!restockModalOpen || restockClosing) return;
+    setRestockClosing(true);
+    restockCloseTimerRef.current = window.setTimeout(() => {
+      setRestockClosing(false);
+      setRestockModalOpen(false);
+      const trigger = restockTriggerRef.current;
+      if (trigger && typeof trigger.focus === "function") {
+        window.requestAnimationFrame(() => trigger.focus({ preventScroll: true }));
+      }
+    }, prefersReducedMotion ? 125 : 165);
+  }, [prefersReducedMotion, restockClosing, restockModalOpen]);
 
   useEffect(() => {
     if (!restockModalOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") setRestockModalOpen(false);
+    const raf = window.requestAnimationFrame(() => {
+      restockDialogRef.current?.focus({ preventScroll: true });
+    });
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRestockModal();
+        return;
+      }
+      if (event.key !== "Tab" || !restockDialogRef.current) return;
+      const focusables = [...restockDialogRef.current.querySelectorAll(RESTOCK_FOCUSABLE)]
+        .filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (!focusables.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === restockDialogRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener("keydown", closeOnEscape);
+
+    window.addEventListener("keydown", onKeyDown);
     return () => {
+      window.cancelAnimationFrame(raf);
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [restockModalOpen]);
+  }, [closeRestockModal, restockModalOpen]);
 
   const liveDate = useMemo(() => new Date().toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
     month: "long",
     day: "numeric",
     year: "numeric",
   }), []);
 
   const generatedStamp = useMemo(() => new Date().toLocaleString("en-US", {
+    timeZone: "Asia/Manila",
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -126,159 +513,126 @@ function AdminReport() {
     minute: "2-digit",
   }), []);
 
-  const rangeBounds = useMemo(() => {
-    if (rangeKey === "custom") {
-      const start = new Date(customStart);
-      const end = new Date(customEnd);
-      const validStart = Number.isNaN(start.getTime()) ? startOfDay(new Date()) : start;
-      const validEnd = Number.isNaN(end.getTime()) ? new Date() : end;
-      const duration = Math.max(3600000, validEnd.getTime() - validStart.getTime());
-      const previousStart = new Date(validStart.getTime() - duration);
-      return { start: validStart, end: validEnd, previousStart, isCustom: true };
-    }
+  const summary = coreState.financial?.summary || {
+    grossCollectedSales: 0,
+    cogs: 0,
+    grossProfit: 0,
+    marginPercent: 0,
+    paidOrdersCount: 0,
+    unpaidOrdersCount: 0,
+    voidedOrdersCount: 0,
+    voidedSalesTotal: 0,
+    unitsSold: 0,
+    averageOrderValue: 0,
+    cashCollected: 0,
+    gcashCollected: 0,
+    cardCollected: 0,
+    uncostedItemsCount: 0,
+    inventoryExpenditure: 0,
+    inventoryRestockCount: 0,
+    inventoryAssetValue: 0,
+    targetFoodCost: 0.3,
+  };
 
-    if (rangeKey === "1d") {
-      const start = startOfDay(new Date());
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      const previousStart = new Date(start);
-      previousStart.setDate(previousStart.getDate() - 1);
-      return { start, end, previousStart, isHourly: true, days: 1 };
-    }
+  const deltas = coreState.financial?.deltas ?? null;
+  const isCoreLoading = !customRangeInvalid && coreState.queryKey !== coreQueryKey && !coreState.error;
 
-    if (rangeKey === "all") {
-      const end = startOfDay(new Date());
-      end.setDate(end.getDate() + 1);
-      let minTimestamp = end.getTime() - 365 * 24 * 3600000;
-      if (orders.length > 0) {
-        const orderTimes = orders.map((o) => orderTimestamp(o)).filter((t) => t > 0);
-        if (orderTimes.length > 0) {
-          minTimestamp = Math.min(...orderTimes);
-        }
-      }
-      const start = startOfDay(new Date(minTimestamp));
-      const duration = Math.max(24 * 3600000, end.getTime() - start.getTime());
-      const previousStart = new Date(start.getTime() - duration);
-      return { start, end, previousStart, isAll: true };
-    }
-
-    const end = startOfDay(new Date());
-    end.setDate(end.getDate() + 1);
-    const start = new Date(end);
-    start.setDate(start.getDate() - (range.days || 7));
-    const previousStart = new Date(start);
-    previousStart.setDate(previousStart.getDate() - (range.days || 7));
-
-    return { start, end, previousStart, isDaily: true };
-  }, [rangeKey, range.days, customStart, customEnd, orders]);
-
-  const periodOrders = useMemo(() => orders.filter((order) => {
-    const timestamp = orderTimestamp(order);
-    return timestamp >= rangeBounds.start.getTime() && timestamp < rangeBounds.end.getTime();
-  }), [orders, rangeBounds]);
-
-  const paidPeriodOrders = useMemo(
-    () => periodOrders.filter((order) => isOrderPaid(order)),
-    [periodOrders],
+  const staffList = useMemo(
+    () => (Array.isArray(coreState.staffPerf?.staff) ? coreState.staffPerf.staff : []),
+    [coreState.staffPerf],
   );
 
-  const previousOrders = useMemo(() => orders.filter((order) => {
-    const timestamp = orderTimestamp(order);
-    return timestamp >= rangeBounds.previousStart.getTime() && timestamp < rangeBounds.start.getTime();
-  }), [orders, rangeBounds]);
-
-  const paidPreviousOrders = useMemo(
-    () => previousOrders.filter((order) => isOrderPaid(order)),
-    [previousOrders],
+  const selectedFilterStaff = useMemo(
+    () => (staffFilterId ? staffList.find((s) => Number(s.userId) === Number(staffFilterId)) || null : null),
+    [staffFilterId, staffList],
   );
 
-  const periodSales = useMemo(
-    () => paidPeriodOrders.reduce((sum, order) => sum + orderTotal(order), 0),
-    [paidPeriodOrders],
-  );
-
-  const previousSales = useMemo(
-    () => paidPreviousOrders.reduce((sum, order) => sum + orderTotal(order), 0),
-    [paidPreviousOrders],
-  );
-
-  const averageOrder = paidPeriodOrders.length ? periodSales / paidPeriodOrders.length : 0;
-  const previousAverage = paidPreviousOrders.length ? previousSales / paidPreviousOrders.length : 0;
-
-  const itemsSold = useMemo(() => paidPeriodOrders.reduce(
-    (sum, order) => sum + orderItemList(order).reduce(
-      (itemSum, item) => itemSum + Number(item.quantity || 0),
-      0,
-    ),
-    0,
-  ), [paidPeriodOrders]);
-
-  const periodCogs = useMemo(
-    () => paidPeriodOrders.reduce(
-      (sum, order) => sum + orderItemList(order).reduce(
-        (itemSum, item) => itemSum + (item.unitCost != null ? Number(item.unitCost) * Number(item.quantity || 0) : 0),
-        0,
-      ),
-      0,
-    ),
-    [paidPeriodOrders],
-  );
-  const periodGrossProfit = periodSales - periodCogs;
-  const periodMarginPercent = periodSales > 0 ? (periodGrossProfit / periodSales) * 100 : 0;
-
-  const revenueSeries = useMemo(() => {
-    const isHourly = rangeKey === "1d" || (rangeKey === "custom" && ((rangeBounds.end.getTime() - rangeBounds.start.getTime()) <= 48 * 3600000));
-
-    if (isHourly) {
-      const startMs = rangeBounds.start.getTime();
-      const endMs = rangeBounds.end.getTime();
-      const totalHours = Math.max(1, Math.ceil((endMs - startMs) / 3600000));
-      const count = Math.min(48, totalHours);
-
-      const buckets = Array.from({ length: count }, (_, index) => {
-        const bStart = new Date(startMs + index * 3600000);
-        const bEnd = new Date(startMs + (index + 1) * 3600000);
-        return { start: bStart, end: bEnd, amount: 0, orders: 0, isHourly: true };
-      });
-
-      paidPeriodOrders.forEach((order) => {
-        const timestamp = orderTimestamp(order);
-        const bucket = buckets.find((entry) => timestamp >= entry.start.getTime() && timestamp < entry.end.getTime());
-        if (bucket) {
-          bucket.amount += orderTotal(order);
-          bucket.orders += 1;
-        }
-      });
-
-      return buckets;
-    }
-
-    const totalDays = Math.max(1, Math.ceil((rangeBounds.end.getTime() - rangeBounds.start.getTime()) / (24 * 3600000)));
-    const bucketDays = rangeKey === "all" ? (totalDays > 60 ? 7 : totalDays > 14 ? 2 : 1) : (range.bucketDays || 1);
-    const bucketCount = Math.max(1, Math.ceil(totalDays / bucketDays));
-
-    const buckets = Array.from({ length: bucketCount }, (_, index) => {
-      const start = new Date(rangeBounds.start);
-      start.setDate(start.getDate() + index * bucketDays);
-
-      const end = new Date(start);
-      end.setDate(end.getDate() + bucketDays);
-
-      return { start, end, amount: 0, orders: 0, isHourly: false };
+  const staffById = useMemo(() => {
+    const map = new Map();
+    staffList.forEach((member) => {
+      map.set(Number(member.userId), member);
     });
+    return map;
+  }, [staffList]);
 
-    paidPeriodOrders.forEach((order) => {
-      const timestamp = orderTimestamp(order);
-      const bucket = buckets.find((entry) => timestamp >= entry.start.getTime() && timestamp < entry.end.getTime());
-
-      if (bucket) {
-        bucket.amount += orderTotal(order);
-        bucket.orders += 1;
-      }
+  // Filtered & sorted staff roster
+  const visibleStaffRoster = useMemo(() => {
+    const filtered = staffList.filter((member) => {
+      if (rosterFilter === "with_sales") return member.ordersCount > 0 || member.grossSales > 0;
+      if (rosterFilter === "inactive") return !member.isActive;
+      return true;
     });
+    const sorted = [...filtered].sort((a, b) => {
+      if (rosterSort === "displayName") {
+        return String(a.displayName || "").localeCompare(String(b.displayName || ""));
+      }
+      const diff = Number(b[rosterSort] || 0) - Number(a[rosterSort] || 0);
+      return diff !== 0 ? diff : Number(a.userId || 0) - Number(b.userId || 0);
+    });
+    return sorted;
+  }, [rosterFilter, rosterSort, staffList]);
 
-    return buckets;
-  }, [paidPeriodOrders, range.bucketDays, rangeBounds, rangeKey]);
+  const staffRosterTotals = useMemo(() => {
+    const t = coreState.staffPerf?.totals;
+    if (t) {
+      return {
+        ordersCount: Number(t.ordersCount || 0),
+        grossSales: Number(t.grossSales || 0),
+        averageTicket: t.ordersCount > 0 ? Number(t.grossSales || 0) / Number(t.ordersCount) : 0,
+        activeWithSales: staffList.filter((m) => m.ordersCount > 0).length,
+      };
+    }
+    return { ordersCount: 0, grossSales: 0, averageTicket: 0, activeWithSales: 0 };
+  }, [coreState.staffPerf, staffList]);
+
+  // Trend chart series: intra-day hourly for today/single-day custom, server series otherwise
+  const trendSeries = useMemo(() => {
+    const isHourlyDay = rangeKey === "today" || (rangeKey === "custom" && customStart === customEnd);
+    if (isHourlyDay) {
+      const hourBuckets = Array.from({ length: 24 }, (_, hr) => ({
+        key: `hr-${hr}`,
+        label: formatHourLabel(hr),
+        sales: 0,
+        orders: 0,
+        isHourly: true,
+      }));
+      (coreState.todayOrdersForHourly || []).forEach((order) => {
+        if (order.status === "Cancelled" || order.payment !== "Paid") return;
+        const hr = getManilaHour(order.createdAt);
+        hourBuckets[hr].sales += Number(order.total || 0);
+        hourBuckets[hr].orders += 1;
+      });
+      return hourBuckets;
+    }
+
+    const rawSeries = Array.isArray(coreState.financial?.series) ? coreState.financial.series : [];
+    if (rawSeries.length <= 45) {
+      return rawSeries.map((pt) => ({
+        key: pt.date,
+        label: pt.label || pt.date,
+        sales: Number(pt.sales || 0),
+        orders: Number(pt.orders || 0),
+        isHourly: false,
+      }));
+    }
+
+    // Group long All-Time timelines cleanly so SVG bars remain crisp
+    const chunkSize = Math.ceil(rawSeries.length / 36);
+    const grouped = [];
+    for (let i = 0; i < rawSeries.length; i += chunkSize) {
+      const slice = rawSeries.slice(i, i + chunkSize);
+      const sales = slice.reduce((sum, s) => sum + Number(s.sales || 0), 0);
+      const ordersCnt = slice.reduce((sum, s) => sum + Number(s.orders || 0), 0);
+      grouped.push({
+        key: slice[0].date,
+        label: slice[0].label || slice[0].date,
+        sales,
+        orders: ordersCnt,
+        isHourly: false,
+      });
+    }
+    return grouped;
+  }, [coreState.financial, coreState.todayOrdersForHourly, customEnd, customStart, rangeKey]);
 
   const trend = useMemo(() => {
     const width = 760;
@@ -289,25 +643,14 @@ function AdminReport() {
     const padBottom = 30;
     const innerWidth = width - padLeft - padRight;
     const innerHeight = height - padTop - padBottom;
-    const slotWidth = revenueSeries.length ? innerWidth / revenueSeries.length : innerWidth;
+    const slotWidth = trendSeries.length ? innerWidth / trendSeries.length : innerWidth;
     const barWidth = Math.min(44, Math.max(6, slotWidth * 0.65));
-    const ceiling = niceCeil(Math.max(...revenueSeries.map((bucket) => bucket.amount), 0));
+    const ceiling = niceCeil(Math.max(...trendSeries.map((bucket) => bucket.sales), 0));
 
-    const isHourly = revenueSeries[0]?.isHourly;
-
-    const points = revenueSeries.map((bucket, index) => {
+    const isHourly = trendSeries[0]?.isHourly;
+    const points = trendSeries.map((bucket, index) => {
       const x = padLeft + (index + 0.5) * slotWidth;
-      const y = padTop + innerHeight - (ceiling > 0 ? (bucket.amount / ceiling) * innerHeight : 0);
-
-      let label;
-      if (isHourly) {
-        label = bucket.start.toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
-      } else if (range.days === 7 && range.bucketDays === 1) {
-        label = bucket.start.toLocaleDateString("en-US", { weekday: "short" });
-      } else {
-        label = bucket.start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      }
-
+      const y = padTop + innerHeight - (ceiling > 0 ? (bucket.sales / ceiling) * innerHeight : 0);
       return {
         ...bucket,
         x,
@@ -315,15 +658,12 @@ function AdminReport() {
         barX: x - barWidth / 2,
         barWidth,
         barHeight: Math.max(0, padTop + innerHeight - y),
-        label,
       };
     });
 
     const baseline = padTop + innerHeight;
-
     const gridLines = Array.from({ length: 4 }, (_, index) => {
       const ratio = index / 3;
-
       return {
         y: padTop + innerHeight - ratio * innerHeight,
         value: ceiling * ratio,
@@ -331,12 +671,10 @@ function AdminReport() {
       };
     });
 
-    let axisStep = range.axisStep || 1;
-    if (isHourly) {
-      axisStep = revenueSeries.length > 20 ? 3 : 2;
-    } else if (points.length > 20) {
-      axisStep = 5;
-    }
+    let axisStep = 1;
+    if (isHourly) axisStep = 3;
+    else if (points.length > 24) axisStep = 5;
+    else if (points.length > 14) axisStep = 3;
 
     const lastIndex = points.length - 1;
     const labelledPoints = points.map((point, index) => ({
@@ -344,93 +682,26 @@ function AdminReport() {
       showLabel: index % axisStep === 0 || index === lastIndex,
     }));
 
-    const best = points.reduce((top, point) => (point.amount > (top?.amount || 0) ? point : top), points[0] || null);
+    const best = points.reduce((top, pt) => (pt.sales > (top?.sales || 0) ? pt : top), points[0] || null);
+    return { width, height, padLeft, padRight, baseline, points, labelledPoints, gridLines, best };
+  }, [trendSeries]);
 
-    return {
-      width,
-      height,
-      padLeft,
-      padRight,
-      padTop,
-      padBottom,
-      baseline,
-      ceiling,
-      points,
-      labelledPoints,
-      gridLines,
-      best,
-    };
-  }, [revenueSeries, range]);
+  const channels = useMemo(
+    () => (Array.isArray(coreState.financial?.channels) ? coreState.financial.channels : []),
+    [coreState.financial],
+  );
+  const topChannelSales = channels[0]?.sales || 0;
 
-  const topProducts = useMemo(() => {
-    const totals = new Map();
-
-    paidPeriodOrders.forEach((order) => {
-      orderItemList(order).forEach((item) => {
-        const key = item.title || "Menu item";
-        const current = totals.get(key) || { title: key, quantity: 0, revenue: 0, cogs: 0, profit: 0, category: item.category || "Menu item" };
-        const quantity = Number(item.quantity || 0);
-        const price = Number(item.price || 0);
-        const itemRevenue = quantity * price;
-        const itemCogs = item.unitCost != null ? quantity * Number(item.unitCost) : 0;
-
-        current.quantity += quantity;
-        current.revenue += itemRevenue;
-        current.cogs += itemCogs;
-        current.profit = current.revenue - current.cogs;
-        totals.set(key, current);
-      });
-    });
-
-    return [...totals.values()]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 6);
-  }, [paidPeriodOrders]);
-
-  const cashierSales = useMemo(() => {
-    const totals = new Map();
-    paidPeriodOrders.forEach((order) => {
-      const name = order.cashier || "Staff";
-      const current = totals.get(name) || { name, orders: 0, revenue: 0 };
-      current.orders += 1;
-      current.revenue += orderTotal(order);
-      totals.set(name, current);
-    });
-    return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
-  }, [paidPeriodOrders]);
-
-  const cashierSummary = useMemo(() => {
-    const orders = cashierSales.reduce((sum, cashier) => sum + cashier.orders, 0);
-    const revenue = cashierSales.reduce((sum, cashier) => sum + cashier.revenue, 0);
-    return { orders, revenue, averageTicket: orders ? revenue / orders : 0 };
-  }, [cashierSales]);
-
-  const channelMix = useMemo(() => {
-    const totals = new Map();
-
-    paidPeriodOrders.forEach((order) => {
-      const key = order.type || "Counter";
-      const current = totals.get(key) || { type: key, orders: 0, revenue: 0 };
-      current.orders += 1;
-      current.revenue += orderTotal(order);
-      totals.set(key, current);
-    });
-
-    return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
-  }, [paidPeriodOrders]);
-
-  const statusMix = useMemo(() => orderStatuses.map((status) => ({
-    status,
-    orders: periodOrders.filter((order) => order.status === status).length,
-  })), [periodOrders]);
-
-  const paidOrders = paidPeriodOrders;
-
-  const unpaidExposure = useMemo(
-    () => periodOrders.filter((order) => !isOrderPaid(order)).reduce((sum, order) => sum + orderTotal(order), 0),
-    [periodOrders],
+  const rankedProducts = useMemo(
+    () => (Array.isArray(coreState.productsData?.items) ? coreState.productsData.items : []),
+    [coreState.productsData],
+  );
+  const displayedProducts = useMemo(
+    () => (productsShowAll ? rankedProducts : rankedProducts.slice(0, 8)),
+    [productsShowAll, rankedProducts],
   );
 
+  // Stock Health Live Snapshot
   const pendingCount = useMemo(
     () => orders.filter((order) => order.status === "Pending").length,
     [orders],
@@ -447,19 +718,22 @@ function AdminReport() {
         maximumStock,
         { overMaximum: status === "Over Maximum" },
       );
+      const isOut = status === "Out of Stock" || quantity <= 0;
+      const effectiveHealthTone = isOut ? "critical" : healthTone;
       const healthLabel = status === "Over Maximum"
         ? "Above maximum"
         : status === "Out of Stock"
           ? "Out of stock"
-          : healthTone === "untracked"
+          : effectiveHealthTone === "untracked"
             ? "Maximum not set"
-            : healthTone === "critical"
+            : effectiveHealthTone === "critical"
               ? "Critical"
-              : healthTone === "low"
+              : effectiveHealthTone === "low"
                 ? "Running low"
-                : healthTone === "moderate"
+                : effectiveHealthTone === "moderate"
                   ? "Moderate"
                   : "Healthy";
+      const needsAttention = status !== "In Stock" || effectiveHealthTone === "critical" || effectiveHealthTone === "low";
       return {
         id: entry.id,
         item: entry.item,
@@ -467,21 +741,15 @@ function AdminReport() {
         quantity,
         unit: entry.unit,
         maximumStock,
-        capacityPercent,
-        reportedPercent,
-        healthTone,
+        capacityPercent: isOut && capacityPercent == null ? 0 : capacityPercent,
+        reportedPercent: isOut && reportedPercent == null ? 0 : reportedPercent,
+        healthTone: effectiveHealthTone,
         tone: status === "In Stock" ? "available" : status === "Over Maximum" ? "over" : "critical",
+        needsAttention,
         label: healthLabel,
       };
     });
   }, [inventory]);
-
-  const stockBreakdown = useMemo(() => ({
-    total: stockReport.length,
-    over: stockReport.filter((item) => item.tone === "over").length,
-    critical: stockReport.filter((item) => item.tone === "critical").length,
-    healthy: stockReport.filter((item) => item.tone === "available").length,
-  }), [stockReport]);
 
   const restockItems = useMemo(() => stockReport
     .filter((item) => item.tone === "critical" || item.healthTone === "critical" || item.healthTone === "low")
@@ -491,11 +759,19 @@ function AdminReport() {
       return aPriority - bPriority || String(a.item || "").localeCompare(String(b.item || ""));
     }), [stockReport]);
 
+  const stockBreakdown = useMemo(() => ({
+    total: stockReport.length,
+    over: stockReport.filter((item) => item.tone === "over").length,
+    critical: stockReport.filter((item) => item.tone === "critical").length,
+    attention: stockReport.filter((item) => item.needsAttention).length,
+    healthy: stockReport.filter((item) => !item.needsAttention).length,
+  }), [stockReport]);
+
   const visibleStock = useMemo(() => {
     const filtered = stockFilter === "attention"
-      ? stockReport.filter((item) => item.tone !== "available")
+      ? stockReport.filter((item) => item.needsAttention)
       : stockFilter === "healthy"
-        ? stockReport.filter((item) => item.tone === "available")
+        ? stockReport.filter((item) => !item.needsAttention)
         : stockReport;
     const byName = (a, b) => String(a.item || "").localeCompare(String(b.item || ""));
     const sorters = {
@@ -513,113 +789,80 @@ function AdminReport() {
       },
       status: (a, b) => {
         const priority = { critical: 0, low: 1, over: 2, moderate: 3, available: 4, untracked: 5 };
-        return priority[a.healthTone] - priority[b.healthTone] || byName(a, b);
+        return (priority[a.healthTone] ?? 6) - (priority[b.healthTone] ?? 6) || byName(a, b);
       },
     };
     return [...filtered].sort(sorters[stockSort] || byName);
   }, [stockFilter, stockReport, stockSort]);
 
-  const revenueShare = useCallback(
-    (amount) => (periodSales > 0 ? (amount / periodSales) * 100 : 0),
-    [periodSales],
-  );
-
-  const channelShare = (amount) => (channelMix[0]?.revenue > 0 ? (amount / channelMix[0].revenue) * 100 : 0);
-
   const insights = useMemo(() => {
     const notes = [];
-
-    if (trend.best?.amount > 0) {
+    if (trend.best?.sales > 0) {
       notes.push({
         tone: "positive",
-        label: "Best day",
-        value: `${trend.best.label} · ${peso(trend.best.amount)}`,
+        label: trend.best.isHourly ? "Peak hour" : "Best day",
+        value: `${trend.best.label} · ${peso(trend.best.sales)}`,
       });
     }
-
-    if (channelMix[0]?.orders) {
+    if (channels[0]?.ordersCount) {
       notes.push({
         tone: "neutral",
         label: "Top channel",
-        value: `${channelMix[0].type} · ${Math.round(revenueShare(channelMix[0].revenue))}% of sales`,
+        value: `${channels[0].type} · ${Math.round(channels[0].sharePercent)}% of sales`,
       });
     }
-
-    if (topProducts[0]) {
+    if (rankedProducts[0]) {
+      const p = rankedProducts[0];
       notes.push({
         tone: "neutral",
         label: "Best seller",
-        value: `${topProducts[0].title} · ${topProducts[0].quantity} sold`,
+        value: `${p.productName}${p.sizeLabel ? ` (${p.sizeLabel})` : ""} · ${p.unitsSold} sold`,
       });
     }
-
-    if (stockBreakdown.critical || stockBreakdown.over) {
+    if (restockItems.length || stockBreakdown.over) {
       notes.push({
         tone: "warning",
         label: "Stock alerts",
-        value: `${stockBreakdown.critical + stockBreakdown.over} item${stockBreakdown.critical + stockBreakdown.over === 1 ? "" : "s"} need review`,
+        value: `${stockBreakdown.attention} item${stockBreakdown.attention === 1 ? "" : "s"} need review`,
       });
     }
-
     return notes;
-  }, [channelMix, revenueShare, stockBreakdown, topProducts, trend.best]);
+  }, [channels, rankedProducts, restockItems.length, stockBreakdown.attention, stockBreakdown.over, trend.best]);
 
-  const salesDelta = percentChange(periodSales, previousSales);
-  const orderDelta = percentChange(periodOrders.length, previousOrders.length);
-  const averageDelta = percentChange(averageOrder, previousAverage);
+  const salesTrend = formatDeltaBadge(deltas?.grossCollectedSales, rangeKey);
+  const avgTrend = formatDeltaBadge(deltas?.averageOrderValue, rangeKey);
+  const orderTrend = formatDeltaBadge(deltas?.paidOrdersCount, rangeKey);
 
-  const deltaCopy = (delta) => {
-    if (!Number.isFinite(delta) || delta === 0) return { text: "No change", tone: "flat" };
-    return {
-      text: `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`,
-      tone: delta > 0 ? "up" : "down",
-    };
-  };
+  const handleExportCsv = async (typeToExport) => {
+    if (exportBusy || customRangeInvalid) return;
+    setExportBusy(true);
+    setExportError("");
+    const params = buildRangeSearchParams({
+      rangeKey,
+      from: customStart,
+      to: customEnd,
+      staffId: staffFilterId,
+      extra: { type: typeToExport },
+    });
+    const stamp = getManilaDateInputValue(0);
+    const filename = `amaya-${typeToExport}-report-${rangeKey}-${stamp}.csv`;
 
-  const salesTrend = deltaCopy(salesDelta);
-  const orderTrend = deltaCopy(orderDelta);
-  const averageTrend = deltaCopy(averageDelta);
-
-  const handleExport = () => {
-    if (!periodOrders.length) return;
-
-    const header = ["Order ID", "Date", "Customer", "Cashier in Charge", "Type", "Payment", "Status", "Items", "Total"];
-    const rows = periodOrders.map((order) => [
-      order.id,
-      new Date(order.createdAt).toLocaleString(),
-      order.customer,
-      order.cashier || "Staff",
-      order.type,
-      order.payment,
-      order.status,
-      orderItemList(order).map((item) => `${item.quantity}x ${item.title}`).join(" | "),
-      orderTotal(order).toFixed(2),
-    ]);
-
-    const csv = [header, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = `amaya-sales-report-${range.key}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-
-    setExportNotice(true);
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setExportNotice(false), 2600);
+    try {
+      await downloadAuthenticatedCsv(`/reports/export.csv?${params.toString()}`, filename);
+      setExportNotice(`Exported ${typeToExport} CSV`);
+      if (exportTimerRef.current) window.clearTimeout(exportTimerRef.current);
+      exportTimerRef.current = window.setTimeout(() => setExportNotice(""), 3000);
+    } catch (err) {
+      setExportError(err?.message || "Failed to download CSV export.");
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const handleCopyRestockList = async () => {
     if (!restockItems.length) return;
-
     const now = new Date();
-    const dateStamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const dateStamp = getManilaDateInputValue(0);
     const lines = [
       "AMAYA RESTOCK LIST",
       `Generated: ${now.toLocaleString()}`,
@@ -653,23 +896,87 @@ function AdminReport() {
     }
   };
 
+  const handleRangeChange = (nextKey) => {
+    setRangeKey(nextKey);
+    setOrdersPage(1);
+    setMovPage(1);
+  };
+
+  const handleOpenStaffModal = (member, event) => {
+    if (!member) return;
+    staffTriggerRef.current = event?.currentTarget || null;
+    setSelectedStaffMember(member);
+  };
+
+  const handleOpenOrderModal = (orderRow, event) => {
+    if (!orderRow) return;
+    orderTriggerRef.current = event?.currentTarget || null;
+    setSelectedOrder(orderRow);
+  };
+
+  const movSummary = movState.data?.summary || {
+    totalMovements: 0,
+    totalRestockCost: 0,
+    totalRestockCount: 0,
+    totalAdjustmentCount: 0,
+    totalUsageCount: 0,
+    totalSpoilageCount: 0,
+    totalVoidRestoreCount: 0,
+  };
+  const movItems = Array.isArray(movState.data?.items) ? movState.data.items : [];
+  const movTotal = Number(movState.data?.total || 0);
+  const movTotalPages = Math.max(1, Math.ceil(movTotal / 15));
+
+  const ledgerOrders = Array.isArray(ordersState.data?.items) ? ordersState.data.items : [];
+  const ledgerOrdersTotal = Number(ordersState.data?.total || 0);
+  const ledgerOrdersPages = Math.max(1, Math.ceil(ledgerOrdersTotal / 15));
+
   return (
-    <div className={`admin-report-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`admin-report-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      {mobileNavOpen && (
+        <div
+          className="report-mobile-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <Sidebar
         role="admin"
-        activeTab="reports" orderCount={pendingCount}
-        sidebarCollapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
+        activeTab="reports"
+        orderCount={pendingCount}
+        sidebarCollapsed={mobileNavOpen ? false : sidebarCollapsed}
+        onToggle={() => {
+          if (mobileNavOpen) {
+            setMobileNavOpen(false);
+          } else {
+            toggleSidebar();
+          }
+        }}
       />
 
       <main className="admin-report-main">
         <header className="admin-report-topbar">
-          <div>
-            <span className="admin-report-section-label">ADMIN PORTAL</span>
+          <div className="admin-report-topbar-title">
+            <div className="report-topbar-title-row">
+              <button
+                type="button"
+                className="report-mobile-menu-btn"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open navigation menu"
+              >
+                <Menu size={21} aria-hidden="true" />
+              </button>
+              <span className="admin-report-section-label">
+                <i className="topbar-label-pin" aria-hidden="true" />
+                ADMIN PORTAL
+              </span>
+            </div>
             <h1>Sales &amp; Inventory Reports</h1>
           </div>
           <div className="admin-report-topbar-actions">
-            <div className="admin-report-date">
+            <div className="admin-report-date report-pinned-date">
+              <span className="report-date-pin" aria-hidden="true" />
               <span>REPORT DATE</span>
               <strong>{liveDate}</strong>
               <small>Generated {generatedStamp}</small>
@@ -678,530 +985,1233 @@ function AdminReport() {
         </header>
 
         <div className="admin-report-content">
-          <div className="admin-report-hero-grid">
-            <section className="admin-report-panel trend-panel" aria-label="Revenue trend">
-              <div className="panel-heading trend-heading">
-                <div>
-                  <h3>{rangeKey === "1d" ? "Today's Session (Hourly) performance" : rangeKey === "all" ? "All Sessions & Historical Sales performance" : rangeKey === "custom" ? "Custom range performance" : `Last ${range.label} performance`}</h3>
-                  <span className="trend-hero-total">{peso(periodSales)}</span>
-                </div>
-                <div className="trend-heading-actions">
-                  <div className="admin-report-range" role="tablist" aria-label="Reporting period" style={{ marginBottom: 0 }}>
-                    {rangeOptions.map((option) => (
-                      <button
-                        key={option.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={option.key === rangeKey}
-                        className={option.key === rangeKey ? "active" : ""}
-                        onClick={() => setRangeKey(option.key)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="admin-report-export"
-                    onClick={handleExport}
-                    disabled={!periodOrders.length}
-                  >
-                    ⎙ <span>{exportNotice ? "Exported" : "Export CSV"}</span>
-                  </button>
-                </div>
-              </div>
-
-              {rangeKey === "custom" && (
-                <div className="admin-report-custom-row">
-                  <div className="custom-input-group">
-                    <label htmlFor="custom-report-start">From</label>
-                    <input
-                      id="custom-report-start"
-                      type="datetime-local"
-                      value={customStart}
-                      onChange={(e) => setCustomStart(e.target.value)}
-                      className="admin-report-datetime-input"
-                    />
-                  </div>
-                  <div className="custom-input-group">
-                    <label htmlFor="custom-report-end">To</label>
-                    <input
-                      id="custom-report-end"
-                      type="datetime-local"
-                      value={customEnd}
-                      onChange={(e) => setCustomEnd(e.target.value)}
-                      className="admin-report-datetime-input"
-                    />
-                  </div>
-                  <span className="custom-range-hint">
-                    {(new Date(customEnd) - new Date(customStart)) <= 48 * 3600000 ? "Hourly breakdown" : "Daily breakdown"}
-                  </span>
-                </div>
-              )}
-
-            {periodOrders.length ? (
-              <div className="report-trend">
-                <svg
-                  className="report-trend-chart"
-                  viewBox={`0 0 ${trend.width} ${trend.height}`}
-                  role="img"
-                  aria-label={`Revenue trend across ${trend.points.length} periods, totalling ${peso(periodSales)} and peaking at ${peso(trend.best?.amount || 0)}`}
-                >
-                  {trend.gridLines.map((line) => (
-                    <line
-                      key={line.y}
-                      x1={trend.padLeft}
-                      y1={line.y}
-                      x2={trend.width - trend.padRight}
-                      y2={line.y}
-                      className={line.isBaseline ? "report-trend-grid baseline" : "report-trend-grid"}
-                    />
-                  ))}
-
-                  {trend.gridLines.map((line) => (
-                    <text
-                      key={`label-${line.y}`}
-                      x={trend.padLeft - 10}
-                      y={line.y}
-                      className="report-trend-axis-label"
-                      textAnchor="end"
-                      dominantBaseline="middle"
-                    >
-                      {compactPeso(line.value)}
-                    </text>
-                  ))}
-
-                  {trend.points.map((point, index) => (
-                    <rect
-                      key={point.start.toISOString()}
-                      x={point.barX}
-                      y={point.barHeight > 0 ? point.y : trend.baseline - 2}
-                      width={point.barWidth}
-                      height={Math.max(point.barHeight, 2)}
-                      rx="4"
-                      className={`report-trend-bar${index === trend.points.length - 1 ? " latest" : ""}${point.amount === 0 ? " zero" : ""}`}
-                    >
-                      <title>{`${point.label} · ${peso(point.amount)} · ${point.orders} order${point.orders === 1 ? "" : "s"}`}</title>
-                    </rect>
-                  ))}
-
-                  {trend.labelledPoints.map((point) => point.showLabel ? (
-                    <text
-                      key={`x-${point.start.toISOString()}`}
-                      x={point.x}
-                      y={trend.height - 8}
-                      className="report-trend-axis-label"
-                      textAnchor="middle"
-                    >
-                      {point.label}
-                    </text>
-                  ) : null)}
-                </svg>
-              </div>
-            ) : (
-              <div className="admin-report-empty">
-                <span>▥</span>
-                <strong>No sales recorded for this period</strong>
-                <p>Orders placed during {range.label.toLowerCase()} will appear here automatically.</p>
-              </div>
-            )}
-          </section>
-
-          <div className="admin-report-panel sales-summary">
-            <div className="panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">SALES SUMMARY</span>
-                <h3>{rangeKey === "1d" ? "Today's Active Session" : rangeKey === "all" ? "All Sessions (All-Time)" : rangeKey === "custom" ? "Custom Range" : `Last ${range.label}`}</h3>
-              </div>
-              <span className="report-panel-icon">₱</span>
-            </div>
-            <div className="sales-metrics">
-              <div>
-                <span>Net sales</span>
-                <strong>{peso(periodSales)}</strong>
-              </div>
-              <div>
-                <span>Estimated COGS</span>
-                <strong>{peso(periodCogs)}</strong>
-              </div>
-              <div>
-                <span>Gross profit</span>
-                <strong>{peso(periodGrossProfit)} <small style={{ fontSize: "0.75em", fontWeight: 600, color: "#5d9b69" }}>({periodMarginPercent.toFixed(1)}% margin)</small></strong>
-              </div>
-              <div>
-                <span>Average order value</span>
-                <strong>{peso(averageOrder)}</strong>
-              </div>
-              <div>
-                <span>Items sold</span>
-                <strong>{itemsSold}</strong>
-              </div>
-              <div>
-                <span>Settled orders</span>
-                <strong>{paidOrders.length}</strong>
-              </div>
-              <div>
-                <span>Outstanding balance</span>
-                <strong className={unpaidExposure > 0 ? "due" : ""}>{peso(unpaidExposure)}</strong>
-              </div>
-            </div>
-          </div>
-
-          <section className="admin-report-stats" aria-label="Summary metrics">
-            <div>
-              <span className="report-stat-mark green">✓</span>
-              <div>
-                <small>Items sold</small>
-                <strong>{itemsSold}</strong>
-                <span className="report-stat-note flat">
-                  {paidOrders.length} of {periodOrders.length} settled
+          {selectedFilterStaff && (
+            <div className="report-cross-filter-banner" role="region" aria-label="Staff cross-filter">
+              <div className="report-cross-filter-copy">
+                <Filter size={15} aria-hidden="true" />
+                <span>
+                  Filtered to <strong>{selectedFilterStaff.displayName}</strong>
+                  {" "}
+                  ({selectedFilterStaff.role === "admin" ? "Admin" : "Cashier"})
                 </span>
               </div>
-            </div>
-            <div>
-              <span className="report-stat-mark plum">₱</span>
-              <div>
-                <small>Net sales</small>
-                <strong>{peso(periodSales)}</strong>
-                <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text} vs prior period</span>
+              <div className="report-cross-filter-actions">
+                <button
+                  type="button"
+                  className="report-cross-filter-btn secondary"
+                  onClick={(e) => handleOpenStaffModal(selectedFilterStaff, e)}
+                >
+                  Inspect Activity Logbook
+                </button>
+                <button
+                  type="button"
+                  className="report-cross-filter-btn"
+                  onClick={() => {
+                    setStaffFilterId(null);
+                    setOrdersPage(1);
+                    setMovPage(1);
+                  }}
+                >
+                  <X size={14} aria-hidden="true" />
+                  Clear Filter
+                </button>
               </div>
             </div>
-            <div>
-              <span className="report-stat-mark amber">◷</span>
-              <div>
-                <small>Average order</small>
-                <strong>{peso(averageOrder)}</strong>
-                <span className={`report-stat-note ${averageTrend.tone}`}>{averageTrend.text} vs prior period</span>
-              </div>
-            </div>
-            <div>
-              <span className="report-stat-mark blue">▤</span>
-              <div>
-                <small>Orders placed</small>
-                <strong>{periodOrders.length}</strong>
-                <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text} vs prior period</span>
-              </div>
-            </div>
-          </section>
-        </div>
+          )}
 
-          <section className="admin-report-sales-layout" aria-label="Sales breakdown">
-            <div className="admin-report-panel channel-panel">
-              <div className="panel-heading">
-                <div>
-                  <span className="admin-report-eyebrow">CHANNEL MIX</span>
-                  <h3>Where orders come from</h3>
-                </div>
-                <span className="inventory-count">{channelMix.length} channels</span>
+          {coreState.error && (
+            <div className="report-inline-alert" role="alert">
+              <AlertTriangle size={16} aria-hidden="true" />
+              <span>{coreState.error}</span>
+            </div>
+          )}
+
+          <div className="admin-report-hero-grid">
+            <section className="admin-report-panel trend-panel report-notebook-sheet" aria-label="Revenue trend">
+              <div className="report-notebook-spine" aria-hidden="true">
+                {Array.from({ length: 8 }).map((_, idx) => (
+                  <span key={idx} className="report-spine-ring">
+                    <i className="report-spine-hole" />
+                    <b className="report-spine-wire" />
+                  </span>
+                ))}
               </div>
 
-              <div className="report-breakdown">
-                {channelMix.length ? channelMix.map((channel) => (
-                  <div className="report-breakdown-row" key={channel.type}>
-                    <div className="report-breakdown-head">
-                      <strong>{channel.type}</strong>
-                      <span>{channel.orders} order{channel.orders === 1 ? "" : "s"} · {peso(channel.revenue)}</span>
-                    </div>
-                    <div className="report-breakdown-track">
-                      <div className="report-breakdown-bar" style={{ width: `${Math.max(6, channelShare(channel.revenue))}%` }}></div>
-                    </div>
-                    <small>{Math.round(revenueShare(channel.revenue))}% of sales</small>
+              <div className="report-notebook-bookmark" aria-hidden="true">
+                <span className="report-bookmark-eyelet" />
+                <span className="report-bookmark-text">{rangeOption.bookmark}</span>
+              </div>
+
+              <div className="report-notebook-page">
+                <div className="panel-heading trend-heading">
+                  <div>
+                    <span className="admin-report-eyebrow">REVENUE LEDGER</span>
+                    <h2>
+                      {rangeKey === "today"
+                        ? "Today's Session (Hourly) performance"
+                        : rangeKey === "all"
+                          ? "All Sessions & Historical Sales performance"
+                          : rangeKey === "custom"
+                            ? "Custom range performance"
+                            : `Last ${rangeOption.label} performance`}
+                    </h2>
+                    <span className="trend-hero-total">{peso(summary.grossCollectedSales)}</span>
                   </div>
-                )) : (
-                  <div className="admin-report-empty compact">
-                    <strong>No channel data yet</strong>
+                  <div className="trend-heading-actions">
+                    <div className="admin-report-range" role="tablist" aria-label="Reporting period">
+                      {RANGE_OPTIONS.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={option.key === rangeKey}
+                          className={option.key === rangeKey ? "active" : ""}
+                          onClick={() => handleRangeChange(option.key)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="report-export-group">
+                      <select
+                        value={exportType}
+                        onChange={(e) => setExportType(e.target.value)}
+                        aria-label="CSV export report type"
+                        className="report-export-select"
+                      >
+                        <option value="orders">Orders CSV</option>
+                        <option value="staff">Staff CSV</option>
+                        <option value="products">Products CSV</option>
+                        <option value="inventory">Inventory CSV</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="admin-report-export"
+                        onClick={() => handleExportCsv(exportType)}
+                        disabled={exportBusy || customRangeInvalid}
+                      >
+                        <Download size={14} aria-hidden="true" />
+                        <span>{exportBusy ? "Exporting..." : exportNotice || "Export CSV"}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {exportError && (
+                  <div className="report-inline-alert compact" role="alert">
+                    <AlertTriangle size={14} aria-hidden="true" />
+                    <span>{exportError}</span>
+                  </div>
+                )}
+
+                {rangeKey === "custom" && (
+                  <div className="admin-report-custom-row">
+                    <div className="custom-input-group">
+                      <label htmlFor="custom-report-start">From</label>
+                      <input
+                        id="custom-report-start"
+                        type="date"
+                        value={customStart}
+                        onChange={(e) => {
+                          setCustomStart(e.target.value);
+                          setOrdersPage(1);
+                          setMovPage(1);
+                        }}
+                        className="admin-report-datetime-input"
+                      />
+                    </div>
+                    <div className="custom-input-group">
+                      <label htmlFor="custom-report-end">To</label>
+                      <input
+                        id="custom-report-end"
+                        type="date"
+                        value={customEnd}
+                        onChange={(e) => {
+                          setCustomEnd(e.target.value);
+                          setOrdersPage(1);
+                          setMovPage(1);
+                        }}
+                        className="admin-report-datetime-input"
+                      />
+                    </div>
+                    <span className="custom-range-hint">
+                      {customRangeInvalid
+                        ? "Start date must be on or before end date"
+                        : customStart === customEnd
+                          ? "Single-day hourly breakdown (Manila)"
+                          : "Daily Manila breakdown"}
+                    </span>
+                  </div>
+                )}
+
+                {customRangeInvalid ? (
+                  <div className="admin-report-empty" role="alert">
+                    <span>!</span>
+                    <strong>Invalid custom date range</strong>
+                    <p>Ensure the &ldquo;From&rdquo; date is on or before the &ldquo;To&rdquo; date.</p>
+                  </div>
+                ) : isCoreLoading ? (
+                  <div className="admin-report-empty">
+                    <span>▥</span>
+                    <strong>Loading period ledger...</strong>
+                    <p>Fetching server-computed financials across settled orders.</p>
+                  </div>
+                ) : summary.paidOrdersCount > 0 ? (
+                  <div className="report-trend" key={`${rangeKey}-${staffFilterId ?? "all"}`}>
+                    <svg
+                      className="report-trend-chart"
+                      viewBox={`0 0 ${trend.width} ${trend.height}`}
+                      role="img"
+                      aria-label={`Revenue trend across ${trend.points.length} periods, totalling ${peso(summary.grossCollectedSales)} and peaking at ${peso(trend.best?.sales || 0)}`}
+                    >
+                      {trend.gridLines.map((line) => (
+                        <line
+                          key={line.y}
+                          x1={trend.padLeft}
+                          y1={line.y}
+                          x2={trend.width - trend.padRight}
+                          y2={line.y}
+                          className={line.isBaseline ? "report-trend-grid baseline" : "report-trend-grid"}
+                        />
+                      ))}
+
+                      {trend.gridLines.map((line) => (
+                        <text
+                          key={`label-${line.y}`}
+                          x={trend.padLeft - 10}
+                          y={line.y}
+                          className="report-trend-axis-label"
+                          textAnchor="end"
+                          dominantBaseline="middle"
+                        >
+                          {compactPeso(line.value)}
+                        </text>
+                      ))}
+
+                      {trend.points.map((point, index) => (
+                        <rect
+                          key={point.key}
+                          x={point.barX}
+                          y={point.barHeight > 0 ? point.y : trend.baseline - 2}
+                          width={point.barWidth}
+                          height={Math.max(point.barHeight, 2)}
+                          rx="4"
+                          style={{ "--bar-index": Math.min(index, 24) }}
+                          className={`report-trend-bar${index === trend.points.length - 1 ? " latest" : ""}${point.sales === 0 ? " zero" : ""}`}
+                        >
+                          <title>{`${point.label} · ${peso(point.sales)} · ${point.orders} order${point.orders === 1 ? "" : "s"}`}</title>
+                        </rect>
+                      ))}
+
+                      {trend.labelledPoints.map((point) => (point.showLabel ? (
+                        <text
+                          key={`x-${point.key}`}
+                          x={point.x}
+                          y={trend.height - 8}
+                          className="report-trend-axis-label"
+                          textAnchor="middle"
+                        >
+                          {point.label}
+                        </text>
+                      ) : null))}
+                    </svg>
+                  </div>
+                ) : (
+                  <div className="admin-report-empty">
+                    <span>▥</span>
+                    <strong>No collected sales recorded for this period</strong>
+                    <p>Settled orders placed during {rangeOption.label.toLowerCase()} will appear here automatically.</p>
                   </div>
                 )}
               </div>
+            </section>
 
-              <div className="report-status-row">
-                {statusMix.map((entry) => (
-                  <div key={entry.status} className={`report-status-pill ${entry.status.toLowerCase()}`}>
-                    <strong>{entry.orders}</strong>
-                    <span>{entry.status}</span>
+            <div className="admin-report-panel sales-summary report-pinned-paper">
+              <div className="report-paper-pin crimson" aria-hidden="true">
+                <span className="pin-shadow" />
+                <span className="pin-needle" />
+                <span className="pin-collar" />
+                <span className="pin-head">
+                  <span className="pin-glint" />
+                </span>
+              </div>
+
+              <div className="report-paper-bookmark" aria-hidden="true">
+                <span className="paper-bookmark-hole" />
+                <span className="paper-bookmark-label">LEDGER</span>
+              </div>
+
+              <div className="report-paper-inner">
+                <div className="panel-heading">
+                  <div>
+                    <span className="admin-report-eyebrow">SALES SUMMARY</span>
+                    <h2>
+                      {rangeKey === "today"
+                        ? "Today's Active Session"
+                        : rangeKey === "all"
+                          ? "All Sessions (All-Time)"
+                          : rangeKey === "custom"
+                            ? "Custom Range"
+                            : `Last ${rangeOption.label}`}
+                    </h2>
                   </div>
-                ))}
+                  <span className="report-panel-icon">₱</span>
+                </div>
+
+                {summary.uncostedItemsCount > 0 && (
+                  <div className="report-uncosted-warning" role="status">
+                    <AlertTriangle size={13} aria-hidden="true" />
+                    <span>
+                      {summary.uncostedItemsCount} unit{summary.uncostedItemsCount === 1 ? "" : "s"} missing unit cost · COGS is partial
+                    </span>
+                  </div>
+                )}
+
+                <div className="sales-metrics">
+                  <div>
+                    <span>Gross collected sales</span>
+                    <strong>{peso(summary.grossCollectedSales)}</strong>
+                  </div>
+                  <div>
+                    <span>Estimated COGS</span>
+                    <strong>{peso(summary.cogs)}</strong>
+                  </div>
+                  <div>
+                    <span>Gross profit</span>
+                    <strong>
+                      {peso(summary.grossProfit)}
+                      {" "}
+                      <small className="sales-margin-tag">({Number(summary.marginPercent || 0).toFixed(1)}%)</small>
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Average order value</span>
+                    <strong>{peso(summary.averageOrderValue)}</strong>
+                  </div>
+                  <div>
+                    <span>Cash / GCash / Card</span>
+                    <strong>
+                      {compactPeso(summary.cashCollected)} · {compactPeso(summary.gcashCollected)} · {compactPeso(summary.cardCollected)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Voided / Cancelled</span>
+                    <strong className={summary.voidedOrdersCount > 0 ? "due" : ""}>
+                      {summary.voidedOrdersCount} ({peso(summary.voidedSalesTotal)})
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Restock spend ({summary.inventoryRestockCount})</span>
+                    <strong>{peso(summary.inventoryExpenditure)}</strong>
+                  </div>
+                </div>
               </div>
             </div>
-          </section>
 
-          <section className="admin-report-panel products-panel" aria-label="Top selling products">
-            <div className="panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">PRODUCT PERFORMANCE</span>
-                <h3>Top selling items</h3>
+            <section className="admin-report-stats" aria-label="Summary metrics">
+              <div className="report-kpi-slip tone-green">
+                <span className="kpi-slip-pin green" aria-hidden="true" />
+                <span className="report-stat-mark green">✓</span>
+                <div>
+                  <small>Units sold</small>
+                  <strong>{Number(summary.unitsSold || 0).toLocaleString()}</strong>
+                  <span className="report-stat-note flat">
+                    {summary.paidOrdersCount} paid · {summary.unpaidOrdersCount} unpaid
+                  </span>
+                </div>
               </div>
-              <span className="inventory-count">{topProducts.length} of {new Set(periodOrders.flatMap((order) => orderItemList(order).map((item) => item.title))).size} items</span>
-            </div>
+              <div className="report-kpi-slip tone-plum">
+                <span className="kpi-slip-pin plum" aria-hidden="true" />
+                <span className="report-stat-mark plum">₱</span>
+                <div>
+                  <small>Gross collected sales</small>
+                  <strong>{peso(summary.grossCollectedSales)}</strong>
+                  <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text}</span>
+                </div>
+              </div>
+              <div className="report-kpi-slip tone-amber">
+                <span className="kpi-slip-pin amber" aria-hidden="true" />
+                <span className="report-stat-mark amber">◷</span>
+                <div>
+                  <small>Average ticket</small>
+                  <strong>{peso(summary.averageOrderValue)}</strong>
+                  <span className={`report-stat-note ${avgTrend.tone}`}>{avgTrend.text}</span>
+                </div>
+              </div>
+              <div className="report-kpi-slip tone-blue">
+                <span className="kpi-slip-pin blue" aria-hidden="true" />
+                <span className="report-stat-mark blue">▤</span>
+                <div>
+                  <small>Settled orders</small>
+                  <strong>{Number(summary.paidOrdersCount || 0).toLocaleString()}</strong>
+                  <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text}</span>
+                </div>
+              </div>
+            </section>
+          </div>
 
-            {topProducts.length ? (
-              <div className="inventory-table-wrap">
-                <table className="inventory-table report-products-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">#</th>
-                      <th scope="col">Product</th>
-                      <th scope="col">Category</th>
-                      <th scope="col">Units sold</th>
-                      <th scope="col">Revenue</th>
-                      <th scope="col">COGS</th>
-                      <th scope="col">Gross profit</th>
-                      <th scope="col">Share</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topProducts.map((product, index) => (
-                      <tr key={product.title}>
-                        <td><span className="report-rank">{index + 1}</span></td>
-                        <td>{product.title}</td>
-                        <td>{product.category}</td>
-                        <td>{product.quantity}</td>
-                        <td>{peso(product.revenue)}</td>
-                        <td>{peso(product.cogs)}</td>
-                        <td>{peso(product.profit)}</td>
-                        <td>
-                          <span className="report-share">
-                            <span className="report-share-track">
-                              <span className="report-share-bar" style={{ width: `${Math.max(4, revenueShare(product.revenue))}%` }}></span>
-                            </span>
-                            {Math.round(revenueShare(product.revenue))}%
+          <div className="admin-report-middle-grid">
+            <section className="admin-report-sales-layout" aria-label="Sales breakdown">
+              <div className="admin-report-panel channel-panel report-folio-sheet">
+                <div className="report-paper-pin amber compact" aria-hidden="true">
+                  <span className="pin-shadow" />
+                  <span className="pin-needle" />
+                  <span className="pin-collar" />
+                  <span className="pin-head">
+                    <span className="pin-glint" />
+                  </span>
+                </div>
+                <div className="panel-heading">
+                  <div>
+                    <span className="admin-report-eyebrow">CHANNEL MIX</span>
+                    <h2>Where orders come from</h2>
+                  </div>
+                  <span className="inventory-count">{channels.length} channels</span>
+                </div>
+
+                <div className="report-breakdown" key={`mix-${rangeKey}-${staffFilterId ?? "all"}`}>
+                  {channels.length ? channels.map((channel, idx) => {
+                    const relPct = topChannelSales > 0 ? Math.max(6, Math.min(100, (channel.sales / topChannelSales) * 100)) : 0;
+                    const clipRight = Math.max(0, 100 - relPct);
+                    return (
+                      <div className="report-breakdown-row" key={channel.type} style={{ "--bar-index": idx }}>
+                        <div className="report-breakdown-head">
+                          <strong>{channel.type}</strong>
+                          <span>
+                            {channel.ordersCount} order{channel.ordersCount === 1 ? "" : "s"} · {peso(channel.sales)}
                           </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="admin-report-empty">
-                <span>◔</span>
-                <strong>No product sales in this period</strong>
-                <p>Once orders are placed, your best sellers will be ranked here.</p>
-              </div>
-            )}
-          </section>
+                        </div>
+                        <div className="report-breakdown-track">
+                          <div
+                            className="report-breakdown-bar"
+                            style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
+                          />
+                        </div>
+                        <small>{Math.round(channel.sharePercent || 0)}% of sales</small>
+                      </div>
+                    );
+                  }) : (
+                    <div className="admin-report-empty compact">
+                      <strong>No channel data yet</strong>
+                    </div>
+                  )}
+                </div>
 
-          <section className="admin-report-panel cashier-panel" aria-label="Cashier attribution report">
-            <div className="panel-heading cashier-panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">STAFF ATTRIBUTION</span>
-                <h3>Cashiers in charge</h3>
-                <p className="cashier-panel-description">Paid sales attributed to each cashier in the selected period.</p>
-              </div>
-              <span className="cashier-active-note"><span aria-hidden="true" />{cashierSales.length} {cashierSales.length === 1 ? "cashier" : "cashiers"} with sales</span>
-            </div>
-
-            {cashierSales.length ? (
-              <>
-                <div className="cashier-summary" aria-label="Cashier sales summary">
-                  <div className="cashier-summary-card">
-                    <span>Orders processed</span>
-                    <strong>{cashierSummary.orders.toLocaleString()}</strong>
+                <div className="report-status-row">
+                  <div className="report-status-pill completed">
+                    <strong>{summary.paidOrdersCount}</strong>
+                    <span>Paid</span>
                   </div>
-                  <div className="cashier-summary-card revenue">
-                    <span>Attributed revenue</span>
-                    <strong>{peso(cashierSummary.revenue)}</strong>
+                  <div className="report-status-pill pending">
+                    <strong>{summary.unpaidOrdersCount}</strong>
+                    <span>Unpaid</span>
                   </div>
-                  <div className="cashier-summary-card">
-                    <span>Average ticket</span>
-                    <strong>{peso(cashierSummary.averageTicket)}</strong>
+                  <div className="report-status-pill voided">
+                    <strong>{summary.voidedOrdersCount}</strong>
+                    <span>Cancelled</span>
                   </div>
                 </div>
-                <div className="cashier-table-heading">
-                  <strong>Cashier performance</strong>
-                  <span>Ranked by attributed sales</span>
+              </div>
+            </section>
+
+            <section className="admin-report-panel products-panel report-folio-sheet" aria-label="Ranked product performance">
+              <div className="report-folio-bookmark amber" aria-hidden="true">
+                <span className="folio-bookmark-hole" />
+                <span className="folio-bookmark-label">TOP</span>
+              </div>
+              <div className="panel-heading folio-heading-padded">
+                <div>
+                  <span className="admin-report-eyebrow">PRODUCT PERFORMANCE</span>
+                  <h2>Ranked items &amp; margins</h2>
                 </div>
-                <div className="inventory-table-wrap cashier-table-wrap">
-                  <table className="inventory-table cashier-table">
+                <div className="report-panel-head-actions">
+                  <span className="inventory-count">{rankedProducts.length} items</span>
+                  {rankedProducts.length > 8 && (
+                    <button
+                      type="button"
+                      className="report-toggle-all-btn"
+                      onClick={() => setProductsShowAll((v) => !v)}
+                    >
+                      {productsShowAll ? "Show Top 8" : `Show all ${rankedProducts.length}`}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {displayedProducts.length ? (
+                <div className="inventory-table-wrap">
+                  <table className="inventory-table report-products-table">
                     <thead>
                       <tr>
-                        <th scope="col">Rank</th>
-                        <th scope="col">Cashier</th>
-                        <th scope="col">Orders</th>
-                        <th scope="col">Sales revenue</th>
-                        <th scope="col">Average ticket</th>
-                        <th scope="col">Sales share</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Product</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Units</th>
+                        <th scope="col">Base / Add-ons</th>
+                        <th scope="col">Revenue</th>
+                        <th scope="col">COGS</th>
+                        <th scope="col">Gross profit</th>
+                        <th scope="col">Share</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {cashierSales.map((cashier, index) => (
-                        <tr key={cashier.name}>
-                          <td><span className="cashier-rank">{String(index + 1).padStart(2, "0")}</span></td>
-                          <td><div className="cashier-person"><span aria-hidden="true">{initials(cashier.name)}</span><strong>{cashier.name}</strong></div></td>
-                          <td>{cashier.orders}</td>
-                          <td><strong>{peso(cashier.revenue)}</strong></td>
-                          <td>{peso(cashier.orders ? cashier.revenue / cashier.orders : 0)}</td>
-                          <td>
-                            <div className="cashier-share">
-                              <div
-                                className="cashier-share-track"
-                                role="progressbar"
-                                aria-label={`${cashier.name} sales share`}
-                                aria-valuemin={0}
-                                aria-valuemax={100}
-                                aria-valuenow={Math.round(revenueShare(cashier.revenue))}
-                              >
-                                <span style={{ width: `${revenueShare(cashier.revenue)}%` }} />
+                      {displayedProducts.map((product, index) => {
+                        const sharePct = summary.grossCollectedSales > 0
+                          ? (product.sales / summary.grossCollectedSales) * 100
+                          : 0;
+                        const clipRight = Math.max(0, 100 - Math.max(4, Math.min(100, sharePct)));
+                        return (
+                          <tr key={`${product.productId || product.productName}-${product.sizeLabel}`}>
+                            <td><span className="report-rank">{index + 1}</span></td>
+                            <td>
+                              <div className="report-product-title-cell">
+                                <span>{product.productName}</span>
+                                <small>{product.sizeLabel || "Regular"}</small>
                               </div>
-                              <strong>{Math.round(revenueShare(cashier.revenue))}%</strong>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td>{product.category}</td>
+                            <td>{product.unitsSold}</td>
+                            <td>
+                              {peso(product.baseSales)}
+                              {product.addonSales > 0 && (
+                                <small className="report-sub-addon"> +{peso(product.addonSales)}</small>
+                              )}
+                            </td>
+                            <td>{peso(product.sales)}</td>
+                            <td>
+                              {peso(product.cogs)}
+                              {product.uncostedItemsCount > 0 && (
+                                <span
+                                  className="report-uncosted-mini"
+                                  title={`${product.uncostedItemsCount} sold unit(s) missing cost data`}
+                                >
+                                  Partial
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {peso(product.grossProfit)}
+                              <small className="report-margin-mini"> ({Number(product.marginPercent || 0).toFixed(1)}%)</small>
+                            </td>
+                            <td>
+                              <span className="report-share">
+                                <span className="report-share-track">
+                                  <span
+                                    className="report-share-bar"
+                                    style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
+                                  />
+                                </span>
+                                {Math.round(sharePct)}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+              ) : (
+                <div className="admin-report-empty">
+                  <span>◔</span>
+                  <strong>No product sales in this period</strong>
+                  <p>Once paid orders are placed, your best sellers and COGS margins will appear here.</p>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <section className="admin-report-panel cashier-panel report-folio-sheet" aria-label="Cashier attribution report">
+            <div className="cashier-logbook-spine" aria-hidden="true">
+              <span className="logbook-spine-rivet" />
+              <span className="logbook-spine-stamp">LOG · STAFF</span>
+              <span className="logbook-spine-rivet" />
+            </div>
+
+            <div className="report-folio-bookmark sage" aria-hidden="true">
+              <span className="folio-bookmark-hole" />
+              <span className="folio-bookmark-label">STAFF</span>
+            </div>
+
+            <div className="cashier-logbook-page">
+              <div className="panel-heading cashier-panel-heading folio-heading-padded">
+                <div>
+                  <span className="admin-report-eyebrow">STAFF ATTRIBUTION · SHIFT LOGBOOK</span>
+                  <h2>Cashiers &amp; Staff Activity</h2>
+                  <p className="cashier-panel-description">
+                    Click any team member to inspect shift logs, attributed revenue &amp; COGS, orders, sessions, and inventory movements.
+                  </p>
+                </div>
+                <span className="cashier-active-note">
+                  {staffRosterTotals.activeWithSales} {staffRosterTotals.activeWithSales === 1 ? "member" : "members"} with sales
+                </span>
+              </div>
+
+              <div className="cashier-summary" aria-label="Cashier sales summary">
+                <div className="cashier-summary-card">
+                  <span>Orders processed</span>
+                  <strong>{staffRosterTotals.ordersCount.toLocaleString()}</strong>
+                </div>
+                <div className="cashier-summary-card revenue">
+                  <span>Attributed revenue</span>
+                  <strong>{peso(staffRosterTotals.grossSales)}</strong>
+                </div>
+                <div className="cashier-summary-card">
+                  <span>Average ticket</span>
+                  <strong>{peso(staffRosterTotals.averageTicket)}</strong>
+                </div>
+              </div>
+
+              <div className="cashier-roster-toolbar">
+                <div className="cashier-filter-group" role="group" aria-label="Filter staff roster">
+                  {ROSTER_FILTERS.map((rf) => (
+                    <button
+                      key={rf.key}
+                      type="button"
+                      className={`cashier-filter-pill ${rosterFilter === rf.key ? "is-active" : ""}`}
+                      aria-pressed={rosterFilter === rf.key}
+                      onClick={() => setRosterFilter(rf.key)}
+                    >
+                      {rf.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="cashier-sort-control">
+                  <span>Sort by</span>
+                  <select
+                    value={rosterSort}
+                    onChange={(e) => setRosterSort(e.target.value)}
+                    aria-label="Sort staff roster"
+                  >
+                    {ROSTER_SORTS.map((rs) => (
+                      <option key={rs.key} value={rs.key}>{rs.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {visibleStaffRoster.length ? (
+                <div className="inventory-table-wrap cashier-table-wrap">
+                  <div className="cashier-bar-list" key={`cashier-bars-${rangeKey}-${rosterFilter}-${rosterSort}`}>
+                    <div className="cashier-bar-ruler" aria-hidden="true">
+                      <div className="cashier-bar-ruler-label">SHIFT LEDGER · REVENUE SHARE</div>
+                      <div className="cashier-bar-ruler-scale">
+                        <div>0%</div>
+                        <div>25%</div>
+                        <div>50%</div>
+                        <div>75%</div>
+                        <div>100%</div>
+                      </div>
+                    </div>
+
+                    {visibleStaffRoster.map((cashier, index) => {
+                      const sharePct = Math.round(Number(cashier.sharePercent || 0));
+                      const barWidth = cashier.grossSales > 0 ? Math.max(4, Math.min(100, Number(cashier.sharePercent || 0))) : 0;
+                      const clipRight = Math.max(0, 100 - barWidth);
+                      const rankNum = String(index + 1).padStart(2, "0");
+                      const isZero = !(cashier.grossSales > 0);
+                      const tone = !cashier.isActive
+                        ? "inactive"
+                        : isZero
+                          ? "zero-sales"
+                          : index === 0
+                            ? "lead"
+                            : index === 1
+                              ? "second"
+                              : "standard";
+                      const isFilteredHere = Number(staffFilterId) === Number(cashier.userId);
+
+                      return (
+                        <button
+                          type="button"
+                          className={`cashier-bar-row ${tone}${isFilteredHere ? " is-filtered" : ""}`}
+                          key={cashier.userId}
+                          style={{ "--bar-index": Math.min(index, 5) }}
+                          onClick={(e) => handleOpenStaffModal(cashier, e)}
+                          aria-label={`Inspect ${cashier.displayName} activity logs (${peso(cashier.grossSales)}, ${cashier.ordersCount} orders)`}
+                        >
+                          <span className="cashier-bar-top">
+                            <span className="cashier-bar-identity">
+                              <span className="cashier-crest">
+                                <span className="cashier-rank">{rankNum}</span>
+                                <span className="cashier-avatar" aria-hidden="true">{initials(cashier.displayName)}</span>
+                              </span>
+                              <span className="cashier-name-group">
+                                <span className="cashier-name-line">
+                                  <span className="cashier-name">{cashier.displayName}</span>
+                                  {tone === "lead" && <span className="cashier-lead-seal">Top Cashier</span>}
+                                  {!cashier.isActive && <span className="cashier-status-pill inactive">Inactive</span>}
+                                  {cashier.role === "admin" && <span className="cashier-status-pill role">Admin</span>}
+                                  {isFilteredHere && <span className="cashier-status-pill filtered">Filtered</span>}
+                                </span>
+                                <span className="cashier-meta-inline">
+                                  <span>{cashier.ordersCount} {cashier.ordersCount === 1 ? "order" : "orders"}</span>
+                                  <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                  <span>Avg ticket {peso(cashier.averageTicket)}</span>
+                                  <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                  <span>Profit {peso(cashier.attributedGrossProfit)} ({Number(cashier.marginPercent || 0).toFixed(1)}%)</span>
+                                  {cashier.voidedOrdersCount > 0 && (
+                                    <>
+                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                      <span className="cashier-void-flag">{cashier.voidedOrdersCount} voided</span>
+                                    </>
+                                  )}
+                                </span>
+                              </span>
+                            </span>
+                            <span className="cashier-bar-figures">
+                              <span className="cashier-bar-revenue">{peso(cashier.grossSales)}</span>
+                              <span className="cashier-bar-pct-badge">{sharePct}%</span>
+                              <span className="cashier-inspect-chip">
+                                Inspect logs
+                                <ArrowRight size={12} aria-hidden="true" />
+                              </span>
+                            </span>
+                          </span>
+
+                          <span
+                            className="cashier-bar-track"
+                            aria-hidden="true"
+                          >
+                            <span className="cashier-bar-ticks" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                            </span>
+                            <span
+                              className={`cashier-bar-fill ${tone}`}
+                              style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
+                            />
+                            {barWidth > 0 && (
+                              <span
+                                className="cashier-bar-pip-carrier"
+                                aria-hidden="true"
+                                style={{ transform: `translateX(${(barWidth - 100).toFixed(2)}%)` }}
+                              >
+                                <span className="cashier-bar-pip" />
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="admin-report-empty">
+                  <span>◎</span>
+                  <strong>No matching staff accounts</strong>
+                  <p>Switch roster filters above or reset to view inactive and zero-sales cashiers.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Period Inventory Activity & Expenditure Ledger (Pillar F) */}
+          <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period inventory activity and expenditure">
+            <div className="panel-heading">
+              <div>
+                <span className="admin-report-eyebrow">INVENTORY MOVEMENTS &amp; EXPENDITURE</span>
+                <h2>Period Inventory Activity Log</h2>
+              </div>
+              <span className="inventory-count">
+                Spend: {peso(movSummary.totalRestockCost)} ({movSummary.totalRestockCount} restocks)
+              </span>
+            </div>
+
+            <div className="report-mov-kpis">
+              <div className="report-mov-kpi positive">
+                <span>Restocks</span>
+                <strong>{movSummary.totalRestockCount}</strong>
+              </div>
+              <div className="report-mov-kpi neutral">
+                <span>Order Usage</span>
+                <strong>{movSummary.totalUsageCount}</strong>
+              </div>
+              <div className="report-mov-kpi">
+                <span>Adjustments</span>
+                <strong>{movSummary.totalAdjustmentCount}</strong>
+              </div>
+              <div className="report-mov-kpi warning">
+                <span>Spoilage</span>
+                <strong>{movSummary.totalSpoilageCount}</strong>
+              </div>
+              <div className="report-mov-kpi positive">
+                <span>Void Restored</span>
+                <strong>{movSummary.totalVoidRestoreCount}</strong>
+              </div>
+            </div>
+
+            <div className="report-ledger-toolbar">
+              <div className="report-filter-pills" role="group" aria-label="Movement type filter">
+                {MOVEMENT_FILTERS.map((mf) => (
+                  <button
+                    key={mf.key || "all"}
+                    type="button"
+                    className={`report-filter-pill ${movTypeFilter === mf.key ? "is-active" : ""}`}
+                    aria-pressed={movTypeFilter === mf.key}
+                    onClick={() => {
+                      setMovTypeFilter(mf.key);
+                      setMovPage(1);
+                    }}
+                  >
+                    {mf.label}
+                  </button>
+                ))}
+              </div>
+              <label className="report-search-input-wrap">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder="Search item, supplier, ref..."
+                  value={movSearch}
+                  onChange={(e) => {
+                    setMovSearch(e.target.value);
+                    setMovPage(1);
+                  }}
+                  aria-label="Search inventory movements"
+                />
+              </label>
+            </div>
+
+            {movState.error && (
+              <div className="report-inline-alert compact" role="alert">
+                <AlertTriangle size={14} aria-hidden="true" />
+                <span>{movState.error}</span>
+              </div>
+            )}
+
+            {movItems.length ? (
+              <>
+                <div className="inventory-table-wrap">
+                  <table className="inventory-table report-movements-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Time</th>
+                        <th scope="col">Ingredient</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Change</th>
+                        <th scope="col">Stock Transition</th>
+                        <th scope="col">Spend / Ref</th>
+                        <th scope="col">Order</th>
+                        <th scope="col">Actor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movItems.map((mov) => {
+                        const tone = getMovementTone(mov.type);
+                        const linkedStaff = mov.actorId ? staffById.get(Number(mov.actorId)) : null;
+                        return (
+                          <tr key={mov.id}>
+                            <td className="report-nowrap">{formatDateTime(mov.timestamp)}</td>
+                            <td>
+                              <div className="report-product-title-cell">
+                                <span>{mov.itemName}</span>
+                                {mov.note && <small>{mov.note}</small>}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`report-mov-badge ${tone}`}>
+                                <Package size={11} aria-hidden="true" />
+                                {getMovementLabel(mov.type)}
+                              </span>
+                            </td>
+                            <td className="report-num">
+                              {mov.quantityChange >= 0 ? "+" : ""}{mov.quantityChange} {mov.unit || ""}
+                            </td>
+                            <td className="report-num">
+                              {mov.beforeQuantity != null && mov.afterQuantity != null
+                                ? `${mov.beforeQuantity} → ${mov.afterQuantity} ${mov.unit || ""}`
+                                : "—"}
+                            </td>
+                            <td>
+                              {mov.batchCost != null ? <strong>{peso(mov.batchCost)}</strong> : "—"}
+                              {(mov.supplierName || mov.referenceNo) && (
+                                <small className="report-mov-meta">
+                                  {[mov.supplierName, mov.referenceNo].filter(Boolean).join(" · ")}
+                                </small>
+                              )}
+                            </td>
+                            <td>
+                              {mov.orderNumber ? (
+                                <button
+                                  type="button"
+                                  className="report-inline-action-btn"
+                                  onClick={(e) => handleOpenOrderModal({ id: mov.orderNumber }, e)}
+                                >
+                                  #{mov.orderNumber}
+                                </button>
+                              ) : "—"}
+                            </td>
+                            <td>
+                              {linkedStaff ? (
+                                <button
+                                  type="button"
+                                  className="report-inline-action-btn"
+                                  onClick={(e) => handleOpenStaffModal(linkedStaff, e)}
+                                >
+                                  <User size={12} aria-hidden="true" />
+                                  {mov.actor}
+                                </button>
+                              ) : (
+                                mov.actor || "System"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {movTotalPages > 1 && (
+                  <div className="report-pagination">
+                    <button
+                      type="button"
+                      disabled={movPage <= 1}
+                      onClick={() => setMovPage((p) => Math.max(1, p - 1))}
+                    >
+                      Previous
+                    </button>
+                    <span>Page {movPage} of {movTotalPages} ({movTotal} movements)</span>
+                    <button
+                      type="button"
+                      disabled={movPage >= movTotalPages}
+                      onClick={() => setMovPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
-              <div className="admin-report-empty">
-                <span>◎</span>
-                <strong>No cashier sales in this period</strong>
-                <p>Transactions processed at the counter will appear here attributed to the cashier in charge.</p>
+              <div className="admin-report-empty compact">
+                <strong>No inventory movements in this period</strong>
+                <p>Restocks, order usage deductions, void restorations, and adjustments will appear here.</p>
               </div>
             )}
           </section>
 
-          <section className="admin-report-panel inventory-panel" aria-label="Inventory report">
-            <div className="panel-heading inventory-panel-heading">
+          {/* Period Order Ledger Folio (Pillar B) */}
+          <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period order ledger">
+            <div className="panel-heading">
               <div>
-                <span className="admin-report-eyebrow">INVENTORY REPORT</span>
-                <h3>Stock health</h3>
-                <p className="inventory-panel-description">A live view of tracked ingredients and supplies.</p>
+                <span className="admin-report-eyebrow">PERIOD ORDER LEDGER</span>
+                <h2>Order Audit &amp; Void Management</h2>
               </div>
-              <div className="inventory-panel-actions">
-                <button
-                  type="button"
-                  className="restock-open-button"
-                  onClick={() => { setRestockNotice(""); setRestockModalOpen(true); }}
-                  aria-haspopup="dialog"
-                  aria-label={`View restock list, ${restockItems.length} items need attention`}
-                >
-                  View restock list <span>{restockItems.length}</span>
-                </button>
-                <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
-              </div>
+              <span className="inventory-count">{ledgerOrdersTotal} orders</span>
             </div>
 
-            <div className="stock-overview" aria-label="Inventory summary">
-              <div className="stock-overview-card total">
-                <span className="stock-overview-icon" aria-hidden="true">▤</span>
-                <div><span>Tracked items</span><strong>{stockBreakdown.total}</strong></div>
-              </div>
-              <div className="stock-overview-card healthy">
-                <span className="stock-overview-icon" aria-hidden="true">✓</span>
-                <div><span>In stock</span><strong>{stockBreakdown.healthy}</strong></div>
-              </div>
-              <div className="stock-overview-card critical">
-                <span className="stock-overview-icon" aria-hidden="true">!</span>
-                <div><span>Out of stock</span><strong>{stockBreakdown.critical}</strong></div>
-              </div>
-              <div className="stock-overview-card over">
-                <span className="stock-overview-icon" aria-hidden="true">↗</span>
-                <div><span>Above maximum</span><strong>{stockBreakdown.over}</strong></div>
-              </div>
-            </div>
-
-            <div className="stock-list-toolbar">
-              <div>
-                <strong>Inventory items</strong>
-                <span>Health thresholds: red ≤20% · orange ≤40% · amber ≤70% · green above 70%.</span>
-              </div>
-              <div className="stock-toolbar-actions">
-                <label className="stock-sort-control">
-                  <span>Sort by</span>
-                  <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
-                    <option value="name">Item name</option>
-                    <option value="category">Category</option>
-                    <option value="low">Stock level: low to high</option>
-                    <option value="high">Stock level: high to low</option>
-                    <option value="status">Health status</option>
+            <div className="report-ledger-toolbar">
+              <div className="report-ledger-selects">
+                <label className="report-inline-select">
+                  <span>Status</span>
+                  <select
+                    value={ordersStatusFilter}
+                    onChange={(e) => {
+                      setOrdersStatusFilter(e.target.value);
+                      setOrdersPage(1);
+                    }}
+                    aria-label="Filter order ledger by status"
+                  >
+                    {ORDER_STATUS_FILTERS.map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
                   </select>
                 </label>
-                <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
-                  {stockFilters.map((filter) => {
-                    const count = filter === "all"
-                      ? stockReport.length
-                      : filter === "attention"
-                        ? stockBreakdown.critical + stockBreakdown.over
-                        : stockBreakdown.healthy;
 
-                    return (
-                      <button
-                        key={filter}
-                        type="button"
-                        role="tab"
-                        aria-selected={filter === stockFilter}
-                        className={filter === stockFilter ? "active" : ""}
-                        onClick={() => setStockFilter(filter)}
-                      >
-                        {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
-                        <span>{count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <label className="report-inline-select">
+                  <span>Payment</span>
+                  <select
+                    value={ordersPaymentFilter}
+                    onChange={(e) => {
+                      setOrdersPaymentFilter(e.target.value);
+                      setOrdersPage(1);
+                    }}
+                    aria-label="Filter order ledger by payment method"
+                  >
+                    {PAYMENT_METHOD_FILTERS.map((pm) => (
+                      <option key={pm} value={pm}>{pm}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
+
+              <label className="report-search-input-wrap">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder="Search order # or customer..."
+                  value={ordersSearch}
+                  onChange={(e) => {
+                    setOrdersSearch(e.target.value);
+                    setOrdersPage(1);
+                  }}
+                  aria-label="Search period order ledger"
+                />
+              </label>
             </div>
 
-            {inventoryLoading && inventory.length === 0 ? (
-              <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
-            ) : inventoryError && inventory.length === 0 ? (
-              <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
-            ) : visibleStock.length ? (
-              <div className="inventory-table-wrap stock-table-wrap">
-                <table className="inventory-table stock-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Inventory item</th>
-                      <th scope="col">Category</th>
-                      <th scope="col">Stock level</th>
-                      <th scope="col">Maximum stock</th>
-                      <th scope="col">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleStock.map((item) => (
-                      <tr key={item.id ?? item.product}>
-                        <td>{item.item}</td>
-                        <td>{item.category}</td>
-                        <td>
-                          <div className="stock-level-value">
-                            <span>{item.quantity.toLocaleString()} {item.unit}</span>
-                            {item.capacityPercent != null && (
-                              <span className={`stock-level-percent ${item.healthTone}`}>
-                                {item.reportedPercent}%
-                              </span>
-                            )}
-                          </div>
-                          <div
-                            className={`stock-level-track${item.capacityPercent == null ? " untracked" : ""}`}
-                            role={item.capacityPercent == null ? undefined : "progressbar"}
-                            aria-label={item.capacityPercent == null ? undefined : `${item.item} stock level`}
-                            aria-valuemin={item.capacityPercent == null ? undefined : 0}
-                            aria-valuemax={item.capacityPercent == null ? undefined : 100}
-                            aria-valuenow={item.reportedPercent ?? undefined}
-                            aria-valuetext={item.reportedPercent == null ? undefined : `${item.reportedPercent}% of maximum stock${item.healthTone === "critical" ? ", critically low" : item.healthTone === "low" ? ", running low" : item.healthTone === "moderate" ? ", moderate stock" : item.healthTone === "over" ? ", above maximum" : ", healthy stock"}`}
-                            title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of maximum stock`}
-                          >
-                            <span className={`stock-level-fill ${item.healthTone}`} style={{ width: `${item.capacityPercent ?? 0}%` }} />
-                          </div>
-                        </td>
-                        <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock} ${item.unit}`}</td>
-                        <td>
-                          <span className={`inventory-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="admin-report-empty">
-                <span>◔</span>
-                <strong>Nothing to show for this filter</strong>
-                <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
+            {ordersState.error && (
+              <div className="report-inline-alert compact" role="alert">
+                <AlertTriangle size={14} aria-hidden="true" />
+                <span>{ordersState.error}</span>
               </div>
             )}
+
+            {ledgerOrders.length ? (
+              <>
+                <div className="inventory-table-wrap">
+                  <table className="inventory-table report-orders-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Order #</th>
+                        <th scope="col">Date &amp; Time</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Cashier</th>
+                        <th scope="col">Payment</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Total</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerOrders.map((ord) => {
+                        const statusClass = String(ord.status || "Pending").toLowerCase();
+                        return (
+                          <tr key={ord.id}>
+                            <td className="report-nowrap"><strong>#{ord.id}</strong></td>
+                            <td className="report-nowrap">{formatDateTime(ord.createdAt)}</td>
+                            <td>{ord.customer || "Walk-in Customer"}</td>
+                            <td>{ord.cashier || "Staff"}</td>
+                            <td>
+                              {getPaymentMethodLabel(ord.paymentMethod)}
+                              {" "}
+                              <small className="report-payment-tag">({getPaymentStatusLabel(ord)})</small>
+                            </td>
+                            <td>
+                              <span className={`report-order-status-pill ${statusClass}`}>
+                                {ord.status}
+                              </span>
+                            </td>
+                            <td className="report-num"><strong>{peso(ord.total)}</strong></td>
+                            <td>
+                              <button
+                                type="button"
+                                className="report-inline-action-btn"
+                                onClick={(e) => handleOpenOrderModal(ord, e)}
+                              >
+                                <Receipt size={13} aria-hidden="true" />
+                                Inspect
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {ledgerOrdersPages > 1 && (
+                  <div className="report-pagination">
+                    <button
+                      type="button"
+                      disabled={ordersPage <= 1}
+                      onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                    >
+                      Previous
+                    </button>
+                    <span>Page {ordersPage} of {ledgerOrdersPages} ({ledgerOrdersTotal} orders)</span>
+                    <button
+                      type="button"
+                      disabled={ordersPage >= ledgerOrdersPages}
+                      onClick={() => setOrdersPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="admin-report-empty compact">
+                <strong>No matching orders in this period</strong>
+                <p>Try adjusting the search text, status, or payment method filters above.</p>
+              </div>
+            )}
+          </section>
+
+          {/* Live Inventory Stock Health */}
+          <section className="admin-report-panel inventory-panel report-notebook-sheet" aria-label="Inventory report">
+            <div className="report-notebook-spine" aria-hidden="true">
+              {Array.from({ length: 10 }).map((_, idx) => (
+                <span key={idx} className="report-spine-ring">
+                  <i className="report-spine-hole" />
+                  <b className="report-spine-wire" />
+                </span>
+              ))}
+            </div>
+
+            <div className="report-notebook-bookmark" aria-hidden="true">
+              <span className="report-bookmark-eyelet" />
+              <span className="report-bookmark-text">STOCK</span>
+            </div>
+
+            <div className="report-notebook-page">
+              <div className="panel-heading inventory-panel-heading">
+                <div>
+                  <span className="admin-report-eyebrow">INVENTORY REPORT</span>
+                  <h2>Stock health</h2>
+                  <p className="inventory-panel-description">
+                    Live ingredient snapshot · Asset valuation {peso(summary.inventoryAssetValue)}.
+                  </p>
+                </div>
+                <div className="inventory-panel-actions">
+                  <button
+                    type="button"
+                    className="restock-open-button"
+                    onClick={(e) => {
+                      restockTriggerRef.current = e.currentTarget;
+                      setRestockNotice("");
+                      setRestockClosing(false);
+                      setRestockModalOpen(true);
+                    }}
+                    aria-haspopup="dialog"
+                    aria-label={`View restock list, ${restockItems.length} items need restock`}
+                  >
+                    View restock list <span>{restockItems.length}</span>
+                  </button>
+                  <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
+                </div>
+              </div>
+
+              <div className="stock-overview" aria-label="Inventory summary">
+                <div className="stock-overview-card total">
+                  <span className="stock-overview-icon" aria-hidden="true">▤</span>
+                  <div><span>Tracked items</span><strong>{stockBreakdown.total}</strong></div>
+                </div>
+                <div className="stock-overview-card healthy">
+                  <span className="stock-overview-icon" aria-hidden="true">✓</span>
+                  <div><span>Healthy stock</span><strong>{stockBreakdown.healthy}</strong></div>
+                </div>
+                <div className="stock-overview-card critical">
+                  <span className="stock-overview-icon" aria-hidden="true">!</span>
+                  <div><span>Low &amp; out of stock</span><strong>{restockItems.length}</strong></div>
+                </div>
+                <div className="stock-overview-card over">
+                  <span className="stock-overview-icon" aria-hidden="true">↗</span>
+                  <div><span>Above maximum</span><strong>{stockBreakdown.over}</strong></div>
+                </div>
+              </div>
+
+              <div className="stock-list-toolbar">
+                <div>
+                  <strong>Inventory items</strong>
+                  <span>Health thresholds: red ≤20% · orange ≤40% · amber ≤70% · green above 70%.</span>
+                </div>
+                <div className="stock-toolbar-actions">
+                  <label className="stock-sort-control">
+                    <span>Sort by</span>
+                    <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
+                      <option value="name">Item name</option>
+                      <option value="category">Category</option>
+                      <option value="low">Stock level: low to high</option>
+                      <option value="high">Stock level: high to low</option>
+                      <option value="status">Health status</option>
+                    </select>
+                  </label>
+                  <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
+                    {STOCK_FILTERS.map((filter) => {
+                      const count = filter === "all"
+                        ? stockBreakdown.total
+                        : filter === "attention"
+                          ? stockBreakdown.attention
+                          : stockBreakdown.healthy;
+
+                      return (
+                        <button
+                          key={filter}
+                          type="button"
+                          role="tab"
+                          aria-selected={filter === stockFilter}
+                          className={filter === stockFilter ? "active" : ""}
+                          onClick={() => setStockFilter(filter)}
+                        >
+                          {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
+                          <span>{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {inventoryLoading && inventory.length === 0 ? (
+                <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+              ) : inventoryError && inventory.length === 0 ? (
+                <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+              ) : visibleStock.length ? (
+                <div className="inventory-table-wrap stock-table-wrap">
+                  <table className="inventory-table stock-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Inventory item</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Stock level</th>
+                        <th scope="col">Maximum stock</th>
+                        <th scope="col">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleStock.map((item) => {
+                        const pct = item.capacityPercent ?? 0;
+                        const clipRight = Math.max(0, 100 - Math.max(0, Math.min(100, pct)));
+                        return (
+                          <tr key={item.id ?? item.item}>
+                            <td>{item.item}</td>
+                            <td>{item.category}</td>
+                            <td>
+                              <div className="stock-level-value">
+                                <span>{item.quantity.toLocaleString()} {item.unit}</span>
+                                {item.capacityPercent != null && (
+                                  <span className={`stock-level-percent ${item.healthTone}`}>
+                                    {item.reportedPercent}%
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                className={`stock-level-track${item.capacityPercent == null ? " untracked" : ""}`}
+                                role={item.capacityPercent == null ? undefined : "progressbar"}
+                                aria-label={item.capacityPercent == null ? undefined : `${item.item} stock level`}
+                                aria-valuemin={item.capacityPercent == null ? undefined : 0}
+                                aria-valuemax={item.capacityPercent == null ? undefined : 100}
+                                aria-valuenow={item.reportedPercent ?? undefined}
+                                aria-valuetext={item.reportedPercent == null ? undefined : `${item.reportedPercent}% of maximum stock`}
+                                title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of maximum stock`}
+                              >
+                                <span
+                                  className={`stock-level-fill ${item.healthTone}`}
+                                  style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 99px)` }}
+                                />
+                              </div>
+                            </td>
+                            <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock} ${item.unit}`}</td>
+                            <td>
+                              <span className={`inventory-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="admin-report-empty">
+                  <span>◔</span>
+                  <strong>Nothing to show for this filter</strong>
+                  <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
+                </div>
+              )}
+            </div>
           </section>
 
           {insights.length ? (
@@ -1209,14 +2219,22 @@ function AdminReport() {
               <div className="report-highlights-heading">
                 <div>
                   <span className="admin-report-eyebrow">PERIOD SUMMARY</span>
-                  <h3>Report highlights</h3>
+                  <h2>Report highlights</h2>
                   <p>Key signals from the selected reporting period.</p>
                 </div>
               </div>
               {insights.map((insight) => (
-                <div key={insight.label} className={`admin-report-insight ${insight.tone}`}>
+                <div key={insight.label} className={`admin-report-insight report-pinned-note ${insight.tone}`}>
+                  <div className={`report-paper-pin mini ${insight.tone === "positive" ? "sage" : insight.tone === "warning" ? "crimson" : "amber"}`} aria-hidden="true">
+                    <span className="pin-shadow" />
+                    <span className="pin-needle" />
+                    <span className="pin-collar" />
+                    <span className="pin-head">
+                      <span className="pin-glint" />
+                    </span>
+                  </div>
                   <span className="report-insight-icon" aria-hidden="true">
-                    {insight.label === "Best day" ? "↗" : insight.label === "Top channel" ? "◉" : insight.label === "Best seller" ? "★" : "!"}
+                    {insight.label === "Best day" || insight.label === "Peak hour" ? "↗" : insight.label === "Top channel" ? "◉" : insight.label === "Best seller" ? "★" : "!"}
                   </span>
                   <div className="report-insight-copy">
                     <span>{insight.label}</span>
@@ -1228,30 +2246,23 @@ function AdminReport() {
           ) : null}
         </div>
       </main>
+
       {restockModalOpen && (
         <div
-          className="restock-modal-backdrop"
+          className={`restock-modal-backdrop ${restockClosing ? "is-closing" : ""}`}
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setRestockModalOpen(false);
+            if (event.target === event.currentTarget) closeRestockModal();
           }}
         >
           <section
+            ref={restockDialogRef}
+            tabIndex={-1}
             className="restock-modal restock-notebook"
             role="dialog"
             aria-modal="true"
             aria-labelledby="restock-modal-title"
             aria-describedby="restock-modal-description"
           >
-            {/* 3D Animated Leather Cover that slowly opens on mount */}
-            <div className="restock-notebook-cover" aria-hidden="true">
-              <div className="notebook-cover-Inner">
-                <span className="notebook-cover-crest">AMAYA CAFE</span>
-                <strong className="notebook-cover-title">RESTOCK LEDGER</strong>
-                <span className="notebook-cover-sub">Inventory Refill Requisition</span>
-              </div>
-            </div>
-
-            {/* Spiral Binding Spine + Perforated Holes */}
             <div className="restock-notebook-spine" aria-hidden="true">
               {Array.from({ length: 11 }).map((_, idx) => (
                 <span key={idx} className="notebook-ring-pair">
@@ -1261,10 +2272,8 @@ function AdminReport() {
               ))}
             </div>
 
-            {/* Bookmark Ribbon */}
             <div className="restock-notebook-ribbon" aria-hidden="true" />
 
-            {/* Ruled Notebook Page Interior */}
             <div className="restock-notebook-page">
               <header className="restock-modal-header">
                 <div className="restock-notebook-title-block">
@@ -1272,6 +2281,7 @@ function AdminReport() {
                     <span className="admin-report-eyebrow">INVENTORY REQUISITION NOTEBOOK</span>
                     <span className="restock-notebook-date">
                       {new Date().toLocaleDateString("en-US", {
+                        timeZone: "Asia/Manila",
                         month: "short",
                         day: "numeric",
                         year: "numeric",
@@ -1286,9 +2296,8 @@ function AdminReport() {
                 <button
                   type="button"
                   className="restock-modal-close"
-                  onClick={() => setRestockModalOpen(false)}
+                  onClick={closeRestockModal}
                   aria-label="Close restock notebook"
-                  autoFocus
                 >
                   ×
                 </button>
@@ -1322,10 +2331,9 @@ function AdminReport() {
 
                   <ol className="restock-notebook-list">
                     {restockItems.map((item, idx) => {
-                      const refillAmount =
-                        item.maximumStock == null
-                          ? null
-                          : Math.max(0, item.maximumStock - item.quantity);
+                      const refillAmount = item.maximumStock == null
+                        ? null
+                        : Math.max(0, item.maximumStock - item.quantity);
 
                       return (
                         <li
@@ -1393,7 +2401,7 @@ function AdminReport() {
                   <button
                     type="button"
                     className="restock-secondary-button"
-                    onClick={() => setRestockModalOpen(false)}
+                    onClick={closeRestockModal}
                   >
                     Close Notebook
                   </button>
@@ -1410,6 +2418,44 @@ function AdminReport() {
             </div>
           </section>
         </div>
+      )}
+
+      {selectedStaffMember && (
+        <StaffActivityModal
+          staffMember={selectedStaffMember}
+          rangeParams={activeRangeParams}
+          onFilterReportByStaff={(uid) => {
+            const cleanId = typeof uid === "object" && uid !== null ? (uid.userId ?? uid.id ?? null) : uid;
+            setStaffFilterId(cleanId);
+            setOrdersPage(1);
+            setMovPage(1);
+          }}
+          productImageByName={productImageByName}
+          triggerRef={staffTriggerRef}
+          onClosed={() => setSelectedStaffMember(null)}
+        />
+      )}
+
+      {selectedOrder && (
+        <OrderDetailsModal
+          order={selectedOrder}
+          portal="admin"
+          productImageByName={productImageByName}
+          canVoid
+          canViewCostBreakdown
+          onConfirmOrder={async (ord) => {
+            const updated = confirmOrder ? await confirmOrder(ord.id) : null;
+            setRefreshNonce((n) => n + 1);
+            return updated;
+          }}
+          onVoidOrder={async (ord, payload) => {
+            const updated = voidOrder ? await voidOrder(ord.id, payload) : null;
+            setRefreshNonce((n) => n + 1);
+            return updated;
+          }}
+          triggerRef={orderTriggerRef}
+          onClosed={() => setSelectedOrder(null)}
+        />
       )}
     </div>
   );

@@ -17,6 +17,7 @@ export const WALK_IN_INITIALS = "WC";
 export const ORDER_STATUS_FLOW = ["Pending", "Preparing", "Completed"];
 
 export function getNextAllowedStatuses(currentStatus) {
+  if (currentStatus === "Cancelled") return [];
   const index = ORDER_STATUS_FLOW.indexOf(currentStatus);
   return index < 0 || index === ORDER_STATUS_FLOW.length - 1 ? [] : [ORDER_STATUS_FLOW[index + 1]];
 }
@@ -26,16 +27,22 @@ export function canTransitionTo(currentStatus, nextStatus) {
 }
 
 export function normalizeOrderCustomer(order) {
-  return order && typeof order === "object" ? { ...order, customer: order.customer || WALK_IN_CUSTOMER_NAME } : order;
+  return order && typeof order === "object"
+    ? { ...order, customer: order.customer || WALK_IN_CUSTOMER_NAME }
+    : order;
 }
 
 export function normalizeOrderPayment(order) {
   if (!order || typeof order !== "object") return order;
+  const isCancelled = order.status === "Cancelled";
+  const payment = isCancelled
+    ? (order.payment && order.payment !== PAYMENT_STATUS_PAID ? order.payment : "Voided")
+    : (order.payment || PAYMENT_STATUS_PAID);
   return {
     ...order,
-    payment: order.payment || PAYMENT_STATUS_PAID,
+    payment,
     paymentMethod: order.paymentMethod || DEFAULT_PAYMENT_METHOD,
-    paidAt: order.paidAt || order.createdAt || null,
+    paidAt: isCancelled ? null : (order.paidAt || order.createdAt || null),
   };
 }
 
@@ -60,12 +67,25 @@ export function OrdersProvider({ children }) {
     }).catch((error) => console.error("Could not load orders:", error.message));
     refresh();
     const interval = window.setInterval(refresh, 15000);
-    return () => { active = false; window.clearInterval(interval); };
+    window.addEventListener("amaya:session-changed", refresh);
+    window.addEventListener("amaya:stock-mutated", refresh);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("amaya:session-changed", refresh);
+      window.removeEventListener("amaya:stock-mutated", refresh);
+    };
   }, [userId]);
+
+  const fetchOrderDetails = useCallback(async (orderNumber) => {
+    const details = await apiRequest(`/orders/${encodeURIComponent(orderNumber)}`);
+    return normalizeOrderPayment(normalizeOrderCustomer(details));
+  }, []);
 
   const value = useMemo(() => ({
     orders: user ? orders : [],
     refreshOrders,
+    fetchOrderDetails,
     addOrder: async (payload) => {
       const order = await apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) });
       const normalized = normalizeOrderPayment(normalizeOrderCustomer(order));
@@ -77,49 +97,48 @@ export function OrdersProvider({ children }) {
     updateOrderStatus: async (id, status) => {
       const current = orders.find((entry) => entry.id === id);
       if (!current || !canTransitionTo(current.status, status)) return undefined;
-      try {
-        const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
-        const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
-        setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
-        if (status === "Completed") notifyOrderCompleted(normalized);
-        return normalized;
-      } catch (error) {
-        window.alert(error.message);
-        return undefined;
-      }
+      const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
+      setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
+      if (status === "Completed") notifyOrderCompleted(normalized);
+      return normalized;
     },
     printReceipt: (id) => {
       const order = orders.find((entry) => entry.id === id);
       if (order) notifyReceiptPrinted(order);
     },
     confirmOrder: async (id) => {
-      try {
-        const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/confirm`, { method: "PATCH", body: "{}" });
-        const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
-        setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
-        return normalized;
-      } catch (error) { window.alert(error.message); return undefined; }
+      const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/confirm`, {
+        method: "PATCH",
+        body: "{}",
+      });
+      const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
+      setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
+      return normalized;
     },
     markOrderPaid: async (id, paymentMethod) => {
-      try {
-        const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/payment`, { method: "PATCH", body: JSON.stringify({ paymentMethod }) });
-        const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
-        setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
-        return normalized;
-      } catch (error) { window.alert(error.message); return undefined; }
+      const updated = await apiRequest(`/orders/${encodeURIComponent(id)}/payment`, {
+        method: "PATCH",
+        body: JSON.stringify({ paymentMethod }),
+      });
+      const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
+      setOrders((items) => items.map((entry) => entry.id === id ? normalized : entry));
+      return normalized;
     },
-    deleteOrder: async (id) => {
-      try {
-        await apiRequest(`/orders/${encodeURIComponent(id)}`, { method: "DELETE" });
-        setOrders((current) => current.filter((entry) => entry.id !== id));
-        window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
-        return true;
-      } catch (error) {
-        window.alert(error.message);
-        return false;
-      }
+    voidOrder: async (orderNumber, { reason, restoreStock }) => {
+      const updated = await apiRequest(`/orders/${encodeURIComponent(orderNumber)}/void`, {
+        method: "POST",
+        body: JSON.stringify({ reason, restoreStock }),
+      });
+      const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
+      setOrders((items) => items.map((entry) => entry.id === orderNumber ? normalized : entry));
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+      return normalized;
     },
-  }), [orders, refreshOrders, user]);
+  }), [fetchOrderDetails, orders, refreshOrders, user]);
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }
@@ -139,10 +158,12 @@ export function isToday(createdAt) {
 }
 
 export function isOrderPaid(order) {
-  return (order?.payment ?? PAYMENT_STATUS_PAID) === PAYMENT_STATUS_PAID;
+  return Boolean(order && order.status !== "Cancelled" && order.payment === PAYMENT_STATUS_PAID);
 }
 
 export function getPaymentStatusLabel(order) {
+  if (order?.status === "Cancelled") return "VOIDED";
+  if (order?.payment === undefined && order?.status === undefined) return "PAID";
   return isOrderPaid(order) ? "PAID" : String(order?.payment ?? "UNPAID").toUpperCase();
 }
 
