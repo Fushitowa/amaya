@@ -350,24 +350,24 @@ function AdminDashboard() {
   const [docked, setDocked] = useState(false);
 
   useEffect(() => {
+    if (isMobile) return undefined;
     const content = contentRef.current;
     const header = headerRef.current;
     if (!content) return undefined;
-    const DOCK_BAR_H = 56;
     let rafId = 0;
-    let cachedLimit = Math.max(40, (header ? header.offsetHeight : 120) - DOCK_BAR_H);
+    let cachedLimit = 36;
 
     const syncHeight = () => {
       if (!header) return;
       const h = header.offsetHeight;
-      cachedLimit = Math.max(40, h - DOCK_BAR_H);
+      cachedLimit = Math.max(24, Math.min(54, h - 72));
       content.style.setProperty("--dash-header-h", `${h}px`);
     };
 
     const updateDock = () => {
       rafId = 0;
       const y = content.scrollTop;
-      setDocked((prev) => (prev ? y > cachedLimit - 36 : y > cachedLimit));
+      setDocked((prev) => (prev ? y > 10 : y > cachedLimit));
     };
 
     const onScroll = () => {
@@ -384,7 +384,7 @@ function AdminDashboard() {
       content.removeEventListener("scroll", onScroll);
       observer?.disconnect();
     };
-  }, []);
+  }, [isMobile]);
   if (isMobile) {
     const ranges = [["today", "Today"], ["week", "7 days"], ["month", "30 days"], ["year", "Year"]];
     const metrics = [
@@ -620,256 +620,330 @@ function AdminDashboard() {
           <section className="admin-middle-grid">
 
             
-            <div className="admin-panel sales-panel">
-
-              <div className="panel-header sales-panel-header">
-
-                <div>
-                  <h3>Sales Overview</h3>
-                  <p>Sales performance for {chartRangeLabel}</p>
-                </div>
-
-                <div className="sales-header-controls">
-                  <span className="sales-total"><ChartNoAxesColumnIncreasing size={14} /> ₱{periodSales.toFixed(2)}</span>
-                  <span className="sales-profit-badge" title="Gross Profit for selected range">
-                    ₱{periodProfit.toFixed(2)} profit
-                  </span>
-                  <select
-                    className="sales-filter"
-                    value={salesRange}
-                    onChange={(event) => setSalesRange(event.target.value)}
-                    aria-label="Sales chart date range"
-                  >
-                    <option value="today">Today's session</option>
-                    <option value="week">Last 7 days</option>
-                    <option value="month">Last 30 days</option>
-                    <option value="year">This year</option>
-                  </select>
-                </div>
-
+            <div className="admin-panel sales-panel sales-paper-sheet">
+              {/* Top Pushpin / Thumbtack holding the paper sheet */}
+              <div className="sales-paper-pin" aria-hidden="true">
+                <span className="sales-pin-shadow" />
+                <span className="sales-pin-needle" />
+                <span className="sales-pin-collar" />
+                <span className="sales-pin-head">
+                  <i className="sales-pin-glint" />
+                </span>
               </div>
 
-              <div className="sales-chart">
-                <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
-                  {salesBuckets.map((bucket) => (
-                    <div className="chart-column" key={`${salesRange}-${bucket.start.toISOString()}`}>
-                      <div
-                        className="chart-bar"
-                        title={`₱${bucket.total.toFixed(2)} sales (₱${(bucket.profit || 0).toFixed(2)} profit)`}
-                        style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }}
-                      />
-                      <span>{bucket.label}</span>
+              {/* Little Bookmark Flag Tag on the Top-Right Paper Edge */}
+              <div className="sales-paper-bookmark" aria-hidden="true">
+                <span className="sales-bookmark-hole" />
+                <span className="sales-bookmark-label">{salesRange.toUpperCase()}</span>
+              </div>
+
+              {/* Paper Sheet Interior */}
+              <div className="sales-paper-inner">
+                <div className="panel-header sales-panel-header sales-paper-header">
+                  <div className="sales-paper-title-block">
+                    <div className="sales-paper-meta-row">
+                      <span className="sales-paper-eyebrow">PINNED REVENUE MEMO</span>
+                      <span className="sales-paper-stamp">VERIFIED</span>
                     </div>
-                  ))}
+                    <h3>Sales Overview</h3>
+                    <p>Sales performance for {chartRangeLabel}</p>
+                  </div>
+
+                  <div className="sales-header-controls">
+                    <span className="sales-total"><ChartNoAxesColumnIncreasing size={14} /> ₱{periodSales.toFixed(2)}</span>
+                    <span className="sales-profit-badge" title="Gross Profit for selected range">
+                      ₱{periodProfit.toFixed(2)} profit
+                    </span>
+                    <select
+                      className="sales-filter"
+                      value={salesRange}
+                      onChange={(event) => setSalesRange(event.target.value)}
+                      aria-label="Sales chart date range"
+                    >
+                      <option value="today">Today's session</option>
+                      <option value="week">Last 7 days</option>
+                      <option value="month">Last 30 days</option>
+                      <option value="year">This year</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="sales-chart sales-paper-chart">
+                  <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
+                    {salesBuckets.map((bucket, idx) => (
+                      <div
+                        className="chart-column"
+                        key={`${salesRange}-${bucket.start.toISOString()}`}
+                        style={{ "--bar-index": idx }}
+                      >
+                        <div
+                          className="chart-bar"
+                          title={`₱${bucket.total.toFixed(2)} sales (₱${(bucket.profit || 0).toFixed(2)} profit)`}
+                          style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }}
+                        />
+                        <span>{bucket.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-
             </div>
 
 
             
-            <div className="admin-panel orders-panel">
-
-              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-
-                <div>
-                  <h3>{ordersTab === "today" ? "Today's Orders & Transactions" : "All Recent Orders"}</h3>
-                  <p>{ordersTab === "today" ? `Active daily session (${liveDate})` : "All customer orders across sessions"}</p>
+            <div className="admin-panel orders-panel orders-ticket-rail-panel">
+              {/* Aluminum Ticket Grabber Rail along Top Edge */}
+              <div className="orders-rail-bar" aria-hidden="true">
+                <span className="orders-rail-screw left" />
+                <div className="orders-rail-groove">
+                  <span className="orders-rail-label">AMAYA POS • ORDER SLIP RAIL</span>
+                  <div className="orders-rail-marbles">
+                    <i /><i /><i /><i /><i /><i /><i />
+                  </div>
                 </div>
-
-                <div style={{ display: "inline-flex", background: "#F5EFE9", padding: "3px", borderRadius: "8px", gap: "3px" }}>
-                  <button
-                    type="button"
-                    onClick={() => setOrdersTab("today")}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "6px",
-                      border: "none",
-                      background: ordersTab === "today" ? "#8B5E3C" : "transparent",
-                      color: ordersTab === "today" ? "#FFFFFF" : "#6B5548",
-                      fontSize: "11px",
-                      fontWeight: "700",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Today's Session ({todaysOrders.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrdersTab("all")}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "6px",
-                      border: "none",
-                      background: ordersTab === "all" ? "#8B5E3C" : "transparent",
-                      color: ordersTab === "all" ? "#FFFFFF" : "#6B5548",
-                      fontSize: "11px",
-                      fontWeight: "700",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    All Recent ({orders.length})
-                  </button>
-                </div>
-
+                <span className="orders-rail-screw right" />
               </div>
 
-              <div className="orders-table-wrapper">
+              {/* Thermal Receipt Slip Suspended Under the Rail */}
+              <div className="orders-receipt-slip">
+                <div className="panel-header orders-receipt-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
+                  <div className="orders-receipt-title-block">
+                    <div className="orders-receipt-meta">
+                      <span className="orders-live-led" aria-hidden="true" />
+                      <span className="orders-receipt-eyebrow">
+                        {ordersTab === "today" ? "LIVE REGISTER FEED" : "TRANSACTION ARCHIVE"}
+                      </span>
+                      <span className="orders-receipt-serial">#REG-01</span>
+                    </div>
+                    <h3>{ordersTab === "today" ? "Today's Orders & Transactions" : "All Recent Orders"}</h3>
+                    <p>{ordersTab === "today" ? `Active daily session (${liveDate})` : "All customer orders across sessions"}</p>
+                  </div>
 
-                <table className="admin-orders-table">
+                  <div className="orders-receipt-tabs" style={{ display: "inline-flex", background: "#F5EFE9", padding: "3px", borderRadius: "8px", gap: "3px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setOrdersTab("today")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "6px",
+                        border: "none",
+                        background: ordersTab === "today" ? "#8B5E3C" : "transparent",
+                        color: ordersTab === "today" ? "#FFFFFF" : "#6B5548",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      Today's Session ({todaysOrders.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrdersTab("all")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "6px",
+                        border: "none",
+                        background: ordersTab === "all" ? "#8B5E3C" : "transparent",
+                        color: ordersTab === "all" ? "#FFFFFF" : "#6B5548",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      All Recent ({orders.length})
+                    </button>
+                  </div>
+                </div>
 
-                  <thead>
-                    <tr>
-                      <th>Order</th>
-                      <th>Customer</th>
-                      <th>Cashier in Charge</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {displayOrders.length === 0 ? (
+                <div className="orders-table-wrapper orders-receipt-body">
+                  <table className="admin-orders-table orders-receipt-table">
+                    <thead>
                       <tr>
-                        <td colSpan="5" className="empty-orders-cell">
-                          <div className="empty-orders-state">
-                            <strong>{ordersTab === "today" ? "No orders placed today yet" : "No orders yet"}</strong>
-                            <span>{ordersTab === "today" ? "Counter transactions from today's session will appear here in real time." : "New customer orders will appear here."}</span>
-                          </div>
-                        </td>
+                        <th>Ticket #</th>
+                        <th>Customer</th>
+                        <th>Cashier in Charge</th>
+                        <th>Total</th>
+                        <th>Status</th>
                       </tr>
-                    ) : (
-                      displayOrders.slice(0, ordersTab === "today" ? 30 : 10).map((order) => (
-                        <tr key={order.id}>
-                          <td><strong>{order.id}</strong></td>
-                          <td>{order.customer || "Walk-in Customer"}</td>
-                          <td>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 8px", background: "rgba(139, 94, 60, 0.12)", border: "1px solid rgba(139, 94, 60, 0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", color: "#8B5E3C" }}>
-                              <UserRound size={13} aria-hidden="true" /> {order.cashier || "Staff"}
-                            </span>
-                          </td>
-                          <td>₱{Number(order.total || 0).toFixed(2)}</td>
-                          <td>
-                            <span className={`order-status-pill status-${String(order.status || "pending").toLowerCase()}`}>
-                              {order.status}
-                            </span>
+                    </thead>
+
+                    <tbody>
+                      {displayOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="empty-orders-cell">
+                            <div className="empty-orders-state">
+                              <strong>{ordersTab === "today" ? "No orders placed today yet" : "No orders yet"}</strong>
+                              <span>{ordersTab === "today" ? "Counter transactions from today's session will appear here in real time." : "New customer orders will appear here."}</span>
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
+                      ) : (
+                        displayOrders.slice(0, ordersTab === "today" ? 30 : 10).map((order, idx) => (
+                          <tr
+                            key={order.id}
+                            className="orders-receipt-row"
+                            style={{ "--ticket-index": idx }}
+                          >
+                            <td>
+                              <strong className="orders-ticket-code">{order.id}</strong>
+                            </td>
+                            <td>{order.customer || "Walk-in Customer"}</td>
+                            <td>
+                              <span className="orders-cashier-tag" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 8px", background: "rgba(139, 94, 60, 0.12)", border: "1px solid rgba(139, 94, 60, 0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", color: "#8B5E3C" }}>
+                                <UserRound size={13} aria-hidden="true" /> {order.cashier || "Staff"}
+                              </span>
+                            </td>
+                            <td className="orders-ticket-amount">₱{Number(order.total || 0).toFixed(2)}</td>
+                            <td>
+                              <span className={`order-status-pill status-${String(order.status || "pending").toLowerCase()}`}>
+                                {order.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-                </table>
-
+                {/* Thermal Receipt Barcode & Zigzag Serrated Tear Footer */}
+                <div className="orders-receipt-footer" aria-hidden="true">
+                  <div className="orders-receipt-barcode" />
+                  <span className="orders-receipt-cut-note">
+                    THERMAL LOG • {displayOrders.length} RECORDED TRANSACTION{displayOrders.length === 1 ? "" : "S"}
+                  </span>
+                </div>
               </div>
-
             </div>
 
           </section>
 
 
-          
+
           <section className="admin-bottom-grid">
-            <div className="admin-panel top-products-panel">
-              <div className="panel-header top-products-header">
-                <div>
-                  <h3>Most Bought Menu Products</h3>
-                  <p>
-                    {topProductsTab === "today"
-                      ? `Ranked by paid units sold today (${todaysUnitsSold} units across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items)`
-                      : `All-time paid product rankings (${allTimeUnitsSold} units across ${rankedProducts.length} menu items)`}
-                  </p>
-                </div>
-                <div className="top-products-tabs" role="tablist" aria-label="Product ranking period">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={topProductsTab === "all"}
-                    className={topProductsTab === "all" ? "active" : ""}
-                    onClick={() => setTopProductsTab("all")}
-                  >
-                    All-Time ({allTimeUnitsSold})
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={topProductsTab === "today"}
-                    className={topProductsTab === "today" ? "active" : ""}
-                    onClick={() => setTopProductsTab("today")}
-                  >
-                    Today ({todaysUnitsSold})
-                  </button>
-                </div>
+            <div className="admin-panel top-products-panel top-products-showcase">
+              {/* Brass Hanging Chain & Cafe Medallion Crest */}
+              <div className="showcase-hanging-hardware" aria-hidden="true">
+                <span className="showcase-nail" />
+                <span className="showcase-chain left" />
+                <span className="showcase-chain right" />
+                <span className="showcase-medallion">★ TOP SELLERS</span>
               </div>
 
-              <div className="top-products-list">
-                {rankedProducts.length === 0 ? (
-                  <div className="empty-orders-state">
-                    <strong>No menu products found</strong>
-                    <span>Add products in Menu Management to track their sales ranking.</span>
-                  </div>
-                ) : (
-                  rankedProducts.map((product) => (
-                    <div
-                      key={product.key}
-                      className={`top-product-row${product.unitsSold > 0 ? " has-sales" : " no-sales"}${product.rank <= 3 && product.unitsSold > 0 ? ` is-top-${product.rank}` : ""}`}
-                    >
-                      <span className="top-product-rank">
-                        {product.rank <= 3 && product.unitsSold > 0 ? (
-                          <Award size={14} aria-hidden="true" />
-                        ) : null}
-                        #{product.rank}
-                      </span>
+              {/* Corner Brass Rivets */}
+              <span className="showcase-rivet tl" aria-hidden="true" />
+              <span className="showcase-rivet tr" aria-hidden="true" />
+              <span className="showcase-rivet bl" aria-hidden="true" />
+              <span className="showcase-rivet br" aria-hidden="true" />
 
-                      {product.image ? (
-                        <img className="top-product-thumb" src={product.image} alt={product.name} />
-                      ) : (
-                        <div className="top-product-thumb top-product-thumb-fallback" aria-hidden="true">
-                          {product.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-
-                      <div className="top-product-main">
-                        <div className="top-product-title-row">
-                          <strong className="top-product-name">{product.name}</strong>
-                          <span className="top-product-category">{product.category}</span>
-                          {!product.inCatalog && (
-                            <span className="top-product-archived-tag">Archived</span>
-                          )}
-                          {product.topSize && (
-                            <span className="top-product-size-tag">Top: {product.topSize}</span>
-                          )}
-                        </div>
-
-                        <div className="top-product-bar-track" aria-hidden="true">
-                          <div
-                            className="top-product-bar-fill"
-                            style={{ transform: `scaleX(${product.barPercent / 100})` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="top-product-metrics">
-                        <div className="top-product-units">
-                          <strong>{product.unitsSold} sold</strong>
-                          <span>
-                            {product.unitsSold > 0
-                              ? `${product.sharePercent.toFixed(1)}% · ${product.ordersCount} order${product.ordersCount === 1 ? "" : "s"}`
-                              : `Base ₱${product.basePrice.toFixed(2)}`}
-                          </span>
-                        </div>
-                        <div className="top-product-revenue">
-                          <strong>₱{product.revenue.toFixed(2)}</strong>
-                          <span className={product.profit > 0 ? "is-profit" : ""}>
-                            {product.unitsSold > 0 ? `₱${product.profit.toFixed(2)} profit` : "No sales yet"}
-                          </span>
-                        </div>
-                      </div>
+              {/* Inner Velvet/Parchment Menu Display Board */}
+              <div className="showcase-board-inner">
+                <div className="panel-header top-products-header showcase-board-header">
+                  <div className="showcase-title-block">
+                    <div className="showcase-meta-row">
+                      <span className="showcase-eyebrow">CURATED MENU HALL OF FAME</span>
                     </div>
-                  ))
-                )}
+                    <h3>Most Bought Menu Products</h3>
+                    <p>
+                      {topProductsTab === "today"
+                        ? `Ranked by paid units sold today (${todaysUnitsSold} units across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items)`
+                        : `All-time paid product rankings (${allTimeUnitsSold} units across ${rankedProducts.length} menu items)`}
+                    </p>
+                  </div>
+                  <div className="top-products-tabs showcase-tabs" role="tablist" aria-label="Product ranking period">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={topProductsTab === "all"}
+                      className={topProductsTab === "all" ? "active" : ""}
+                      onClick={() => setTopProductsTab("all")}
+                    >
+                      All-Time ({allTimeUnitsSold})
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={topProductsTab === "today"}
+                      className={topProductsTab === "today" ? "active" : ""}
+                      onClick={() => setTopProductsTab("today")}
+                    >
+                      Today ({todaysUnitsSold})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="top-products-list showcase-plaque-list">
+                  {rankedProducts.length === 0 ? (
+                    <div className="empty-orders-state">
+                      <strong>No menu products found</strong>
+                      <span>Add products in Menu Management to track their sales ranking.</span>
+                    </div>
+                  ) : (
+                    rankedProducts.map((product, idx) => (
+                      <div
+                        key={product.key}
+                        style={{ "--plaque-index": idx }}
+                        className={`top-product-row showcase-plaque-row${product.unitsSold > 0 ? " has-sales" : " no-sales"}${product.rank <= 3 && product.unitsSold > 0 ? ` is-top-${product.rank}` : ""}`}
+                      >
+                        <span className="top-product-rank showcase-rank-seal">
+                          {product.rank <= 3 && product.unitsSold > 0 ? (
+                            <Award size={13} aria-hidden="true" />
+                          ) : null}
+                          #{product.rank}
+                        </span>
+
+                        <div className="showcase-thumb-frame">
+                          {product.image ? (
+                            <img className="top-product-thumb" src={product.image} alt={product.name} />
+                          ) : (
+                            <div className="top-product-thumb top-product-thumb-fallback" aria-hidden="true">
+                              {product.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="top-product-main">
+                          <div className="top-product-title-row">
+                            <strong className="top-product-name">{product.name}</strong>
+                            <span className="top-product-category">{product.category}</span>
+                            {!product.inCatalog && (
+                              <span className="top-product-archived-tag">Archived</span>
+                            )}
+                            {product.topSize && (
+                              <span className="top-product-size-tag">Top: {product.topSize}</span>
+                            )}
+                          </div>
+
+                          <div className="top-product-bar-track showcase-bar-track" aria-hidden="true">
+                            <div
+                              className="top-product-bar-fill showcase-bar-fill"
+                              style={{ transform: `scaleX(${product.barPercent / 100})` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="top-product-metrics showcase-plaque-metrics">
+                          <div className="top-product-units">
+                            <strong>{product.unitsSold} sold</strong>
+                            <span>
+                              {product.unitsSold > 0
+                                ? `${product.sharePercent.toFixed(1)}% · ${product.ordersCount} order${product.ordersCount === 1 ? "" : "s"}`
+                                : `Base ₱${product.basePrice.toFixed(2)}`}
+                            </span>
+                          </div>
+                          <div className="top-product-revenue">
+                            <strong>₱{product.revenue.toFixed(2)}</strong>
+                            <span className={product.profit > 0 ? "is-profit" : ""}>
+                              {product.unitsSold > 0 ? `₱${product.profit.toFixed(2)} profit` : "No sales yet"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
             <section className="admin-panel admin-report-panel inventory-panel low-stock-panel low-stock-notebook" aria-label="Moderate and lowest stock inventory report">

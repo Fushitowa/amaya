@@ -2687,10 +2687,6 @@ body {
   transition: none !important;
 }
 
-.admin-dashboard .admin-content {
-  transition: none !important;
-}
-
 .admin-dashboard .admin-stat-card,
 .admin-dashboard .top-product-row {
   transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms ease !important;
@@ -2720,11 +2716,11 @@ body {
   .admin-dashboard .admin-header-dock::before {
     backface-visibility: hidden;
     transform: translateZ(0);
-    transition-duration: 180ms, 220ms !important;
+    transition-duration: 240ms, 300ms !important;
   }
 
   .admin-dashboard .dock-chip {
-    transform: translate3d(0, 10px, 0) scale(0.97);
+    transform: translate3d(0, 12px, 0) scale(0.96);
   }
 
   .admin-dashboard .is-docked .dock-chip {
@@ -2732,11 +2728,11 @@ body {
   }
 
   .admin-dashboard .admin-content.is-docked .admin-stat-card {
-    transform: translate3d(0, -24px, 0) scale(0.96);
+    transform: translate3d(0, -32px, 0) scale(0.95);
   }
 }
 
-@media (hover: none), (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
   .admin-dashboard *,
   .admin-dashboard *::before,
   .admin-dashboard *::after {
@@ -2745,11 +2741,17 @@ body {
   }
 }
 
-/* ---- Unified vertical KPI stack (.admin-stats): zero vertical gap, exact height match with middle row ---- */
+/* ---- Unified vertical KPI stack (.admin-stats): zero vertical gap, exact height match with middle row + smooth scroll docking into .portal-hero ---- */
 @media (min-width: 1101px) {
   .admin-dashboard .admin-content {
     grid-template-columns: minmax(0, 1fr) 272px;
     column-gap: 18px;
+    transition: grid-template-columns 340ms cubic-bezier(0.22, 1, 0.36, 1), column-gap 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .admin-dashboard .admin-content.is-docked {
+    grid-template-columns: minmax(0, 1fr) 0px;
+    column-gap: 0;
   }
 
   .admin-dashboard .admin-content .admin-stats {
@@ -2766,6 +2768,16 @@ body {
     background: #fffdfb;
     box-shadow: 0 1px 2px rgba(51, 40, 32, 0.04), 0 14px 28px -22px rgba(115, 78, 45, 0.35);
     overflow: hidden;
+    transform-origin: top right;
+    transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1), transform 340ms cubic-bezier(0.22, 1, 0.36, 1), border-color 240ms ease;
+  }
+
+  .admin-dashboard .admin-content.is-docked .admin-stats {
+    opacity: 0;
+    transform: translate3d(0, -44px, 0) scale(0.94);
+    pointer-events: none;
+    border-color: transparent;
+    box-shadow: none;
   }
 
   .admin-dashboard .admin-content .admin-stat-card {
@@ -3544,3 +3556,933 @@ body {
 .ad-order-end em.critical { background: #fbeae7; color: #9c2f23; }
 .ad-order-end em.low { background: #fdf0e4; color: #a14b16; }
 .ad-order-end em.moderate { background: #fbf4dc; color: #7a5c0d; }
+
+/* ==========================================================================
+   Sales Overview Panel — Pinned Paper Sheet + Little Bookmark Tag
+   (.admin-panel.sales-panel.sales-paper-sheet)
+   ========================================================================== */
+
+.admin-dashboard .admin-middle-grid > .admin-panel.sales-panel.sales-paper-sheet {
+  position: relative;
+  padding: 0;
+  margin-top: 8px;
+  border-radius: 6px 6px 12px 10px;
+  border: 1px solid #d9c8b4;
+  background: linear-gradient(180deg, #fffdf9 0%, #fcf7ee 62%, #f8f0e3 100%);
+  /* Multi-sheet loose paper stack + soft desk drop shadow */
+  box-shadow:
+    2px 3px 0 #EFE5D6,
+    3px 4px 0 #D3C1AC,
+    5px 7px 0 #E9DEC9,
+    6px 8px 0 #C7B39C,
+    0 18px 34px -14px rgba(52, 36, 23, 0.24),
+    0 4px 10px rgba(52, 36, 23, 0.08);
+  transform-origin: 50% 6px;
+  animation: salesPaperSwingSettle 760ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  overflow: visible;
+}
+
+@keyframes salesPaperSwingSettle {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) rotate(-1.8deg) scale(0.985);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(1px) rotate(0.55deg) scale(1.002);
+  }
+  82% {
+    transform: translateY(0) rotate(-0.2deg) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+/* Subtle folded bottom-right paper dog-ear corner */
+.admin-dashboard .sales-panel.sales-paper-sheet::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, #efe3d2 0%, #dccab4 50%, transparent 51%);
+  border-top-left-radius: 6px;
+  box-shadow: -2px -2px 5px rgba(59, 41, 29, 0.08);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* 3D Pushpin / Thumbtack pinned at Top-Center of the Paper Sheet */
+.admin-dashboard .sales-paper-pin {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  z-index: 12;
+  pointer-events: none;
+  transform-origin: 50% 85%;
+  animation: salesPinTackDrop 520ms cubic-bezier(0.22, 1, 0.36, 1) 140ms backwards;
+}
+
+@keyframes salesPinTackDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-18px) scale(1.28) rotate(-12deg);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(2px) scale(0.95) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+}
+
+.admin-dashboard .sales-pin-shadow {
+  position: absolute;
+  bottom: 2px;
+  left: 8px;
+  width: 18px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(38, 22, 12, 0.28);
+  filter: blur(2px);
+  transform: rotate(-12deg);
+}
+
+.admin-dashboard .sales-pin-needle {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 3px;
+  height: 9px;
+  margin-left: -1.5px;
+  border-radius: 0 0 99px 99px;
+  background: linear-gradient(90deg, #6e6259 0%, #d8cfc6 50%, #4a3f37 100%);
+}
+
+.admin-dashboard .sales-pin-collar {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 14px;
+  height: 10px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #d4955a 0%, #7d3522 70%, #4f1d11 100%);
+  box-shadow: 0 2px 4px rgba(32, 16, 8, 0.35);
+}
+
+.admin-dashboard .sales-pin-head {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e56b55 0%, #b83b2b 58%, #7a1f14 100%);
+  border: 1px solid rgba(92, 22, 14, 0.55);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 228, 214, 0.52),
+    inset 0 -3px 5px rgba(68, 14, 8, 0.55),
+    0 3px 6px rgba(42, 20, 12, 0.32);
+}
+
+.admin-dashboard .sales-pin-glint {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 6px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 245, 238, 0.72);
+  transform: rotate(-28deg);
+}
+
+/* Little Bookmark Ribbon Flag on the Top-Right Paper Edge */
+.admin-dashboard .sales-paper-bookmark {
+  position: absolute;
+  top: -7px;
+  right: 22px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 30px;
+  padding: 6px 3px 11px;
+  background: linear-gradient(180deg, #b83b2b 0%, #92281b 70%, #751d12 100%);
+  border-left: 1px solid rgba(255, 214, 186, 0.28);
+  border-right: 1px solid rgba(68, 14, 8, 0.45);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+  box-shadow: 0 5px 10px rgba(117, 29, 18, 0.28);
+  transform-origin: top center;
+  animation: salesBookmarkSlideIn 480ms cubic-bezier(0.22, 1, 0.36, 1) 240ms backwards;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  user-select: none;
+}
+
+.admin-dashboard .sales-panel.sales-paper-sheet:hover .sales-paper-bookmark {
+  transform: translateY(2px) rotate(-2deg);
+}
+
+@keyframes salesBookmarkSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px) scaleY(0.75);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+.admin-dashboard .sales-bookmark-hole {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f9efe0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.admin-dashboard .sales-bookmark-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #fcebd9;
+  line-height: 1;
+}
+
+/* Paper Sheet Interior with Subtle Ruled Grid + Top Perforation */
+.admin-dashboard .sales-paper-inner {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 14px;
+  border-radius: inherit;
+  overflow: hidden;
+  /* Top notepad perforation dots + warm ivory memo ruling */
+  background:
+    radial-gradient(circle at center, rgba(139, 94, 60, 0.22) 1.5px, transparent 2px) 0 6px / 14px 6px repeat-x,
+    linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 14px,
+      rgba(214, 92, 82, 0.22) 14px,
+      rgba(214, 92, 82, 0.22) 15px,
+      transparent 15px
+    );
+}
+
+.admin-dashboard .sales-paper-header {
+  padding: 6px 40px 12px 6px;
+  margin-bottom: 4px;
+  border-bottom: 2px double rgba(139, 94, 60, 0.22);
+}
+
+.admin-dashboard .sales-paper-title-block {
+  min-width: 0;
+}
+
+.admin-dashboard .sales-paper-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+
+.admin-dashboard .sales-paper-eyebrow {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #8b5e3c;
+  text-transform: uppercase;
+}
+
+.admin-dashboard .sales-paper-stamp {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px dashed rgba(46, 125, 50, 0.38);
+  background: rgba(46, 125, 50, 0.07);
+  color: #2c6b2f;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.admin-dashboard .sales-paper-header h3 {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2b1d14;
+  letter-spacing: -0.01em;
+}
+
+.admin-dashboard .sales-paper-header p {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #7d6b5d;
+}
+
+.admin-dashboard .sales-paper-sheet .sales-total {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #e5d6c5;
+  background: #fffaf2;
+  color: #3a2a1f;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.admin-dashboard .sales-paper-sheet .sales-filter {
+  background-color: #fffaf2;
+  border-color: #dfd0be;
+}
+
+/* Graph Paper Chart Area */
+.admin-dashboard .sales-paper-sheet .sales-paper-chart {
+  padding: 10px 6px 0;
+}
+
+.admin-dashboard .sales-paper-sheet .chart-bars {
+  border-bottom: 1.5px solid #c9b59e;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgba(139, 94, 60, 0.13) calc(25% - 1px),
+      rgba(139, 94, 60, 0.13) 25%
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent 27px,
+      rgba(139, 94, 60, 0.05) 27px,
+      rgba(139, 94, 60, 0.05) 28px
+    );
+}
+
+.admin-dashboard .sales-paper-sheet .chart-column {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: salesPaperBarFadeUp 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(280ms + (var(--bar-index, 0) * 35ms));
+}
+
+@keyframes salesPaperBarFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-dashboard .sales-paper-sheet .chart-bar {
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(180deg, #c2834b 0%, #8b5e3c 65%, #694429 100%);
+  box-shadow: 0 2px 6px rgba(105, 68, 41, 0.22);
+}
+
+.admin-dashboard .sales-paper-sheet .chart-column > span {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #7c6a5b;
+}
+
+@media (max-width: 680px) {
+  .admin-dashboard .sales-paper-header {
+    padding-right: 32px;
+  }
+  .admin-dashboard .sales-paper-bookmark {
+    right: 14px;
+    width: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard .admin-middle-grid > .admin-panel.sales-panel.sales-paper-sheet,
+  .admin-dashboard .sales-paper-pin,
+  .admin-dashboard .sales-paper-bookmark,
+  .admin-dashboard .sales-paper-sheet .chart-column {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}
+
+/* ==========================================================================
+   1. Orders Panel — Cafe POS Ticket Grabber Rail & Thermal Receipt Slip
+   (.admin-panel.orders-panel.orders-ticket-rail-panel)
+   ========================================================================== */
+
+.admin-dashboard .admin-middle-grid > .admin-panel.orders-panel.orders-ticket-rail-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin-top: 8px;
+  border: none;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+/* Brushed Aluminum Order Grabber Rail at Top Edge */
+.admin-dashboard .orders-rail-bar {
+  position: relative;
+  z-index: 8;
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 9px 9px 3px 3px;
+  border: 1px solid #968779;
+  background:
+    linear-gradient(
+      180deg,
+      #ede5dc 0%,
+      #d5c8ba 35%,
+      #b7a796 74%,
+      #8f7e6d 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 5px 12px rgba(41, 28, 18, 0.25);
+  user-select: none;
+}
+
+.admin-dashboard .orders-rail-screw {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f4ede4 0%, #8f7e6e 65%, #524438 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+  position: relative;
+}
+
+.admin-dashboard .orders-rail-screw::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 1.5px;
+  right: 1.5px;
+  height: 1px;
+  background: rgba(52, 39, 29, 0.65);
+  transform: rotate(-28deg);
+}
+
+.admin-dashboard .orders-rail-groove {
+  flex: 1;
+  height: 16px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #524336 0%, #6d5b4b 50%, #3d3025 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-dashboard .orders-rail-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #f3e6d6;
+  white-space: nowrap;
+}
+
+.admin-dashboard .orders-rail-marbles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-dashboard .orders-rail-marbles i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff8ef 0%, #cbbba8 55%, #6e5d4f 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Thermal Receipt Slip Suspended Under the Rail */
+.admin-dashboard .orders-receipt-slip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: -2px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #dfd1c0;
+  border-right: 1px solid #dfd1c0;
+  background:
+    linear-gradient(180deg, rgba(61, 43, 29, 0.1) 0px, transparent 10px),
+    repeating-linear-gradient(
+      0deg,
+      rgba(139, 94, 60, 0.025) 0px,
+      rgba(139, 94, 60, 0.025) 1px,
+      transparent 1px,
+      transparent 24px
+    ),
+    linear-gradient(180deg, #fffefb 0%, #fcf8f1 100%);
+  box-shadow:
+    0 16px 32px -14px rgba(52, 36, 23, 0.24),
+    0 3px 8px rgba(52, 36, 23, 0.08);
+  transform-origin: top center;
+  animation: ordersReceiptFeedDown 680ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes ordersReceiptFeedDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scaleY(0.95);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(2px) scaleY(1.004);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+/* Zigzag Serrated Tear Edge along Bottom of the Receipt */
+.admin-dashboard .orders-receipt-slip::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: -9px;
+  height: 10px;
+  background:
+    linear-gradient(-45deg, transparent 7px, #fcf8f1 0) 0 0 / 10px 10px repeat-x,
+    linear-gradient(45deg, transparent 7px, #fcf8f1 0) 0 0 / 10px 10px repeat-x;
+  filter: drop-shadow(0 3px 2px rgba(52, 36, 23, 0.12));
+  pointer-events: none;
+}
+
+.admin-dashboard .orders-receipt-header {
+  padding: 12px 16px 10px !important;
+  margin-bottom: 0 !important;
+  border-bottom: 1.5px dashed #d6c5b3 !important;
+  background: rgba(255, 252, 247, 0.85);
+}
+
+.admin-dashboard .orders-receipt-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.admin-dashboard .orders-live-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.18);
+}
+
+.admin-dashboard .orders-receipt-eyebrow {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #8b5e3c;
+  text-transform: uppercase;
+}
+
+.admin-dashboard .orders-receipt-serial {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f2e7da;
+  border: 1px solid #dfd0be;
+  color: #6b4c35;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.admin-dashboard .orders-receipt-header h3 {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 17.5px !important;
+  font-weight: 700;
+  color: #2b1d14;
+}
+
+.admin-dashboard .orders-receipt-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 12px;
+}
+
+.admin-dashboard .orders-receipt-table th {
+  background: #fdfaf4 !important;
+  border-bottom: 1px dashed #d8c7b5 !important;
+  color: #857262 !important;
+  font-size: 10px !important;
+  letter-spacing: 0.08em !important;
+}
+
+.admin-dashboard .orders-receipt-row {
+  opacity: 0;
+  transform: translateY(-6px);
+  animation: ordersTicketRowPrint 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(220ms + (var(--ticket-index, 0) * 35ms));
+}
+
+@keyframes ordersTicketRowPrint {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-dashboard .orders-receipt-table td {
+  border-bottom: 1px dashed #ece1d4 !important;
+  font-size: 12.5px !important;
+}
+
+.admin-dashboard .orders-ticket-code {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f5ece0;
+  border: 1px solid #e2d2c0;
+  color: #4d3422 !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.admin-dashboard .orders-ticket-amount {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 750;
+  color: #2f2117 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thermal Receipt Barcode Strip at Bottom */
+.admin-dashboard .orders-receipt-footer {
+  flex: 0 0 auto;
+  padding: 7px 16px 8px;
+  border-top: 1.5px dashed #d6c5b3;
+  background: #faf4ea;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-dashboard .orders-receipt-barcode {
+  width: 96px;
+  height: 14px;
+  opacity: 0.65;
+  background: repeating-linear-gradient(
+    90deg,
+    #3b291f 0px,
+    #3b291f 2px,
+    transparent 2px,
+    transparent 4px,
+    #3b291f 4px,
+    #3b291f 5px,
+    transparent 5px,
+    transparent 8px,
+    #3b291f 8px,
+    #3b291f 11px,
+    transparent 11px,
+    transparent 13px
+  );
+}
+
+.admin-dashboard .orders-receipt-cut-note {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #8a7665;
+}
+
+
+/* ==========================================================================
+   2. Top Products Panel — Brass-Framed Cafe Trophy Showcase Board
+   (.admin-panel.top-products-panel.top-products-showcase)
+   ========================================================================== */
+
+.admin-dashboard .top-products-panel.top-products-showcase {
+  position: relative;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 18px;
+  /* Dark walnut frame with warm brass outer trim */
+  border: 2px solid #8c6239;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(240, 189, 120, 0.22) 0%, transparent 65%),
+    linear-gradient(145deg, #3b281c 0%, #271911 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 184, 0.35),
+    0 20px 38px -16px rgba(38, 24, 14, 0.42),
+    0 4px 12px rgba(38, 24, 14, 0.16);
+  transform-origin: 50% -10px;
+  animation: showcaseBoardMount 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  overflow: visible;
+}
+
+@keyframes showcaseBoardMount {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.975);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.003);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Hanging Brass Nail, Chains & Top Medallion Crest */
+.admin-dashboard .showcase-hanging-hardware {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  width: 146px;
+  height: 26px;
+  margin-left: -73px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.admin-dashboard .showcase-nail {
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffe6be 0%, #b8864b 65%, #5e3e1c 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.admin-dashboard .showcase-chain {
+  position: absolute;
+  top: 2px;
+  width: 44px;
+  height: 1.5px;
+  background: repeating-linear-gradient(90deg, #c9975b 0px, #c9975b 3px, #6e4b26 3px, #6e4b26 5px);
+}
+
+.admin-dashboard .showcase-chain.left {
+  left: 32px;
+  transform-origin: right center;
+  transform: rotate(-18deg);
+}
+
+.admin-dashboard .showcase-chain.right {
+  right: 32px;
+  transform-origin: left center;
+  transform: rotate(18deg);
+}
+
+.admin-dashboard .showcase-medallion {
+  position: relative;
+  z-index: 2;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1.5px solid #e6b877;
+  background: linear-gradient(180deg, #523622 0%, #332013 100%);
+  color: #f9dfb7;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 236, 204, 0.35),
+    0 4px 8px rgba(24, 14, 8, 0.45);
+}
+
+/* Corner Brass Rivets on the Outer Walnut Frame */
+.admin-dashboard .showcase-rivet {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffe7c2 0%, #c49154 65%, #63421f 100%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.7), 0 1px 2px rgba(0, 0, 0, 0.55);
+  z-index: 6;
+  pointer-events: none;
+}
+.admin-dashboard .showcase-rivet.tl { top: 6px; left: 6px; }
+.admin-dashboard .showcase-rivet.tr { top: 6px; right: 6px; }
+.admin-dashboard .showcase-rivet.bl { bottom: 6px; left: 6px; }
+.admin-dashboard .showcase-rivet.br { bottom: 6px; right: 6px; }
+
+/* Inner Parchment Display Surface inside the Walnut Frame */
+.admin-dashboard .showcase-board-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(240, 189, 120, 0.42);
+  background:
+    radial-gradient(circle at 50% 0%, #fffdf9 0%, #faf3e8 100%);
+  box-shadow: inset 0 2px 8px rgba(48, 31, 18, 0.08);
+  overflow: hidden;
+}
+
+.admin-dashboard .showcase-board-header {
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1.5px solid #e6d7c4;
+}
+
+.admin-dashboard .showcase-eyebrow {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: #9c6b3b;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.admin-dashboard .showcase-board-header h3 {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 17.5px;
+  font-weight: 700;
+  color: #2b1d14;
+}
+
+.admin-dashboard .showcase-plaque-list {
+  padding: 4px 2px 6px 0;
+  gap: 7px;
+}
+
+/* Engraved Plaque Cards inside the Showcase */
+.admin-dashboard .top-product-row.showcase-plaque-row {
+  position: relative;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid #e3d3c1;
+  background: linear-gradient(180deg, #ffffff 0%, #fdf8f0 100%);
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 2px 5px rgba(59, 41, 29, 0.05);
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  animation: showcasePlaquePopIn 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(200ms + (var(--plaque-index, 0) * 45ms));
+}
+
+@keyframes showcasePlaquePopIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.admin-dashboard .top-product-row.showcase-plaque-row.is-top-1 {
+  border-color: #e2b86b;
+  background: linear-gradient(135deg, #fffdf7 0%, #fcf2dc 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 12px rgba(180, 123, 35, 0.12);
+}
+
+.admin-dashboard .top-product-row.showcase-plaque-row.is-top-2 {
+  border-color: #cbd5e1;
+  background: linear-gradient(135deg, #ffffff 0%, #f4f7fa 100%);
+}
+
+.admin-dashboard .top-product-row.showcase-plaque-row.is-top-3 {
+  border-color: #e6b08a;
+  background: linear-gradient(135deg, #fffdfb 0%, #fceede 100%);
+}
+
+.admin-dashboard .top-product-row.showcase-plaque-row:hover {
+  transform: translateY(-1px);
+  border-color: #c59b6d;
+}
+
+/* Medallion Rank Seal */
+.admin-dashboard .showcase-rank-seal {
+  border-radius: 999px;
+  height: 26px;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.admin-dashboard .showcase-thumb-frame {
+  padding: 2px;
+  border-radius: 11px;
+  border: 1px solid #dccab6;
+  background: #fffaf3;
+  box-shadow: 0 2px 4px rgba(59, 41, 29, 0.08);
+}
+
+.admin-dashboard .showcase-thumb-frame .top-product-thumb {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  border: none;
+}
+
+.admin-dashboard .showcase-bar-track {
+  background: #eadfce;
+  height: 5px;
+}
+
+.admin-dashboard .showcase-bar-fill {
+  background: linear-gradient(90deg, #8b5e3c 0%, #d49754 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard .orders-receipt-slip,
+  .admin-dashboard .orders-receipt-row,
+  .admin-dashboard .top-products-panel.top-products-showcase,
+  .admin-dashboard .top-product-row.showcase-plaque-row {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}

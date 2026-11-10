@@ -899,197 +899,297 @@ function AdminInventory() {
               </div>
             ) : viewMode === "grid" ? (
               <div
-                className="admin-inventory-grid-wrap custom-inventory-scrollbar"
+                className="admin-inventory-grid-wrap custom-inventory-scrollbar inventory-binder-folio"
                 role="region"
                 aria-label="Inventory items"
                 tabIndex={0}
               >
-                <div className="admin-inventory-grid">
-                {rows.map((row) => (
-                  <article className="admin-inventory-card" key={row.id}>
-                    <div className="admin-inventory-card-media">
-                      {row.image ? (
-                        <img
-                          src={row.image}
-                          alt={row.item}
-                          className="admin-inventory-card-thumbnail"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="admin-inventory-card-placeholder" aria-hidden="true">
-                          <Package size={30} strokeWidth={1.5} />
-                        </div>
-                      )}
-                      <div className="admin-inventory-card-overlay-top">
-                        <span className="admin-inventory-card-category">{row.category}</span>
-                        <div className="admin-inventory-card-badges">
-                          {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
-                          <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
-                        </div>
-                      </div>
+                {/* 3D Animated Leather Binder Cover that slowly opens on mount */}
+                <div className="inventory-binder-cover" aria-hidden="true">
+                  <div className="inventory-binder-cover-inner">
+                    <span className="inventory-binder-crest">AMAYA CAFE</span>
+                    <strong className="inventory-binder-title">INVENTORY BINDER</strong>
+                    <span className="inventory-binder-sub">Pinned Stock &amp; Supply Catalog</span>
+                  </div>
+                </div>
+
+                {/* Left Spiral Wire Binding Spine */}
+                <div className="inventory-binder-spine" aria-hidden="true">
+                  {Array.from({ length: 12 }).map((_, idx) => (
+                    <span key={idx} className="inventory-binder-ring">
+                      <i className="inventory-binder-hole" />
+                      <b className="inventory-binder-wire" />
+                    </span>
+                  ))}
+                </div>
+
+                {/* Top-Right Crimson Bookmark Ribbon */}
+                <div className="inventory-binder-ribbon" aria-hidden="true">
+                  <span className="inventory-ribbon-hole" />
+                  <span className="inventory-ribbon-label">
+                    {activeCategory === "All" ? "ALL STOCK" : activeCategory.toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Ruled Binder Page Interior */}
+                <div className="inventory-binder-page">
+                  <div className="inventory-binder-page-header" aria-hidden="true">
+                    <div className="inventory-binder-page-meta">
+                      <span className="inventory-binder-eyebrow">PINNED INGREDIENT FOLIO</span>
+                      <span className="inventory-binder-stamp">
+                        {rows.length} {rows.length === 1 ? "ITEM" : "ITEMS"} PINNED
+                      </span>
                     </div>
+                    <span className="inventory-binder-cat-tag">
+                      SECTION: {activeCategory === "All" ? "ALL CATEGORIES" : activeCategory.toUpperCase()}
+                    </span>
+                  </div>
 
-                    <div className="admin-inventory-card-body">
-                      <div className="admin-inventory-card-title">
-                        <h4 title={row.item}>{row.item}</h4>
-                        <div className="admin-inventory-card-submeta">
-                          <span title="Calculated unit cost">₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
-                          {row.packageQuantity && row.contentsPerPackage ? (
-                            <>
-                              <span className="meta-dot" aria-hidden="true">·</span>
-                              <span title="Package specification">{row.packageSpec}</span>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="admin-inventory-card-stock">
-                        <div className="admin-inventory-card-stock-row">
-                          <div>
-                            <span className="admin-inventory-card-label">Available Stock</span>
-                            <p className="admin-inventory-card-qty">
-                              {row.quantity}
-                              <span>{row.unit}</span>
-                            </p>
-                          </div>
-                          <div className="admin-inventory-card-max">
-                            <span className="admin-inventory-card-label">Value · Max</span>
-                            <p className="admin-inventory-card-value">₱{Number(row.inventoryValue || 0).toFixed(2)}</p>
-                            <small className="admin-inventory-card-cap">
-                              {row.maximumStock == null ? "No max set" : `of ${row.maximumStock} ${row.unit}`}
-                            </small>
-                          </div>
-                        </div>
-
-                        <div
-                          className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
-                          role="progressbar"
-                          aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
-                          aria-valuetext={row.stockRatio == null ? "No maximum set" : `${row.stockRatio}% of maximum stock${row.isLowStock ? ", low stock" : ""}`}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-label={`${row.item} stock level`}
-                          title={row.stockRatio == null ? "Set maximum stock to track this level" : `${row.stockRatio}% of maximum stock${row.isLowStock ? " · Low stock" : ""}`}
+                  <div className="inventory-binder-scroll custom-inventory-scrollbar">
+                    <div className="admin-inventory-grid">
+                      {rows.map((row, idx) => (
+                        <article
+                          className={`admin-inventory-card inventory-pinned-card ${row.cardStatusKey}`}
+                          key={row.id}
+                          style={{ "--card-index": idx }}
                         >
-                          {row.stockRatio == null
-                            ? null
-                            : <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />}
-                        </div>
-                      </div>
-                    </div>
+                          {/* 3D Pushpin / Thumbtack pinning each inventory card */}
+                          <div className={`inventory-card-pin ${row.cardStatusKey}`} aria-hidden="true">
+                            <span className="inventory-pin-shadow" />
+                            <span className="inventory-pin-needle" />
+                            <span className="inventory-pin-collar" />
+                            <span className="inventory-pin-head">
+                              <i className="inventory-pin-glint" />
+                            </span>
+                          </div>
 
-                    <div className="admin-inventory-card-actions">
-                      <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
-                        <History aria-hidden="true" size={14} strokeWidth={2.1} />
-                        <span>History</span>
-                      </button>
-                      <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
-                        <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
-                        <span>Edit</span>
-                      </button>
-                      <button type="button" className="restock" onClick={() => openRestock(row)} title={`Restock ${row.item}`}>
-                        <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
-                        <span>Restock</span>
-                      </button>
-                      <button type="button" className="danger" onClick={() => requestDelete(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
-                        <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
-                      </button>
+                          {/* Numbered Ledger Index Stamp */}
+                          <span className="inventory-card-index-tag" aria-hidden="true">
+                            #{String(idx + 1).padStart(2, "0")}
+                          </span>
+
+                          <div className="admin-inventory-card-media">
+                            {row.image ? (
+                              <img
+                                src={row.image}
+                                alt={row.item}
+                                className="admin-inventory-card-thumbnail"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="admin-inventory-card-placeholder" aria-hidden="true">
+                                <Package size={30} strokeWidth={1.5} />
+                              </div>
+                            )}
+                            <div className="admin-inventory-card-overlay-top">
+                              <span className="admin-inventory-card-category">{row.category}</span>
+                              <div className="admin-inventory-card-badges">
+                                {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
+                                <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="admin-inventory-card-body">
+                            <div className="admin-inventory-card-title">
+                              <h4 title={row.item}>{row.item}</h4>
+                              <div className="admin-inventory-card-submeta">
+                                <span title="Calculated unit cost">₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
+                                {row.packageQuantity && row.contentsPerPackage ? (
+                                  <>
+                                    <span className="meta-dot" aria-hidden="true">·</span>
+                                    <span title="Package specification">{row.packageSpec}</span>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="admin-inventory-card-stock">
+                              <div className="admin-inventory-card-stock-row">
+                                <div>
+                                  <span className="admin-inventory-card-label">Available Stock</span>
+                                  <p className="admin-inventory-card-qty">
+                                    {row.quantity}
+                                    <span>{row.unit}</span>
+                                  </p>
+                                </div>
+                                <div className="admin-inventory-card-max">
+                                  <span className="admin-inventory-card-label">Value · Max</span>
+                                  <p className="admin-inventory-card-value">₱{Number(row.inventoryValue || 0).toFixed(2)}</p>
+                                  <small className="admin-inventory-card-cap">
+                                    {row.maximumStock == null ? "No max set" : `of ${row.maximumStock} ${row.unit}`}
+                                  </small>
+                                </div>
+                              </div>
+
+                              <div
+                                className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
+                                role="progressbar"
+                                aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
+                                aria-valuetext={row.stockRatio == null ? "No maximum set" : `${row.stockRatio}% of maximum stock${row.isLowStock ? ", low stock" : ""}`}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-label={`${row.item} stock level`}
+                                title={row.stockRatio == null ? "Set maximum stock to track this level" : `${row.stockRatio}% of maximum stock${row.isLowStock ? " · Low stock" : ""}`}
+                              >
+                                {row.stockRatio == null
+                                  ? null
+                                  : <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="admin-inventory-card-actions">
+                            <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
+                              <History aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>History</span>
+                            </button>
+                            <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
+                              <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>Edit</span>
+                            </button>
+                            <button type="button" className="restock" onClick={() => openRestock(row)} title={`Restock ${row.item}`}>
+                              <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>Restock</span>
+                            </button>
+                            <button type="button" className="danger" onClick={() => requestDelete(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
+                              <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
+                            </button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                  </article>
-                ))}
+                  </div>
                 </div>
               </div>
             ) : (
               <div
-                className="admin-inventory-table-wrap custom-inventory-scrollbar"
+                className="admin-inventory-table-wrap custom-inventory-scrollbar inventory-binder-folio inventory-binder-list-mode"
                 role="region"
                 aria-label="Inventory items list"
                 tabIndex={0}
               >
-                <div className="admin-inventory-table" role="list">
-                  {rows.map((row) => (
-                    <article className="admin-inventory-bar-row" role="listitem" key={row.id}>
-                      <div className="admin-inventory-bar-identity">
-                        {row.image ? (
-                          <img
-                            src={row.image}
-                            alt={row.item}
-                            className="admin-inventory-table-thumbnail"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="admin-inventory-table-placeholder" aria-hidden="true">
-                            <Package size={20} strokeWidth={1.6} />
-                          </div>
-                        )}
-                        <div className="admin-inventory-table-item-meta">
-                          <div className="admin-inventory-bar-title-line">
-                            <strong title={row.item}>{row.item}</strong>
-                            <span className="admin-inventory-bar-cat">{row.category}</span>
-                            {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
-                          </div>
-                          <div className="admin-inventory-bar-subline">
-                            <span>₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
-                            {row.packageSpec && row.packageSpec !== "—" ? (
-                              <>
-                                <span className="meta-dot" aria-hidden="true">·</span>
-                                <span>{row.packageSpec}</span>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="admin-inventory-bar-stock">
-                        <div className="admin-inventory-bar-stock-top">
-                          <span className="admin-inventory-bar-qty">
-                            <strong>{row.quantity}</strong> {row.unit}
-                          </span>
-                          <span className="admin-inventory-bar-max">
-                            {row.maximumStock == null ? "No max" : `/ ${row.maximumStock} ${row.unit}`}
-                          </span>
-                        </div>
-                        <div
-                          className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
-                          role="progressbar"
-                          aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-label={`${row.item} stock level`}
-                        >
-                          {row.stockRatio == null ? null : (
-                            <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="admin-inventory-bar-metrics">
-                        <div className="admin-inventory-bar-val">
-                          <span className="admin-inventory-bar-label">Asset Value</span>
-                          <strong>₱{Number(row.inventoryValue || 0).toFixed(2)}</strong>
-                        </div>
-                        <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
-                      </div>
-
-                      <div className="admin-inventory-bar-actions">
-                        <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
-                          <History aria-hidden="true" size={14} strokeWidth={2.1} />
-                          <span>History</span>
-                        </button>
-                        <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
-                          <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
-                          <span>Edit</span>
-                        </button>
-                        <button type="button" className="restock" onClick={() => openRestock(row)} title={`Restock ${row.item}`}>
-                          <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
-                          <span>Restock</span>
-                        </button>
-                        <button type="button" className="danger" onClick={() => requestDelete(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
-                          <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
-                        </button>
-                      </div>
-                    </article>
+                {/* Left Spiral Wire Binding Spine */}
+                <div className="inventory-binder-spine" aria-hidden="true">
+                  {Array.from({ length: 12 }).map((_, idx) => (
+                    <span key={idx} className="inventory-binder-ring">
+                      <i className="inventory-binder-hole" />
+                      <b className="inventory-binder-wire" />
+                    </span>
                   ))}
+                </div>
+
+                {/* Top-Right Crimson Bookmark Ribbon */}
+                <div className="inventory-binder-ribbon" aria-hidden="true">
+                  <span className="inventory-ribbon-hole" />
+                  <span className="inventory-ribbon-label">
+                    {activeCategory === "All" ? "ALL STOCK" : activeCategory.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="inventory-binder-page">
+                  <div className="inventory-binder-page-header" aria-hidden="true">
+                    <div className="inventory-binder-page-meta">
+                      <span className="inventory-binder-eyebrow">LEDGER STOCK REGISTER</span>
+                      <span className="inventory-binder-stamp">
+                        {rows.length} {rows.length === 1 ? "ITEM" : "ITEMS"} RECORDED
+                      </span>
+                    </div>
+                    <span className="inventory-binder-cat-tag">
+                      SECTION: {activeCategory === "All" ? "ALL CATEGORIES" : activeCategory.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="inventory-binder-scroll custom-inventory-scrollbar">
+                    <div className="admin-inventory-table" role="list">
+                      {rows.map((row, idx) => (
+                        <article className="admin-inventory-bar-row inventory-ledger-bar-row" role="listitem" key={row.id}>
+                          <div className="admin-inventory-bar-identity">
+                            <span className="inventory-bar-index-num" aria-hidden="true">
+                              #{String(idx + 1).padStart(2, "0")}
+                            </span>
+                            {row.image ? (
+                              <img
+                                src={row.image}
+                                alt={row.item}
+                                className="admin-inventory-table-thumbnail"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="admin-inventory-table-placeholder" aria-hidden="true">
+                                <Package size={20} strokeWidth={1.6} />
+                              </div>
+                            )}
+                            <div className="admin-inventory-table-item-meta">
+                              <div className="admin-inventory-bar-title-line">
+                                <strong title={row.item}>{row.item}</strong>
+                                <span className="admin-inventory-bar-cat">{row.category}</span>
+                                {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
+                              </div>
+                              <div className="admin-inventory-bar-subline">
+                                <span>₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
+                                {row.packageSpec && row.packageSpec !== "—" ? (
+                                  <>
+                                    <span className="meta-dot" aria-hidden="true">·</span>
+                                    <span>{row.packageSpec}</span>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="admin-inventory-bar-stock">
+                            <div className="admin-inventory-bar-stock-top">
+                              <span className="admin-inventory-bar-qty">
+                                <strong>{row.quantity}</strong> {row.unit}
+                              </span>
+                              <span className="admin-inventory-bar-max">
+                                {row.maximumStock == null ? "No max" : `/ ${row.maximumStock} ${row.unit}`}
+                              </span>
+                            </div>
+                            <div
+                              className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
+                              role="progressbar"
+                              aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-label={`${row.item} stock level`}
+                            >
+                              {row.stockRatio == null ? null : (
+                                <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="admin-inventory-bar-metrics">
+                            <div className="admin-inventory-bar-val">
+                              <span className="admin-inventory-bar-label">Asset Value</span>
+                              <strong>₱{Number(row.inventoryValue || 0).toFixed(2)}</strong>
+                            </div>
+                            <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
+                          </div>
+
+                          <div className="admin-inventory-bar-actions">
+                            <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
+                              <History aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>History</span>
+                            </button>
+                            <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
+                              <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>Edit</span>
+                            </button>
+                            <button type="button" className="restock" onClick={() => openRestock(row)} title={`Restock ${row.item}`}>
+                              <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
+                              <span>Restock</span>
+                            </button>
+                            <button type="button" className="danger" onClick={() => requestDelete(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
+                              <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
