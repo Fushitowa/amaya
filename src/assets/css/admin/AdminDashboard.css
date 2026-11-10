@@ -2925,16 +2925,285 @@ body {
 @media (prefers-reduced-motion: reduce) { .ad-backdrop { animation: none; } .ad-bar i { transition: none; } }
 
 
-/* ---- Dashboard Inventory Watch Panel (admin-report-panel inventory-panel) ---- */
+/* ==========================================================================
+   Dashboard Inventory Watch Panel — Animated Opening Notebook Ledger
+   (.admin-panel.admin-report-panel.inventory-panel.low-stock-panel)
+   ========================================================================== */
+
+.admin-dashboard .admin-bottom-grid {
+  perspective: 1800px;
+}
+
 .admin-dashboard .inventory-panel.low-stock-panel {
   --report-ink: #2f231b;
   --report-muted: #8a7b6f;
   --report-line: #f0e9e2;
   --report-accent: #8b5e3c;
   --report-accent-dark: #6b4528;
+  position: relative;
+  display: flex;
+  flex-direction: row;
   height: clamp(320px, 34vw, 480px);
   max-height: 480px;
+  padding: 0;
+  border-radius: 10px 18px 18px 10px;
+  border: 1px solid #d8c7b4;
+  background: linear-gradient(90deg, #e5d5c3 0px, #f7efe4 12px, #fffdf8 26px, #fffcf6 100%);
+  box-shadow:
+    3px 0 0 #efe5d8,
+    4px 0 0 #d4c3b0,
+    6px 0 0 #ebe0d2,
+    7px 0 0 #cbb8a3,
+    0 18px 36px -14px rgba(52, 36, 23, 0.24),
+    0 4px 12px rgba(52, 36, 23, 0.08);
+  transform-style: preserve-3d;
+  transform-origin: left center;
+  animation: lowStockNotebookArrive 680ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  overflow: visible;
+}
+
+@keyframes lowStockNotebookArrive {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97) rotateY(-14deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.003) rotateY(1.5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateY(0deg);
+  }
+}
+
+/* 3D Leather Cover Leaf that Slowly Swings Open to Reveal the Notebook Watchlist */
+.admin-dashboard .low-stock-notebook-cover {
+  position: absolute;
+  inset: -1px;
+  z-index: 25;
+  border-radius: 10px 18px 18px 10px;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(168, 114, 74, 0.26) 0%, transparent 60%),
+    linear-gradient(135deg, #3f2b1d 0%, #2c1d13 100%);
+  border: 2px solid #593d29;
+  box-shadow:
+    inset 0 0 0 5px rgba(240, 189, 120, 0.14),
+    0 16px 34px rgba(18, 11, 7, 0.38);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  animation: lowStockCoverSwingOpen 940ms cubic-bezier(0.22, 1, 0.36, 1) 120ms forwards;
+}
+
+@keyframes lowStockCoverSwingOpen {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  24% {
+    transform: rotateY(-12deg);
+    opacity: 1;
+  }
+  78% {
+    transform: rotateY(-145deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: rotateY(-168deg);
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.admin-dashboard .low-stock-cover-inner {
+  padding: 22px 30px;
+  border: 1.5px solid rgba(240, 189, 120, 0.38);
+  border-radius: 12px;
+  text-align: center;
+  color: #f6dfc1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.admin-dashboard .low-stock-cover-crest {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: #d9a773;
+}
+
+.admin-dashboard .low-stock-cover-title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff6ea;
+}
+
+.admin-dashboard .low-stock-cover-sub {
+  font-size: 11px;
+  color: rgba(246, 223, 193, 0.72);
+}
+
+/* Spiral Wire Binding Spine on the Left Edge */
+.admin-dashboard .low-stock-notebook-spine {
+  width: 34px;
+  flex: 0 0 34px;
+  padding: 18px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(90deg, #dfd0be 0%, #f1e6d8 74%, rgba(241, 230, 216, 0) 100%);
+  border-right: 1px dashed rgba(139, 94, 60, 0.24);
+  border-radius: 10px 0 0 10px;
+  position: relative;
+  z-index: 4;
+  user-select: none;
+}
+
+.admin-dashboard .low-stock-ring-pair {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-dashboard .low-stock-ring-hole {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #35261c;
+  box-shadow:
+    inset 0 2px 3px rgba(0, 0, 0, 0.65),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+  margin-left: 7px;
+}
+
+.admin-dashboard .low-stock-ring-wire {
+  position: absolute;
+  left: -8px;
+  width: 23px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d7c7b6 0%, #8c735d 48%, #4d3b2c 100%);
+  box-shadow:
+    0 2px 4px rgba(28, 19, 13, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transform: rotate(-6deg);
+}
+
+/* Crimson Bookmark Ribbon at Top Right */
+.admin-dashboard .low-stock-notebook-ribbon {
+  position: absolute;
+  top: -5px;
+  right: 26px;
+  width: 18px;
+  height: 34px;
+  background: linear-gradient(180deg, #b83b2b 0%, #8f2619 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+  box-shadow: 0 4px 10px rgba(143, 38, 25, 0.28);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Ruled Notebook Page Interior */
+.admin-dashboard .low-stock-notebook-page {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 18px 18px 0;
   overflow: hidden;
+  /* Classic vertical double red margin line on the left + warm ivory paper */
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 22px,
+      rgba(214, 92, 82, 0.34) 22px,
+      rgba(214, 92, 82, 0.34) 23.5px,
+      transparent 23.5px,
+      transparent 27px,
+      rgba(214, 92, 82, 0.18) 27px,
+      rgba(214, 92, 82, 0.18) 28px,
+      transparent 28px
+    ),
+    linear-gradient(180deg, #fffdf9 0%, #fbf6ed 100%);
+}
+
+/* Notebook Header inside Panel */
+.admin-dashboard .low-stock-notebook-header {
+  margin-bottom: 0;
+  padding: 15px 20px 12px 38px;
+  border-bottom: 2px double rgba(139, 94, 60, 0.22);
+  background: rgba(255, 252, 246, 0.78);
+  opacity: 0;
+  animation: lowStockContentReveal 420ms cubic-bezier(0.22, 1, 0.36, 1) 300ms forwards;
+}
+
+@keyframes lowStockContentReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-dashboard .low-stock-title-block {
+  min-width: 0;
+}
+
+.admin-dashboard .low-stock-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.admin-dashboard .low-stock-eyebrow {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #8b5e3c;
+  text-transform: uppercase;
+}
+
+.admin-dashboard .low-stock-date-chip {
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px dashed rgba(139, 94, 60, 0.28);
+  background: rgba(243, 234, 224, 0.65);
+  color: #6e4e35;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.admin-dashboard .low-stock-notebook-header h3 {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2b1d14;
+  letter-spacing: -0.01em;
+}
+
+.admin-dashboard .low-stock-notebook-header p {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #7d6b5d;
 }
 
 .admin-dashboard .inventory-panel .inventory-panel-actions {
@@ -2949,70 +3218,155 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
+  height: 30px;
   padding: 0 11px;
-  border: 1px solid #ece3da;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid #dfd2c3;
+  border-radius: 9px;
+  background: #fffaf3;
   color: var(--report-accent-dark);
-  font: 700 12px inherit;
+  font: 700 11.5px inherit;
   text-decoration: none;
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
 }
 
 .admin-dashboard .inventory-panel .restock-open-button:hover {
-  border-color: #d6c3b1;
-  background: #fdf9f4;
+  border-color: #8b5e3c;
+  background: #f5ebe0;
+  transform: translateY(-1px);
 }
 
-.admin-dashboard .inventory-panel .stock-table-wrap {
+/* Ruled Notebook List Body */
+.admin-dashboard .low-stock-notebook-body {
   flex: 1 1 auto;
   min-height: 0;
-  margin-top: 4px;
-  overflow: auto;
+  margin-top: 0;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: #d9c9b8 transparent;
+  scrollbar-color: #cbb8a4 transparent;
   scrollbar-width: thin;
 }
 
-.admin-dashboard .inventory-panel .stock-table {
-  width: 100%;
-  min-width: 480px;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.admin-dashboard .inventory-panel .stock-table thead th {
+.admin-dashboard .low-stock-notebook-col-head {
   position: sticky;
   top: 0;
-  z-index: 2;
-  height: 34px;
-  padding: 0 10px 8px 0;
-  background: #fffdfb;
-  box-shadow: 0 1px 0 var(--report-line);
-  color: var(--report-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.7px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(150px, 1.5fr) minmax(130px, 1.1fr) 95px 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px 8px 38px;
+  background: rgba(251, 245, 236, 0.96);
+  border-bottom: 1px solid rgba(139, 94, 60, 0.18);
+  color: #8c7665;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  text-align: left;
+  backdrop-filter: blur(6px);
 }
 
-.admin-dashboard .inventory-panel .stock-table tbody tr:hover {
-  background: #fcfaf8;
+.admin-dashboard .low-stock-notebook-col-head span:last-child {
+  text-align: right;
 }
 
-.admin-dashboard .inventory-panel .stock-table td {
-  padding: 10px 10px 10px 0;
-  border-bottom: 1px solid #f4eee8;
+.admin-dashboard .low-stock-notebook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 10px;
+  /* Ruled horizontal notebook lines background */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 51px,
+    rgba(139, 94, 60, 0.12) 51px,
+    rgba(139, 94, 60, 0.12) 52px
+  );
+}
+
+.admin-dashboard .low-stock-notebook-line {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.5fr) minmax(130px, 1.1fr) 95px 110px;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 7px 18px 7px 38px;
+  border-bottom: 1px solid rgba(139, 94, 60, 0.12);
+  opacity: 0;
+  transform: translateX(-8px);
+  animation: lowStockLineSlideIn 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(400ms + (var(--line-index, 0) * 40ms));
+  transition: background-color 150ms ease;
+}
+
+@keyframes lowStockLineSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.admin-dashboard .low-stock-notebook-line:hover {
+  background: rgba(243, 229, 211, 0.44);
+}
+
+.admin-dashboard .low-stock-line-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-dashboard .low-stock-line-num {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 6px;
+  border: 1.5px solid #cbb6a1;
+  background: #fffdf9;
+  color: #8a6d56;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 2px rgba(52, 39, 29, 0.05);
+}
+
+.admin-dashboard .low-stock-notebook-line:hover .low-stock-line-num {
+  border-color: #8b5e3c;
+  background: #f5ebe0;
+  color: #5c3b23;
+}
+
+.admin-dashboard .low-stock-line-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-dashboard .low-stock-line-item strong {
+  color: #291c14;
   font-size: 12.5px;
-  color: #46382f;
-  vertical-align: middle;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.admin-dashboard .inventory-panel .stock-table td:nth-child(2) {
-  color: #7c6f65;
+.admin-dashboard .low-stock-line-item small {
+  color: #8a786a;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.admin-dashboard .low-stock-line-level {
+  min-width: 0;
 }
 
 .admin-dashboard .inventory-panel .stock-level-value {
@@ -3022,7 +3376,7 @@ body {
   gap: 8px;
   max-width: 150px;
   color: #51443c;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -3039,10 +3393,10 @@ body {
 .admin-dashboard .inventory-panel .stock-level-track {
   width: min(150px, 100%);
   height: 5px;
-  margin-top: 5px;
+  margin-top: 4px;
   overflow: hidden;
   border-radius: 99px;
-  background: #eeeae6;
+  background: #e9dfd3;
 }
 
 .admin-dashboard .inventory-panel .stock-level-fill {
@@ -3054,14 +3408,31 @@ body {
 .admin-dashboard .inventory-panel .stock-level-fill.low { background: #df754b; }
 .admin-dashboard .inventory-panel .stock-level-fill.critical { background: #c9574f; }
 
+.admin-dashboard .low-stock-line-max {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6f5e50;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-dashboard .low-stock-line-max .max-unset {
+  color: #9e8d7f;
+  font-style: italic;
+  font-size: 11px;
+}
+
+.admin-dashboard .low-stock-line-status {
+  text-align: right;
+}
+
 .admin-dashboard .inventory-panel .inventory-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 9px;
+  gap: 5px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3095,11 +3466,11 @@ body {
   display: grid;
   place-content: center;
   gap: 4px;
-  margin-top: 8px;
+  margin: 14px 20px 14px 38px;
   padding: 20px;
-  border: 1px dashed #e2d7ce;
+  border: 1px dashed #dfd2c3;
   border-radius: 11px;
-  background: #fdfaf8;
+  background: rgba(253, 250, 245, 0.72);
   text-align: center;
 }
 .admin-dashboard .inventory-panel .admin-report-empty strong {
@@ -3122,6 +3493,38 @@ body {
   }
   .admin-dashboard .inventory-panel.low-stock-panel {
     height: clamp(340px, 50vh, 480px);
+  }
+}
+
+@media (max-width: 680px) {
+  .admin-dashboard .low-stock-notebook-spine {
+    width: 24px;
+    flex-basis: 24px;
+  }
+  .admin-dashboard .low-stock-notebook-header {
+    padding-left: 30px;
+    padding-right: 14px;
+  }
+  .admin-dashboard .low-stock-notebook-col-head {
+    display: none;
+  }
+  .admin-dashboard .low-stock-notebook-line {
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    padding: 9px 14px 9px 30px;
+  }
+  .admin-dashboard .low-stock-line-level {
+    padding-left: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard .inventory-panel.low-stock-panel,
+  .admin-dashboard .low-stock-notebook-cover,
+  .admin-dashboard .low-stock-notebook-header,
+  .admin-dashboard .low-stock-notebook-line {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
   }
 }
 

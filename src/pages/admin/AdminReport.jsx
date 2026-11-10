@@ -1231,69 +1231,183 @@ function AdminReport() {
       {restockModalOpen && (
         <div
           className="restock-modal-backdrop"
-          onMouseDown={(event) => { if (event.target === event.currentTarget) setRestockModalOpen(false); }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setRestockModalOpen(false);
+          }}
         >
           <section
-            className="restock-modal"
+            className="restock-modal restock-notebook"
             role="dialog"
             aria-modal="true"
             aria-labelledby="restock-modal-title"
             aria-describedby="restock-modal-description"
           >
-            <header className="restock-modal-header">
-              <div>
-                <span className="admin-report-eyebrow">INVENTORY ACTION</span>
-                <h2 id="restock-modal-title">Out of stock &amp; running low</h2>
-                <p id="restock-modal-description">Review items at 40% stock or below. Suggested refill quantities bring each item back to its maximum level.</p>
+            {/* 3D Animated Leather Cover that slowly opens on mount */}
+            <div className="restock-notebook-cover" aria-hidden="true">
+              <div className="notebook-cover-Inner">
+                <span className="notebook-cover-crest">AMAYA CAFE</span>
+                <strong className="notebook-cover-title">RESTOCK LEDGER</strong>
+                <span className="notebook-cover-sub">Inventory Refill Requisition</span>
               </div>
-              <button type="button" className="restock-modal-close" onClick={() => setRestockModalOpen(false)} aria-label="Close restock list" autoFocus>×</button>
-            </header>
-
-            <div className="restock-modal-summary">
-              <strong>{restockItems.length}</strong>
-              <span>{restockItems.length === 1 ? "item needs" : "items need"} restocking</span>
             </div>
 
-            {restockItems.length ? (
-              <div className="restock-table-wrap">
-                <table className="restock-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Ingredient / item</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">On hand</th>
-                      <th scope="col">Maximum</th>
-                      <th scope="col">Estimated refill</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {restockItems.map((item) => (
-                      <tr key={item.id}>
-                        <td><strong>{item.item}</strong><small>{item.category || "Uncategorized"}</small></td>
-                        <td><span className={`restock-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span></td>
-                        <td>{item.quantity.toLocaleString()} {item.unit}</td>
-                        <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}</td>
-                        <td><strong>{item.maximumStock == null ? "Set maximum first" : `${Math.max(0, item.maximumStock - item.quantity).toLocaleString()} ${item.unit}`}</strong></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="restock-empty-state">
-                <span aria-hidden="true">✓</span>
-                <strong>Everything is in good shape</strong>
-                <p>No items are out of stock or below 40% of their maximum level.</p>
-              </div>
-            )}
+            {/* Spiral Binding Spine + Perforated Holes */}
+            <div className="restock-notebook-spine" aria-hidden="true">
+              {Array.from({ length: 11 }).map((_, idx) => (
+                <span key={idx} className="notebook-ring-pair">
+                  <i className="notebook-ring-hole" />
+                  <b className="notebook-ring-wire" />
+                </span>
+              ))}
+            </div>
 
-            <footer className="restock-modal-footer">
-              <p role="status" aria-live="polite">{restockNotice || "Copying also downloads a .txt file that can be opened in Notepad."}</p>
-              <div>
-                <button type="button" className="restock-secondary-button" onClick={() => setRestockModalOpen(false)}>Close</button>
-                <button type="button" className="restock-copy-button" onClick={handleCopyRestockList} disabled={!restockItems.length}>Copy restock list</button>
+            {/* Bookmark Ribbon */}
+            <div className="restock-notebook-ribbon" aria-hidden="true" />
+
+            {/* Ruled Notebook Page Interior */}
+            <div className="restock-notebook-page">
+              <header className="restock-modal-header">
+                <div className="restock-notebook-title-block">
+                  <div className="restock-notebook-meta-row">
+                    <span className="admin-report-eyebrow">INVENTORY REQUISITION NOTEBOOK</span>
+                    <span className="restock-notebook-date">
+                      {new Date().toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  <h2 id="restock-modal-title">Out of Stock &amp; Running Low</h2>
+                  <p id="restock-modal-description">
+                    Items at 40% stock or below. Suggested refill quantities restore each ingredient to its target maximum.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="restock-modal-close"
+                  onClick={() => setRestockModalOpen(false)}
+                  aria-label="Close restock notebook"
+                  autoFocus
+                >
+                  ×
+                </button>
+              </header>
+
+              <div className="restock-modal-summary">
+                <div className="restock-summary-badge">
+                  <strong>{restockItems.length}</strong>
+                  <span>
+                    {restockItems.length === 1 ? "line item needs" : "line items need"} restocking
+                  </span>
+                </div>
+                <div className="restock-summary-legend">
+                  <span className="legend-chip critical">
+                    <i /> Out / Critical
+                  </span>
+                  <span className="legend-chip low">
+                    <i /> Running Low (≤40%)
+                  </span>
+                </div>
               </div>
-            </footer>
+
+              {restockItems.length ? (
+                <div className="restock-notebook-body">
+                  <div className="restock-notebook-col-head" aria-hidden="true">
+                    <span># / Ingredient &amp; Category</span>
+                    <span>Status</span>
+                    <span>On Hand / Max</span>
+                    <span>Refill Needed</span>
+                  </div>
+
+                  <ol className="restock-notebook-list">
+                    {restockItems.map((item, idx) => {
+                      const refillAmount =
+                        item.maximumStock == null
+                          ? null
+                          : Math.max(0, item.maximumStock - item.quantity);
+
+                      return (
+                        <li
+                          key={item.id}
+                          className="restock-notebook-line"
+                          style={{ "--line-index": idx }}
+                        >
+                          <div className="notebook-line-main">
+                            <span className="notebook-line-check" aria-hidden="true">
+                              {String(idx + 1).padStart(2, "0")}
+                            </span>
+                            <div className="notebook-line-item">
+                              <strong>{item.item}</strong>
+                              <small>{item.category || "Uncategorized"}</small>
+                            </div>
+                          </div>
+
+                          <div className="notebook-line-status">
+                            <span className={`restock-status ${item.healthTone}`}>
+                              <span aria-hidden="true" />
+                              {item.label}
+                            </span>
+                          </div>
+
+                          <div className="notebook-line-stock">
+                            <span className="stock-current">
+                              {item.quantity.toLocaleString()} {item.unit}
+                            </span>
+                            <span className="stock-divider">/</span>
+                            <span className="stock-max">
+                              {item.maximumStock == null
+                                ? "No max"
+                                : `${item.maximumStock.toLocaleString()} ${item.unit}`}
+                            </span>
+                          </div>
+
+                          <div className="notebook-line-refill">
+                            {refillAmount == null ? (
+                              <span className="refill-unset">Set max first</span>
+                            ) : (
+                              <strong className="refill-tag">
+                                +{refillAmount.toLocaleString()} {item.unit}
+                              </strong>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              ) : (
+                <div className="restock-empty-state">
+                  <span aria-hidden="true">✓</span>
+                  <strong>All pages clear — stock is healthy</strong>
+                  <p>No ingredients are out of stock or below 40% of their maximum level.</p>
+                </div>
+              )}
+
+              <footer className="restock-modal-footer">
+                <p role="status" aria-live="polite">
+                  {restockNotice ||
+                    "Copying also downloads a .txt checklist that can be opened in Notepad."}
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    className="restock-secondary-button"
+                    onClick={() => setRestockModalOpen(false)}
+                  >
+                    Close Notebook
+                  </button>
+                  <button
+                    type="button"
+                    className="restock-copy-button"
+                    onClick={handleCopyRestockList}
+                    disabled={!restockItems.length}
+                  >
+                    Copy &amp; Download .txt
+                  </button>
+                </div>
+              </footer>
+            </div>
           </section>
         </div>
       )}

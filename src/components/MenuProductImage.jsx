@@ -26,12 +26,25 @@ export default function MenuProductImage({ src, alt = "Menu item", className = "
       style={{
         display: "grid",
         placeItems: "center",
-        color: "#8b6040",
-        background: "linear-gradient(145deg, #fffaf4, #eee2d5)",
+        color: "#7a573d",
+        background: "radial-gradient(circle at 50% 40%, #faf6f1 0%, #ebe1d6 100%)",
         ...fallbackStyle,
       }}
     >
-      <CupSoda size={42} strokeWidth={1.5} aria-hidden="true" />
+      <span
+        style={{
+          width: "44px",
+          height: "44px",
+          borderRadius: "12px",
+          display: "grid",
+          placeItems: "center",
+          background: "rgba(255, 255, 255, 0.72)",
+          border: "1px solid rgba(139, 94, 60, 0.14)",
+          boxShadow: "0 4px 10px rgba(45, 31, 22, 0.05)",
+        }}
+      >
+        <CupSoda size={22} strokeWidth={1.75} aria-hidden="true" />
+      </span>
     </div>
   );
 }

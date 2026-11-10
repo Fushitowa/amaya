@@ -9,6 +9,7 @@ import {
   GlassWater,
   LayoutGrid,
   Menu,
+  Plus,
   Sandwich,
   Search,
   Settings,
@@ -422,28 +423,6 @@ function StaffMenu() {
 
       {/* Main Menu Grid Area */}
       <main className="staff-menu-main">
-        {isMobile ? (
-          <header className="sm-appbar">
-            <div className="sm-appbar-row">
-              <button type="button" className="sm-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu">
-                <Menu size={24} />
-              </button>
-              <div className="sm-appbar-title">
-                <h1>Menu</h1>
-                <span>{visibleItems.length} items available</span>
-              </div>
-              <StaffNotificationBell />
-            </div>
-            <label className="sm-search">
-              <Search size={20} aria-hidden="true" />
-              <input type="search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search menu" aria-label="Search menu items" />
-              {searchTerm && (
-                <button type="button" onClick={() => setSearchTerm("")} aria-label="Clear search"><X size={18} /></button>
-              )}
-            </label>
-          </header>
-        ) : (
-          <>
         {/* Full-Width Edge-to-Edge POS Topbar */}
         <header className="staff-menu-top">
           <div className="staff-menu-top-brand-row">
@@ -457,7 +436,7 @@ function StaffMenu() {
             </button>
 
             <div className="staff-menu-top-left">
-              <span className="staff-menu-top-eyebrow">STAFF PORTAL</span>
+              <span className="staff-menu-top-eyebrow">STAFF PORTAL · POS REGISTER</span>
               <div className="staff-menu-top-heading">
                 <h1 className="staff-menu-title">Menu &amp; Quick Ordering</h1>
                 <span className="staff-menu-count-badge" aria-live="polite">
@@ -476,7 +455,7 @@ function StaffMenu() {
                 type="search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search menu items..."
+                placeholder="Search drinks, bites, or categories..."
                 aria-label="Search menu items"
               />
               {searchTerm && (
@@ -506,15 +485,17 @@ function StaffMenu() {
             </div>
           </div>
         </header>
-          </>
-        )}
 
-        {/* Slim Horizontal Category Pill Row (Clean CSS classes, zero inline styles) */}
+        {/* Slim Horizontal Category Pill Row */}
         <section className="staff-menu-category-tabs" aria-label="Menu categories">
           {dynamicCategories.map((key) => {
             const label = getCategoryTitle(key);
             const isActive = activeCategory === key;
             const Icon = categoryIcons[String(key).toLowerCase().trim()] || Coffee;
+            const count =
+              key === "all"
+                ? allFormattedProducts.length
+                : allFormattedProducts.filter((p) => p.category === key).length;
 
             return (
               <button
@@ -524,100 +505,100 @@ function StaffMenu() {
                 onClick={() => setActiveCategory(key)}
                 aria-pressed={isActive}
               >
-                <span className="category-tab-icon" aria-hidden="true"><Icon size={16} strokeWidth={2} /></span>
+                <span className="category-tab-icon" aria-hidden="true">
+                  <Icon size={15} strokeWidth={2.1} />
+                </span>
                 <span className="category-tab-label">{label}</span>
+                <span className="category-tab-count">{count}</span>
               </button>
             );
           })}
         </section>
 
-        {isMobile ? (
-          <ul className="sm-list">
-            {visibleItems.length > 0 ? visibleItems.map((item, index) => {
-              const out = isItemOutOfStock(item);
-              const inCart = order.filter((o) => o.productId === item.id).reduce((n, o) => n + Number(o.quantity || 0), 0);
-              return (
-                <li key={`${item.title}-${index}`} className={`sm-item ${out ? "out" : ""}`}>
-                  <button type="button" className="sm-item-main" onClick={() => setCustomizingItem(item)} aria-label={`Customize ${item.title}`}>
-                    <span className="sm-thumb">
-                      <MenuProductImage src={item.image} alt="" className="staff-menu-card-image" />
-                      {inCart > 0 && <b>{inCart}</b>}
-                    </span>
-                    <span className="sm-item-text">
-                      <small>{item.category || "Menu Item"}</small>
-                      <strong>{item.title}</strong>
-                      <span className="sm-price">{out ? "Out of stock" : `₱${item.price.toFixed(2)}`}</span>
-                    </span>
-                  </button>
-                  <button type="button" className="sm-add" disabled={out} onClick={() => quickAddToOrder(item)} aria-label={`Quick add ${item.title}`}>
-                    <span aria-hidden="true">+</span>
-                  </button>
-                </li>
-              );
-            }) : (
-              <li className="sm-empty">
-                <p>No menu items match your search.</p>
-                <button type="button" onClick={() => { setActiveCategory("all"); setSearchTerm(""); }}>Reset filters</button>
-              </li>
-            )}
-          </ul>
-        ) : (
-          <>
         {/* Product Cards Grid */}
         <section className="staff-menu-grid">
           {visibleItems.length > 0 ? (
             visibleItems.map((item, index) => {
               const isOutOfStock = isItemOutOfStock(item);
+              const inCartQty = order
+                .filter((o) => o.productId === item.id)
+                .reduce((n, o) => n + Number(o.quantity || 0), 0);
+
               return (
                 <article
-                  className={`staff-menu-card ${isOutOfStock ? "out-of-stock" : ""}`}
+                  className={`staff-menu-card ${isOutOfStock ? "out-of-stock" : ""} ${
+                    inCartQty > 0 ? "is-selected" : ""
+                  }`}
                   key={`${item.title}-${index}`}
-                  title={item.description || item.title}
+                  onClick={() => {
+                    if (!isOutOfStock) quickAddToOrder(item);
+                  }}
+                  role="button"
+                  tabIndex={isOutOfStock ? -1 : 0}
+                  aria-disabled={isOutOfStock}
+                  onKeyDown={(e) => {
+                    if (!isOutOfStock && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      quickAddToOrder(item);
+                    }
+                  }}
+                  title={
+                    isOutOfStock
+                      ? `${item.title} is currently out of stock`
+                      : `Click anywhere to add ${item.title} to order`
+                  }
                 >
-                  <div
-                    className="staff-menu-card-image-wrap"
-                    onClick={() => setCustomizingItem(item)}
-                    title="Click to customize modifiers"
-                  >
+                  <div className="staff-menu-card-image-wrap">
                     <MenuProductImage
                       src={item.image}
                       alt={item.title}
                       className="staff-menu-card-image"
-                      style={{ opacity: isOutOfStock ? 0.78 : 1 }}
                     />
-                    {isOutOfStock && (
-                      <span className="staff-menu-out-of-stock-pill">
-                        OUT OF STOCK
+                    <div className="staff-menu-card-image-badges">
+                      <span className="staff-menu-category-pill">
+                        {item.category || "Menu Item"}
                       </span>
-                    )}
+                      {isOutOfStock ? (
+                        <span className="staff-menu-out-of-stock-pill">
+                          Out of Stock
+                        </span>
+                      ) : inCartQty > 0 ? (
+                        <span className="staff-menu-in-cart-pill">
+                          {inCartQty} in order
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="staff-menu-card-body">
-                    <div className="staff-menu-card-meta">
-                      <span className="staff-menu-category-pill">{item.category || "Menu Item"}</span>
-                      <span className="staff-menu-card-price">₱{item.price.toFixed(2)}</span>
-                    </div>
-
-                    <div className="staff-menu-card-copy">
-                      <h3
-                        className="staff-menu-card-title"
-                        title={item.title}
-                      >
+                    <div className="staff-menu-card-head-row">
+                      <h3 className="staff-menu-card-title" title={item.title}>
                         {item.title}
                       </h3>
-                      <p className="staff-menu-card-desc" title={item.description || item.title}>
-                        {item.description || "Freshly made café staple."}
-                      </p>
+                      <span className="staff-menu-card-price">
+                        ₱{item.price.toFixed(2)}
+                      </span>
                     </div>
 
-                    <div className="staff-menu-card-actions">
+                    <p
+                      className="staff-menu-card-desc"
+                      title={item.description || item.title}
+                    >
+                      {item.description || "Freshly prepared café signature item."}
+                    </p>
+
+                    <div
+                      className="staff-menu-card-actions"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         type="button"
                         className="staff-menu-card-btn-custom"
                         onClick={() => setCustomizingItem(item)}
-                        title="Customize modifiers"
+                        title="Customize size & modifiers"
                       >
-                        <Settings size={14} strokeWidth={2} /> Customize
+                        <Settings size={13.5} strokeWidth={2.1} />
+                        <span>Options</span>
                       </button>
 
                       <button
@@ -625,9 +606,20 @@ function StaffMenu() {
                         className="staff-menu-card-btn-add"
                         onClick={() => quickAddToOrder(item)}
                         disabled={isOutOfStock}
-                        title={isOutOfStock ? "This item is currently out of stock" : "Quick add default size to order"}
+                        title={
+                          isOutOfStock
+                            ? "This item is currently out of stock"
+                            : "Add default size to order"
+                        }
                       >
-                        {isOutOfStock ? <span>Sold Out</span> : <><span>+</span> Quick Add</>}
+                        {isOutOfStock ? (
+                          <span>Unavailable</span>
+                        ) : (
+                          <>
+                            <Plus size={14} strokeWidth={2.6} aria-hidden="true" />
+                            <span>{inCartQty > 0 ? `Add More (${inCartQty})` : "Add to Order"}</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -635,20 +627,23 @@ function StaffMenu() {
               );
             })
           ) : (
-            <div className="staff-menu-empty" style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 20px" }}>
-              <p style={{ fontSize: "14px", color: "#8a7c73" }}>No menu items match &quot;{searchTerm}&quot; in this category.</p>
+            <div className="staff-menu-empty">
+              <p>
+                No menu items match &quot;{searchTerm}&quot; in this category.
+              </p>
               <button
                 type="button"
-                onClick={() => { setActiveCategory("all"); setSearchTerm(""); }}
-                style={{ padding: "8px 16px", borderRadius: "6px", background: "#8b5e3c", color: "#fff", border: "none", cursor: "pointer", marginTop: "10px", fontSize: "12px" }}
+                className="staff-menu-empty-reset"
+                onClick={() => {
+                  setActiveCategory("all");
+                  setSearchTerm("");
+                }}
               >
                 Reset Filters
               </button>
             </div>
           )}
         </section>
-          </>
-        )}
       </main>
 
       {/* Mobile Cart Sheet Backdrop */}
@@ -771,7 +766,7 @@ function StaffMenu() {
               })
             ) : (
               <div className="staff-menu-empty-order">
-                <span aria-hidden="true">🛒</span>
+                <span className="empty-order-icon" aria-hidden="true"><ShoppingBag size={22} strokeWidth={1.8} /></span>
                 <strong>No items yet</strong>
                 <small>Choose a menu item to start this order.</small>
               </div>

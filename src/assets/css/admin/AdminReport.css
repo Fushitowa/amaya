@@ -225,3 +225,629 @@
 @media (max-width: 420px) { .admin-report-insights { grid-template-columns: 1fr; }.admin-report-insight { padding: 15px; } }
 
 @media print { .admin-report-sidebar, .admin-report-topbar-actions, .admin-report-range, .admin-report-export { display: none; }.admin-report-page { background: #fff; }.admin-report-content { max-width: none; padding: 0; }.admin-report-panel, .admin-report-stats > div, .admin-report-insight { break-inside: avoid; box-shadow: none; } }
+
+/* ==========================================================================
+   Restock Modal — Animated Opening Notebook Ledger (.restock-modal)
+   ========================================================================== */
+
+.restock-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(30, 21, 15, 0.56);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  perspective: 1800px;
+  animation: restockBackdropFadeIn 320ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes restockBackdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.restock-modal.restock-notebook {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  width: min(100%, 840px);
+  max-height: min(88vh, 860px);
+  border-radius: 10px 20px 20px 10px;
+  border: 1px solid #d8c7b4;
+  background:
+    linear-gradient(90deg, #e5d5c3 0px, #f7efe4 12px, #fffdf8 28px, #fffcf6 100%);
+  /* Multi-page stacked paper edge along the right & bottom + deep desk shadow */
+  box-shadow:
+    3px 0 0 #efe5d8,
+    4px 0 0 #d4c3b0,
+    7px 0 0 #ebe0d2,
+    8px 0 0 #cbb8a3,
+    0 28px 70px -10px rgba(24, 16, 10, 0.42),
+    0 8px 24px rgba(24, 16, 10, 0.2);
+  transform-style: preserve-3d;
+  transform-origin: left center;
+  animation: notebookBookArrive 680ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  overflow: visible;
+}
+
+@keyframes notebookBookArrive {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.94) rotateY(-22deg) rotateX(6deg);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.005) rotateY(2deg) rotateX(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateY(0deg) rotateX(0deg);
+  }
+}
+
+/* 3D Leather Cover Leaf that Slowly Swings Open to Reveal the Notebook Page */
+.restock-notebook-cover {
+  position: absolute;
+  inset: -1px;
+  z-index: 25;
+  border-radius: 10px 20px 20px 10px;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(168, 114, 74, 0.25) 0%, transparent 60%),
+    linear-gradient(135deg, #3f2b1d 0%, #2c1d13 100%);
+  border: 2px solid #593d29;
+  box-shadow:
+    inset 0 0 0 6px rgba(240, 189, 120, 0.14),
+    0 18px 40px rgba(18, 11, 7, 0.45);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  animation: notebookCoverSwingOpen 920ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes notebookCoverSwingOpen {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  22% {
+    transform: rotateY(-12deg);
+    opacity: 1;
+  }
+  78% {
+    transform: rotateY(-145deg);
+    opacity: 0.92;
+  }
+  100% {
+    transform: rotateY(-168deg);
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.notebook-cover-Inner {
+  padding: 28px 36px;
+  border: 1.5px solid rgba(240, 189, 120, 0.38);
+  border-radius: 12px;
+  text-align: center;
+  color: #f6dfc1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notebook-cover-crest {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: #d9a773;
+}
+
+.notebook-cover-title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff6ea;
+}
+
+.notebook-cover-sub {
+  font-size: 11px;
+  color: rgba(246, 223, 193, 0.72);
+}
+
+/* Spiral Wire Binding Spine on the Left Edge */
+.restock-notebook-spine {
+  width: 38px;
+  flex: 0 0 38px;
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(90deg, #dfd0be 0%, #f1e6d8 72%, rgba(241, 230, 216, 0) 100%);
+  border-right: 1px dashed rgba(139, 94, 60, 0.24);
+  border-radius: 10px 0 0 10px;
+  position: relative;
+  z-index: 4;
+  user-select: none;
+}
+
+.notebook-ring-pair {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notebook-ring-hole {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #35261c;
+  box-shadow:
+    inset 0 2px 3px rgba(0, 0, 0, 0.65),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+  margin-left: 8px;
+}
+
+.notebook-ring-wire {
+  position: absolute;
+  left: -9px;
+  width: 26px;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d7c7b6 0%, #8c735d 48%, #4d3b2c 100%);
+  box-shadow:
+    0 2px 4px rgba(28, 19, 13, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transform: rotate(-6deg);
+}
+
+/* Crimson Bookmark Ribbon at Top Right */
+.restock-notebook-ribbon {
+  position: absolute;
+  top: -6px;
+  right: 68px;
+  width: 22px;
+  height: 44px;
+  background: linear-gradient(180deg, #b83b2b 0%, #8f2619 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+  box-shadow: 0 4px 10px rgba(143, 38, 25, 0.3);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Ruled Notebook Page Interior */
+.restock-notebook-page {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(88vh, 860px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 20px 20px 0;
+  overflow: hidden;
+  /* Classic vertical double red margin line on the left + warm ivory paper */
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 26px,
+      rgba(214, 92, 82, 0.36) 26px,
+      rgba(214, 92, 82, 0.36) 27.5px,
+      transparent 27.5px,
+      transparent 31px,
+      rgba(214, 92, 82, 0.2) 31px,
+      rgba(214, 92, 82, 0.2) 32px,
+      transparent 32px
+    ),
+    linear-gradient(180deg, #fffdf9 0%, #fbf6ed 100%);
+}
+
+/* Notebook Top Header */
+.restock-notebook .restock-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 26px 16px 46px;
+  border-bottom: 2px double rgba(139, 94, 60, 0.22);
+  background: rgba(255, 252, 246, 0.75);
+  opacity: 0;
+  animation: notebookContentReveal 420ms cubic-bezier(0.22, 1, 0.36, 1) 260ms forwards;
+}
+
+@keyframes notebookContentReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.restock-notebook-title-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.restock-notebook-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.restock-notebook-date {
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px dashed rgba(139, 94, 60, 0.3);
+  background: rgba(243, 234, 224, 0.6);
+  color: #6e4e35;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.restock-notebook .restock-modal-header h2 {
+  margin: 5px 0 0;
+  color: #2b1d14;
+  font: 700 24px "Playfair Display", Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+.restock-notebook .restock-modal-header p {
+  margin: 5px 0 0;
+  color: #7d6b5d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.restock-notebook .restock-modal-close {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
+  border: 1px solid #e2d5c6;
+  background: #fffaf3;
+  color: #6a523f;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.restock-notebook .restock-modal-close:hover {
+  background: #3b291f;
+  border-color: #3b291f;
+  color: #ffffff;
+  transform: scale(1.04);
+}
+
+/* Summary Strip on the Notebook Page */
+.restock-notebook .restock-modal-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 11px 26px 11px 46px;
+  background: rgba(244, 234, 221, 0.55);
+  border-bottom: 1px solid rgba(139, 94, 60, 0.16);
+  opacity: 0;
+  animation: notebookContentReveal 420ms cubic-bezier(0.22, 1, 0.36, 1) 340ms forwards;
+}
+
+.restock-summary-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.restock-summary-badge strong {
+  color: #70482f;
+  font-size: 20px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.restock-summary-badge span {
+  color: #6b594c;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.restock-summary-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6e5c4f;
+}
+
+.legend-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.legend-chip.critical i {
+  background: #b84a39;
+}
+
+.legend-chip.low i {
+  background: #c88931;
+}
+
+/* Ruled Notebook List Body */
+.restock-notebook-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #cbb8a4 transparent;
+}
+
+.restock-notebook-col-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.6fr) 115px 150px 135px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 26px 9px 46px;
+  background: rgba(251, 245, 236, 0.96);
+  border-bottom: 1px solid rgba(139, 94, 60, 0.18);
+  color: #8c7665;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(6px);
+}
+
+.restock-notebook-col-head span:last-child {
+  text-align: right;
+}
+
+.restock-notebook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 12px;
+  /* Ruled horizontal notebook lines background */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 55px,
+    rgba(139, 94, 60, 0.13) 55px,
+    rgba(139, 94, 60, 0.13) 56px
+  );
+}
+
+.restock-notebook-line {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.6fr) 115px 150px 135px;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 26px 8px 46px;
+  border-bottom: 1px solid rgba(139, 94, 60, 0.12);
+  opacity: 0;
+  transform: translateX(-8px);
+  animation: notebookLineSlideIn 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(390ms + (var(--line-index, 0) * 42ms));
+  transition: background-color 150ms ease;
+}
+
+@keyframes notebookLineSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.restock-notebook-line:hover {
+  background: rgba(243, 229, 211, 0.42);
+}
+
+.notebook-line-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notebook-line-check {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 6px;
+  border: 1.5px solid #cbb6a1;
+  background: #fffdf9;
+  color: #8a6d56;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 2px rgba(52, 39, 29, 0.05);
+}
+
+.restock-notebook-line:hover .notebook-line-check {
+  border-color: #8b5e3c;
+  background: #f5ebe0;
+  color: #5c3b23;
+}
+
+.notebook-line-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notebook-line-item strong {
+  color: #291c14;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notebook-line-item small {
+  color: #8a786a;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.notebook-line-stock {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.stock-current {
+  color: #3a2a1f;
+  font-weight: 700;
+}
+
+.stock-divider {
+  color: #b5a395;
+}
+
+.stock-max {
+  color: #8a786a;
+  font-size: 11px;
+}
+
+.notebook-line-refill {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.refill-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #f3e6d6;
+  border: 1px solid #dfc8ae;
+  color: #694123;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.refill-unset {
+  color: #9e8d7f;
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Notebook Footer */
+.restock-notebook .restock-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 26px 16px 46px;
+  border-top: 2px double rgba(139, 94, 60, 0.2);
+  background: rgba(251, 245, 236, 0.9);
+  opacity: 0;
+  animation: notebookContentReveal 420ms cubic-bezier(0.22, 1, 0.36, 1) 460ms forwards;
+}
+
+.restock-notebook .restock-secondary-button,
+.restock-notebook .restock-copy-button {
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  font-weight: 700;
+  transition: transform 140ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.restock-notebook .restock-secondary-button:active,
+.restock-notebook .restock-copy-button:active {
+  transform: scale(0.97);
+}
+
+/* Responsive Mobile Notebook View */
+@media (max-width: 720px) {
+  .restock-modal.restock-notebook {
+    width: 100%;
+    max-height: 92vh;
+  }
+
+  .restock-notebook-spine {
+    width: 26px;
+    flex-basis: 26px;
+  }
+
+  .restock-notebook .restock-modal-header,
+  .restock-notebook .restock-modal-summary,
+  .restock-notebook .restock-modal-footer {
+    padding-left: 34px;
+    padding-right: 16px;
+  }
+
+  .restock-notebook-col-head {
+    display: none;
+  }
+
+  .restock-notebook-line {
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    padding: 10px 16px 10px 34px;
+  }
+
+  .notebook-line-stock {
+    padding-left: 36px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .restock-modal.restock-notebook,
+  .restock-notebook-cover,
+  .restock-notebook .restock-modal-header,
+  .restock-notebook .restock-modal-summary,
+  .restock-notebook-line,
+  .restock-notebook .restock-modal-footer {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}

@@ -872,61 +872,97 @@ function AdminDashboard() {
                 )}
               </div>
             </div>
-            <section className="admin-panel admin-report-panel inventory-panel low-stock-panel" aria-label="Moderate and lowest stock inventory report">
-              <div className="panel-header top-products-header inventory-panel-heading">
-                <div>
-                  <h3>Stock Watchlist</h3>
-                  <p>
-                    {lowStockBreakdown.total} item{lowStockBreakdown.total === 1 ? "" : "s"} at or below 70% capacity
-                  </p>
-                </div>
-                <div className="inventory-panel-actions">
-                  <div className="top-products-tabs" role="tablist" aria-label="Filter stock watchlist">
-                    {[
-                      ["all", `All (${lowStockBreakdown.total})`],
-                      ["lowest", `Lowest (${lowStockBreakdown.critical + lowStockBreakdown.low})`],
-                      ["moderate", `Moderate (${lowStockBreakdown.moderate})`],
-                    ].map(([key, label]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        role="tab"
-                        aria-selected={stockFilter === key}
-                        className={stockFilter === key ? "active" : ""}
-                        onClick={() => setStockFilter(key)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <Link to="/admin/inventory" className="restock-open-button" aria-label="Manage inventory">
-                    Inventory <ArrowUpRight size={13} aria-hidden="true" />
-                  </Link>
+            <section className="admin-panel admin-report-panel inventory-panel low-stock-panel low-stock-notebook" aria-label="Moderate and lowest stock inventory report">
+              {/* 3D Animated Leather Cover that slowly swings open on mount */}
+              <div className="low-stock-notebook-cover" aria-hidden="true">
+                <div className="low-stock-cover-inner">
+                  <span className="low-stock-cover-crest">AMAYA CAFE</span>
+                  <strong className="low-stock-cover-title">STOCK WATCHLIST</strong>
+                  <span className="low-stock-cover-sub">Inventory Capacity Ledger</span>
                 </div>
               </div>
 
-              {inventoryLoading && inventory.length === 0 ? (
-                <div className="admin-report-empty compact"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
-              ) : inventoryError && inventory.length === 0 ? (
-                <div className="admin-report-empty compact" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
-              ) : visibleLowStock.length ? (
-                <div className="inventory-table-wrap stock-table-wrap">
-                  <table className="inventory-table stock-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Inventory item</th>
-                        <th scope="col">Category</th>
-                        <th scope="col">Stock level</th>
-                        <th scope="col">Maximum stock</th>
-                        <th scope="col">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleLowStock.map((item) => (
-                        <tr key={item.id ?? item.item}>
-                          <td><strong>{item.item}</strong></td>
-                          <td>{item.category}</td>
-                          <td>
+              {/* Spiral Wire Binding Spine + Perforated Holes */}
+              <div className="low-stock-notebook-spine" aria-hidden="true">
+                {Array.from({ length: 10 }).map((_, idx) => (
+                  <span key={idx} className="low-stock-ring-pair">
+                    <i className="low-stock-ring-hole" />
+                    <b className="low-stock-ring-wire" />
+                  </span>
+                ))}
+              </div>
+
+              {/* Bookmark Ribbon */}
+              <div className="low-stock-notebook-ribbon" aria-hidden="true" />
+
+              {/* Ruled Notebook Page Interior */}
+              <div className="low-stock-notebook-page">
+                <div className="panel-header top-products-header inventory-panel-heading low-stock-notebook-header">
+                  <div className="low-stock-title-block">
+                    <div className="low-stock-meta-row">
+                      <span className="low-stock-eyebrow">INVENTORY LEDGER</span>
+                      <span className="low-stock-date-chip">{liveDate}</span>
+                    </div>
+                    <h3>Stock Watchlist</h3>
+                    <p>
+                      {lowStockBreakdown.total} item{lowStockBreakdown.total === 1 ? "" : "s"} at or below 70% capacity
+                    </p>
+                  </div>
+                  <div className="inventory-panel-actions">
+                    <div className="top-products-tabs" role="tablist" aria-label="Filter stock watchlist">
+                      {[
+                        ["all", `All (${lowStockBreakdown.total})`],
+                        ["lowest", `Lowest (${lowStockBreakdown.critical + lowStockBreakdown.low})`],
+                        ["moderate", `Moderate (${lowStockBreakdown.moderate})`],
+                      ].map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          role="tab"
+                          aria-selected={stockFilter === key}
+                          className={stockFilter === key ? "active" : ""}
+                          onClick={() => setStockFilter(key)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <Link to="/admin/inventory" className="restock-open-button" aria-label="Manage inventory">
+                      Inventory <ArrowUpRight size={13} aria-hidden="true" />
+                    </Link>
+                  </div>
+                </div>
+
+                {inventoryLoading && inventory.length === 0 ? (
+                  <div className="admin-report-empty compact"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+                ) : inventoryError && inventory.length === 0 ? (
+                  <div className="admin-report-empty compact" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+                ) : visibleLowStock.length ? (
+                  <div className="low-stock-notebook-body stock-table-wrap">
+                    <div className="low-stock-notebook-col-head" aria-hidden="true">
+                      <span># / Inventory Item &amp; Category</span>
+                      <span>Stock Level</span>
+                      <span>Max Stock</span>
+                      <span>Status</span>
+                    </div>
+                    <ol className="low-stock-notebook-list">
+                      {visibleLowStock.map((item, idx) => (
+                        <li
+                          key={item.id ?? item.item}
+                          className="low-stock-notebook-line"
+                          style={{ "--line-index": idx }}
+                        >
+                          <div className="low-stock-line-main">
+                            <span className="low-stock-line-num" aria-hidden="true">
+                              {String(idx + 1).padStart(2, "0")}
+                            </span>
+                            <div className="low-stock-line-item">
+                              <strong>{item.item}</strong>
+                              <small>{item.category || "Uncategorized"}</small>
+                            </div>
+                          </div>
+
+                          <div className="low-stock-line-level">
                             <div className="stock-level-value">
                               <span>{item.quantity.toLocaleString()} {item.unit}</span>
                               {item.reportedPercent != null && (
@@ -948,25 +984,33 @@ function AdminDashboard() {
                                 style={{ width: `${Math.max(item.quantity > 0 ? 4 : 0, item.capacityPercent ?? 0)}%` }}
                               />
                             </div>
-                          </td>
-                          <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}</td>
-                          <td>
+                          </div>
+
+                          <div className="low-stock-line-max">
+                            {item.maximumStock == null ? (
+                              <span className="max-unset">Not set</span>
+                            ) : (
+                              <span>{item.maximumStock.toLocaleString()} {item.unit}</span>
+                            )}
+                          </div>
+
+                          <div className="low-stock-line-status">
                             <span className={`inventory-status ${item.healthTone}`}>
                               <span aria-hidden="true" />
                               {item.label}
                             </span>
-                          </td>
-                        </tr>
+                          </div>
+                        </li>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="admin-report-empty compact">
-                  <strong>All inventory is healthy</strong>
-                  <p>No items are currently in the moderate, running low, or critical range.</p>
-                </div>
-              )}
+                    </ol>
+                  </div>
+                ) : (
+                  <div className="admin-report-empty compact low-stock-notebook-empty">
+                    <strong>All pages clear — inventory is healthy</strong>
+                    <p>No items are currently in the moderate, running low, or critical range.</p>
+                  </div>
+                )}
+              </div>
             </section>
 
           </section>
