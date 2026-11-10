@@ -16,8 +16,9 @@ import decisionRoutes from "./routes/decisions.js";
 const app = express();
 const port = Number(process.env.PORT || 3001);
 
+const lanOriginRegex = /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
 const configuredOrigins = (process.env.WEB_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean);
-const devOrigins = process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"];
+const devOrigins = ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", lanOriginRegex];
 const allowedOrigins = [...new Set([...configuredOrigins, ...devOrigins])];
 app.use(helmet());
 app.use(cors({ origin: allowedOrigins }));
@@ -41,7 +42,13 @@ app.get("/api/health", async (_request, response) => {
   }
 });
 
-app.use("/api/auth", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false }));
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === "production" ? 20 : 1000,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
+app.post("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);

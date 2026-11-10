@@ -386,36 +386,19 @@ export function StaffQuantityModal({ product, order, onConfirm, onCancel }) {
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(35, 25, 20, 0.65)",
-        backdropFilter: "blur(4px)",
-        WebkitBackdropFilter: "blur(4px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1100,
-        padding: "20px",
-        overflowY: "auto",
-      }}
+      className="staff-quantity-modal-backdrop"
       onClick={onCancel}
       role="presentation"
     >
       <div
-        style={{
-          width: "min(960px, 100%)",
-          maxHeight: "92vh",
-          overflowY: "auto",
-          borderRadius: "16px",
-          background: "#ffffff",
-          boxShadow: "0 24px 60px rgba(0, 0, 0, 0.35)",
-          padding: "24px",
-        }}
+        className="staff-quantity-modal-sheet"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
       >
+        <div className="staff-quantity-modal-handle" onClick={onCancel} aria-hidden="true">
+          <span />
+        </div>
         <QuantityModifierContent
           product={product}
           order={order}
@@ -477,8 +460,8 @@ function StaffQuantity() {
           />
         ) : (
           <section className="quantity-form-card" style={{ textAlign: "center", padding: "48px 24px" }}>
-            <h2 style={{ margin: "0 0 8px", fontSize: "17px", color: "#2d1f1a" }}>No item selected</h2>
-            <p style={{ margin: "0 0 20px", fontSize: "12px", color: "#8a7c73" }}>
+            <h2 style={{ margin: "0 0 8px", fontSize: "19px", color: "#2d1f1a" }}>No item selected</h2>
+            <p style={{ margin: "0 0 20px", fontSize: "13.5px", color: "#8a7c73" }}>
               Pick a menu item first, then choose its size and add-ons.
             </p>
             <button type="button" className="confirm-button" onClick={handleCancel}>

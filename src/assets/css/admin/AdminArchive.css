@@ -144,7 +144,73 @@
   cursor: not-allowed;
 }
 
-/* Metrics */
+/* 2-Column Workspace Layout */
+.admin-archive-workspace {
+  display: flex;
+  gap: 1.5rem;
+  align-items: stretch;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Left Side: The Big Box Container */
+.admin-archive-big-box {
+  flex: 1 1 0%;
+  min-width: 220px;
+  background: var(--archive-card);
+  border: 1px solid var(--archive-line);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  padding: 1.25rem;
+  height: calc(100vh - 260px);
+  min-height: 480px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d6c7b2 transparent;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-archive-big-box::-webkit-scrollbar {
+  width: 6px;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #d6c7b2;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-thumb:hover {
+  background: #b09b82;
+}
+
+.admin-archive-big-box .archive-empty-state {
+  flex: 1;
+  min-height: 380px;
+  background: #faf7f4;
+}
+
+.admin-archive-big-box .archive-audit-table-card {
+  box-shadow: none;
+  border: 1px solid var(--archive-line);
+}
+
+/* Right Side: Vertical Stacked Metrics */
+.admin-archive-vertical-metrics {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* Metrics (Shared & Legacy Support) */
 .admin-archive-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -155,7 +221,7 @@
   background: #ffffff;
   border: 1px solid var(--archive-line);
   border-radius: 14px;
-  padding: 1.25rem;
+  padding: 1.15rem 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -216,6 +282,12 @@
 }
 
 /* Tabs & Filter Bar */
+.admin-archive-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .admin-archive-toolbar {
   display: flex;
   justify-content: space-between;
@@ -294,8 +366,9 @@
 /* Card Grid for Menu & Inventory */
 .admin-archive-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1.25rem;
+  width: 100%;
 }
 
 .archive-item-card {
@@ -305,6 +378,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 250px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -599,4 +673,317 @@
 .archive-empty-state span {
   font-size: 0.88rem;
   color: var(--archive-muted);
+}
+
+@media (max-width: 1024px) {
+  .admin-archive-workspace {
+    flex-direction: column;
+  }
+
+  .admin-archive-vertical-metrics {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .admin-archive-big-box {
+    height: auto;
+    min-height: 440px;
+    max-height: 650px;
+  }
+}
+
+
+.admin-archive-grid-bar {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: -1.25rem;
+  z-index: 2;
+  margin: -1.25rem -1.25rem 0;
+  padding: 1.25rem 1.25rem 0.75rem;
+  background: var(--archive-card);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-archive-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--archive-soft);
+  color: var(--archive-muted);
+  font-size: 0.8rem;
+}
+
+.admin-archive-note svg {
+  color: var(--archive-accent);
+}
+
+.admin-archive-note strong {
+  color: var(--archive-ink);
+}
+
+/* ---- Archive item card: refined ledger-tag redesign ---- */
+.archive-item-card {
+  position: relative;
+  min-height: 0;
+  border-radius: 18px;
+  border-color: var(--archive-line);
+  background: var(--archive-card);
+  box-shadow: 0 1px 2px rgba(46, 38, 31, 0.04);
+}
+
+.archive-item-card::before {
+  content: "";
+  height: 4px;
+  background: linear-gradient(90deg, var(--archive-accent), #c9a27c);
+}
+
+.archive-item-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px -12px rgba(139, 94, 60, 0.28);
+}
+
+.archive-item-header {
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.1rem 1.2rem 0.9rem;
+  border-bottom: 0;
+}
+
+.archive-item-image {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #f7ede4, var(--archive-soft));
+  box-shadow: inset 0 0 0 1px rgba(139, 94, 60, 0.12);
+  font-size: 1.4rem;
+}
+
+.archive-item-category {
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.1rem;
+}
+
+.archive-item-name {
+  margin: 0 0 0.35rem;
+  font-size: 1.08rem;
+  letter-spacing: -0.01em;
+}
+
+.archive-item-price {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: var(--archive-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.archive-item-body {
+  margin: 0 1.2rem;
+  padding: 0.8rem 0 0.9rem;
+  gap: 0.4rem;
+  background: transparent;
+  border-top: 1px dashed #dccfc4;
+  font-size: 0.78rem;
+}
+
+.archive-item-body strong {
+  color: var(--archive-ink);
+  font-weight: 600;
+}
+
+.archive-item-body .archive-countdown-badge {
+  margin-bottom: 0.2rem;
+  border-radius: 999px;
+}
+
+.archive-item-footer {
+  padding: 0 1.2rem 1.15rem;
+  border-top: 0;
+  background: transparent;
+}
+
+.archive-restore-btn,
+.archive-delete-btn {
+  flex: 1;
+  justify-content: center;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+}
+
+.archive-restore-btn {
+  border-color: var(--archive-accent);
+  background: var(--archive-accent);
+  color: #fff;
+}
+
+.archive-restore-btn:hover {
+  background: var(--archive-accent-hover);
+  border-color: var(--archive-accent-hover);
+}
+
+.archive-delete-btn {
+  border-color: var(--archive-line);
+  color: var(--archive-danger);
+}
+
+.archive-delete-btn:hover {
+  border-color: #f3b8b8;
+}
+
+/* ---- Archive box scrollbar: slim floating pill ---- */
+.admin-archive-big-box {
+  /* standard props would override the webkit pseudo-elements below */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.admin-archive-big-box::-webkit-scrollbar {
+  width: 14px;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-button {
+  display: none;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 14px 0;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-thumb {
+  background: #d9c9b8;
+  border: 4px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  min-height: 48px;
+}
+
+.admin-archive-big-box::-webkit-scrollbar-thumb:hover {
+  background: var(--archive-accent);
+  background-clip: content-box;
+}
+
+/* ---- Archive grid: cards rise in one by one (ui-animation: enter curve, 45ms stagger) ---- */
+@keyframes archive-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.admin-archive-grid > .archive-item-card {
+  /* backwards fill: hover transforms still work once the entrance ends */
+  animation: archive-card-in 380ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 8) * 45ms);
+}
+
+.admin-archive-grid > .archive-item-card:nth-child(2)  { --i: 0; }
+.admin-archive-grid > .archive-item-card:nth-child(3)  { --i: 1; }
+.admin-archive-grid > .archive-item-card:nth-child(4)  { --i: 2; }
+.admin-archive-grid > .archive-item-card:nth-child(5)  { --i: 3; }
+.admin-archive-grid > .archive-item-card:nth-child(6)  { --i: 4; }
+.admin-archive-grid > .archive-item-card:nth-child(7)  { --i: 5; }
+.admin-archive-grid > .archive-item-card:nth-child(8)  { --i: 6; }
+.admin-archive-grid > .archive-item-card:nth-child(9)  { --i: 7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-archive-grid > .archive-item-card {
+    animation: none;
+  }
+}
+
+
+/* ---- Floating bottom-window toast for .admin-inventory-notice (zero layout shift) ---- */
+@keyframes archive-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.admin-inventory-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1200;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 32px));
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #cfe3d1;
+  border-radius: 14px;
+  background: #f2faf3;
+  color: #245830;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 14px 32px -12px rgba(24, 52, 30, 0.28), 0 2px 6px rgba(24, 52, 30, 0.08);
+  animation: archive-toast-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  backface-visibility: hidden;
+}
+
+.admin-inventory-notice svg {
+  flex: 0 0 auto;
+  color: #2e7d32;
+}
+
+.admin-inventory-notice span {
+  flex: 1 1 auto;
+  line-height: 1.4;
+}
+
+.admin-inventory-notice button {
+  margin-left: 6px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(36, 88, 48, 0.08);
+  color: #245830;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.admin-inventory-notice button:hover {
+  background: rgba(36, 88, 48, 0.16);
+}
+
+@media (max-width: 640px) {
+  .admin-inventory-notice {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-inventory-notice {
+    animation: none;
+  }
 }

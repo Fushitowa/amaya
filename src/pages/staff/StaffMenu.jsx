@@ -1,20 +1,26 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   CakeSlice,
+  ChevronUp,
   Coffee,
   Cookie,
   CupSoda,
   GlassWater,
   LayoutGrid,
+  Menu,
   Sandwich,
+  Search,
   Settings,
   ShoppingBag,
   Utensils,
+  X,
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
+import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import MenuProductImage from "../../components/MenuProductImage.jsx";
+import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu, resolveProductSizes } from "../../context/MenuContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
@@ -26,6 +32,7 @@ import {
 import { StaffQuantityModal } from "./StaffQuantity.jsx";
 
 import "../../assets/css/staff/staff-menu.css";
+import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -95,6 +102,18 @@ function StaffMenu() {
   const location = useLocation();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 800px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerName, setCustomerName] = useState("Walk-in Customer");
@@ -370,30 +389,89 @@ function StaffMenu() {
   };
 
   return (
-    <div className={`staff-menu-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div
+      className={`staff-menu-page ${darkMode ? "dark-mode" : ""} ${
+        sidebarCollapsed ? "sidebar-collapsed" : ""
+      } ${mobileNavOpen ? "mobile-nav-open" : ""} ${isMobile ? "is-mobile" : ""} ${
+        mobileCartOpen ? "mobile-cart-open" : ""
+      }`}
+    >
+      {/* Mobile Sidebar Backdrop */}
+      {mobileNavOpen && (
+        <div
+          className="staff-menu-mobile-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Sidebar Navigation */}
       <Sidebar
         role="staff"
         activeTab="menu"
         orderCount={orders.filter((o) => o.status === "Pending").length}
         sidebarCollapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((c) => !c)}
+        onToggle={() => {
+          if (typeof window !== "undefined" && window.innerWidth <= 800) {
+            setMobileNavOpen(false);
+          } else {
+            setSidebarCollapsed((c) => !c);
+          }
+        }}
       />
 
       {/* Main Menu Grid Area */}
       <main className="staff-menu-main">
-        {/* Consolidated Compact Header: Title + Count Badge + Search in one 34px row */}
-        <section className="staff-menu-top">
-          <div className="staff-menu-top-heading">
-            <h1 className="staff-menu-title">Menu &amp; Quick Ordering</h1>
-            <span className="staff-menu-count-badge">
-              {visibleItems.length} Available
-            </span>
+        {isMobile ? (
+          <header className="sm-appbar">
+            <div className="sm-appbar-row">
+              <button type="button" className="sm-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu">
+                <Menu size={24} />
+              </button>
+              <div className="sm-appbar-title">
+                <h1>Menu</h1>
+                <span>{visibleItems.length} items available</span>
+              </div>
+              <StaffNotificationBell />
+            </div>
+            <label className="sm-search">
+              <Search size={20} aria-hidden="true" />
+              <input type="search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search menu" aria-label="Search menu items" />
+              {searchTerm && (
+                <button type="button" onClick={() => setSearchTerm("")} aria-label="Clear search"><X size={18} /></button>
+              )}
+            </label>
+          </header>
+        ) : (
+          <>
+        {/* Full-Width Edge-to-Edge POS Topbar */}
+        <header className="staff-menu-top">
+          <div className="staff-menu-top-brand-row">
+            <button
+              type="button"
+              className="staff-menu-mobile-nav-btn"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+            >
+              <Menu size={20} strokeWidth={2.2} />
+            </button>
+
+            <div className="staff-menu-top-left">
+              <span className="staff-menu-top-eyebrow">STAFF PORTAL</span>
+              <div className="staff-menu-top-heading">
+                <h1 className="staff-menu-title">Menu &amp; Quick Ordering</h1>
+                <span className="staff-menu-count-badge" aria-live="polite">
+                  {visibleItems.length} Available
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="staff-menu-top-actions">
             <div className="staff-menu-search">
-              <span className="staff-menu-search-icon" aria-hidden="true">🔍</span>
+              <span className="staff-menu-search-icon" aria-hidden="true">
+                <Search size={16} strokeWidth={2.1} />
+              </span>
               <input
                 type="search"
                 value={searchTerm}
@@ -408,12 +486,28 @@ function StaffMenu() {
                   onClick={() => setSearchTerm("")}
                   aria-label="Clear search"
                 >
-                  ✕
+                  <X size={13} strokeWidth={2.4} aria-hidden="true" />
                 </button>
               )}
             </div>
+
+            <div className="staff-menu-top-utility">
+              <StaffNotificationBell />
+
+              <div className="staff-menu-user" title="Active POS Cashier">
+                <div className="amaya-user-avatar">
+                  <img src={staffAvatar} alt="" aria-hidden="true" className="tinted" />
+                </div>
+                <div className="staff-menu-user-info">
+                  <strong>Staff User</strong>
+                  <span>Barista &amp; Cashier</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </section>
+        </header>
+          </>
+        )}
 
         {/* Slim Horizontal Category Pill Row (Clean CSS classes, zero inline styles) */}
         <section className="staff-menu-category-tabs" aria-label="Menu categories">
@@ -430,13 +524,45 @@ function StaffMenu() {
                 onClick={() => setActiveCategory(key)}
                 aria-pressed={isActive}
               >
-                <span className="category-tab-icon" aria-hidden="true"><Icon size={15} strokeWidth={2} /></span>
+                <span className="category-tab-icon" aria-hidden="true"><Icon size={16} strokeWidth={2} /></span>
                 <span className="category-tab-label">{label}</span>
               </button>
             );
           })}
         </section>
 
+        {isMobile ? (
+          <ul className="sm-list">
+            {visibleItems.length > 0 ? visibleItems.map((item, index) => {
+              const out = isItemOutOfStock(item);
+              const inCart = order.filter((o) => o.productId === item.id).reduce((n, o) => n + Number(o.quantity || 0), 0);
+              return (
+                <li key={`${item.title}-${index}`} className={`sm-item ${out ? "out" : ""}`}>
+                  <button type="button" className="sm-item-main" onClick={() => setCustomizingItem(item)} aria-label={`Customize ${item.title}`}>
+                    <span className="sm-thumb">
+                      <MenuProductImage src={item.image} alt="" className="staff-menu-card-image" />
+                      {inCart > 0 && <b>{inCart}</b>}
+                    </span>
+                    <span className="sm-item-text">
+                      <small>{item.category || "Menu Item"}</small>
+                      <strong>{item.title}</strong>
+                      <span className="sm-price">{out ? "Out of stock" : `₱${item.price.toFixed(2)}`}</span>
+                    </span>
+                  </button>
+                  <button type="button" className="sm-add" disabled={out} onClick={() => quickAddToOrder(item)} aria-label={`Quick add ${item.title}`}>
+                    <span aria-hidden="true">+</span>
+                  </button>
+                </li>
+              );
+            }) : (
+              <li className="sm-empty">
+                <p>No menu items match your search.</p>
+                <button type="button" onClick={() => { setActiveCategory("all"); setSearchTerm(""); }}>Reset filters</button>
+              </li>
+            )}
+          </ul>
+        ) : (
+          <>
         {/* Product Cards Grid */}
         <section className="staff-menu-grid">
           {visibleItems.length > 0 ? (
@@ -491,7 +617,7 @@ function StaffMenu() {
                         onClick={() => setCustomizingItem(item)}
                         title="Customize modifiers"
                       >
-                        <Settings size={13} strokeWidth={2} /> Customize
+                        <Settings size={14} strokeWidth={2} /> Customize
                       </button>
 
                       <button
@@ -521,11 +647,29 @@ function StaffMenu() {
             </div>
           )}
         </section>
+          </>
+        )}
       </main>
+
+      {/* Mobile Cart Sheet Backdrop */}
+      {mobileCartOpen && (
+        <div
+          className="staff-menu-cart-backdrop"
+          onClick={() => setMobileCartOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* Right Cart & POS Register Panel */}
       <aside className="staff-menu-order-panel">
         <div className="staff-menu-order-card">
+          <div
+            className="staff-menu-order-sheet-handle"
+            onClick={() => setMobileCartOpen(false)}
+            aria-hidden="true"
+          >
+            <span />
+          </div>
           <div className="staff-menu-order-card-head">
             <div>
               <span className="order-label">
@@ -535,7 +679,17 @@ function StaffMenu() {
                 {totalItems} item{totalItems === 1 ? "" : "s"} · {order.length} line{order.length === 1 ? "" : "s"}
               </span>
             </div>
-            <span className="staff-menu-order-status">Draft</span>
+            <div className="staff-menu-order-head-actions">
+              <span className="staff-menu-order-status">Draft</span>
+              <button
+                type="button"
+                className="staff-menu-cart-close"
+                onClick={() => setMobileCartOpen(false)}
+                aria-label="Close order drawer"
+              >
+                <X size={18} strokeWidth={2.2} />
+              </button>
+            </div>
           </div>
 
           <section className="staff-menu-order-setup" aria-label="Order details">
@@ -558,13 +712,13 @@ function StaffMenu() {
 
             <label className="staff-menu-order-field" htmlFor="staff-order-customer">
               <span className="staff-menu-field-label">Customer Info</span>
-            <input
+              <input
                 id="staff-order-customer"
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Walk-in Customer"
-            />
+              />
             </label>
 
             <label className="staff-menu-order-field" htmlFor="staff-order-note">
@@ -646,6 +800,44 @@ function StaffMenu() {
         </div>
       </aside>
 
+      {/* Mobile Sticky Bottom Cart Bar */}
+      <div className="staff-menu-mobile-cart-bar" role="region" aria-label="Order summary bar">
+        <button
+          type="button"
+          className="staff-menu-mobile-cart-trigger"
+          onClick={() => setMobileCartOpen((open) => !open)}
+          aria-expanded={mobileCartOpen}
+        >
+          <span className="staff-menu-mobile-cart-badge">
+            <ShoppingBag size={18} strokeWidth={2.2} />
+            {totalItems > 0 && <b className="staff-menu-mobile-cart-count">{totalItems}</b>}
+          </span>
+          <span className="staff-menu-mobile-cart-meta">
+            <strong>₱{currentOrderTotal.toFixed(2)}</strong>
+            <small>
+              {totalItems > 0
+                ? `${totalItems} item${totalItems === 1 ? "" : "s"} · Tap to review order`
+                : "No items yet · Tap to open register"}
+            </small>
+          </span>
+          <ChevronUp
+            size={18}
+            strokeWidth={2.4}
+            className={`staff-menu-mobile-cart-chevron ${mobileCartOpen ? "open" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+
+        <button
+          type="button"
+          className="staff-menu-mobile-cart-checkout"
+          disabled={order.length === 0}
+          onClick={handlePlaceOrder}
+        >
+          Checkout <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
       {/* Staff Quantity & Modifiers Modal (Inline Popup) */}
       {customizingItem && (
         <StaffQuantityModal
@@ -658,21 +850,7 @@ function StaffMenu() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "24px",
-            right: "24px",
-            background: "#2d1f1a",
-            color: "#fff",
-            padding: "10px 18px",
-            borderRadius: "8px",
-            fontSize: "12px",
-            fontWeight: 600,
-            boxShadow: "0 6px 20px rgba(0, 0, 0, 0.25)",
-            zIndex: 1200,
-          }}
-        >
+        <div className="staff-menu-toast" role="status" aria-live="polite">
           ✓ {toastMessage}
         </div>
       )}

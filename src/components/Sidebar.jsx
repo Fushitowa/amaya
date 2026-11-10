@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArrowLeft,
   BarChart2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   LayoutGrid,
   LogOut,
   Package,
@@ -72,6 +73,16 @@ function Sidebar({
 }) {
   const { logout } = useAuth();
   const [animatedItem, setAnimatedItem] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef(null);
+
+  useEffect(() => {
+    if (!accountOpen) return undefined;
+    const close = (e) => { if (e.type === "keydown" ? e.key === "Escape" : !accountRef.current?.contains(e.target)) setAccountOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", close); };
+  }, [accountOpen]);
   const resolvedSections = sections || NAV_BY_ROLE.admin;
   const portalLabel = role === "staff" ? "Staff Portal" : "Admin Portal";
 
@@ -144,7 +155,9 @@ function Sidebar({
         ))}
       </nav>
 
-      <div className="amaya-sidebar-bottom">
+      <div className="amaya-sidebar-bottom" ref={accountRef}>
+        {role !== "admin" && (
+          <>
         <a
           href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"}
           className="amaya-sidebar-link"
@@ -162,16 +175,40 @@ function Sidebar({
           <LogOut aria-hidden="true" />
           <span className="amaya-sidebar-link-label">Log Out</span>
         </Link>
+        </>
+        )}
         {role === "admin" && (
-          <div className="amaya-sidebar-profile" title="Administrator account">
-            <div className="amaya-sidebar-profile-avatar">
-              <img src={adminAvatar} alt="" aria-hidden="true" />
-            </div>
-            <div className="amaya-sidebar-profile-copy">
-              <strong>Administrator</strong>
-              <span>Admin</span>
-            </div>
-          </div>
+          <>
+            {accountOpen && (
+              <div className="amaya-sidebar-account-menu" role="menu">
+                <a href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"} className="amaya-sidebar-link" role="menuitem">
+                  <ArrowLeft aria-hidden="true" />
+                  <span className="amaya-sidebar-link-label">Back to Website</span>
+                </a>
+                <Link to="/login" className="amaya-sidebar-link amaya-sidebar-link--logout" onClick={logout} role="menuitem">
+                  <LogOut aria-hidden="true" />
+                  <span className="amaya-sidebar-link-label">Log Out</span>
+                </Link>
+              </div>
+            )}
+            <button
+              type="button"
+              className="amaya-sidebar-profile amaya-sidebar-profile--button"
+              title="Administrator account"
+              aria-haspopup="menu"
+              aria-expanded={accountOpen}
+              onClick={() => setAccountOpen((o) => !o)}
+            >
+              <div className="amaya-sidebar-profile-avatar">
+                <img src={adminAvatar} alt="" aria-hidden="true" />
+              </div>
+              <div className="amaya-sidebar-profile-copy">
+                <strong>Administrator</strong>
+                <span>Admin</span>
+              </div>
+              <ChevronUp className="amaya-sidebar-profile-chevron" aria-hidden="true" />
+            </button>
+          </>
         )}
       </div>
     </aside>

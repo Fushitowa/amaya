@@ -421,11 +421,7 @@ async function runRecover(customFilename = null) {
     try {
       await connection.query("SET FOREIGN_KEY_CHECKS = 0");
 
-      // 1. Upsert categories first so all category IDs exist
-      await upsertRowsIntoTable(connection, "menu_categories", tables.menu_categories || [], true);
-      await upsertRowsIntoTable(connection, "inventory_categories", tables.inventory_categories || [], true);
-
-      // 2. Clear active catalog & inventory tables before restoring exact archived rows
+      // 1. Clear active catalog & inventory tables before restoring exact archived rows
       for (const table of CLEAN_DELETE_TABLES) {
         if (await tableExists(connection, table)) {
           await connection.query(`DELETE FROM \`${table}\``);
@@ -436,6 +432,10 @@ async function runRecover(customFilename = null) {
           }
         }
       }
+
+      // 2. Restore categories first so all foreign key category IDs exist
+      await upsertRowsIntoTable(connection, "menu_categories", tables.menu_categories || [], true);
+      await upsertRowsIntoTable(connection, "inventory_categories", tables.inventory_categories || [], true);
 
       // 3. Re-insert all archived rows preserving primary keys, timestamps, decimals, and recipes
       for (const table of RECOVER_DATA_TABLES) {

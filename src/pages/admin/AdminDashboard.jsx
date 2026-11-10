@@ -1,20 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
+  Award,
   ChartNoAxesColumnIncreasing,
+  Menu,
   CircleDollarSign,
   Coins,
   Plus,
   ShoppingBag,
   TrendingUp,
   Warehouse,
+  UserRound,
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isToday, useOrders } from "../../context/OrdersContext.jsx";
-import { useInventory } from "../../context/InventoryContext.jsx";
+import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
+import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
+import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminDashboard.css";
 import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
@@ -24,8 +29,20 @@ import "../../assets/css/sidebar-collapse.css";
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders } = useOrders();
-  const { inventory } = useInventory() || { inventory: [] };
+  const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
+  const { products = [] } = useMenu() || {};
   const [salesRange, setSalesRange] = useState("today");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 800px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   // 1. Total Sales (strictly from verified Paid orders)
   const paidOrders = useMemo(() => orders.filter((order) => order.payment === "Paid"), [orders]);
@@ -101,6 +118,154 @@ function AdminDashboard() {
     return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() !== "cash");
   }, [todaysPaidOrders]);
 
+  const [stockFilter, setStockFilter] = useState("all");
+
+  const lowStockReport = useMemo(() => {
+    return (inventory || [])
+      .map((entry) => {
+        const status = getInventoryStatus(entry.quantity, entry.maximumStock);
+        if (status === "Over Maximum") return null;
+        const quantity = Number(entry.quantity || 0);
+        const parsedMaximumStock = entry.maximumStock == null || entry.maximumStock === "" ? null : Number(entry.maximumStock);
+        const maximumStock = Number.isFinite(parsedMaximumStock) && parsedMaximumStock > 0 ? parsedMaximumStock : null;
+        const { capacityPercent, reportedPercent, tone: healthTone } = getStockHealth(
+          quantity,
+          maximumStock,
+          { overMaximum: false },
+        );
+        const isOutOfStock = status === "Out of Stock" || quantity <= 0;
+        const effectiveTone = isOutOfStock ? "critical" : healthTone;
+        if (!["critical", "low", "moderate"].includes(effectiveTone)) return null;
+
+        const healthLabel = isOutOfStock
+          ? "Out of stock"
+          : effectiveTone === "critical"
+            ? "Critical"
+            : effectiveTone === "low"
+              ? "Running low"
+              : "Moderate";
+
+        return {
+          id: entry.id,
+          item: entry.item,
+          category: entry.category || "Uncategorized",
+          quantity,
+          unit: entry.unit || "units",
+          maximumStock,
+          capacityPercent: isOutOfStock && capacityPercent == null ? 0 : capacityPercent,
+          reportedPercent: isOutOfStock && reportedPercent == null ? 0 : reportedPercent,
+          healthTone: effectiveTone,
+          label: healthLabel,
+        };
+      })
+      .filter(Boolean);
+  }, [inventory]);
+
+  const lowStockBreakdown = useMemo(() => ({
+    total: lowStockReport.length,
+    critical: lowStockReport.filter((item) => item.healthTone === "critical").length,
+    low: lowStockReport.filter((item) => item.healthTone === "low").length,
+    moderate: lowStockReport.filter((item) => item.healthTone === "moderate").length,
+  }), [lowStockReport]);
+
+  const visibleLowStock = useMemo(() => {
+    const filtered = stockFilter === "all"
+      ? lowStockReport
+      : stockFilter === "lowest"
+        ? lowStockReport.filter((item) => item.healthTone === "critical" || item.healthTone === "low")
+        : lowStockReport.filter((item) => item.healthTone === "moderate");
+
+    const byName = (a, b) => a.item.localeCompare(b.item, undefined, { sensitivity: "base" });
+    const levelValue = (item) => (item.reportedPercent == null ? 0 : item.reportedPercent);
+    return [...filtered].sort((a, b) => levelValue(a) - levelValue(b) || a.quantity - b.quantity || byName(a, b));
+  }, [lowStockReport, stockFilter]);
+
+  const [topProductsTab, setTopProductsTab] = useState("all");
+  const rankedProducts = useMemo(() => {
+    const sourceOrders = topProductsTab === "today" ? todaysPaidOrders : paidOrders;
+    const byKey = new Map();
+    const nameToKey = new Map();
+
+    products.forEach((product) => {
+      const key = `id:${product.id}`;
+      const normName = String(product.name || "").trim().toLowerCase();
+      if (normName) nameToKey.set(normName, key);
+      byKey.set(key, {
+        key,
+        productId: product.id,
+        name: product.name,
+        category: product.category || "Menu item",
+        basePrice: parseMenuPrice(product.price),
+        image: product.image || "",
+        inCatalog: true,
+        unitsSold: 0,
+        revenue: 0,
+        cogs: 0,
+        orderIds: new Set(),
+        sizes: {},
+      });
+    });
+
+    sourceOrders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const qty = Number(item.quantity || 0);
+        if (qty <= 0) return;
+        const unitPrice = Number(item.price || 0);
+        const unitCost = item.unitCost != null ? Number(item.unitCost) : 0;
+        const title = String(item.title || "Menu Item").trim();
+        const normName = title.toLowerCase();
+        let key = item.productId != null && byKey.has(`id:${item.productId}`)
+          ? `id:${item.productId}`
+          : nameToKey.get(normName) || (item.productId != null ? `id:${item.productId}` : `name:${normName}`);
+
+        if (!byKey.has(key)) {
+          byKey.set(key, {
+            key,
+            productId: item.productId ?? null,
+            name: title,
+            category: item.category || "Archived item",
+            basePrice: unitPrice,
+            image: "",
+            inCatalog: false,
+            unitsSold: 0,
+            revenue: 0,
+            cogs: 0,
+            orderIds: new Set(),
+            sizes: {},
+          });
+          if (normName) nameToKey.set(normName, key);
+        }
+
+        const entry = byKey.get(key);
+        entry.unitsSold += qty;
+        entry.revenue += qty * unitPrice;
+        entry.cogs += qty * unitCost;
+        entry.orderIds.add(order.id);
+        const sizeLabel = String(item.size || "Regular").trim();
+        entry.sizes[sizeLabel] = (entry.sizes[sizeLabel] || 0) + qty;
+      });
+    });
+
+    const list = [...byKey.values()].map((entry) => {
+      const topSizeEntry = Object.entries(entry.sizes).sort((a, b) => b[1] - a[1])[0];
+      return {
+        ...entry,
+        ordersCount: entry.orderIds.size,
+        profit: entry.revenue - entry.cogs,
+        topSize: topSizeEntry ? topSizeEntry[0] : null,
+      };
+    });
+
+    list.sort((a, b) => b.unitsSold - a.unitsSold || b.revenue - a.revenue || a.name.localeCompare(b.name));
+    const totalUnits = list.reduce((sum, item) => sum + item.unitsSold, 0);
+    const maxUnits = Math.max(1, list[0]?.unitsSold || 0);
+    return list.map((item, idx) => ({
+      ...item,
+      rank: idx + 1,
+      sharePercent: totalUnits > 0 ? (item.unitsSold / totalUnits) * 100 : 0,
+      barPercent: item.unitsSold > 0 ? Math.max(6, (item.unitsSold / maxUnits) * 100) : 0,
+    }));
+  }, [paidOrders, products, todaysPaidOrders, topProductsTab]);
   const [ordersTab, setOrdersTab] = useState("today");
   const todaysOrders = useMemo(() => orders.filter((order) => isToday(order.createdAt)), [orders]);
   const displayOrders = ordersTab === "today" ? todaysOrders : orders;
@@ -180,6 +345,176 @@ function AdminDashboard() {
   const chartMaximum = Math.max(1, ...salesBuckets.map((bucket) => bucket.total));
   const chartRangeLabel = salesRange === "today" ? "today's session" : salesRange === "year" ? "this year" : salesRange === "month" ? "last 30 days" : "last 7 days";
 
+  const contentRef = useRef(null);
+  const headerRef = useRef(null);
+  const [docked, setDocked] = useState(false);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    const header = headerRef.current;
+    if (!content) return undefined;
+    const DOCK_BAR_H = 56;
+    let rafId = 0;
+    let cachedLimit = Math.max(40, (header ? header.offsetHeight : 120) - DOCK_BAR_H);
+
+    const syncHeight = () => {
+      if (!header) return;
+      const h = header.offsetHeight;
+      cachedLimit = Math.max(40, h - DOCK_BAR_H);
+      content.style.setProperty("--dash-header-h", `${h}px`);
+    };
+
+    const updateDock = () => {
+      rafId = 0;
+      const y = content.scrollTop;
+      setDocked((prev) => (prev ? y > cachedLimit - 36 : y > cachedLimit));
+    };
+
+    const onScroll = () => {
+      if (!rafId) rafId = window.requestAnimationFrame(updateDock);
+    };
+
+    syncHeight();
+    updateDock();
+    content.addEventListener("scroll", onScroll, { passive: true });
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncHeight) : null;
+    if (observer && header) observer.observe(header);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      content.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+    };
+  }, []);
+  if (isMobile) {
+    const ranges = [["today", "Today"], ["week", "7 days"], ["month", "30 days"], ["year", "Year"]];
+    const metrics = [
+      { label: "Units sold", value: `${todaysUnitsSold}`, Icon: ShoppingBag, tone: "amber" },
+      { label: "Cash today", value: `₱${todaysCashCollected.toFixed(0)}`, Icon: Coins, tone: "green" },
+      { label: "Inventory", value: `₱${inventoryAssetValue.toFixed(0)}`, Icon: Warehouse, tone: "blue" },
+      { label: "Margin", value: `${todaysMarginPercent.toFixed(0)}%`, Icon: TrendingUp, tone: "plum" },
+    ];
+    const topList = rankedProducts.filter((x) => x.unitsSold > 0).slice(0, 8);
+    const recent = displayOrders.slice(0, 15);
+    return (
+      <div className={`admin-dashboard is-mobile ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+        {mobileNavOpen && <div className="ad-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
+        <Sidebar role="admin" activeTab="dashboard" orderCount={orders.length} sidebarCollapsed={false} onToggle={() => setMobileNavOpen(false)} />
+
+        <main className="ad-main">
+          <header className="ad-appbar">
+            <button type="button" className="ad-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu"><Menu size={24} /></button>
+            <div className="ad-appbar-title"><span>{liveDate}</span><h1>Admin Dashboard</h1></div>
+          </header>
+
+          <section className="ad-hero" aria-label="Today's sales">
+            <span className="ad-hero-label">Today&apos;s sales (paid)</span>
+            <strong className="ad-hero-amount">₱{todaysSales.toFixed(2)}</strong>
+            <span className="ad-hero-pill"><TrendingUp size={14} aria-hidden="true" />₱{todaysProfit.toFixed(2)} profit</span>
+            <span className="ad-hero-sub">{todaysPaidOrders.length} order{todaysPaidOrders.length === 1 ? "" : "s"} settled · All-time ₱{allTimeSales.toFixed(2)}</span>
+          </section>
+
+          <section className="ad-metrics" aria-label="Key metrics">
+            {metrics.map(({ label, value, Icon, tone }) => (
+              <div key={label} className={`ad-metric ${tone}`}>
+                <span className="ad-metric-icon"><Icon size={19} aria-hidden="true" /></span>
+                <strong>{value}</strong>
+                <span>{label}</span>
+              </div>
+            ))}
+          </section>
+
+          <section className="ad-card">
+            <div className="ad-card-head"><h2>Sales trend</h2><strong>₱{periodSales.toFixed(0)}</strong></div>
+            <div className="ad-chips" role="tablist" aria-label="Sales range">
+              {ranges.map(([key, label]) => (
+                <button key={key} type="button" role="tab" aria-selected={salesRange === key} className={salesRange === key ? "on" : ""} onClick={() => setSalesRange(key)}>{label}</button>
+              ))}
+            </div>
+            <div className="ad-chart" role="img" aria-label={`Sales for ${chartRangeLabel}`}>
+              {salesBuckets.map((b) => (
+                <div key={b.label} className="ad-bar">
+                  <i style={{ height: `${Math.max(b.total > 0 ? 6 : 2, (b.total / chartMaximum) * 100)}%` }} className={b.total > 0 ? "has" : ""} />
+                  <span>{b.label}</span>
+                </div>
+              ))}
+            </div>
+            <small className="ad-note">Profit for {chartRangeLabel}: ₱{periodProfit.toFixed(2)}</small>
+          </section>
+
+          <section className="ad-card">
+            <div className="ad-card-head">
+              <h2>Top products</h2>
+              <div className="ad-seg">
+                <button type="button" className={topProductsTab === "all" ? "on" : ""} onClick={() => setTopProductsTab("all")}>All</button>
+                <button type="button" className={topProductsTab === "today" ? "on" : ""} onClick={() => setTopProductsTab("today")}>Today</button>
+              </div>
+            </div>
+            {topList.length ? (
+              <ol className="ad-top">
+                {topList.map((x) => (
+                  <li key={x.key}>
+                    <b className="ad-rank">{x.rank}</b>
+                    <span className="ad-top-body">
+                      <span className="ad-top-line"><strong>{x.name}</strong><em>{x.unitsSold} sold</em></span>
+                      <span className="ad-top-track"><i style={{ width: `${x.barPercent}%` }} /></span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : <p className="ad-empty">No paid sales yet.</p>}
+          </section>
+
+          <section className="ad-card">
+            <div className="ad-card-head">
+              <h2>Orders</h2>
+              <div className="ad-seg">
+                <button type="button" className={ordersTab === "today" ? "on" : ""} onClick={() => setOrdersTab("today")}>Today</button>
+                <button type="button" className={ordersTab === "all" ? "on" : ""} onClick={() => setOrdersTab("all")}>All</button>
+              </div>
+            </div>
+            {recent.length ? (
+              <ul className="ad-orders">
+                {recent.map((o) => (
+                  <li key={o.id}>
+                    <span className={`ad-dot ${String(o.status).toLowerCase()}`} aria-hidden="true" />
+                    <span className="ad-order-text"><strong>#{o.id}</strong><small>{(o.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0)} items · {o.type || "Counter"}</small></span>
+                    <span className="ad-order-end"><b>₱{Number(o.total || 0).toFixed(2)}</b><em className={String(o.status).toLowerCase()}>{o.status}</em></span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="ad-empty">No orders to show.</p>}
+          </section>
+
+          <section className="ad-card" aria-label="Inventory stock watch">
+            <div className="ad-card-head">
+              <h2>Stock watchlist</h2>
+              <Link to="/admin/inventory" className="ad-card-link">Inventory <ArrowUpRight size={14} aria-hidden="true" /></Link>
+            </div>
+            {lowStockReport.length ? (
+              <ul className="ad-orders ad-stock-list">
+                {lowStockReport.slice(0, 12).map((item) => (
+                  <li key={item.id ?? item.item}>
+                    <span className={`ad-dot ${item.healthTone}`} aria-hidden="true" />
+                    <span className="ad-order-text">
+                      <strong>{item.item}</strong>
+                      <small>{item.category} · {item.quantity.toLocaleString()} {item.unit}{item.maximumStock ? ` / ${item.maximumStock.toLocaleString()} max` : ""}</small>
+                    </span>
+                    <span className="ad-order-end">
+                      <b>{item.reportedPercent != null ? `${item.reportedPercent}%` : "0%"}</b>
+                      <em className={item.healthTone}>{item.label}</em>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="ad-empty">All inventory items are well stocked.</p>}
+          </section>
+        </main>
+
+        <Link to="/admin/menu" className="ad-fab"><Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add item</Link>
+      </div>
+    );
+  }
+
   return (
     <div className={`admin-dashboard ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <Sidebar
@@ -191,26 +526,23 @@ function AdminDashboard() {
       />
 
       <main className="admin-main">
-        <header className="admin-topbar">
-          <div className="admin-page-title">
-            <h1>Dashboard</h1>
-            <p>Overview of your Amaya business</p>
-          </div>
-
-          <div className="admin-topbar-right">
-          </div>
-        </header>
-
-        <div className="admin-content">
-          <PortalHero
+        <div className={`admin-content${docked ? " is-docked" : ""}`} ref={contentRef}>
+          <div className="admin-sticky-header" ref={headerRef}>
+            <PortalHero
             label="Administrator"
             greeting="Welcome back"
             highlight="Admin!"
             subtitle="Here’s what’s happening with Amaya today."
             date={liveDate}
             statusTitle="System active"
-          />
-
+            />
+            <div className="admin-header-dock" aria-hidden={!docked}>
+              <div className="dock-chip stat-card-sales"><CircleDollarSign size={15} strokeWidth={1.9} /><span>Sales</span><strong>₱{todaysSales.toFixed(2)}</strong></div>
+              <div className="dock-chip stat-card-orders"><ShoppingBag size={15} strokeWidth={1.9} /><span>Sold</span><strong>{todaysUnitsSold} units</strong></div>
+              <div className="dock-chip stat-card-pending"><Warehouse size={15} strokeWidth={1.9} /><span>Inventory</span><strong>₱{inventoryAssetValue.toFixed(2)}</strong></div>
+              <div className="dock-chip stat-card-products"><Coins size={15} strokeWidth={1.9} /><span>Cash</span><strong>₱{todaysCashCollected.toFixed(2)}</strong></div>
+            </div>
+          </div>
           <section className="admin-stats">
             <div className="admin-stat-card stat-card-sales">
               <div className="stat-icon"><CircleDollarSign size={21} strokeWidth={1.8} /></div>
@@ -336,57 +668,6 @@ function AdminDashboard() {
 
 
             
-            <div className="admin-panel quick-panel">
-
-              <div className="panel-header">
-                <div>
-                  <h3>Quick Actions</h3>
-                  <p>Manage your business</p>
-                </div>
-              </div>
-
-              <div className="quick-actions">
-
-                <Link
-                  to="/admin/menu"
-                  className="quick-action"
-                >
-                  <span className="quick-icon"><Plus size={19} /></span>
-
-                  <div>
-                    <strong>Add Product</strong>
-                    <span>Add a new menu item</span>
-                  </div>
-
-                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
-                </Link>
-
-
-                <Link
-                  to="/admin/reports"
-                  className="quick-action"
-                >
-                  <span className="quick-icon"><ChartNoAxesColumnIncreasing size={18} /></span>
-
-                  <div>
-                    <strong>View Reports</strong>
-                    <span>Check sales reports</span>
-                  </div>
-
-                  <span className="quick-arrow"><ArrowUpRight size={16} /></span>
-                </Link>
-
-              </div>
-
-            </div>
-
-          </section>
-
-
-          
-          <section className="admin-bottom-grid">
-
-            
             <div className="admin-panel orders-panel">
 
               <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
@@ -466,7 +747,7 @@ function AdminDashboard() {
                           <td>{order.customer || "Walk-in Customer"}</td>
                           <td>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 8px", background: "rgba(139, 94, 60, 0.12)", border: "1px solid rgba(139, 94, 60, 0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", color: "#8B5E3C" }}>
-                              👤 {order.cashier || "Staff"}
+                              <UserRound size={13} aria-hidden="true" /> {order.cashier || "Staff"}
                             </span>
                           </td>
                           <td>₱{Number(order.total || 0).toFixed(2)}</td>
@@ -485,6 +766,208 @@ function AdminDashboard() {
               </div>
 
             </div>
+
+          </section>
+
+
+          
+          <section className="admin-bottom-grid">
+            <div className="admin-panel top-products-panel">
+              <div className="panel-header top-products-header">
+                <div>
+                  <h3>Most Bought Menu Products</h3>
+                  <p>
+                    {topProductsTab === "today"
+                      ? `Ranked by paid units sold today (${todaysUnitsSold} units across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items)`
+                      : `All-time paid product rankings (${allTimeUnitsSold} units across ${rankedProducts.length} menu items)`}
+                  </p>
+                </div>
+                <div className="top-products-tabs" role="tablist" aria-label="Product ranking period">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={topProductsTab === "all"}
+                    className={topProductsTab === "all" ? "active" : ""}
+                    onClick={() => setTopProductsTab("all")}
+                  >
+                    All-Time ({allTimeUnitsSold})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={topProductsTab === "today"}
+                    className={topProductsTab === "today" ? "active" : ""}
+                    onClick={() => setTopProductsTab("today")}
+                  >
+                    Today ({todaysUnitsSold})
+                  </button>
+                </div>
+              </div>
+
+              <div className="top-products-list">
+                {rankedProducts.length === 0 ? (
+                  <div className="empty-orders-state">
+                    <strong>No menu products found</strong>
+                    <span>Add products in Menu Management to track their sales ranking.</span>
+                  </div>
+                ) : (
+                  rankedProducts.map((product) => (
+                    <div
+                      key={product.key}
+                      className={`top-product-row${product.unitsSold > 0 ? " has-sales" : " no-sales"}${product.rank <= 3 && product.unitsSold > 0 ? ` is-top-${product.rank}` : ""}`}
+                    >
+                      <span className="top-product-rank">
+                        {product.rank <= 3 && product.unitsSold > 0 ? (
+                          <Award size={14} aria-hidden="true" />
+                        ) : null}
+                        #{product.rank}
+                      </span>
+
+                      {product.image ? (
+                        <img className="top-product-thumb" src={product.image} alt={product.name} />
+                      ) : (
+                        <div className="top-product-thumb top-product-thumb-fallback" aria-hidden="true">
+                          {product.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+
+                      <div className="top-product-main">
+                        <div className="top-product-title-row">
+                          <strong className="top-product-name">{product.name}</strong>
+                          <span className="top-product-category">{product.category}</span>
+                          {!product.inCatalog && (
+                            <span className="top-product-archived-tag">Archived</span>
+                          )}
+                          {product.topSize && (
+                            <span className="top-product-size-tag">Top: {product.topSize}</span>
+                          )}
+                        </div>
+
+                        <div className="top-product-bar-track" aria-hidden="true">
+                          <div
+                            className="top-product-bar-fill"
+                            style={{ transform: `scaleX(${product.barPercent / 100})` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="top-product-metrics">
+                        <div className="top-product-units">
+                          <strong>{product.unitsSold} sold</strong>
+                          <span>
+                            {product.unitsSold > 0
+                              ? `${product.sharePercent.toFixed(1)}% · ${product.ordersCount} order${product.ordersCount === 1 ? "" : "s"}`
+                              : `Base ₱${product.basePrice.toFixed(2)}`}
+                          </span>
+                        </div>
+                        <div className="top-product-revenue">
+                          <strong>₱{product.revenue.toFixed(2)}</strong>
+                          <span className={product.profit > 0 ? "is-profit" : ""}>
+                            {product.unitsSold > 0 ? `₱${product.profit.toFixed(2)} profit` : "No sales yet"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <section className="admin-panel admin-report-panel inventory-panel low-stock-panel" aria-label="Moderate and lowest stock inventory report">
+              <div className="panel-header top-products-header inventory-panel-heading">
+                <div>
+                  <h3>Stock Watchlist</h3>
+                  <p>
+                    {lowStockBreakdown.total} item{lowStockBreakdown.total === 1 ? "" : "s"} at or below 70% capacity
+                  </p>
+                </div>
+                <div className="inventory-panel-actions">
+                  <div className="top-products-tabs" role="tablist" aria-label="Filter stock watchlist">
+                    {[
+                      ["all", `All (${lowStockBreakdown.total})`],
+                      ["lowest", `Lowest (${lowStockBreakdown.critical + lowStockBreakdown.low})`],
+                      ["moderate", `Moderate (${lowStockBreakdown.moderate})`],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        aria-selected={stockFilter === key}
+                        className={stockFilter === key ? "active" : ""}
+                        onClick={() => setStockFilter(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Link to="/admin/inventory" className="restock-open-button" aria-label="Manage inventory">
+                    Inventory <ArrowUpRight size={13} aria-hidden="true" />
+                  </Link>
+                </div>
+              </div>
+
+              {inventoryLoading && inventory.length === 0 ? (
+                <div className="admin-report-empty compact"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+              ) : inventoryError && inventory.length === 0 ? (
+                <div className="admin-report-empty compact" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+              ) : visibleLowStock.length ? (
+                <div className="inventory-table-wrap stock-table-wrap">
+                  <table className="inventory-table stock-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Inventory item</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Stock level</th>
+                        <th scope="col">Maximum stock</th>
+                        <th scope="col">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleLowStock.map((item) => (
+                        <tr key={item.id ?? item.item}>
+                          <td><strong>{item.item}</strong></td>
+                          <td>{item.category}</td>
+                          <td>
+                            <div className="stock-level-value">
+                              <span>{item.quantity.toLocaleString()} {item.unit}</span>
+                              {item.reportedPercent != null && (
+                                <span className={`stock-level-percent ${item.healthTone}`}>
+                                  {item.reportedPercent}%
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              className="stock-level-track"
+                              role="progressbar"
+                              aria-label={`${item.item} stock level`}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={item.reportedPercent ?? 0}
+                            >
+                              <span
+                                className={`stock-level-fill ${item.healthTone}`}
+                                style={{ width: `${Math.max(item.quantity > 0 ? 4 : 0, item.capacityPercent ?? 0)}%` }}
+                              />
+                            </div>
+                          </td>
+                          <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}</td>
+                          <td>
+                            <span className={`inventory-status ${item.healthTone}`}>
+                              <span aria-hidden="true" />
+                              {item.label}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="admin-report-empty compact">
+                  <strong>All inventory is healthy</strong>
+                  <p>No items are currently in the moderate, running low, or critical range.</p>
+                </div>
+              )}
+            </section>
 
           </section>
 

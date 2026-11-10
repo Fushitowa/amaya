@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -6,8 +6,12 @@ import {
   ClipboardList,
   Package,
   Plus,
+  Clock,
+  Menu,
   Printer,
+  Settings,
   ShoppingBag,
+  Utensils,
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
@@ -27,6 +31,17 @@ function StaffDashboard() {
   const { darkMode } = useTheme();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { orders = [] } = useOrders() || {};
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 800px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   // Formatted date and time-of-day greeting
   const liveDate = useMemo(() => {
@@ -56,6 +71,113 @@ function StaffDashboard() {
   );
 
   const recentOrders = useMemo(() => orders.slice(0, 6), [orders]);
+
+  if (isMobile) {
+    const kpis = [
+      { label: "Today", value: todaysOrders.length, Icon: ShoppingBag, tone: "amber" },
+      { label: "Pending", value: pendingOrders.length, Icon: Clock, tone: "red" },
+      { label: "Preparing", value: preparingOrders.length, Icon: Utensils, tone: "blue" },
+      { label: "Completed", value: completedToday.length, Icon: CheckCircle2, tone: "green" },
+    ];
+    const actions = [
+      { to: "/staff/orders", label: "Order queue", note: "Advance statuses and print receipts", Icon: ClipboardList },
+      { to: "/staff/menu", label: "Menu", note: "Browse items and stock", Icon: Package },
+      { to: "/staff/settings", label: "Printer & settings", note: "Receipt printer and preferences", Icon: Settings },
+    ];
+
+    return (
+      <div className={`staff-dashboard is-mobile ${darkMode ? "dark-mode" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+        {mobileNavOpen && <div className="sd-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
+        <Sidebar
+          role="staff"
+          activeTab="dashboard"
+          orderCount={pendingOrders.length}
+          sidebarCollapsed={false}
+          onToggle={() => setMobileNavOpen(false)}
+        />
+
+        <main className="sd-main">
+          <header className="sd-appbar">
+            <button type="button" className="sd-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu">
+              <Menu size={24} />
+            </button>
+            <div className="sd-appbar-title">
+              <span>{greetingTime}</span>
+              <h1>Staff Dashboard</h1>
+            </div>
+            <StaffNotificationBell />
+          </header>
+
+          <section className="sd-hero" aria-label="Today's revenue">
+            <span className="sd-hero-date">{liveDate}</span>
+            <span className="sd-hero-label">Today&apos;s revenue</span>
+            <strong className="sd-hero-amount">₱{todaysRevenue.toFixed(2)}</strong>
+            <span className="sd-hero-sub">
+              <i aria-hidden="true" />
+              Terminal active · {todaysOrders.length} order{todaysOrders.length === 1 ? "" : "s"} today
+            </span>
+          </section>
+
+          <section className="sd-kpis" aria-label="Quick metrics">
+            {kpis.map(({ label, value, Icon, tone }) => (
+              <Link to="/staff/orders" key={label} className={`sd-kpi ${tone}`}>
+                <span className="sd-kpi-icon"><Icon size={20} aria-hidden="true" /></span>
+                <strong>{value}</strong>
+                <span>{label}</span>
+              </Link>
+            ))}
+          </section>
+
+          <h2 className="sd-section">Shortcuts</h2>
+          <nav className="sd-actions" aria-label="Quick actions">
+            {actions.map(({ to, label, note, Icon }) => (
+              <Link to={to} key={to} className="sd-action">
+                <span className="sd-action-icon"><Icon size={22} aria-hidden="true" /></span>
+                <span className="sd-action-text"><strong>{label}</strong><small>{note}</small></span>
+                <ArrowRight size={20} aria-hidden="true" />
+              </Link>
+            ))}
+          </nav>
+
+          <div className="sd-section-row">
+            <h2 className="sd-section">Recent orders</h2>
+            <Link to="/staff/orders">See all</Link>
+          </div>
+          <ul className="sd-recent">
+            {orders.length ? orders.slice(0, 20).map((order) => {
+              const itemCount = (order.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0);
+              return (
+                <li key={order.id}>
+                  <Link to="/staff/orders" className="sd-recent-row">
+                    <span className={`sd-dot ${String(order.status).toLowerCase()}`} aria-hidden="true" />
+                    <span className="sd-recent-text">
+                      <strong>#{order.id}</strong>
+                      <small>{itemCount} item{itemCount === 1 ? "" : "s"} · {order.type || "Counter"} · {getOrderTime(order.createdAt)}</small>
+                    </span>
+                    <span className="sd-recent-end">
+                      <b>₱{Number(order.total || 0).toFixed(2)}</b>
+                      <em className={String(order.status).toLowerCase()}>{order.status}</em>
+                    </span>
+                  </Link>
+                </li>
+              );
+            }) : (
+              <li className="sd-empty">
+                <ClipboardList size={32} aria-hidden="true" />
+                <strong>No orders yet</strong>
+                <span>New customer orders will appear here.</span>
+              </li>
+            )}
+          </ul>
+        </main>
+
+        <Link to="/staff/menu" className="sd-fab">
+          <Plus size={22} strokeWidth={2.6} aria-hidden="true" />
+          New order
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className={`staff-dashboard ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>

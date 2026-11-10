@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import Sidebar from "../../components/Sidebar.jsx";
 import ErrorBoundary from "../../components/ErrorBoundary.jsx";
-import { AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
+import { Menu, Pencil, AlertTriangle, Archive, Beaker, Check, CheckCircle2, ChevronRight, ClipboardList, Clock, Coffee, ExternalLink, FolderOpen, ImagePlus, List, Package, Plus, Search, Sparkles, Trash2, Utensils, X } from "lucide-react";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
@@ -81,13 +81,14 @@ const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
 };
 const amountAttachedToUnit = (unit) => /^\s*\d+(?:\.\d+)?\s*[a-z]/i.test(String(unit || ""));
 
+const KNOWN_UNITS_LOWER = new Set(supportedUnits.flatMap((group) => group.units.map(([unit]) => unit.toLowerCase())));
+
 function UnitSelect({ value, onChange, ariaLabel, disabled = false, compatibleWith }) {
 	const currentUnit = String(value || "pcs");
-	const knownUnits = supportedUnits.flatMap((group) => group.units.map(([unit]) => unit.toLowerCase()));
 	const compatibleUnit = unitFactors.get(String(compatibleWith || "").trim().toLowerCase());
 	return (
 		<select value={currentUnit} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} disabled={disabled}>
-			{!knownUnits.includes(currentUnit.toLowerCase()) && <option value={currentUnit}>{currentUnit} (current unit)</option>}
+			{!KNOWN_UNITS_LOWER.has(currentUnit.toLowerCase()) && <option value={currentUnit}>{currentUnit} (current unit)</option>}
 			{supportedUnits.map((group) => (
 				<optgroup key={group.group} label={group.group}>
 				{group.units.map(([unit, label]) => {
@@ -191,20 +192,61 @@ function AdminMenuManagement() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingProduct, setEditingProduct] = useState(null);
 	const [itemToDelete, setItemToDelete] = useState(null);
+	const [mobileNavOpen, setMobileNavOpen] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [actionProduct, setActionProduct] = useState(null);
+	const [isMobile, setIsMobile] = useState(
+		() => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+	);
+	useEffect(() => {
+		const query = window.matchMedia("(max-width: 800px)");
+		const sync = () => setIsMobile(query.matches);
+		query.addEventListener("change", sync);
+		return () => query.removeEventListener("change", sync);
+	}, []);
 	const emptyForm = () => ({ name: "", price: "", stock: "", description: "", category: dbCategories[0]?.name || "", image: "", sizes: [], ingredients: [], addons: [], available: true });
+
+	const inventoryLookup = useMemo(() => {
+		const byId = new Map();
+		const byName = new Map();
+		for (const entry of inventory || []) {
+			if (!entry) continue;
+			if (entry.id != null && !Number.isNaN(Number(entry.id))) {
+				byId.set(Number(entry.id), entry);
+			}
+			const nameKey = safeLower(safeItemName(entry));
+			if (nameKey && !byName.has(nameKey)) {
+				byName.set(nameKey, entry);
+			}
+		}
+		return { byId, byName };
+	}, [inventory]);
 
 	const findInventoryItem = (queryOrList, maybeQuery = null, maybeId = null) => {
 		if (Array.isArray(queryOrList)) {
 			return findInventoryItemInList(queryOrList, maybeQuery, maybeId);
 		}
-		return findInventoryItemInList(inventory, queryOrList, maybeQuery);
+		const numericId = maybeQuery != null && !Number.isNaN(Number(maybeQuery)) ? Number(maybeQuery) : null;
+		if (numericId !== null && inventoryLookup.byId.has(numericId)) {
+			return inventoryLookup.byId.get(numericId);
+		}
+		const clean = safeLower(queryOrList);
+		if (clean && inventoryLookup.byName.has(clean)) {
+			return inventoryLookup.byName.get(clean);
+		}
+		return undefined;
 	};
 
+	const categoryFamilyMap = useMemo(() => {
+		const map = new Map();
+		for (const c of dbCategories || []) {
+			if (c?.name) map.set(safeLower(c.name), c.operationalFamily || "general");
+		}
+		return map;
+	}, [dbCategories]);
+
 	const getCategoryFamily = (categoryName) => {
-		const match = (dbCategories || []).find(
-			(c) => safeLower(c?.name) === safeLower(categoryName)
-		);
-		return match?.operationalFamily || "general";
+		return categoryFamilyMap.get(safeLower(categoryName)) || "general";
 	};
 
 	useEffect(() => {
@@ -236,7 +278,6 @@ function AdminMenuManagement() {
 	const [formValues, setFormValues] = useState(emptyForm());
 	const [editingSizeIndex, setEditingSizeIndex] = useState(null);
 	const editingSizeRef = useRef(null);
-	const [ingredientDraft, setIngredientDraft] = useState({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 	const [addonDraft, setAddonDraft] = useState({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 	const [recipeError, setRecipeError] = useState("");
 	const [syncNotice, setSyncNotice] = useState("");
@@ -306,7 +347,6 @@ function AdminMenuManagement() {
 		setEditingProduct(null);
 		setFormValues(emptyForm());
 		setEditingSizeIndex(null);
-		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
@@ -315,9 +355,7 @@ function AdminMenuManagement() {
 
 	const isCupIngredient = (ing) => {
 		if (!ing) return false;
-		const name = safeLower(ing.name || ing.item);
-		const invItemId = Number(ing.inventoryItemId);
-		const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(getInvItemName(entry)) === name);
+		const invItem = findInventoryItem(ing.name || ing.item, ing.inventoryItemId);
 		return Boolean(invItem?.isCupCategory || invItem?.is_cup_category || invItem?.category === "Cups" || invItem?.category === "Cups & Lids");
 	};
 
@@ -332,9 +370,7 @@ function AdminMenuManagement() {
 		let rawCost = 0;
 		for (const ing of (ingredients || [])) {
 			if (!ing) continue;
-			const ingName = safeLower(ing.name || ing.item);
-			const invItemId = Number(ing.inventoryItemId);
-			const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(getInvItemName(entry)) === ingName);
+			const invItem = findInventoryItem(ing.name || ing.item, ing.inventoryItemId);
 			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
 			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
 			const recipeUnit = ing.unit || stockUnit;
@@ -666,57 +702,6 @@ function AdminMenuManagement() {
 		});
 	};
 
-	const addRecipeIngredient = () => {
-		const name = ingredientDraft.name.trim();
-		const quantityUsed = Number(ingredientDraft.quantityUsed);
-		const existingItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(name));
-		if (!existingItem) {
-			setRecipeError(`"${name}" is not in Inventory. Please pick an existing inventory item or click "+ Add in Inventory".`);
-			return;
-		}
-		const stockUnit = (existingItem?.unit || ingredientDraft.stockUnit || "").trim();
-		const unit = (ingredientDraft.unit || "").trim();
-		const unitHint = separateAmountHint(ingredientDraft.quantityUsed, unit, stockUnit, name || "this ingredient");
-		if (unitHint) {
-			setRecipeError(unitHint);
-			return;
-		}
-		if (!name || name.length > 160 || !stockUnit || stockUnit.length > 40 || !unit || unit.length > 40) {
-			setRecipeError("Enter an ingredient name, stock unit, and recipe unit.");
-			return;
-		}
-		if (!Number.isFinite(quantityUsed) || quantityUsed <= 0 || Number(quantityUsed.toFixed(6)) !== quantityUsed) {
-			setRecipeError("Enter a positive amount with at most 6 decimal places.");
-			return;
-		}
-		if (!convertRecipeAmount(quantityUsed, unit, stockUnit)) {
-			setRecipeError(`“${unit}” and “${stockUnit}” cannot be converted automatically. Choose units from the same group (weight, volume, or count).`);
-			return;
-		}
-		if ((formValues.ingredients || []).some((entry) => safeLower(entry?.name || entry?.item) === safeLower(name))) {
-			setRecipeError("That ingredient is already in this recipe.");
-			return;
-		}
-		setFormValues((current) => ({
-			...current,
-			ingredients: [...current.ingredients, {
-				inventoryItemId: existingItem.id,
-				name,
-				quantityUsed,
-				unit,
-				stockUnit,
-				quantityBySize: Object.fromEntries(
-					(current.sizes || []).map((size, idx) => [
-						size.label,
-						amountForSize({ name, quantityUsed, unit }, size.label, defaultSizeFactor(size.factor, idx)),
-					])
-				),
-			}],
-		}));
-		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
-		setRecipeError("");
-	};
-
 	const openInventoryPicker = () => {
 		const currentIds = new Set(
 			(formValues.ingredients || []).map((ing) => {
@@ -799,13 +784,13 @@ function AdminMenuManagement() {
 				const factorMap = Object.fromEntries(
 					(current.sizes || []).map((size, idx) => [
 						size.label,
-						amountForSize({ name: ing.name, quantityUsed: Number(val) || 0, unit: ing.unit }, size.label, defaultSizeFactor(size.factor, idx)),
+						amountForSize({ ...ing, quantityUsed: Number(val) || 0 }, size.label, defaultSizeFactor(size.factor, idx)),
 					])
 				);
 				return {
 					...ing,
 					quantityUsed: val,
-					quantityBySize: ing.quantityBySize ? { ...ing.quantityBySize, ...(current.sizes.length === 1 ? { [current.sizes[0].label]: val } : {}) } : factorMap,
+					quantityBySize: factorMap,
 				};
 			}),
 		}));
@@ -813,7 +798,7 @@ function AdminMenuManagement() {
 
 	const addAddon = () => {
 		const label = addonDraft.label.trim();
-		const existingItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(label));
+		const existingItem = findInventoryItem(label);
 		if (!existingItem) {
 			setRecipeError(`"${label}" is not in Inventory. Please pick an existing inventory item or add it in Inventory first.`);
 			return;
@@ -907,7 +892,6 @@ function AdminMenuManagement() {
 		setShowForm(false);
 		setEditingProduct(null);
 		setEditingSizeIndex(null);
-		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
@@ -990,12 +974,13 @@ function AdminMenuManagement() {
 					const isFirstOccurrence =
 						all.findIndex((other) => other && Number(other.inventoryItemId) === entryId) === index;
 					return !existsInBase && isFirstOccurrence;
-				}),
+				})
+				.map((entry) => ({ ...entry, quantityUsed: "0" })),
 		];
 
 		const ingredients = mergedIngredients.map((ingredient) => {
 			if (typeof ingredient === "string") {
-				const invItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(ingredient));
+				const invItem = findInventoryItem(ingredient);
 				return {
 					name: invItem ? safeItemName(invItem) : ingredient,
 					unit: invItem?.unit || "pcs",
@@ -1005,12 +990,12 @@ function AdminMenuManagement() {
 				};
 			}
 			const invId = ingredient?.inventoryItemId != null ? Number(ingredient.inventoryItemId) : null;
-			const invItem = (inventory || []).find((entry) => (invId !== null && Number(entry?.id) === invId) || safeLower(safeItemName(entry)) === safeLower(ingredient?.name));
+			const invItem = findInventoryItem(ingredient?.name, invId);
 			const quantityBySize = Object.fromEntries(
 				sizes.map((size) => {
 					const rawSizeObj = rawSizes.find((s) => s?.label === size.label);
 					const sizedIngredient = Array.isArray(rawSizeObj?.ingredients)
-						? rawSizeObj.ingredients.find((entry) => entry && Number(entry.inventoryItemId) === invId)
+						? rawSizeObj.ingredients.find((entry) => entry && ((invId !== null && Number(entry.inventoryItemId) === invId) || safeLower(entry.name) === safeLower(ingredient?.name)))
 						: null;
 					return [
 						size.label,
@@ -1031,7 +1016,7 @@ function AdminMenuManagement() {
 		const addons = rawAddons.map((addon) => {
 			const invId = addon?.inventoryItemId != null ? Number(addon.inventoryItemId) : null;
 			const addonLabel = String(addon?.label || "");
-			const invItem = (inventory || []).find((entry) => (invId !== null && Number(entry?.id) === invId) || safeLower(safeItemName(entry)) === safeLower(addonLabel));
+			const invItem = findInventoryItem(addonLabel, invId);
 			return {
 				...addon,
 				label: addonLabel,
@@ -1054,7 +1039,6 @@ function AdminMenuManagement() {
 			addons,
 			available: product.available !== false,
 		});
-		setIngredientDraft({ name: "", quantityUsed: "", unit: "pcs", stockUnit: "pcs" });
 		setRecipeError("");
 		setAddonDraft({ label: "", price: "", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" });
 		setImageError("");
@@ -1214,54 +1198,67 @@ function AdminMenuManagement() {
 		}
 	};
 
-	const availableCount = (products || []).filter((product) => product?.available).length;
-	const lowStockCount = (products || []).filter((product) => product?.stock > 0 && product?.stock <= 7).length;
-	const recipeDraftItem = (inventory || []).find((entry) => safeLower(safeItemName(entry)) === safeLower(ingredientDraft.name));
-
-	const computeSizeCosting = (sizeLabel, rawSizePrice) => {
-		const formPrice = Number(formValues?.price) || 0;
-		const numericPrice = rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
-			? Number(rawSizePrice)
-			: formPrice;
-		let rawCost = 0;
-		const ingredients = (formValues.ingredients || []).filter(Boolean);
-		let costComplete = ingredients.length > 0;
-		for (const ing of ingredients) {
-			if (!ing) continue;
-			const ingName = safeLower(ing.name || ing.item);
-			const invItemId = Number(ing.inventoryItemId);
-			const invItem = (inventory || []).find((entry) => (invItemId > 0 && Number(entry?.id) === invItemId) || safeLower(safeItemName(entry)) === ingName);
-			const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
-			const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
-			const recipeUnit = ing.unit || stockUnit;
-			const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
-			if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue; // unused in this size
-			const matchedSize = sizeLabel ? (formValues.sizes || []).find((s) => s?.label === sizeLabel) : null;
-			const factor = matchedSize ? defaultSizeFactor(matchedSize.factor, 0) : 1.0;
-			const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
-			const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
-			if (!stockQty || !(unitCost > 0)) {
-				costComplete = false;
-			} else {
-				rawCost += stockQty * unitCost;
-			}
+	const availableCount = useMemo(() => (products || []).filter((product) => product?.available).length, [products]);
+	const lowStockCount = useMemo(() => (products || []).filter((product) => product?.stock > 0 && product?.stock <= 7).length, [products]);
+	const featuredCount = useMemo(() => (products || []).filter((product) => product?.featured).length, [products]);
+	const categoryCounts = useMemo(() => {
+		const map = new Map();
+		map.set("All items", (products || []).length);
+		for (const p of products || []) {
+			if (!p?.category) continue;
+			map.set(p.category, (map.get(p.category) || 0) + 1);
 		}
-		const safeRawCost = Number.isFinite(rawCost) ? rawCost : 0;
-		const cost = Number(safeRawCost.toFixed(2));
-		const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : 0;
-		const margin = (numericPrice > 0 && Number.isFinite(cost)) ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
-		const foodCostPercent = (numericPrice > 0 && Number.isFinite(cost)) ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
+		return map;
+	}, [products]);
+
+	const sizeCostingsByIndex = useMemo(() => {
+		const formPrice = Number(formValues?.price) || 0;
+		const ingredients = (formValues?.ingredients || []).filter(Boolean);
 		const effectiveTargetFraction = Math.max(0.1, Math.min(0.9, (Number(targetFoodCostPct) || 40) / 100));
-		const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / effectiveTargetFraction) / 5) * 5 : null;
-		return {
-			cost: Number.isFinite(cost) ? cost : 0,
-			costComplete,
-			grossProfit: Number.isFinite(grossProfit) ? grossProfit : 0,
-			margin: Number.isFinite(margin) ? margin : null,
-			foodCostPercent: Number.isFinite(foodCostPercent) ? foodCostPercent : null,
-			suggestedPrice,
-		};
-	};
+
+		return (formValues?.sizes || []).map((size, idx) => {
+			const sizeLabel = size?.label;
+			const rawSizePrice = size?.price;
+			const numericPrice = rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
+				? Number(rawSizePrice)
+				: formPrice;
+			const factor = defaultSizeFactor(size?.factor, idx);
+			let rawCost = 0;
+			let costComplete = ingredients.length > 0;
+
+			for (const ing of ingredients) {
+				const invItem = findInventoryItem(ing.name || ing.item, ing.inventoryItemId);
+				const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
+				const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
+				const recipeUnit = ing.unit || stockUnit;
+				const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
+				if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue;
+				const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
+				const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
+				if (!stockQty || !(unitCost > 0)) {
+					costComplete = false;
+				} else {
+					rawCost += stockQty * unitCost;
+				}
+			}
+
+			const safeRawCost = Number.isFinite(rawCost) ? rawCost : 0;
+			const cost = Number(safeRawCost.toFixed(2));
+			const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : 0;
+			const margin = (numericPrice > 0 && Number.isFinite(cost)) ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
+			const foodCostPercent = (numericPrice > 0 && Number.isFinite(cost)) ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
+			const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / effectiveTargetFraction) / 5) * 5 : null;
+
+			return {
+				cost: Number.isFinite(cost) ? cost : 0,
+				costComplete,
+				grossProfit: Number.isFinite(grossProfit) ? grossProfit : 0,
+				margin: Number.isFinite(margin) ? margin : null,
+				foodCostPercent: Number.isFinite(foodCostPercent) ? foodCostPercent : null,
+				suggestedPrice,
+			};
+		});
+	}, [formValues?.price, formValues?.sizes, formValues?.ingredients, inventoryLookup, targetFoodCostPct]);
 
 	const applySuggestedSizePrice = (index, suggestedPrice) => {
 		if (suggestedPrice == null) return;
@@ -1278,14 +1275,109 @@ function AdminMenuManagement() {
 	};
 
 	return (
-		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+		<div className={`admin-menu-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${(showForm || itemToDelete) ? "modal-open" : ""} ${isMobile ? "is-mobile" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      {mobileNavOpen && <div className="am-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <Sidebar
         role="admin"
         activeTab="menu"
         sidebarCollapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
+        onToggle={() => (isMobile ? setMobileNavOpen(false) : toggleSidebar())}
       />
 
+			{isMobile ? (
+				<main className="am-main">
+					<header className="am-appbar">
+						<button type="button" className="am-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu"><Menu size={22} /></button>
+						{searchOpen ? (
+							<label className="am-search">
+								<Search size={18} aria-hidden="true" />
+								<input autoFocus type="search" value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} placeholder="Search menu" aria-label="Search menu items" />
+								<button type="button" onClick={() => { setSearch(""); setSearchOpen(false); }} aria-label="Close search"><X size={18} /></button>
+							</label>
+						) : (
+							<>
+								<div className="am-title"><h1>Menu</h1><span>{products.length} items · {availableCount} available</span></div>
+								<button type="button" className="am-icon-btn" onClick={() => setSearchOpen(true)} aria-label="Search menu"><Search size={20} /></button>
+								<Link to="/admin/archive" className="am-icon-btn" aria-label="View archive"><Archive size={20} /></Link>
+							</>
+						)}
+					</header>
+
+					<div className="am-stats" aria-label="Menu overview">
+						<span className="ok"><b>{availableCount}</b> ready</span>
+						<span className="low"><b>{lowStockCount}</b> low</span>
+						<span className="star"><b>{featuredCount}</b> featured</span>
+					</div>
+
+					<div className="am-chips" role="tablist" aria-label="Menu categories">
+						{categories.map((category) => (
+							<button type="button" role="tab" aria-selected={activeCategory === category} key={category} className={activeCategory === category ? "on" : ""} onClick={() => { setActiveCategory(category); setCurrentPage(1); }}>
+								{category}<b>{categoryCounts.get(category) || 0}</b>
+							</button>
+						))}
+					</div>
+
+					<div className="am-sortbar">
+						<span>{visibleProducts.length} shown</span>
+						<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
+							<option value="popular">Featured first</option>
+							<option value="name">Name A–Z</option>
+							<option value="price">Price low–high</option>
+						</select>
+					</div>
+
+					<ul className="am-grid">
+						{pageProducts.map((product) => (
+							<li key={product.id} className={`am-card ${!product.available ? "off" : ""}`}>
+								<button type="button" className="am-thumb" onClick={() => openEditForm(product)} aria-label={`Edit ${product.name}`}>
+									<img src={product.image} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+									{product.featured && <span className="am-star">★</span>}
+								</button>
+								<button type="button" className="am-more" onClick={() => setActionProduct(product)} aria-label={`Actions for ${product.name}`}>&#8942;</button>
+								<div className="am-body">
+									<small>{product.category}</small>
+									<strong>{product.name}</strong>
+									<span className="am-price">{product.price}</span>
+									<span className={`am-stock ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}</span>
+								</div>
+								<label className="am-switch">
+									<input type="checkbox" checked={product.available} onChange={() => toggleAvailability(product.id)} />
+									<span aria-hidden="true" />
+									<em>{product.available ? "Available" : "Hidden"}</em>
+								</label>
+							</li>
+						))}
+						{!visibleProducts.length && (
+							<li className="am-empty" role={menuError ? "alert" : undefined}>
+								<Package size={36} aria-hidden="true" />
+								<strong>{menuError ? "Could not load menu" : "No items found"}</strong>
+								<span>{menuError || "Try another category or search."}</span>
+							</li>
+						)}
+					</ul>
+
+					{visibleProducts.length > 0 && pageCount > 1 && (
+						<nav className="am-pager" aria-label="Menu pages">
+							<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Prev</button>
+							<span>{safePage} / {pageCount}</span>
+							<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+						</nav>
+					)}
+
+					<button type="button" className="am-fab" onClick={openAddForm}><Plus size={20} strokeWidth={2.6} aria-hidden="true" />Add</button>
+
+					{actionProduct && (
+						<div className="am-sheet-wrap" role="presentation" onClick={() => setActionProduct(null)}>
+							<div className="am-sheet" role="dialog" aria-modal="true" aria-label={`Actions for ${actionProduct.name}`} onClick={(e) => e.stopPropagation()}>
+								<span className="am-sheet-handle" aria-hidden="true" />
+								<h2>{actionProduct.name}</h2>
+								<button type="button" onClick={() => { openEditForm(actionProduct); setActionProduct(null); }}><Pencil size={20} aria-hidden="true" />Edit item</button>
+								<button type="button" className="danger" onClick={() => { handleDelete(actionProduct); setActionProduct(null); }}><Trash2 size={20} aria-hidden="true" />Delete item</button>
+							</div>
+						</div>
+					)}
+				</main>
+			) : (
 			<main className="admin-menu-main">
 				<header className="admin-menu-topbar">
 					<div>
@@ -1332,7 +1424,7 @@ function AdminMenuManagement() {
 												onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
 											>
 												{category}
-												<span>{category === "All items" ? products.length : products.filter((product) => product.category === category).length}</span>
+												<span>{categoryCounts.get(category) || 0}</span>
 											</button>
 										))}
 										<Link
@@ -1369,9 +1461,13 @@ function AdminMenuManagement() {
 								</div>
 
 								<div className="admin-menu-grid-wrap custom-menu-scrollbar">
-									<div className="admin-menu-grid">
-										{pageProducts.map((product) => (
-											<article className={`admin-product-card ${!product.available ? "unavailable" : ""}`} key={product.id}>
+									<div className="admin-menu-grid" key={`${activeCategory}-${safePage}-${sortBy}`}>
+										{pageProducts.map((product, index) => (
+											<article
+												className={`admin-product-card ${!product.available ? "unavailable" : ""}`}
+												key={product.id}
+												style={{ "--card-index": Math.min(index, 11) }}
+											>
 												<div
 													className="admin-product-image"
 													onClick={() => openEditForm(product)}
@@ -1483,7 +1579,7 @@ function AdminMenuManagement() {
 										</div>
 										<div className="metric-body">
 											<span className="metric-label">Featured Items</span>
-											<strong className="metric-value">{products.filter((product) => product.featured).length}</strong>
+											<strong className="metric-value">{featuredCount}</strong>
 											<span className="metric-hint">Shown on homepage</span>
 										</div>
 									</article>
@@ -1493,6 +1589,7 @@ function AdminMenuManagement() {
 					</div>
 				</div>
 			</main>
+			)}
 
 			{itemToDelete && (
 				<div
@@ -1674,7 +1771,7 @@ function AdminMenuManagement() {
 									) : (
 										<div className="menu-builder-recipe-items">
 											{(formValues.ingredients || []).map((ing, idx) => {
-												const invItem = findInventoryItem(ing.name);
+												const invItem = findInventoryItem(ing.name, ing.inventoryItemId);
 												const ingName = safeItemName(invItem) || ing.name || "Item";
 												return (
 													<div className="menu-builder-recipe-item-card" key={`${ingName}-${idx}`}>
@@ -1708,7 +1805,10 @@ function AdminMenuManagement() {
 							{/* ---------------- Right: form sections ---------------- */}
 							<div className="menu-builder-sections">
 								<section className="menu-builder-card">
-									<h4 className="menu-builder-legend">Basic Information</h4>
+									<h4 className="menu-builder-legend with-icon">
+										<Package aria-hidden="true" size={13} strokeWidth={2.2} />
+										Basic Information
+									</h4>
 
 									<label className="menu-builder-field">
 										Item Name
@@ -1948,18 +2048,8 @@ function AdminMenuManagement() {
 										<div className="menu-builder-size-list">
 											{formValues.sizes.map((size, index) => {
 												const isEditing = editingSizeIndex === index;
-												const sizeCosting = computeSizeCosting(size?.label, size?.price) || { cost: 0, costComplete: false, grossProfit: 0, margin: null, suggestedPrice: null };
+												const sizeCosting = sizeCostingsByIndex[index] || { cost: 0, costComplete: false, grossProfit: 0, margin: null, suggestedPrice: null };
 												const factor = defaultSizeFactor(size?.factor, index);
-												const recipeSummary = (formValues.ingredients || [])
-													.map((ing) => {
-														if (!ing) return "";
-														const rawQty = ing.quantityBySize?.[size?.label];
-														if (rawQty !== undefined && !(Number(rawQty) > 0)) return "";
-														const qty = rawQty ?? scaleIngredientAmount(ing.quantityUsed, factor, ing.unit);
-														return `${qty}${ing.unit || ""} ${ing.name || ""}`.trim();
-													})
-													.filter(Boolean)
-													.join(", ");
 												const marginTone = sizeCosting?.margin == null
 													? "neutral"
 													: sizeCosting.margin >= 50
@@ -2059,7 +2149,7 @@ function AdminMenuManagement() {
 																			onClick={() => setEditingSizeIndex(index)}
 																			title="Click to change assigned cup"
 																		>
-																			☕ {safeItemName((inventory || []).find((i) => Number(i?.id) === Number(size?.cupId))) || "No cup selected"}
+																			☕ {safeItemName(findInventoryItem(null, size?.cupId)) || "No cup selected"}
 																		</span>
 																	)}
 																	<div
@@ -2225,7 +2315,7 @@ function AdminMenuManagement() {
 
 												<div className="recipe-config-tbody">
 													{formValues.ingredients.map((ingredient, index) => {
-														const inventoryItem = findInventoryItem(ingredient.name);
+														const inventoryItem = findInventoryItem(ingredient.name, ingredient.inventoryItemId);
 														const ingredientName = safeItemName(inventoryItem) || ingredient.name || "Item";
 														const stockAvailable = inventoryItem ? `${inventoryItem.quantity} ${inventoryItem.unit}` : "N/A";
 														const isZero = formValues.sizes.length
@@ -2305,23 +2395,38 @@ function AdminMenuManagement() {
 										Add-ons &amp; Customizations
 									</label>
 					<p className="menu-recipe-help">The add-on amount is what one serving consumes. Choose recipe and stock units from the same group: weight, volume, or count. Compatible units convert automatically; weight and volume need a density conversion and cannot be mixed directly.</p>
-					<div className="menu-recipe-entry menu-addon-entry menu-conversion-entry">
-						<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = findInventoryItem(label); setAddonDraft((current) => ({ ...current, label, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
-						<input type="number" min="0" step="0.01" value={addonDraft.price} onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))} aria-label="Add-on price" placeholder="Price" />
-						<label className="menu-recipe-field"><span>Amount / serving</span><input type="number" min="0.000001" step="0.000001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on amount used per serving" placeholder="e.g. 5" /></label>
-						<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} compatibleWith={findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
-						<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} disabled={Boolean(findInventoryItem(addonDraft.label))} onChange={(stockUnit) => setAddonDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit }))} ariaLabel="Add-on stock unit" /></label>
-						<button type="button" onClick={addAddon} disabled={!addonDraft.label.trim() || addonDraft.price === "" || !addonDraft.quantityUsed}>
-							<Plus size={14} strokeWidth={2.4} /> Add
-						</button>
-					</div>
-					{convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit) != null && <p className="menu-recipe-help">Uses {convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit).toLocaleString(undefined, { maximumFractionDigits: 6 })} {findInventoryItem(addonDraft.label)?.unit || addonDraft.stockUnit} from inventory per serving.</p>}
-					{inventory.some((entry) => safeLower(safeItemName(entry)) === safeLower(addonDraft.label) && amountAttachedToUnit(entry.unit)) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
+					{(() => {
+						const matchedAddonDraft = findInventoryItem(addonDraft.label);
+						const draftStockUnit = matchedAddonDraft?.unit || addonDraft.stockUnit;
+						const convertedAddonQty = convertRecipeAmount(addonDraft.quantityUsed, addonDraft.unit, draftStockUnit);
+						return (
+							<>
+								<div className="menu-recipe-entry menu-addon-entry menu-conversion-entry">
+									<input list="menu-inventory-items" value={addonDraft.label} onChange={(event) => { const label = event.target.value; const existing = findInventoryItem(label); setAddonDraft((current) => ({ ...current, label, stockUnit: existing?.unit || current.stockUnit, unit: existing?.unit || current.unit })); setRecipeError(""); }} aria-label="Add-on inventory name" placeholder="Add-on name" />
+									<datalist id="menu-inventory-items">
+										{(inventory || []).filter((entry) => entry && !entry.isArchived).map((entry) => {
+											const itemName = safeItemName(entry);
+											return itemName ? <option key={entry.id || itemName} value={itemName} /> : null;
+										})}
+									</datalist>
+									<input type="number" min="0" step="0.01" value={addonDraft.price} onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))} aria-label="Add-on price" placeholder="Price" />
+									<label className="menu-recipe-field"><span>Amount / serving</span><input type="number" min="0.000001" step="0.000001" value={addonDraft.quantityUsed} onChange={(event) => setAddonDraft((current) => ({ ...current, quantityUsed: event.target.value }))} aria-label="Add-on amount used per serving" placeholder="e.g. 5" /></label>
+									<label className="menu-recipe-field"><span>Recipe unit</span><UnitSelect value={addonDraft.unit} compatibleWith={draftStockUnit} onChange={(unit) => setAddonDraft((current) => ({ ...current, unit }))} ariaLabel="Add-on recipe unit" /></label>
+									<label className="menu-recipe-field"><span>Stock unit</span><UnitSelect value={draftStockUnit} disabled={Boolean(matchedAddonDraft)} onChange={(stockUnit) => setAddonDraft((current) => ({ ...current, stockUnit, unit: current.unit === current.stockUnit ? stockUnit : current.unit }))} ariaLabel="Add-on stock unit" /></label>
+									<button type="button" onClick={addAddon} disabled={!addonDraft.label.trim() || addonDraft.price === "" || !addonDraft.quantityUsed}>
+										<Plus size={14} strokeWidth={2.4} /> Add
+									</button>
+								</div>
+								{convertedAddonQty != null && <p className="menu-recipe-help">Uses {convertedAddonQty.toLocaleString(undefined, { maximumFractionDigits: 6 })} {draftStockUnit} from inventory per serving.</p>}
+								{matchedAddonDraft && amountAttachedToUnit(matchedAddonDraft.unit) && <p className="menu-recipe-error" role="alert">This inventory item has an amount inside its unit. Edit it in Inventory so its quantity and unit are separate (for example, quantity 5 and unit kg).</p>}
+							</>
+						);
+					})()}
 
 					{formValues.addons.length ? (
 						<div className="menu-addon-list">
 							{formValues.addons.map((addon, index) => {
-								const addonInv = (inventory || []).find((entry) => entry && ((addon.inventoryItemId && Number(entry.id) === Number(addon.inventoryItemId)) || safeLower(safeItemName(entry)) === safeLower(addon.label)));
+								const addonInv = findInventoryItem(addon.label, addon.inventoryItemId);
 								const addonStockUnit = addonInv?.unit || addon.stockUnit || "pcs";
 								const addonUnitCost = Number(addonInv?.unitCost ?? addonInv?.unit_cost ?? addon.unitCost ?? 0);
 								const addonStockQty = convertRecipeAmount(addon.quantityUsed, addon.unit || addonStockUnit, addonStockUnit);
@@ -2357,7 +2462,10 @@ function AdminMenuManagement() {
 								</section>
 
 								<section className="menu-builder-card">
-									<h4 className="menu-builder-legend">Description</h4>
+									<h4 className="menu-builder-legend with-icon">
+										<ClipboardList aria-hidden="true" size={13} strokeWidth={2.2} />
+										Description
+									</h4>
 									<label className="menu-builder-field">
 										Item Description
 										<textarea

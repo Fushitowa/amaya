@@ -11,9 +11,11 @@ import {
   Hash,
   MessageSquare,
   Minus,
+  Menu,
   MoreVertical,
   Plus,
   Printer,
+  Search,
   Trash2,
   User,
   Utensils,
@@ -69,6 +71,19 @@ function StaffOrder() {
   const [orderToPrint, setOrderToPrint] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [actionOrder, setActionOrder] = useState(null);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 800px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   // Dynamic summary metrics calculated directly from state
   const totalOrdersCount = orders.length;
@@ -146,15 +161,173 @@ function StaffOrder() {
   };
 
   return (
-    <div className={`staff-orders-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`staff-orders-page ${darkMode ? "dark-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${isMobile ? "is-mobile" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      {mobileNavOpen && <div className="so-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <Sidebar
         role="staff"
         activeTab="orders"
         orderCount={pendingCount}
         sidebarCollapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((c) => !c)}
+        onToggle={() => (isMobile ? setMobileNavOpen(false) : setSidebarCollapsed((c) => !c))}
       />
 
+      {isMobile ? (
+        <main className="so-main">
+          <header className="so-appbar">
+            <button type="button" className="so-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu">
+              <Menu size={24} />
+            </button>
+            {searchOpen ? (
+              <label className="so-search">
+                <Search size={20} aria-hidden="true" />
+                <input autoFocus type="search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search orders" aria-label="Search orders" />
+                <button type="button" onClick={() => { setSearchQuery(""); setSearchOpen(false); }} aria-label="Close search"><X size={20} /></button>
+              </label>
+            ) : (
+              <>
+                <h1 className="so-title">Orders</h1>
+                <button type="button" className="so-icon-btn" onClick={() => setSearchOpen(true)} aria-label="Search orders">
+                  <Search size={22} />
+                </button>
+                <StaffNotificationBell />
+              </>
+            )}
+          </header>
+
+          <section className="so-queue" aria-label="Queue overview">
+            <div className="so-queue-head">
+              <div>
+                <strong>{activeOrdersCount}</strong>
+                <span>in the queue</span>
+              </div>
+              <em>{completedCount} of {totalOrdersCount} done</em>
+            </div>
+            <div className="so-queue-bar" role="img" aria-label={`${pendingCount} pending, ${preparingCount} preparing, ${completedCount} completed`}>
+              <i className="p" style={{ flexGrow: pendingCount }} />
+              <i className="r" style={{ flexGrow: preparingCount }} />
+              <i className="c" style={{ flexGrow: completedCount }} />
+            </div>
+          </section>
+
+          <ul className="so-list">
+            {visibleOrders.length ? visibleOrders.map((order) => {
+              const items = order.items || [];
+              const itemCount = items.reduce((n, i) => n + Number(i.quantity || 0), 0);
+              const next = getNextAllowedStatuses(order.status)[0];
+              const status = String(order.status || "").toLowerCase();
+              const stepIndex = ORDER_STATUS_FLOW.indexOf(order.status);
+              return (
+                <li key={order.id} className={`so-card ${status}`}>
+                  <div className="so-card-head">
+                    <button type="button" className="so-card-title" onClick={() => setSelectedOrder(order)} aria-label={`View details for order ${order.id}`}>
+                      <span className="so-time"><Clock size={13} aria-hidden="true" />{getOrderTime(order.createdAt)}</span>
+                      <strong>{order.id}</strong>
+                      <span className="so-who">{order.customer || order.customerName || WALK_IN_CUSTOMER_NAME} · {order.type || "Counter"}</span>
+                    </button>
+                    <button type="button" className="so-more" onClick={() => setActionOrder(order)} aria-label={`More actions for ${order.id}`}>
+                      <MoreVertical size={22} />
+                    </button>
+                  </div>
+
+                  <button type="button" className="so-lines" onClick={() => setSelectedOrder(order)} tabIndex={-1} aria-hidden="true">
+                    <span className="so-thumbs">
+                      {items.slice(0, 4).map((item, i) => (
+                        <span className="so-thumb" key={`${item.title}-${i}`}>
+                          <MenuProductImage src={productImageByName.get(item.title)} alt="" className="order-card-item-thumb-image" />
+                          <b>{item.quantity || 1}</b>
+                        </span>
+                      ))}
+                      {items.length > 4 && <span className="so-thumb more">+{items.length - 4}</span>}
+                    </span>
+                    <span className="so-lines-text">{items.map((i) => i.title).join(", ") || "No item details"}</span>
+                  </button>
+
+                  <ol className="so-steps" aria-label={`Progress: ${order.status}`}>
+                    {ORDER_STATUS_FLOW.map((step, i) => (
+                      <li key={step} className={i < stepIndex ? "done" : i === stepIndex ? "now" : ""}>
+                        <i aria-hidden="true">{i < stepIndex ? <Check size={12} strokeWidth={3.5} /> : null}</i>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+
+                  <div className="so-card-foot">
+                    <div className="so-total">
+                      <small>{itemCount} item{itemCount === 1 ? "" : "s"}</small>
+                      <strong>₱{Number(order.total || 0).toFixed(2)}</strong>
+                    </div>
+                    {next ? (
+                      <button type="button" className="so-advance" onClick={() => handleStatusChange(order.id, order.status, next)}>
+                        {next === "Preparing" ? "Start preparing" : next === "Completed" ? "Mark done" : next}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    ) : (
+                      <span className="so-done"><CheckCircle2 size={18} aria-hidden="true" /> Completed</span>
+                    )}
+                  </div>
+                </li>
+              );
+            }) : (
+              <li className="so-empty">
+                <span className="so-empty-icon" aria-hidden="true">
+                  {activeFilter === "Preparing" ? <Utensils size={34} /> : activeFilter === "Completed" ? <CheckCircle2 size={34} /> : activeFilter === "Pending" ? <Clock size={34} /> : <ClipboardList size={34} />}
+                </span>
+                <strong>
+                  {searchQuery ? "No matches found" : activeFilter === "Preparing" ? "Nothing being prepared" : activeFilter === "Pending" ? "No pending orders" : activeFilter === "Completed" ? "No completed orders yet" : "No orders yet"}
+                </strong>
+                <span>
+                  {searchQuery
+                    ? `No orders match "${searchQuery}".`
+                    : activeFilter === "Preparing"
+                    ? "Orders you start preparing will appear here."
+                    : activeFilter === "Completed"
+                    ? "Finished orders will be listed here."
+                    : "New customer orders will show up in this queue."}
+                </span>
+                {!searchQuery && activeFilter === "Preparing" && pendingCount > 0 && (
+                  <button type="button" className="so-empty-cta" onClick={() => setActiveFilter("Pending")}>
+                    Go to {pendingCount} pending order{pendingCount === 1 ? "" : "s"}
+                  </button>
+                )}
+                {(searchQuery || (activeFilter !== "All" && orders.length > 0 && !(activeFilter === "Preparing" && pendingCount > 0))) && (
+                  <button type="button" className="so-empty-cta ghost" onClick={() => { setSearchQuery(""); setActiveFilter("All"); }}>
+                    Show all orders
+                  </button>
+                )}
+              </li>
+            )}
+          </ul>
+
+          <nav className="so-nav" aria-label="Order status">
+            {[
+              { key: "All", label: "All", Icon: ClipboardList, count: totalOrdersCount },
+              { key: "Pending", label: "Pending", Icon: Clock, count: pendingCount },
+              { key: "Preparing", label: "Preparing", Icon: Utensils, count: preparingCount },
+              { key: "Completed", label: "Done", Icon: CheckCircle2, count: completedCount },
+            ].map(({ key, label, Icon, count }) => (
+              <button key={key} type="button" className={activeFilter === key ? "on" : ""} aria-current={activeFilter === key ? "page" : undefined} onClick={() => setActiveFilter(key)}>
+                <span className="so-nav-pill">
+                  <Icon size={22} aria-hidden="true" />
+                  {count > 0 && <b>{count}</b>}
+                </span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {actionOrder && (
+            <div className="so-sheet-wrap" role="presentation" onClick={() => setActionOrder(null)}>
+              <div className="so-sheet" role="dialog" aria-modal="true" aria-label={`Actions for ${actionOrder.id}`} onClick={(e) => e.stopPropagation()}>
+                <span className="so-sheet-handle" aria-hidden="true" />
+                <h2>{actionOrder.id}</h2>
+                <button type="button" onClick={() => { setSelectedOrder(actionOrder); setActionOrder(null); }}><ClipboardList size={22} aria-hidden="true" />View details</button>
+                <button type="button" onClick={() => { setOrderToPrint(actionOrder); setActionOrder(null); }}><Printer size={22} aria-hidden="true" />Print receipt</button>
+                <button type="button" className="danger" onClick={() => { setOrderToDelete(actionOrder); setActionOrder(null); }}><Trash2 size={22} aria-hidden="true" />Delete order</button>
+              </div>
+            </div>
+          )}
+        </main>
+      ) : (
       <main className="staff-orders-main">
         <header className="staff-orders-topbar">
           <div className="orders-topbar-left">
@@ -458,6 +631,7 @@ function StaffOrder() {
           </div>
         </div>
       </main>
+      )}
 
       {/* Order Details Modal (opened by clicking a card) */}
       {selectedOrder && (() => {

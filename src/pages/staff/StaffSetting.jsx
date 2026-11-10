@@ -142,55 +142,55 @@ function StaffSetting() {
             {/* Card 1: Staff Profile & Duty Status */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "bold" }}>
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
                   👤
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#2d1f1a" }}>Staff Profile & Station</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#8a7c73" }}>Assigned workstation and active shift status</p>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Staff Profile & Station</h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Assigned workstation and active shift status</p>
                 </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0e8e0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Shift Status</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Current working status</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Shift Status</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Current working status</span>
                   </div>
-                  <span style={{ padding: "4px 10px", borderRadius: "20px", background: "#e7f4ea", color: "#2e7d32", fontSize: "11px", fontWeight: 700 }}>
+                  <span style={{ padding: "5px 12px", borderRadius: "20px", background: "#e7f4ea", color: "#2e7d32", fontSize: "12px", fontWeight: 700 }}>
                     ● On Duty
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0e8e0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Counter Terminal</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Device identity</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Counter Terminal</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Device identity</span>
                   </div>
                   <input
                     type="text"
                     value={stationName}
                     onChange={(e) => updatePreference("stationName", e.target.value)}
-                    style={{ width: "160px", padding: "6px 10px", borderRadius: "6px", border: "1px solid #dcd4cc", fontSize: "12px", textAlign: "right" }}
+                    style={{ width: "170px", padding: "7px 12px", borderRadius: "8px", border: "1px solid #dcd4cc", fontSize: "13px", textAlign: "right" }}
                   />
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0e8e0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Role & Permissions</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Access level</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Role & Permissions</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Access level</span>
                   </div>
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#8b5e3c" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 600, color: "#8b5e3c" }}>
                     Staff / Cashier & Barista
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Store Location</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Registered branch</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Store Location</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Registered branch</span>
                   </div>
-                  <span style={{ fontSize: "12px", color: "#5d4d43" }}>
+                  <span style={{ fontSize: "13px", color: "#5d4d43" }}>
                     Valencia City, Bukidnon
                   </span>
                 </div>
@@ -200,20 +200,20 @@ function StaffSetting() {
             {/* Card 2: Receipt Printer & Hardware Setup */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "bold" }}>
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
                   ⎙
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#2d1f1a" }}>Receipt Printer Setup</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#8a7c73" }}>Configure thermal slip format and printing behaviors</p>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Receipt Printer Setup</h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Configure thermal slip format and printing behaviors</p>
                 </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Paper Roll Size</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Thermal paper width standard</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Paper Roll Size</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Thermal paper width standard</span>
                   </div>
                   <div style={{ display: "flex", gap: "6px" }}>
                     {["80mm", "58mm"].map((size) => (
@@ -222,12 +222,12 @@ function StaffSetting() {
                         type="button"
                         onClick={() => updatePreference("printerPaperSize", size)}
                         style={{
-                          padding: "5px 12px",
-                          borderRadius: "6px",
+                          padding: "7px 14px",
+                          borderRadius: "8px",
                           border: printerPaperSize === size ? "1.5px solid #8b5e3c" : "1px solid #ded6ce",
                           background: printerPaperSize === size ? "#fbf5ef" : "#ffffff",
                           color: printerPaperSize === size ? "#70482f" : "#6a5749",
-                          fontSize: "11px",
+                          fontSize: "12.5px",
                           fontWeight: 700,
                           cursor: "pointer",
                         }}
@@ -240,8 +240,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Auto-Print on Checkout</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Automatically open print dialog when order is placed</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Auto-Print on Checkout</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Automatically open print dialog when order is placed</span>
                   </div>
                   <input
                     type="checkbox"
@@ -253,8 +253,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Print Store Logo</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Include Amaya logo on thermal receipts</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Print Store Logo</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Include Amaya logo on thermal receipts</span>
                   </div>
                   <input
                     type="checkbox"
@@ -269,12 +269,12 @@ function StaffSetting() {
                     type="button"
                     onClick={handleTestPrint}
                     style={{
-                      padding: "8px 16px",
-                      borderRadius: "7px",
+                      padding: "9px 18px",
+                      borderRadius: "8px",
                       border: "1px solid #8b5e3c",
                       background: "#fbf5ef",
                       color: "#70482f",
-                      fontSize: "11px",
+                      fontSize: "12.5px",
                       fontWeight: 700,
                       cursor: "pointer",
                       display: "flex",
@@ -291,20 +291,20 @@ function StaffSetting() {
             {/* Card 3: POS Ordering & Operational Alerts */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <NotificationIcon size={17} />
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <NotificationIcon size={18} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#2d1f1a" }}>Notifications & Alerts</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#8a7c73" }}>Manage order chime, queue alerts, and popup toasts</p>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Notifications & Alerts</h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Manage order chime, queue alerts, and popup toasts</p>
                 </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>New Order Alerts</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Visual toast on incoming orders</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>New Order Alerts</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Visual toast on incoming orders</span>
                   </div>
                   <input
                     type="checkbox"
@@ -316,8 +316,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Audio Chime</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Sound chime when kitchen updates status</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Audio Chime</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Sound chime when kitchen updates status</span>
                   </div>
                   <input
                     type="checkbox"
@@ -329,8 +329,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>System Notifications</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Receive operational announcements</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>System Notifications</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Receive operational announcements</span>
                   </div>
                   <input
                     type="checkbox"
@@ -342,8 +342,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "10px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Inventory Limit Alerts</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Show out-of-stock and above-maximum items in the notification bell</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Inventory Limit Alerts</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Show out-of-stock and above-maximum items in the notification bell</span>
                   </div>
                   <input
                     type="checkbox"
@@ -355,13 +355,13 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Default Order Type</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Preselected service type</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Default Order Type</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Preselected service type</span>
                   </div>
                   <select
                     value={defaultOrderType}
                     onChange={(e) => updatePreference("defaultOrderType", e.target.value)}
-                    style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #ded6ce", fontSize: "12px", color: "#2d1f1a" }}
+                    style={{ padding: "7px 12px", borderRadius: "8px", border: "1px solid #ded6ce", fontSize: "13px", color: "#2d1f1a" }}
                   >
                     <option value="Takeout">Takeout</option>
                     <option value="Dine-in">Dine-in</option>
@@ -373,31 +373,31 @@ function StaffSetting() {
             {/* Card 4: Display & Appearance */}
             <section className="settings-card" style={{ background: "#ffffff", border: "1px solid #ebdcd0", borderRadius: "14px", padding: "24px" }}>
               <div className="settings-card-header" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "bold" }}>
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(139, 94, 60, 0.12)", color: "#8b5e3c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }}>
                   🎨
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#2d1f1a" }}>Display & Themes</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#8a7c73" }}>Adjust POS interface contrast and appearance</p>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#2d1f1a" }}>Display & Themes</h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#8a7c73" }}>Adjust POS interface contrast and appearance</p>
                 </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "1px solid #f0e8e0" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Dark Mode Display</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>High contrast for low-light café counters</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Dark Mode Display</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>High contrast for low-light café counters</span>
                   </div>
                   <button
                     type="button"
                     onClick={toggleDarkMode}
                     style={{
-                      padding: "6px 14px",
-                      borderRadius: "6px",
+                      padding: "7px 14px",
+                      borderRadius: "8px",
                       border: "1px solid #ded6ce",
                       background: darkMode ? "#2d1f1a" : "#faf7f4",
                       color: darkMode ? "#fff" : "#2d1f1a",
-                      fontSize: "11px",
+                      fontSize: "12.5px",
                       fontWeight: 700,
                       cursor: "pointer",
                     }}
@@ -408,8 +408,8 @@ function StaffSetting() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <strong style={{ display: "block", fontSize: "12px", color: "#2d1f1a" }}>Quick Reset</strong>
-                    <span style={{ fontSize: "11px", color: "#8a7c73" }}>Reset options to default factory values</span>
+                    <strong style={{ display: "block", fontSize: "13.5px", color: "#2d1f1a" }}>Quick Reset</strong>
+                    <span style={{ fontSize: "12px", color: "#8a7c73" }}>Reset options to default factory values</span>
                   </div>
                   <button
                     type="button"
@@ -424,12 +424,12 @@ function StaffSetting() {
                       }
                     }}
                     style={{
-                      padding: "6px 12px",
-                      borderRadius: "6px",
+                      padding: "7px 14px",
+                      borderRadius: "8px",
                       border: "1px solid #ded6ce",
                       background: "#fff",
                       color: "#b91c1c",
-                      fontSize: "11px",
+                      fontSize: "12.5px",
                       fontWeight: 600,
                       cursor: "pointer",
                     }}

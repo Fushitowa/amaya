@@ -7,8 +7,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: '0.0.0.0',
       port: portal ? 5174 : 5173,
       strictPort: true,
+    },
+    preview: {
+      host: '0.0.0.0',
     },
     build: {
       outDir: portal ? 'dist/portal' : 'dist/customer',

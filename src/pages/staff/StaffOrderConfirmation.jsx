@@ -53,6 +53,7 @@ function StaffOrderConfirmation() {
   const [selectedPayment, setSelectedPayment] = useState("Cash");
   const [cashTendered, setCashTendered] = useState("");
   const [isNarrow, setIsNarrow] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   // PENDING until the order is created, then PAID (counter sales settle immediately).
   const [paymentStatus, setPaymentStatus] = useState("PENDING");
 
@@ -99,7 +100,9 @@ function StaffOrderConfirmation() {
       navigate("/staff/menu");
       return;
     }
-    if (isShort) return;
+    if (isShort || isSubmitting) return;
+
+    setIsSubmitting(true);
 
     const baseNotes = String(location.state?.notes || "").trim();
     const combinedNotes = [
@@ -122,6 +125,7 @@ function StaffOrderConfirmation() {
           notes: combinedNotes || undefined,
         });
       } catch (error) {
+        setIsSubmitting(false);
         window.alert(error.message);
         return;
       }
@@ -153,10 +157,121 @@ function StaffOrderConfirmation() {
   const isPaymentPending = paymentStatus !== PAYMENT_STATUS_PAID.toUpperCase();
 
   const gridColumns = isNarrow ? "minmax(0, 1fr)" : "minmax(0, 1.08fr) minmax(0, 0.92fr)";
-  const itemRowGrid = "minmax(0, 1fr) 58px 92px";
+  const itemRowGrid = isNarrow ? "minmax(0, 1fr) 36px 80px" : "minmax(0, 1fr) 58px 92px";
+
+  if (isNarrow) {
+    const canConfirm = order.length > 0 && !isShort && !isSubmitting;
+    return (
+      <div className="am-app">
+        <header className="am-appbar">
+          <button type="button" className="am-icon-btn" onClick={() => navigate("/staff/menu")} aria-label="Back to menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
+          </button>
+          <div className="am-appbar-title">
+            <h1>Checkout</h1>
+            <span>{totalItems} item{totalItems === 1 ? "" : "s"} · {orderType}</span>
+          </div>
+          <span className={`am-chip ${isPaymentPending ? "pending" : "paid"}`}>
+            <i aria-hidden="true" />{isPaymentPending ? "Pending" : "Paid"}
+          </span>
+        </header>
+
+        <main className="am-scroll">
+          <section className="am-hero">
+            <span className="am-hero-label">Total due</span>
+            <strong className="am-hero-amount">₱{subtotal.toFixed(2)}</strong>
+            <span className="am-hero-sub">Tax / VAT 0% included</span>
+          </section>
+
+          <section className="am-section">
+            <h2 className="am-section-title">Service type</h2>
+            <div className="am-segmented" role="group" aria-label="Service type">
+              {["Dine-in", "Takeout"].map((type) => (
+                <button key={type} type="button" aria-pressed={orderType === type} className={orderType === type ? "on" : ""} onClick={() => setOrderType(type)}>
+                  {orderType === type ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg> : null}
+                  {type}
+                </button>
+              ))}
+            </div>
+            <label className="am-field">
+              <input id="confirm-customer" type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder=" " />
+              <span>Customer name / table</span>
+            </label>
+          </section>
+
+          <section className="am-section">
+            <h2 className="am-section-title">Payment method</h2>
+            <div className="am-pay-list" role="radiogroup" aria-label="Payment method">
+              {paymentMethods.map((pm) => (
+                <button key={pm.id} type="button" role="radio" aria-checked={selectedPayment === pm.id} className={`am-pay ${selectedPayment === pm.id ? "on" : ""}`} onClick={() => setSelectedPayment(pm.id)}>
+                  <span className="am-pay-icon"><img src={pm.icon} alt="" aria-hidden="true" /></span>
+                  <span className="am-pay-text"><strong>{pm.label}</strong><small>{pm.description}</small></span>
+                  <span className="am-radio" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+
+            {isCash ? (
+              <>
+                <label className="am-field am-field-money">
+                  <b aria-hidden="true">₱</b>
+                  <input type="number" inputMode="decimal" value={cashTendered} onChange={(e) => setCashTendered(e.target.value)} placeholder=" " aria-invalid={isShort} className={isShort ? "err" : ""} />
+                  <span>Cash received</span>
+                </label>
+                <div className="am-chips">
+                  <button type="button" className={!hasTypedCash || Math.abs(tenderedAmount - subtotal) < 0.01 ? "on" : ""} onClick={() => setCashTendered(String(subtotal))}>Exact</button>
+                  {cashPresets.map((amount) => (
+                    <button key={amount} type="button" className={hasTypedCash && Math.abs(tenderedAmount - amount) < 0.01 ? "on" : ""} onClick={() => setCashTendered(String(amount))}>₱{amount}</button>
+                  ))}
+                </div>
+                <div className={`am-change ${isShort ? "short" : ""}`} aria-live="polite">
+                  <span>{isShort ? "Short cash by" : "Change due"}</span>
+                  <strong>₱{isShort ? (subtotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}</strong>
+                </div>
+              </>
+            ) : (
+              <div className="am-change">
+                <span>Settled instantly via {selectedPayment}</span>
+                <strong>No change</strong>
+              </div>
+            )}
+          </section>
+
+          <section className="am-section">
+            <h2 className="am-section-title">Order items</h2>
+            <ul className="am-items">
+              {order.length > 0 ? order.map((item, idx) => (
+                <li key={`${item.title}-${idx}`}>
+                  <span className="am-qty">{item.quantity}×</span>
+                  <span className="am-item-text">
+                    <strong>{item.title}</strong>
+                    <small>{item.size || "Regular"}{item.sugarLevel ? ` · ${item.sugarLevel}` : ""}{item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}</small>
+                    {(item.instructions || item.notes) ? <em>Note: {item.instructions || item.notes}</em> : null}
+                  </span>
+                  <span className="am-item-price">₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
+                </li>
+              )) : <li className="am-empty">No items in this order yet</li>}
+            </ul>
+          </section>
+        </main>
+
+        <footer className="am-bottombar">
+          <div className="am-bottom-total">
+            <span>Total</span>
+            <strong>₱{subtotal.toFixed(2)}</strong>
+          </div>
+          <button type="button" className="am-fab" disabled={!canConfirm} onClick={handleConfirmOrder}>
+            {isSubmitting ? "Placing…" : "Confirm & print"}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>
+          </button>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div
+      className="amaya-confirm-page"
       style={{
         minHeight: "100vh",
         background: theme.page,
@@ -169,9 +284,10 @@ function StaffOrderConfirmation() {
       }}
     >
       <div
+        className="amaya-confirm-card"
         style={{
           width: "100%",
-          maxWidth: "880px",
+          maxWidth: "980px",
           background: theme.card,
           borderRadius: "20px",
           border: `1px solid ${theme.border}`,
@@ -180,8 +296,9 @@ function StaffOrderConfirmation() {
         }}
       >
         <header
+          className="amaya-confirm-header"
           style={{
-            padding: "22px 28px",
+            padding: "24px 30px",
             borderBottom: `1px solid ${theme.borderSoft}`,
             display: "flex",
             alignItems: "center",
@@ -195,9 +312,9 @@ function StaffOrderConfirmation() {
               src={amayaLogo}
               alt="Amaya Logo"
               style={{
-                width: "46px",
-                height: "46px",
-                flex: "0 0 46px",
+                width: "48px",
+                height: "48px",
+                flex: "0 0 48px",
                 objectFit: "contain",
                 borderRadius: "50%",
                 background: "#fff",
@@ -209,7 +326,7 @@ function StaffOrderConfirmation() {
               <span
                 style={{
                   display: "block",
-                  fontSize: "10.5px",
+                  fontSize: "11px",
                   fontWeight: 800,
                   color: theme.earth,
                   letterSpacing: "1.3px",
@@ -218,21 +335,22 @@ function StaffOrderConfirmation() {
               >
                 Amaya&apos;s drinks and bites - POS checkout
               </span>
-              <h1 style={{ margin: "3px 0 0", fontSize: "20px", fontWeight: 700, color: theme.text }}>
+              <h1 className="amaya-confirm-title" style={{ margin: "3px 0 0", fontSize: "23px", fontWeight: 700, color: theme.text }}>
                 Order confirmation and payment
               </h1>
             </div>
           </div>
 
           <span
+            className="amaya-confirm-status"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "7px",
               flex: "0 0 auto",
-              padding: "7px 15px",
+              padding: "8px 16px",
               borderRadius: "999px",
-              fontSize: "10.5px",
+              fontSize: "11.5px",
               fontWeight: 800,
               letterSpacing: "0.9px",
               textTransform: "uppercase",
@@ -255,7 +373,7 @@ function StaffOrderConfirmation() {
           </span>
         </header>
 
-        <div style={{ padding: "24px 28px 28px" }}>
+        <div className="amaya-confirm-body" style={{ padding: "24px 28px 28px" }}>
           <div
             style={{
               display: "grid",
@@ -270,7 +388,7 @@ function StaffOrderConfirmation() {
                 htmlFor="confirm-customer"
                 style={{
                   display: "block",
-                  fontSize: "10px",
+                  fontSize: "11px",
                   fontWeight: 700,
                   color: theme.textMuted,
                   letterSpacing: "0.8px",
@@ -288,12 +406,12 @@ function StaffOrderConfirmation() {
                 placeholder="Walk-in Customer"
                 style={{
                   width: "100%",
-                  padding: "10px 12px",
+                  padding: "11px 14px",
                   borderRadius: "10px",
                   border: `1px solid ${theme.border}`,
                   background: theme.card,
                   color: theme.text,
-                  fontSize: "13px",
+                  fontSize: "14px",
                   fontWeight: 600,
                   outline: "none",
                 }}
@@ -304,7 +422,7 @@ function StaffOrderConfirmation() {
               <span
                 style={{
                   display: "block",
-                  fontSize: "10px",
+                  fontSize: "11px",
                   fontWeight: 700,
                   color: theme.textMuted,
                   letterSpacing: "0.8px",
@@ -322,13 +440,13 @@ function StaffOrderConfirmation() {
                     onClick={() => setOrderType(type)}
                     aria-pressed={orderType === type}
                     style={{
-                      padding: "10px 8px",
+                      padding: "11px 10px",
                       borderRadius: "10px",
                       border: orderType === type ? `1.5px solid ${theme.earth}` : `1px solid ${theme.border}`,
                       background: orderType === type ? theme.earthSoft : theme.card,
                       color: orderType === type ? theme.earth : theme.textMuted,
                       fontWeight: 700,
-                      fontSize: "11px",
+                      fontSize: "13px",
                       cursor: "pointer",
                       transition: "all 0.15s ease",
                     }}
@@ -362,7 +480,7 @@ function StaffOrderConfirmation() {
                   alignItems: "center",
                   gap: "9px",
                   margin: "0 0 14px",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   fontWeight: 800,
                   letterSpacing: "1.1px",
                   textTransform: "uppercase",
@@ -376,7 +494,7 @@ function StaffOrderConfirmation() {
               <div
                 role="radiogroup"
                 aria-label="Payment method"
-                style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "14px" }}
+                style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}
               >
                 {paymentMethods.map((pm) => {
                   const isSelected = selectedPayment === pm.id;
@@ -392,7 +510,7 @@ function StaffOrderConfirmation() {
                         display: "flex",
                         alignItems: "center",
                         gap: "10px",
-                        padding: "10px 12px",
+                        padding: "12px 14px",
                         borderRadius: "12px",
                         border: isSelected ? `2px solid ${theme.earth}` : `1px solid ${theme.border}`,
                         background: isSelected ? theme.earthSoft : theme.card,
@@ -405,19 +523,19 @@ function StaffOrderConfirmation() {
                         style={{
                           display: "grid",
                           placeItems: "center",
-                          width: "34px",
-                          height: "34px",
-                          flex: "0 0 34px",
+                          width: "36px",
+                          height: "36px",
+                          flex: "0 0 36px",
                           borderRadius: "9px",
                           background: isSelected ? theme.card : theme.panel,
                           border: `1px solid ${theme.border}`,
                         }}
                       >
-                        <img src={pm.icon} alt="" aria-hidden="true" style={{ width: "19px", height: "19px", objectFit: "contain" }} />
+                        <img src={pm.icon} alt="" aria-hidden="true" style={{ width: "20px", height: "20px", objectFit: "contain" }} />
                       </span>
                       <span style={{ minWidth: 0 }}>
-                        <strong style={{ display: "block", fontSize: "12px", color: theme.text }}>{pm.label}</strong>
-                        <small style={{ display: "block", color: theme.textMuted, fontSize: "9.5px", lineHeight: 1.3 }}>{pm.description}</small>
+                        <strong style={{ display: "block", fontSize: "13.5px", color: theme.text }}>{pm.label}</strong>
+                        <small style={{ display: "block", color: theme.textMuted, fontSize: "11.5px", lineHeight: 1.3 }}>{pm.description}</small>
                       </span>
                     </button>
                   );
@@ -454,7 +572,7 @@ function StaffOrderConfirmation() {
                     />
                   </div>
 
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
                     {(() => {
                       const isExactSelected = !hasTypedCash || Math.abs(tenderedAmount - subtotal) < 0.01;
                       return (
@@ -463,12 +581,12 @@ function StaffOrderConfirmation() {
                           aria-pressed={isExactSelected}
                           onClick={() => setCashTendered(String(subtotal))}
                           style={{
-                            padding: "7px 12px",
+                            padding: "8px 14px",
                             borderRadius: "9px",
                             border: isExactSelected ? `1px solid ${theme.earth}` : `1px solid ${theme.border}`,
                             background: isExactSelected ? theme.earth : theme.card,
                             color: isExactSelected ? "#fff" : theme.earthMid,
-                            fontSize: "11px",
+                            fontSize: "12.5px",
                             fontWeight: 700,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
@@ -487,12 +605,12 @@ function StaffOrderConfirmation() {
                           aria-pressed={isPresetSelected}
                           onClick={() => setCashTendered(String(amount))}
                           style={{
-                            padding: "7px 12px",
+                            padding: "8px 14px",
                             borderRadius: "9px",
                             border: isPresetSelected ? `1px solid ${theme.earth}` : `1px solid ${theme.border}`,
                             background: isPresetSelected ? theme.earth : theme.card,
                             color: isPresetSelected ? "#fff" : theme.earthMid,
-                            fontSize: "11px",
+                            fontSize: "12.5px",
                             fontWeight: 700,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
@@ -535,7 +653,7 @@ function StaffOrderConfirmation() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
-                <span style={{ fontSize: "11px", color: theme.textMuted }}>
+                <span style={{ fontSize: "12.5px", color: theme.textMuted }}>
                   Total due: <strong style={{ color: theme.text }}>₱{subtotal.toFixed(2)}</strong>
                 </span>
               </div>
@@ -557,7 +675,7 @@ function StaffOrderConfirmation() {
               >
                 <span
                   style={{
-                    fontSize: "10.5px",
+                    fontSize: "11.5px",
                     fontWeight: 800,
                     letterSpacing: "1.2px",
                     textTransform: "uppercase",
@@ -568,7 +686,7 @@ function StaffOrderConfirmation() {
                 </span>
                 <strong
                   style={{
-                    fontSize: "30px",
+                    fontSize: "32px",
                     fontWeight: 800,
                     lineHeight: 1.1,
                     letterSpacing: "-0.5px",
@@ -578,7 +696,7 @@ function StaffOrderConfirmation() {
                   ₱{isShort ? (subtotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}
                 </strong>
                 {!isCash ? (
-                  <span style={{ fontSize: "10.5px", color: theme.textMuted }}>No cash change for {selectedPayment}</span>
+                  <span style={{ fontSize: "12px", color: theme.textMuted }}>No cash change for {selectedPayment}</span>
                 ) : null}
               </div>
             </section>
@@ -604,7 +722,7 @@ function StaffOrderConfirmation() {
                 <h2
                   style={{
                     margin: 0,
-                    fontSize: "11px",
+                    fontSize: "12px",
                     fontWeight: 800,
                     letterSpacing: "1.1px",
                     textTransform: "uppercase",
@@ -613,7 +731,7 @@ function StaffOrderConfirmation() {
                 >
                   Order items
                 </h2>
-                <span style={{ fontSize: "10.5px", color: theme.textMuted }}>
+                <span style={{ fontSize: "12px", color: theme.textMuted }}>
                   {totalItems} item{totalItems === 1 ? "" : "s"}
                 </span>
               </div>
@@ -622,11 +740,11 @@ function StaffOrderConfirmation() {
                 style={{
                   display: "grid",
                   gridTemplateColumns: itemRowGrid,
-                  padding: "8px 0",
+                  padding: "9px 0",
                   borderTop: `1px solid ${theme.borderSoft}`,
                   borderBottom: `1px solid ${theme.borderSoft}`,
                   background: theme.panelAlt,
-                  fontSize: "10px",
+                  fontSize: "11px",
                   fontWeight: 700,
                   color: theme.textMuted,
                   letterSpacing: "0.6px",
@@ -647,35 +765,35 @@ function StaffOrderConfirmation() {
                         display: "grid",
                         gridTemplateColumns: itemRowGrid,
                         alignItems: "center",
-                        padding: "9px 0",
+                        padding: "10px 0",
                         borderTop: idx > 0 ? `1px dashed ${theme.borderSoft}` : "none",
                       }}
                     >
                       <div style={{ minWidth: 0, paddingLeft: "12px" }}>
-                        <strong style={{ display: "block", fontSize: "12.5px", color: theme.text }}>{item.title}</strong>
+                        <strong style={{ display: "block", fontSize: "13.5px", color: theme.text }}>{item.title}</strong>
                         {(item.size || item.sugarLevel || (item.addons && item.addons.length > 0)) ? (
-                          <span style={{ display: "block", marginTop: "2px", fontSize: "10px", color: theme.textMuted, lineHeight: 1.35 }}>
+                          <span style={{ display: "block", marginTop: "2px", fontSize: "11.5px", color: theme.textMuted, lineHeight: 1.35 }}>
                             {item.size || "Regular"}
                             {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
                             {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
                           </span>
                         ) : null}
                         {(item.instructions || item.notes) ? (
-                          <span style={{ display: "block", marginTop: "2px", fontSize: "10px", color: theme.earthMid, fontStyle: "italic", lineHeight: 1.35 }}>
+                          <span style={{ display: "block", marginTop: "2px", fontSize: "11.5px", color: theme.earthMid, fontStyle: "italic", lineHeight: 1.35 }}>
                             Note: {item.instructions || item.notes}
                           </span>
                         ) : null}
                       </div>
-                      <span style={{ textAlign: "center", fontSize: "12.5px", fontWeight: 700, color: theme.text }}>
+                      <span style={{ textAlign: "center", fontSize: "13.5px", fontWeight: 700, color: theme.text }}>
                         {item.quantity}
                       </span>
-                      <strong style={{ textAlign: "right", paddingRight: "12px", fontSize: "12.5px", color: theme.earth }}>
+                      <strong style={{ textAlign: "right", paddingRight: "12px", fontSize: "13.5px", color: theme.earth }}>
                         ₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}
                       </strong>
                     </div>
                   ))
                 ) : (
-                  <div style={{ padding: "28px 12px", textAlign: "center", color: theme.textMuted, fontSize: "12px" }}>
+                  <div style={{ padding: "28px 12px", textAlign: "center", color: theme.textMuted, fontSize: "13px" }}>
                     No items in this order yet
                   </div>
                 )}
@@ -695,7 +813,7 @@ function StaffOrderConfirmation() {
               <h2
                 style={{
                   margin: "0 0 14px",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   fontWeight: 800,
                   letterSpacing: "1.1px",
                   textTransform: "uppercase",
@@ -705,11 +823,11 @@ function StaffOrderConfirmation() {
                 Order summary
               </h2>
 
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "7px 0", fontSize: "12.5px", color: theme.textMuted }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", fontSize: "13.5px", color: theme.textMuted }}>
                 <span>Subtotal</span>
                 <span style={{ color: theme.text, fontWeight: 700 }}>₱{subtotal.toFixed(2)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "7px 0", fontSize: "12.5px", color: theme.textMuted }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", fontSize: "13.5px", color: theme.textMuted }}>
                 <span>Tax / VAT (0%)</span>
                 <span style={{ color: theme.text, fontWeight: 700 }}>₱0.00</span>
               </div>
@@ -729,7 +847,7 @@ function StaffOrderConfirmation() {
               >
                 <span
                   style={{
-                    fontSize: "11.5px",
+                    fontSize: "12px",
                     fontWeight: 800,
                     letterSpacing: "0.9px",
                     textTransform: "uppercase",
@@ -738,7 +856,7 @@ function StaffOrderConfirmation() {
                 >
                   Total due
                 </span>
-                <strong style={{ fontSize: "24px", fontWeight: 800, letterSpacing: "-0.5px", color: theme.green }}>
+                <strong style={{ fontSize: "26px", fontWeight: 800, letterSpacing: "-0.5px", color: theme.green }}>
                   ₱{subtotal.toFixed(2)}
                 </strong>
               </div>
@@ -750,7 +868,7 @@ function StaffOrderConfirmation() {
                   justifyContent: "space-between",
                   gap: "10px",
                   marginTop: "12px",
-                  padding: "10px 12px",
+                  padding: "11px 14px",
                   borderRadius: "10px",
                   background: isPaymentPending ? theme.amberSoft : theme.greenSoft,
                   border: `1px solid ${isPaymentPending ? theme.amberBorder : theme.greenBorder}`,
@@ -761,7 +879,7 @@ function StaffOrderConfirmation() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "7px",
-                    fontSize: "10.5px",
+                    fontSize: "12px",
                     fontWeight: 700,
                     color: isPaymentPending ? theme.amber : theme.green,
                   }}
@@ -781,7 +899,7 @@ function StaffOrderConfirmation() {
                 </span>
                 <span
                   style={{
-                    fontSize: "10.5px",
+                    fontSize: "11.5px",
                     fontWeight: 800,
                     letterSpacing: "0.8px",
                     textTransform: "uppercase",
@@ -795,6 +913,7 @@ function StaffOrderConfirmation() {
           </div>
 
           <div
+            className="amaya-confirm-actions"
             style={{
               display: "flex",
               justifyContent: "space-between",
@@ -809,13 +928,14 @@ function StaffOrderConfirmation() {
             <button
               type="button"
               onClick={() => navigate("/staff/menu")}
+              className="amaya-confirm-back"
               style={{
-                padding: "11px 18px",
+                padding: "12px 20px",
                 borderRadius: "10px",
                 border: `1px solid ${theme.border}`,
                 background: theme.card,
                 color: theme.earthMid,
-                fontSize: "12.5px",
+                fontSize: "13.5px",
                 fontWeight: 700,
                 cursor: "pointer",
               }}
@@ -825,24 +945,25 @@ function StaffOrderConfirmation() {
 
             <button
               type="button"
-              disabled={order.length === 0 || isShort}
+              disabled={order.length === 0 || isShort || isSubmitting}
               onClick={handleConfirmOrder}
+              className="amaya-confirm-submit"
               style={{
-                padding: "13px 24px",
+                padding: "13px 26px",
                 borderRadius: "10px",
                 border: "none",
-                background: isShort ? "#DCD4CC" : theme.earth,
+                background: isShort || isSubmitting ? "#DCD4CC" : theme.earth,
                 color: "#ffffff",
-                fontSize: "13px",
+                fontSize: "14px",
                 fontWeight: 700,
-                cursor: isShort ? "not-allowed" : "pointer",
-                boxShadow: isShort ? "none" : "0 8px 22px rgba(90, 62, 43, 0.26)",
+                cursor: isShort || isSubmitting ? "not-allowed" : "pointer",
+                boxShadow: isShort || isSubmitting ? "none" : "0 8px 22px rgba(90, 62, 43, 0.26)",
                 display: "flex",
                 alignItems: "center",
                 gap: "9px",
               }}
             >
-              <span>Confirm &amp; print receipt</span>
+              <span>{isSubmitting ? "Placing order..." : "Confirm & print receipt"}</span>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="6 9 6 2 18 2 18 9" />
                 <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />

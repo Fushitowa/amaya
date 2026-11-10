@@ -39,3 +39,4 @@ database/*.sql
 *.backup.sql
 *_backup.sql
 database/backups/catalog_vault_2*.json
+database/backups/pre_recovery_*.json

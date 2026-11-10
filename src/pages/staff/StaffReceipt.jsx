@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
@@ -41,6 +41,16 @@ function StaffReceipt() {
   const receiptWidth = printerPaperSize === "58mm" ? "219px" : "300px";
   const stationName = String(printPreferences.stationName || "POS Terminal #1").trim() || "POS Terminal #1";
   const { user } = useAuth() || {};
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
   const cashierName = location.state?.cashierName || user?.displayName || "Staff";
 
   useEffect(() => {
@@ -74,7 +84,7 @@ function StaffReceipt() {
     }
   };
 
-  return (
+  const slipView = (
     <main className="staff-receipt-page">
       <div className="thermal-receipt-container" style={{ "--receipt-width": receiptWidth, "--receipt-print-width": receiptWidth }}>
         {/* Navigation & Action Bar (Hidden on Print) */}
@@ -248,6 +258,97 @@ function StaffReceipt() {
         </article>
       </div>
     </main>
+  );
+
+  if (!isMobile) return slipView;
+
+  const itemCount = order.reduce((n, i) => n + Number(i.quantity || 0), 0);
+  const isCash = String(paymentMethod).toLowerCase() === "cash";
+  const details = [
+    ["Order no.", orderNumber],
+    ["Date", `${date} · ${time}`],
+    ["Customer", customerName],
+    ["Service", orderType],
+    ["Payment", paymentMethod],
+    ["Cashier", cashierName],
+  ];
+
+  return (
+    <>
+      <div className="rc-app">
+        <header className="rc-appbar">
+          <button type="button" className="rc-icon-btn" onClick={() => navigate("/staff/menu")} aria-label="Back to menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
+          </button>
+          <h1>Receipt</h1>
+        </header>
+
+        <main className="rc-scroll">
+          <section className="rc-hero">
+            <span className="rc-check" aria-hidden="true">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+            <h2>{String(paymentStatus).toUpperCase() === "PAID" ? "Payment successful" : String(paymentStatus)}</h2>
+            <strong className="rc-hero-amount">₱{total.toFixed(2)}</strong>
+            <span className="rc-hero-sub">{itemCount} item{itemCount === 1 ? "" : "s"} · Order #{orderNumber}</span>
+          </section>
+
+          <section className="rc-card">
+            <h3>Order details</h3>
+            <dl className="rc-details">
+              {details.map(([k, v]) => (
+                <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+              ))}
+            </dl>
+          </section>
+
+          <section className="rc-card">
+            <h3>Items</h3>
+            <ul className="rc-items">
+              {order.map((item, index) => (
+                <li key={`${item.title}-${index}`}>
+                  <span className="rc-qty">{item.quantity}×</span>
+                  <span className="rc-item-text">
+                    <strong>{item.title}</strong>
+                    <small>
+                      {item.size || "Regular"}
+                      {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
+                      {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
+                    </small>
+                  </span>
+                  <span className="rc-item-price">₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="rc-totals">
+              <div><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
+              <div><span>Tax / VAT (0%)</span><span>₱0.00</span></div>
+              {isCash && (
+                <>
+                  <div><span>Cash tendered</span><span>₱{cashTendered.toFixed(2)}</span></div>
+                  <div><span>Change</span><span>₱{changeDue.toFixed(2)}</span></div>
+                </>
+              )}
+              <div className="rc-grand"><span>Total</span><span>₱{total.toFixed(2)}</span></div>
+            </div>
+          </section>
+
+          <p className="rc-thanks">Thank you for visiting Amaya!</p>
+        </main>
+
+        <footer className="rc-bottombar">
+          <Link to="/staff/orders" className="rc-btn tonal">Orders</Link>
+          <button type="button" className="rc-btn tonal" onClick={() => navigate("/staff/menu")}>New order</button>
+          <button type="button" className="rc-btn filled" onClick={handlePrint}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>
+            Print
+          </button>
+        </footer>
+      </div>
+
+      {/* Thermal slip stays in the DOM for printing only */}
+      <div className="rc-slip-print-only">{slipView}</div>
+    </>
   );
 }
 

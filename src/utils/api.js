@@ -1,4 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+const resolveApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `http://${window.location.hostname}:3001/api`;
+  }
+  return "http://localhost:3001/api";
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 const AUTH_TOKEN_KEY = "amaya-session-token";
 
 export function getAuthToken() {

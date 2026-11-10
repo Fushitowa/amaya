@@ -10,6 +10,7 @@ import {
   ImagePlus,
   LayoutGrid,
   List,
+  Menu,
   Package,
   Pencil,
   Plus,
@@ -171,6 +172,19 @@ function AdminInventory() {
   const [inventoryAlertsEnabled] = useState(readInventoryAlertPreference);
   const [isSaving, setIsSaving] = useState(false);
   const [formValues, setFormValues] = useState(createEmptyInventoryForm);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [actionRow, setActionRow] = useState(null);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 800px)");
+    const sync = () => setIsMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   // Dynamic live calculation of unit cost and valuation for the Add/Edit form preview
   const parsedLivePurchasePrice = Number(formValues.purchasePrice || 0);
@@ -500,14 +514,111 @@ function AdminInventory() {
   };
 
   return (
-    <div className={`admin-inventory-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`admin-inventory-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${isMobile ? "is-mobile" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      {mobileNavOpen && <div className="ai-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <Sidebar
         role="admin"
         activeTab="inventory"
         sidebarCollapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
+        onToggle={() => (isMobile ? setMobileNavOpen(false) : toggleSidebar())}
       />
 
+      {isMobile ? (
+        <main className="ai-main">
+          <header className="ai-appbar">
+            <button type="button" className="ai-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation menu"><Menu size={24} /></button>
+            {searchOpen ? (
+              <label className="ai-search">
+                <Search size={20} aria-hidden="true" />
+                <input autoFocus type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search inventory" aria-label="Search inventory" />
+                <button type="button" onClick={() => { setSearch(""); setSearchOpen(false); }} aria-label="Close search">&times;</button>
+              </label>
+            ) : (
+              <>
+                <div className="ai-title"><h1>Inventory</h1><span>{totalItems} items</span></div>
+                <button type="button" className="ai-icon-btn" onClick={() => setSearchOpen(true)} aria-label="Search inventory"><Search size={22} /></button>
+                <Link to="/admin/archive" className="ai-icon-btn" aria-label="View archive"><Archive size={22} /></Link>
+              </>
+            )}
+          </header>
+
+          {notice && <div className="ai-snack" role="status"><CheckCircle2 size={18} aria-hidden="true" /><span>{notice}</span><button type="button" onClick={() => setNotice("")}>OK</button></div>}
+
+          <section className="ai-summary" aria-label="Inventory summary">
+            <div className="ai-summary-main"><span>Asset value</span><strong>₱{totalInventoryAssetValue.toFixed(2)}</strong></div>
+            <div className="ai-summary-row">
+              <span className="ok"><i />{inStockCount} in stock</span>
+              <span className="out"><i />{outOfStockCount} out</span>
+              <span className="over"><i />{overMaximumCount} over</span>
+            </div>
+          </section>
+
+          <div className="ai-chips" role="tablist" aria-label="Category">
+            {categories.map((c) => (
+              <button key={c} type="button" role="tab" aria-selected={activeCategory === c} className={activeCategory === c ? "on" : ""} onClick={() => setActiveCategory(c)}>
+                {c}<b>{categoryCounts[c] ?? 0}</b>
+              </button>
+            ))}
+          </div>
+
+          <div className="ai-sortbar">
+            <span>{rows.length} shown</span>
+            <label>Sort
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort inventory">
+                <option value="name">Name</option>
+                <option value="status">Status</option>
+                <option value="quantity-asc">Qty low-high</option>
+                <option value="quantity-desc">Qty high-low</option>
+              </select>
+            </label>
+          </div>
+
+          <ul className="ai-list">
+            {inventoryLoading && inventory.length === 0 ? (
+              <li className="ai-empty"><RefreshCw size={30} aria-hidden="true" /><strong>Loading inventory…</strong></li>
+            ) : rows.length === 0 ? (
+              <li className="ai-empty">
+                <Package size={40} aria-hidden="true" />
+                <strong>{inventory.length === 0 ? "No inventory yet" : "Nothing matches"}</strong>
+                <span>{inventory.length === 0 ? "Tap Add to stock your first item." : "Try another category or search."}</span>
+              </li>
+            ) : rows.map((row) => (
+              <li key={row.id} className={`ai-item ${row.cardStatusKey}`}>
+                <div className="ai-item-top">
+                  <span className="ai-avatar">{row.image ? <img src={row.image} alt="" loading="lazy" /> : <Package size={20} aria-hidden="true" />}</span>
+                  <button type="button" className="ai-more" onClick={() => setActionRow(row)} aria-label={`Actions for ${row.item}`}>&#8942;</button>
+                </div>
+                <span className="ai-item-text"><small>{row.category}</small><strong>{row.item}</strong></span>
+                <div className="ai-qty-row">
+                  <span className="ai-qty"><b>{row.quantity}</b> {row.unit}</span>
+                </div>
+                <div className={`ai-meter ${row.stockRatio == null ? "none" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={row.stockRatio ?? undefined} aria-label={`${row.item} stock level`}>
+                  {row.stockRatio != null && <i className={row.stockLevelKey} style={{ width: `${Math.min(100, row.stockRatio)}%` }} />}
+                </div>
+                <span className={`ai-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
+                <small className="ai-max">{row.maximumStock == null ? "No max set" : `Max ${row.maximumStock} ${row.unit}`}</small>
+                <button type="button" className="ai-restock" onClick={() => openRestock(row)}><Warehouse size={15} aria-hidden="true" />Restock</button>
+              </li>
+            ))}
+          </ul>
+
+          <button type="button" className="ai-fab" onClick={() => { setEditingItem(null); setFormValues(createEmptyInventoryForm()); setActionError(""); setShowForm(true); }}>
+            <Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add
+          </button>
+
+          {actionRow && (
+            <div className="ai-sheet-wrap" role="presentation" onClick={() => setActionRow(null)}>
+              <div className="ai-sheet" role="dialog" aria-modal="true" aria-label={`Actions for ${actionRow.item}`} onClick={(e) => e.stopPropagation()}>
+                <span className="ai-sheet-handle" aria-hidden="true" />
+                <h2>{actionRow.item}</h2>
+                <button type="button" onClick={() => { openMovementHistory(actionRow); setActionRow(null); }}><History size={22} aria-hidden="true" />Stock history</button>
+                <button type="button" onClick={() => { handleEdit(actionRow); setActionRow(null); }}><Pencil size={22} aria-hidden="true" />Edit item</button>
+                <button type="button" className="danger" onClick={() => { requestDelete(actionRow.id); setActionRow(null); }}><Trash2 size={22} aria-hidden="true" />Archive item</button>
+              </div>
+            </div>
+          )}
+        </main>
+      ) : (
       <main className="admin-inventory-main">
         <header className="admin-inventory-topbar">
           <div className="admin-inventory-head-main">
@@ -585,7 +696,7 @@ function AdminInventory() {
             <div className="admin-inventory-main-pane">
               <section className="admin-inventory-toolbar">
                 <label className="admin-inventory-search">
-                  <Search aria-hidden="true" size={15} strokeWidth={2} />
+                  <Search aria-hidden="true" size={16} strokeWidth={2.2} />
                   <input
                     type="text"
                     value={search}
@@ -597,9 +708,9 @@ function AdminInventory() {
 
                 <div className="admin-inventory-toolbar-center">
                   <label className="admin-inventory-filter">
-                    <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      Category
-                      <Link to="/admin/categories" style={{ fontSize: "0.75rem", color: "#5a3d28", fontWeight: "600", textDecoration: "underline", marginLeft: "6px" }} title="Manage Categories">
+                    <span className="admin-inventory-filter-label">
+                      <span>Category</span>
+                      <Link to="/admin/categories" className="admin-inventory-manage-category-link" title="Manage Categories">
                         ⚙ Manage
                       </Link>
                     </span>
@@ -620,7 +731,9 @@ function AdminInventory() {
                   </label>
 
                   <label className="admin-inventory-sort">
-                    <span>Sort</span>
+                    <span className="admin-inventory-sort-label">
+                      <span>Sort</span>
+                    </span>
                     <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort inventory">
                       <option value="name">Name A–Z</option>
                       <option value="quantity-asc">Quantity: Low to high</option>
@@ -639,7 +752,7 @@ function AdminInventory() {
                       aria-pressed={viewMode === "grid"}
                       title="Grid view"
                     >
-                      <LayoutGrid aria-hidden="true" size={15} strokeWidth={2} />
+                      <LayoutGrid aria-hidden="true" size={16} strokeWidth={2.2} />
                       <span>Grid</span>
                     </button>
                     <button
@@ -649,7 +762,7 @@ function AdminInventory() {
                       aria-pressed={viewMode === "list"}
                       title="List view"
                     >
-                      <List aria-hidden="true" size={15} strokeWidth={2} />
+                      <List aria-hidden="true" size={16} strokeWidth={2.2} />
                       <span>List</span>
                     </button>
                   </div>
@@ -766,19 +879,19 @@ function AdminInventory() {
 
                     <div className="admin-inventory-card-actions">
                       <button type="button" onClick={() => openMovementHistory(row)} title={`View ${row.item} stock history`}>
-                        <History aria-hidden="true" size={11} strokeWidth={2.2} />
+                        <History aria-hidden="true" size={14} strokeWidth={2.2} />
                         <span>History</span>
                       </button>
                       <button type="button" onClick={() => handleEdit(row)} title={`Edit ${row.item}`}>
-                        <Pencil aria-hidden="true" size={11} strokeWidth={2.2} />
+                        <Pencil aria-hidden="true" size={14} strokeWidth={2.2} />
                         <span>Edit</span>
                       </button>
                       <button type="button" className="restock" onClick={() => openRestock(row)} title={`Restock ${row.item}`}>
-                        <Warehouse aria-hidden="true" size={11} strokeWidth={2.2} />
+                        <Warehouse aria-hidden="true" size={14} strokeWidth={2.2} />
                         <span>Restock</span>
                       </button>
                       <button type="button" className="danger" onClick={() => requestDelete(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
-                        <Trash2 aria-hidden="true" size={11.5} strokeWidth={2.2} />
+                        <Trash2 aria-hidden="true" size={14} strokeWidth={2.2} />
                       </button>
                     </div>
                   </article>
@@ -926,6 +1039,7 @@ function AdminInventory() {
       </div>
         </div>
       </main>
+      )}
 
       {showForm && (
         <div className="admin-inventory-modal-backdrop" role="presentation">
