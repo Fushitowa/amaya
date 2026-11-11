@@ -1,7 +1,7 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
-import { calculateLineCost, summarizeCosting } from "../utils/costing.js";
+import { calculateLineCost, DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost, summarizeCosting } from "../utils/costing.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
 import { recordArchiveAudit } from "./archive.js";
 
@@ -34,7 +34,7 @@ export function toProduct(
   sizeIngredients,
   includeInventory,
   includeCost = includeInventory,
-  targetFoodCost = 0.3,
+  targetFoodCost = DEFAULT_TARGET_FOOD_COST,
 ) {
   const showInventory = Boolean(includeInventory);
   const showCost = Boolean(includeCost);
@@ -194,16 +194,13 @@ export async function listProducts(
       ORDER BY p.display_order, p.name`,
   );
   if (!products.length) return [];
-  let targetFoodCost = 0.3;
+  let targetFoodCost = DEFAULT_TARGET_FOOD_COST;
   if (includeCost) {
     try {
       const [[settingsRow]] = await db.execute("SELECT target_food_cost FROM business_settings WHERE id = 1 LIMIT 1");
-      const parsedTarget = Number(settingsRow?.target_food_cost);
-      if (Number.isFinite(parsedTarget) && parsedTarget > 0 && parsedTarget < 1) {
-        targetFoodCost = parsedTarget;
-      }
+      targetFoodCost = normalizeTargetFoodCost(settingsRow?.target_food_cost);
     } catch {
-      targetFoodCost = 0.3;
+      targetFoodCost = DEFAULT_TARGET_FOOD_COST;
     }
   }
   const ids = products.map((product) => product.id);
@@ -493,6 +490,10 @@ export async function saveProduct(connection, body, id = null) {
 const VALID_OPERATIONAL_FAMILIES = ["drink", "fries", "snack_pieces", "single_fixed", "general"];
 
 router.get("/categories", optionalAuth, async (request, response) => {
+  response.set("Vary", "Authorization");
+  if (request.authUser) {
+    response.set("Cache-Control", "private, no-store");
+  }
   const showAll = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))
     && request.query.all === "true";
 
@@ -621,6 +622,10 @@ router.delete("/categories/:id", requireAuth, requireRole("admin"), async (reque
 });
 
 router.get("/", optionalAuth, async (request, response) => {
+  response.set("Vary", "Authorization");
+  if (request.authUser) {
+    response.set("Cache-Control", "private, no-store");
+  }
   const includeUnavailable = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role))
     && request.query.all === "true";
   const includeInventory = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role));

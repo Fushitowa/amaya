@@ -108,6 +108,8 @@ function mapOrderRecord(
     confirmedAt: order.confirmed_at ? new Date(order.confirmed_at).toISOString() : null,
     cashTendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
     changeDue: order.change_due == null ? null : Number(order.change_due),
+    cash_tendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
+    change_due: order.change_due == null ? null : Number(order.change_due),
     createdAt: new Date(order.created_at).toISOString(),
   };
 
@@ -123,20 +125,26 @@ function mapOrderRecord(
       createdAt: new Date(event.created_at).toISOString(),
     }));
     if (includeCost) {
-      mapped.consumptions = consumptions.map((c) => ({
-        id: Number(c.id),
-        orderItemId: c.order_item_id == null ? null : Number(c.order_item_id),
-        inventoryItemId: Number(c.inventory_item_id),
-        itemName: c.current_item_name || c.inventory_item_name_snapshot,
-        productName: c.product_name_snapshot,
-        quantity: Number(c.quantity_used),
-        quantityUsed: Number(c.quantity_used),
-        unit: c.unit,
-        unitCostSnapshot: Number(c.unit_cost_snapshot || 0),
-        lineCost: Number(c.line_cost || 0),
-        source: c.source || "recipe",
-        reversedAt: c.reversed_at ? new Date(c.reversed_at).toISOString() : null,
-      }));
+      mapped.consumptions = consumptions.map((c) => {
+        const name = c.current_item_name || c.inventory_item_name_snapshot;
+        const lineCost = Number(c.line_cost || 0);
+        return {
+          id: Number(c.id),
+          orderItemId: c.order_item_id == null ? null : Number(c.order_item_id),
+          inventoryItemId: Number(c.inventory_item_id),
+          inventoryName: name,
+          itemName: name,
+          productName: c.product_name_snapshot,
+          quantity: Number(c.quantity_used),
+          quantityUsed: Number(c.quantity_used),
+          unit: c.unit,
+          unitCostSnapshot: Number(c.unit_cost_snapshot || 0),
+          lineCost,
+          totalCost: lineCost,
+          source: c.source || "recipe",
+          reversedAt: c.reversed_at ? new Date(c.reversed_at).toISOString() : null,
+        };
+      });
     }
   }
   return mapped;

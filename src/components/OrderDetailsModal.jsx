@@ -564,17 +564,31 @@ function OrderDetailsModal({
                       {getPaymentMethodLabel(displayOrder)} · {getPaymentStatusLabel(displayOrder)}
                     </span>
                   </div>
-                  {displayOrder.cashTendered != null && String(paymentMethod).toLowerCase() === "cash" && (
+                  {String(paymentMethod).toLowerCase() === "cash" ? (
                     <>
                       <div className="odm-cost-row">
                         <span>Cash Tendered</span>
-                        <strong>{peso(displayOrder.cashTendered)}</strong>
+                        <strong>{peso(displayOrder.cashTendered ?? displayOrder.cash_tendered ?? orderTotal)}</strong>
                       </div>
                       <div className="odm-cost-row">
                         <span>Change Due</span>
-                        <strong>{peso(displayOrder.changeDue || 0)}</strong>
+                        <strong>
+                          {Number(displayOrder.changeDue ?? displayOrder.change_due ?? 0) === 0 &&
+                          Math.abs(Number(displayOrder.cashTendered ?? displayOrder.cash_tendered ?? orderTotal) - Number(orderTotal)) < 0.01 ? (
+                            <>
+                              ₱0.00 <span className="odm-tag-exact">(Exact Cash)</span>
+                            </>
+                          ) : (
+                            peso(displayOrder.changeDue ?? displayOrder.change_due ?? 0)
+                          )}
+                        </strong>
                       </div>
                     </>
+                  ) : (
+                    <div className="odm-cost-row">
+                      <span>Settlement</span>
+                      <strong style={{ fontSize: "0.82rem", color: "#6b7280" }}>Exact · Electronic (No change)</strong>
+                    </div>
                   )}
                 </div>
 
@@ -625,17 +639,30 @@ function OrderDetailsModal({
                           </tr>
                         </thead>
                         <tbody>
-                          {consumptions.map((entry) => (
-                            <tr key={entry.id}>
-                              <td>
-                                {entry.inventoryName}
-                                {entry.reversedAt && <span className="odm-tag-reversed">Restored</span>}
-                              </td>
-                              <td style={{ textTransform: "capitalize" }}>{entry.source}</td>
-                              <td>{formatConsumptionQuantity(entry.quantityUsed, entry.unit)}</td>
-                              <td>{peso(entry.totalCost)}</td>
-                            </tr>
-                          ))}
+                          {consumptions.map((entry) => {
+                            const ingredientName =
+                              entry.inventoryName ||
+                              entry.itemName ||
+                              entry.productName ||
+                              entry.name ||
+                              "Ingredient";
+                            const rawCost = entry.totalCost ?? entry.lineCost ?? 0;
+                            const costDisplay =
+                              rawCost > 0 && rawCost < 0.01
+                                ? "<₱0.01"
+                                : peso(rawCost);
+                            return (
+                              <tr key={entry.id}>
+                                <td>
+                                  {ingredientName}
+                                  {entry.reversedAt && <span className="odm-tag-reversed">Restored</span>}
+                                </td>
+                                <td style={{ textTransform: "capitalize" }}>{entry.source}</td>
+                                <td>{formatConsumptionQuantity(entry.quantityUsed ?? entry.quantity, entry.unit)}</td>
+                                <td>{costDisplay}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     ) : (

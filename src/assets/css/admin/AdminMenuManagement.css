@@ -710,6 +710,7 @@
 }
 
 .menu-builder-change-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -738,7 +739,15 @@
 }
 
 .menu-builder-change-btn input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .menu-builder-remove-btn {
@@ -3242,7 +3251,7 @@
 }
 
 .size-costing-note {
-  color: #a8a29e;
+  color: #6b645e;
   font-style: italic;
 }
 
@@ -3457,8 +3466,8 @@
 
 .size-margin-badge.neutral {
   background: #f5f5f4;
-  color: #78716c;
-  border-color: #e7e5e4;
+  color: #57534e;
+  border-color: #d6d3d1;
 }
 
 .size-apply-suggested-btn {
@@ -3812,7 +3821,7 @@
 
 .admin-menu-page.dark-mode .menu-builder-field small,
 .admin-menu-page.dark-mode .menu-field-hint {
-  color: #71717a !important;
+  color: #b9aa9b !important;
 }
 
 .admin-menu-page.dark-mode .menu-builder-price > span {
@@ -4553,7 +4562,7 @@
 
 .menu-builder-field small,
 .menu-field-hint {
-  color: #85766a;
+  color: #685a50;
   font-size: 10.5px;
   line-height: 1.45;
 }
@@ -4850,6 +4859,171 @@
   border-color: #4a3d32;
   background: #28231e;
   color: #c4b4a5;
+}
+
+/* Price Preview Selector, Single-Item Costing & Light/Dark Accessibility Parity */
+.menu-target-cost-selector {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.target-cost-pills {
+  flex-wrap: wrap;
+}
+
+.target-cost-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  touch-action: manipulation;
+}
+
+.target-cost-default-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #efe5d8;
+  color: #5c3922;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.target-cost-pill.active .target-cost-default-tag {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.target-cost-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #8f7763;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #5c3922;
+  font: 700 10.5px "DM Sans", sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .target-cost-reset-btn:hover {
+    background: #603b26;
+    border-color: #603b26;
+    color: #ffffff;
+  }
+}
+
+.size-apply-suggested-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  touch-action: manipulation;
+}
+
+.size-costing-strip.single-item {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed #d7c7b7;
+  justify-content: flex-start;
+  text-align: left;
+  color: #5e5045;
+}
+
+.admin-menu-modal-backdrop :is(.admin-menu-modal, .delete-confirm-card) :is(input, select, textarea, button, a),
+.recipe-picker-backdrop .recipe-picker-modal :is(input, select, textarea, button, [tabindex="0"]) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.admin-menu-modal-backdrop :is(.admin-menu-modal, .delete-confirm-card) :is(input, select, textarea, button, a):focus-visible,
+.recipe-picker-backdrop .recipe-picker-modal :is(input, select, textarea, button, [tabindex="0"]):focus-visible,
+.menu-builder-dropzone:focus-within,
+.menu-builder-change-btn:focus-within {
+  outline: 2px solid #603b26;
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .target-cost-pill,
+  .target-cost-reset-btn,
+  .size-apply-suggested-btn {
+    min-height: 36px;
+    padding-inline: 12px;
+  }
+}
+
+.admin-menu-page.dark-mode .target-cost-default-tag {
+  background: #3f3126;
+  color: #f6d5ad;
+}
+
+.admin-menu-page.dark-mode .target-cost-pill.active .target-cost-default-tag {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.admin-menu-page.dark-mode .target-cost-reset-btn {
+  background: #2e251e;
+  border-color: #94755a;
+  color: #f4d8b8;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-menu-page.dark-mode .target-cost-reset-btn:hover {
+    background: #78350f;
+    border-color: #a8744f;
+    color: #ffffff;
+  }
+}
+
+.admin-menu-page.dark-mode .size-costing-strip.single-item {
+  border-top-color: #4a3d32;
+  color: #c4b4a5;
+}
+
+.admin-menu-page.dark-mode .size-costing-note {
+  color: #b9aa9b;
+}
+
+.admin-menu-page.dark-mode .size-costing-warning {
+  color: #fbbf24;
+}
+
+.admin-menu-page.dark-mode .size-apply-suggested-btn {
+  background: #27272a;
+  border-color: #705642;
+  color: #f4e8dc;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-menu-page.dark-mode .size-apply-suggested-btn:hover {
+    background: #3f3f46;
+    border-color: #a8744f;
+    color: #ffffff;
+  }
+}
+
+.admin-menu-page.dark-mode .admin-menu-modal-backdrop :is(.admin-menu-modal, .delete-confirm-card) :is(input, select, textarea, button, a):focus-visible,
+.admin-menu-page.dark-mode .recipe-picker-backdrop .recipe-picker-modal :is(input, select, textarea, button, [tabindex="0"]):focus-visible,
+.admin-menu-page.dark-mode .menu-builder-dropzone:focus-within,
+.admin-menu-page.dark-mode .menu-builder-change-btn:focus-within {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
 }
 
 .menu-builder-close,

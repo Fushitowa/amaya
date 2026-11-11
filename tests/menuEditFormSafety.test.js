@@ -2,6 +2,20 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  DEFAULT_TARGET_FOOD_COST,
+  buildSafeSizeQtyMap,
+  readSizeQtyValue,
+  writeSizeQtyValue,
+  computeMenuItemCostSummary,
+  normalizeTargetFoodCost,
+  safeItemName,
+  safeToFixed,
+  findInventoryItemInList,
+  convertRecipeAmount,
+  defaultSizeFactor,
+  scaleIngredientAmount,
+} from "../src/utils/menuCosting.js";
 
 /**
  * ============================================================================
@@ -13,95 +27,17 @@ import path from "node:path";
  * Verifies:
  * 1. Safe form population on null/missing/legacy products
  * 2. Safe lookups against inventory items with missing/undefined `item` or `name`
- * 3. Safe sizeCosting calculations and .toFixed(2) protection
+ * 3. Safe sizeCosting calculations and .toFixed(2) protection via src/utils/menuCosting.js
  * 4. Exact vulnerability mapping of AdminMenuManagement.jsx
+ * 5. Shared frontend costing parity, single-price/1-size/untrimmed-label & prototype safety
  * ============================================================================
  */
 
-// --- CANONICAL SAFE HELPERS ---
+// --- CANONICAL SAFE HELPERS (DELEGATED TO SHARED PRODUCTION UTILITY) ---
 
-const unitFactors = new Map();
-const registerUnit = (dimension, factorToBase, units) =>
-  units.forEach((unit) => unitFactors.set(unit.toLowerCase(), { dimension, factorToBase }));
+export { convertRecipeAmount, defaultSizeFactor, scaleIngredientAmount, safeItemName, safeToFixed };
 
-registerUnit("mass", 0.000001, ["µg", "μg", "ug", "mcg", "microgram", "micrograms"]);
-registerUnit("mass", 0.001, ["mg", "milligram", "milligrams"]);
-registerUnit("mass", 1, ["g", "gram", "grams"]);
-registerUnit("mass", 100, ["hg", "hectogram", "hectograms"]);
-registerUnit("mass", 1000, ["kg", "kilogram", "kilograms"]);
-registerUnit("mass", 28.349523125, ["oz", "ounce", "ounces"]);
-registerUnit("mass", 453.59237, ["lb", "lbs", "pound", "pounds"]);
-registerUnit("volume", 1, ["ml", "milliliter", "milliliters", "millilitre", "millilitres", "cc", "cm3", "cm³"]);
-registerUnit("volume", 10, ["cl", "centiliter", "centiliters", "centilitre", "centilitres"]);
-registerUnit("volume", 100, ["dl", "deciliter", "deciliters", "decilitre", "decilitres"]);
-registerUnit("volume", 1000, ["l", "liter", "liters", "litre", "litres"]);
-registerUnit("volume", 4.92892159375, ["tsp", "teaspoon", "teaspoons"]);
-registerUnit("volume", 14.78676478125, ["tbsp", "tablespoon", "tablespoons"]);
-registerUnit("volume", 236.5882365, ["cup", "cups"]);
-registerUnit("volume", 29.5735295625, ["fl oz", "fluid ounce", "fluid ounces"]);
-registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
-registerUnit("count", 2, ["pair", "pairs"]);
-registerUnit("count", 12, ["dozen", "doz"]);
-
-export const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
-  const sourceName = String(recipeUnit || "").trim().toLowerCase();
-  const targetName = String(stockUnit || "").trim().toLowerCase();
-  const quantity = Number(amount);
-  const source = unitFactors.get(sourceName);
-  const target = unitFactors.get(targetName);
-  if (!Number.isFinite(quantity) || quantity <= 0) return null;
-  if (!source && !target && sourceName === targetName) return quantity;
-  if (!source || !target || source.dimension !== target.dimension) return null;
-  const converted = Number(((quantity * source.factorToBase) / target.factorToBase).toFixed(6));
-  return converted > 0 ? converted : null;
-};
-
-export const defaultSizeFactor = (factor, index = 0) =>
-  Number.isFinite(Number(factor)) && Number(factor) > 0
-    ? Number(factor)
-    : index === 0
-    ? 1.0
-    : Number((1.0 + index * 0.25).toFixed(2));
-
-export const scaleIngredientAmount = (baseQty, factor, unit) => {
-  const numQty = Number(baseQty);
-  if (!Number.isFinite(numQty) || numQty <= 0) return "";
-  const unitDef = unitFactors.get(String(unit || "").toLowerCase());
-  if (
-    unitDef?.dimension === "count" ||
-    ["pcs", "pc", "piece", "pieces", "ea", "each", "unit", "units", "cup", "cups"].includes(
-      String(unit || "").toLowerCase()
-    )
-  ) {
-    return String(numQty);
-  }
-  const scaled = Number((numQty * factor).toFixed(2));
-  return String(scaled);
-};
-
-export const safeItemName = (entry) => {
-  if (!entry) return "";
-  return String(entry.item ?? entry.name ?? "").trim();
-};
-
-export const safeToFixed = (val, fractionDigits = 2, fallback = "0.00") => {
-  const num = Number(val);
-  return Number.isFinite(num) ? num.toFixed(fractionDigits) : fallback;
-};
-
-export const findInventoryItem = (inventory, query, id = null) => {
-  if (!Array.isArray(inventory)) return undefined;
-  const numericId = id != null && !Number.isNaN(Number(id)) ? Number(id) : null;
-  const cleanQuery = String(query || "").trim().toLowerCase();
-
-  return inventory.find((entry) => {
-    if (!entry) return false;
-    if (numericId !== null && Number(entry.id) === numericId) return true;
-    if (!cleanQuery) return false;
-    const name = safeItemName(entry).toLowerCase();
-    return name === cleanQuery;
-  });
-};
+export const findInventoryItem = findInventoryItemInList;
 
 export const isCupIngredient = (ing, inventory = []) => {
   if (!ing) return false;
@@ -165,12 +101,12 @@ export const populateFormValues = (product, inventory = []) => {
         unit: invItem?.unit || "pcs",
         stockUnit: invItem?.unit || "pcs",
         quantityUsed: "",
-        quantityBySize: {},
+        quantityBySize: buildSafeSizeQtyMap(),
       };
     }
     const invId = ingredient?.inventoryItemId != null ? Number(ingredient.inventoryItemId) : null;
     const invItem = findInventoryItem(safeInventory, ingredient?.name, invId);
-    const quantityBySize = Object.fromEntries(
+    const quantityBySize = buildSafeSizeQtyMap(
       sizes.map((size) => {
         const rawSizeObj = rawSizes.find((s) => s?.label === size.label);
         const sizedIngredient = Array.isArray(rawSizeObj?.ingredients)
@@ -219,60 +155,38 @@ export const populateFormValues = (product, inventory = []) => {
   };
 };
 
-export const computeSafeSizeCosting = (sizeLabel, rawSizePrice, formValues = {}, inventory = []) => {
+export const computeSafeSizeCosting = (
+  sizeLabel,
+  rawSizePrice,
+  formValues = {},
+  inventory = [],
+  targetFoodCost = DEFAULT_TARGET_FOOD_COST,
+) => {
   const formPrice = Number(formValues?.price) || 0;
   const numericPrice =
     rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
       ? Number(rawSizePrice)
       : formPrice;
 
-  const ingredients = Array.isArray(formValues?.ingredients) ? formValues.ingredients.filter(Boolean) : [];
-  let rawCost = 0;
-  let costComplete = ingredients.length > 0;
+  const sizes = Array.isArray(formValues?.sizes) ? formValues.sizes.filter(Boolean) : [];
+  const matchedSize = sizeLabel ? sizes.find((s) => s?.label === sizeLabel) : null;
+  const sizeFactor = matchedSize ? defaultSizeFactor(matchedSize.factor, 0) : 1.0;
 
-  for (const ing of ingredients) {
-    if (!ing) continue;
-    const invItem = findInventoryItem(inventory, ing.name, ing.inventoryItemId);
-    const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
-    const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
-    const recipeUnit = ing.unit || stockUnit;
-
-    const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
-    if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue;
-
-    const sizes = Array.isArray(formValues?.sizes) ? formValues.sizes.filter(Boolean) : [];
-    const matchedSize = sizeLabel ? sizes.find((s) => s?.label === sizeLabel) : null;
-    const factor = matchedSize ? defaultSizeFactor(matchedSize.factor, 0) : 1.0;
-    const qtyUsed = Number(
-      sizeLabel
-        ? ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)
-        : ing.quantityUsed
-    );
-    const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
-
-    if (!stockQty || !(unitCost > 0)) {
-      costComplete = false;
-    } else {
-      rawCost += stockQty * unitCost;
-    }
-  }
-
-  const cost = Number.isFinite(rawCost) ? Number(rawCost.toFixed(2)) : 0;
-  const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : null;
-  const margin = numericPrice > 0 ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
-  const foodCostPercent = numericPrice > 0 ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
-  const suggestedPrice = rawCost > 0 ? Math.ceil(rawCost / 0.3 / 5) * 5 : null;
+  const summary = computeMenuItemCostSummary({
+    sellingPrice: numericPrice,
+    directCostPrice: sizes.length === 0 ? formValues?.costPrice : 0,
+    sizeLabel,
+    sizeFactor,
+    ingredients: formValues?.ingredients || [],
+    inventory,
+    targetFoodCost,
+  });
 
   return {
-    cost,
-    costComplete,
-    grossProfit,
-    margin,
-    foodCostPercent,
-    suggestedPrice,
-    costFormatted: safeToFixed(cost, 2),
-    profitFormatted: safeToFixed(grossProfit ?? 0, 2),
-    marginFormatted: margin != null ? `${safeToFixed(margin, 1)}%` : "—",
+    ...summary,
+    costFormatted: safeToFixed(summary.cost, 2),
+    profitFormatted: safeToFixed(summary.grossProfit ?? 0, 2),
+    marginFormatted: summary.margin != null ? `${safeToFixed(summary.margin, 1)}%` : "—",
   };
 };
 
@@ -637,6 +551,310 @@ describe("Tala Test Suite: Menu Edit Form Safety & Zero-Crash Verification", () 
         unguardedSites.length,
         0,
         `Expected 0 unguarded call sites after hardening, but found ${unguardedSites.length}: ${JSON.stringify(unguardedSites)}`
+      );
+    });
+  });
+
+  describe("SUITE 5: Shared Frontend Costing Parity, Single-Price Fallback & Prototype Safety", () => {
+    const loadMenuCosting = () => import("../src/utils/menuCosting.js").catch(() => null);
+
+    it("TEST 5.1: src/utils/menuCosting.js exports shared costing helpers, parameterizes targetFoodCost (0.30 vs 0.40), and enforces [0.10, 0.90] bounds", async () => {
+      const menuCosting = await loadMenuCosting();
+      assert.ok(menuCosting, "src/utils/menuCosting.js must exist and export shared costing helpers");
+      assert.equal(typeof menuCosting.computeMenuItemCostSummary, "function");
+      assert.equal(typeof menuCosting.buildSafeSizeQtyMap, "function");
+      assert.equal(typeof menuCosting.readSizeQtyValue, "function");
+
+      const inventory = [{ id: 1, item: "Milk", unit: "ml", unitCost: 0.12 }];
+      const ingredients = [{ inventoryItemId: 1, name: "Milk", quantityUsed: "100", unit: "ml", stockUnit: "ml" }];
+
+      const at30 = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 50,
+        ingredients,
+        inventory,
+        targetFoodCost: 0.3,
+      });
+      assert.equal(at30.cost, 12);
+      assert.equal(at30.costComplete, true);
+      assert.equal(at30.usedCount, 1);
+      assert.equal(at30.suggestedPrice, 40);
+
+      const at40 = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 50,
+        ingredients,
+        inventory,
+        targetFoodCost: 0.4,
+      });
+      assert.equal(at40.cost, 12);
+      assert.equal(at40.suggestedPrice, 30);
+
+      const outOfBounds = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 50,
+        ingredients,
+        inventory,
+        targetFoodCost: 0.05,
+      });
+      assert.equal(outOfBounds.suggestedPrice, 40, "Out-of-range targetFoodCost 0.05 must fall back to 0.30");
+    });
+
+    it("TEST 5.2: single-price (sizes = []) recipe costing and direct costPrice fallback match backend parity", async () => {
+      const menuCosting = await loadMenuCosting();
+      assert.ok(menuCosting, "src/utils/menuCosting.js must exist and export shared costing helpers");
+
+      const directFallback = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 60,
+        directCostPrice: 24,
+        ingredients: [],
+        inventory: [],
+        targetFoodCost: 0.4,
+      });
+      assert.equal(directFallback.usedCount, 0);
+      assert.equal(directFallback.cost, 24);
+      assert.equal(directFallback.costComplete, true);
+      assert.equal(directFallback.costSource, "direct");
+      assert.equal(directFallback.grossProfit, 36);
+      assert.equal(directFallback.suggestedPrice, 60);
+
+      const singleRecipe = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 45,
+        directCostPrice: 99,
+        ingredients: [{ inventoryItemId: 2, name: "Bun", quantityUsed: "2", unit: "pcs", stockUnit: "pcs" }],
+        inventory: [{ id: 2, name: "Bun", unit: "pcs", unitCost: 4.5 }],
+        targetFoodCost: 0.3,
+      });
+      assert.equal(singleRecipe.usedCount, 1);
+      assert.equal(singleRecipe.cost, 9);
+      assert.equal(singleRecipe.costComplete, true);
+      assert.equal(singleRecipe.costSource, "recipe");
+      assert.equal(singleRecipe.suggestedPrice, 30);
+    });
+
+    it("TEST 5.3: all-zero ingredient quantity (usedCount === 0, no directCostPrice) reports costComplete: false", async () => {
+      const menuCosting = await loadMenuCosting();
+      assert.ok(menuCosting, "src/utils/menuCosting.js must exist and export shared costing helpers");
+
+      const qMap = menuCosting.buildSafeSizeQtyMap([["Regular", "0"]]);
+      const zeroSized = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 80,
+        directCostPrice: 0,
+        sizeLabel: "Regular",
+        ingredients: [
+          {
+            inventoryItemId: 3,
+            name: "Sugar",
+            quantityUsed: "10",
+            quantityBySize: qMap,
+            unit: "g",
+            stockUnit: "g",
+          },
+        ],
+        inventory: [{ id: 3, item: "Sugar", unit: "g", unitCost: 0.2 }],
+        targetFoodCost: 0.3,
+      });
+      assert.equal(zeroSized.usedCount, 0);
+      assert.equal(zeroSized.cost, 0);
+      assert.equal(zeroSized.costComplete, false);
+      assert.equal(zeroSized.suggestedPrice, null);
+    });
+
+    it("TEST 5.4: IEEE-754 ceil boundary (5.25 at 0.35 -> 15), grossProfit: null on price = 0, and .toFixed(4) line accumulation parity", async () => {
+      const menuCosting = await loadMenuCosting();
+      assert.ok(menuCosting, "src/utils/menuCosting.js must exist and export shared costing helpers");
+
+      const ieeeResult = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 0,
+        ingredients: [{ inventoryItemId: 4, name: "Syrup", quantityUsed: "1", unit: "pcs", stockUnit: "pcs" }],
+        inventory: [{ id: 4, item: "Syrup", unit: "pcs", unitCost: 5.25 }],
+        targetFoodCost: 0.35,
+      });
+      assert.equal(ieeeResult.cost, 5.25);
+      assert.equal(ieeeResult.grossProfit, null, "Zero selling price must return grossProfit: null");
+      assert.equal(ieeeResult.margin, null);
+      assert.equal(
+        ieeeResult.suggestedPrice,
+        15,
+        "5.25 at 0.35 target must suggest 15 (not IEEE-754 overshot 20)",
+      );
+
+      // .toFixed(4) line rounding parity: 0.001 * 1.664 = 0.001664 -> 0.0017 per line; 3 lines = 0.0051 -> 0.01 (vs unrounded 0.004992 -> 0.00)
+      const tinyLines = menuCosting.computeMenuItemCostSummary({
+        sellingPrice: 10,
+        ingredients: [
+          { inventoryItemId: 10, name: "Spice A", quantityUsed: "1", unit: "g", stockUnit: "kg" },
+          { inventoryItemId: 11, name: "Spice B", quantityUsed: "1", unit: "g", stockUnit: "kg" },
+          { inventoryItemId: 12, name: "Spice C", quantityUsed: "1", unit: "g", stockUnit: "kg" },
+        ],
+        inventory: [
+          { id: 10, item: "Spice A", unit: "kg", unitCost: 1.664 },
+          { id: 11, item: "Spice B", unit: "kg", unitCost: 1.664 },
+          { id: 12, item: "Spice C", unit: "kg", unitCost: 1.664 },
+        ],
+        targetFoodCost: 0.3,
+      });
+      assert.equal(tinyLines.cost, 0.01, "Line costs must round with .toFixed(4) before summing to match backend costing.js");
+    });
+
+    it("TEST 5.5: prototype-key variation labels ('toString', 'constructor', '__proto__') compute numeric costs via null-prototype map with Object.prototype unpolluted", async () => {
+      const menuCosting = await loadMenuCosting();
+      assert.ok(menuCosting, "src/utils/menuCosting.js must exist and export shared costing helpers");
+
+      const safeMap = menuCosting.buildSafeSizeQtyMap([
+        ["toString", "10"],
+        ["constructor", "20"],
+        ["__proto__", "30"],
+      ]);
+      assert.equal(Object.getPrototypeOf(safeMap), null, "buildSafeSizeQtyMap must return a null-prototype object");
+      assert.equal(menuCosting.readSizeQtyValue(safeMap, "toString"), "10");
+      assert.equal(menuCosting.readSizeQtyValue(safeMap, "constructor"), "20");
+      assert.equal(menuCosting.readSizeQtyValue(safeMap, "__proto__"), "30");
+      assert.equal(menuCosting.readSizeQtyValue({}, "toString"), undefined, "Must never inherit Object.prototype.toString");
+      assert.equal(menuCosting.readSizeQtyValue({}, "constructor"), undefined, "Must never inherit Object.prototype.constructor");
+      assert.equal(({}).polluted, undefined);
+      assert.equal(typeof ({}).toString, "function");
+
+      const inventory = [{ id: 5, item: "Cocoa", unit: "g", unitCost: 0.5 }];
+      const ingredients = [
+        {
+          inventoryItemId: 5,
+          name: "Cocoa",
+          quantityUsed: "10",
+          quantityBySize: safeMap,
+          unit: "g",
+          stockUnit: "g",
+        },
+      ];
+
+      for (const [label, expectedCost] of [
+        ["toString", 5],
+        ["constructor", 10],
+        ["__proto__", 15],
+      ]) {
+        const res = menuCosting.computeMenuItemCostSummary({
+          sellingPrice: 100,
+          sizeLabel: label,
+          ingredients,
+          inventory,
+          targetFoodCost: 0.3,
+        });
+        assert.equal(res.cost, expectedCost, `Variation '${label}' must compute numeric cost ${expectedCost}`);
+        assert.equal(res.costComplete, true);
+      }
+
+      assert.equal(Object.prototype.toString !== "10", true);
+      assert.equal(Object.getPrototypeOf({}), Object.prototype);
+    });
+
+    it("TEST 5.6: fractional targetFoodCost 0.335 (33.5%) preserves full precision without integer rounding drift", () => {
+      assert.equal(normalizeTargetFoodCost(0.335), 0.335);
+      assert.equal(Number((normalizeTargetFoodCost(0.335) * 100).toFixed(2)), 33.5);
+
+      const fractionalDirect = computeMenuItemCostSummary({
+        sellingPrice: 80,
+        directCostPrice: 17,
+        ingredients: [],
+        inventory: [],
+        targetFoodCost: 0.335,
+      });
+      assert.equal(fractionalDirect.cost, 17);
+      assert.equal(fractionalDirect.costComplete, true);
+      assert.equal(fractionalDirect.costSource, "direct");
+      assert.equal(
+        fractionalDirect.suggestedPrice,
+        55,
+        "17 / 0.335 must suggest 55 (not 50 caused by Math.round(33.5)->34%)",
+      );
+    });
+
+    it("TEST 5.7: writeSizeQtyValue performs immutable null-prototype updates for normal and prototype-key variation labels", () => {
+      const initial = buildSafeSizeQtyMap([
+        ["Regular", "10"],
+        ["toString", "5"],
+      ]);
+      const updated = writeSizeQtyValue(initial, "Regular", "25");
+      assert.equal(Object.getPrototypeOf(updated), null);
+      assert.equal(readSizeQtyValue(updated, "Regular"), "25");
+      assert.equal(readSizeQtyValue(updated, "toString"), "5");
+      assert.equal(readSizeQtyValue(initial, "Regular"), "10", "Original map must remain immutable");
+
+      const withProto = writeSizeQtyValue(writeSizeQtyValue(updated, "__proto__", "99"), "constructor", "77");
+      assert.equal(readSizeQtyValue(withProto, "__proto__"), "99");
+      assert.equal(readSizeQtyValue(withProto, "constructor"), "77");
+      assert.equal(Object.getPrototypeOf({}), Object.prototype);
+      assert.equal(({}).polluted, undefined);
+      assert.equal(typeof ({}).toString, "function");
+
+      const clearedRegular = writeSizeQtyValue(withProto, "Regular", "");
+      assert.equal(readSizeQtyValue(clearedRegular, "Regular"), "");
+      assert.equal(readSizeQtyValue(withProto, "Regular"), "25");
+    });
+
+    it("TEST 5.8: supports 1-size variation costing and preserves untrimmed size keys like 'Large ' until trim on submit", async () => {
+      const soloInventory = [{ id: 6, item: "Matcha", unit: "g", unitCost: 0.8 }];
+      const soloForm = {
+        price: "65",
+        sizes: [{ label: "Solo", price: "65", factor: 1.0 }],
+        ingredients: [
+          {
+            inventoryItemId: 6,
+            name: "Matcha",
+            quantityUsed: "15",
+            quantityBySize: buildSafeSizeQtyMap([["Solo", "15"]]),
+            unit: "g",
+            stockUnit: "g",
+          },
+        ],
+      };
+
+      const soloCosting = computeSafeSizeCosting("Solo", "65", soloForm, soloInventory, 0.4);
+      assert.equal(soloCosting.cost, 12);
+      assert.equal(soloCosting.costComplete, true);
+      assert.equal(soloCosting.suggestedPrice, 30);
+
+      const untrimmedMap = writeSizeQtyValue(null, "Large ", "25");
+      assert.equal(readSizeQtyValue(untrimmedMap, "Large "), "25");
+      const untrimmedCosting = computeMenuItemCostSummary({
+        sellingPrice: 120,
+        sizeLabel: "Large ",
+        ingredients: [
+          {
+            inventoryItemId: 6,
+            name: "Matcha",
+            quantityUsed: "10",
+            quantityBySize: untrimmedMap,
+            unit: "g",
+            stockUnit: "g",
+          },
+        ],
+        inventory: soloInventory,
+        targetFoodCost: 0.3,
+      });
+      assert.equal(
+        untrimmedCosting.cost,
+        20,
+        "Untrimmed in-form size key 'Large ' must resolve directly via readSizeQtyValue",
+      );
+
+      const menuPagePath = path.resolve("src/pages/admin/AdminMenuManagement.jsx");
+      const menuPageSource = await fs.readFile(menuPagePath, "utf-8");
+      assert.equal(
+        menuPageSource.includes("formValues.sizes.length > 0"),
+        true,
+        "AdminMenuManagement.jsx must support 1-size products via sizes.length > 0",
+      );
+      assert.equal(
+        menuPageSource.includes("rawLabel: String(s?.label ?? \"\")"),
+        true,
+        "AdminMenuManagement.jsx must retain rawLabel alongside trimmed label before submit",
+      );
+      assert.equal(
+        menuPageSource.includes("readSizeQtyValue(ingredient?.quantityBySize, size.rawLabel)"),
+        true,
+        "AdminMenuManagement.jsx must look up rawLabel quantity before trimming size label",
+      );
+      assert.equal(
+        menuPageSource.includes("/ 0.3 / 5"),
+        false,
+        "AdminMenuManagement.jsx must not retain hardcoded / 0.3 / 5 pricing formula",
       );
     });
   });

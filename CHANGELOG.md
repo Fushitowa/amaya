@@ -4,6 +4,70 @@ All notable changes, architectural upgrades, and bug fixes for **Amaya's Drinks 
 
 ---
 
+## [v2.2.0] — 2026-11-11
+
+### 🎯 Admin Settings & Target Food Cost Wiring, Hardening, Costing Parity & Test Certification
+Conducted full-stack wiring, security hardening, and calculation parity between the Admin Settings Financial Targets card (`.admin-settings-card`) and the Menu Target Cost Selector (`.menu-target-cost-selector`), backed by Migration 029, pure costing utilities, and 82/82 passing automated tests.
+
+---
+
+### 1. 🔒 Backend Costing Engine & Settings Security Hardening (`api/src/`)
+* **Role-Scoped Access Control & Header Hygiene (`api/src/routes/settings.js`):**
+  * `GET /api/settings` strips `targetFoodCost` for public and counter `staff` callers. Returns `targetFoodCost` strictly to authenticated administrators.
+  * Emits `Cache-Control: private, no-store` and `Vary: Authorization` headers so intermediate proxies and browsers never cache administrative financial targets.
+* **Strict Settings Input Validation (`api/src/routes/settings.js`):**
+  * Rejects non-object root payloads (`null`, arrays, primitives) with HTTP 400.
+  * Blocks object/array type coercion on `businessName`, `email`, `phone`, and `address`.
+  * Implements length-first ReDoS defense on email fields (`length <= 254` checked prior to regex execution).
+  * Validates `openingTime` and `closingTime` against `HH:MM` 24-hour format.
+  * Validates `targetFoodCost` strictly within `[0.10, 0.90]` bounds (`10%` to `90%`). Preserves existing value when omitted.
+* **IEEE-754 Ceiling Overshoot Remediation (`api/src/utils/costing.js`):**
+  * Fixed floating-point precision bug where exact boundary calculations (e.g. `5.25 / 0.35 / 5 = 3.0000000000000004`) erroneously rounded up to `₱20` instead of `₱15`. Applied `(rawCost / target) - 1e-9` epsilon before `Math.ceil`.
+  * Exported `normalizeTargetFoodCost`, `DEFAULT_TARGET_FOOD_COST (0.30)`, `MIN_TARGET_FOOD_COST (0.10)`, and `MAX_TARGET_FOOD_COST (0.90)`.
+* **Database Constraint Migration 029 (`database/migrations/029_business_settings_target_food_cost_check.sql`):**
+  * Pre-clamps legacy drifted rows within `[0.1000, 0.9000]`.
+  * Adds idempotent MariaDB `CHECK` constraint `chk_business_settings_target_food_cost` ensuring database-level integrity.
+* **Downstream Costing Propagation (`api/src/routes/menu.js` & `api/src/routes/reports.js`):**
+  * Aligned `menu.js` to compute `suggestedPrice` using the authoritative store target for authenticated admins.
+  * Added `summary.targetFoodCost` in `GET /api/reports/financial-summary` for live food cost variance monitoring.
+
+---
+
+### 2. 🎛️ Frontend Costing Parity, State Sync & Price Preview UX (`src/`)
+* **Auth-Reactive Business Settings State (`src/context/BusinessContext.jsx`):**
+  * Listens to authentication state changes, `"amaya:session-changed"`, and debounced window focus events to refresh store settings.
+  * Resets `targetFoodCost: null` on non-admin sessions. Provides truthful loading and retry error states.
+  * Clarified Card 4 Notifications as browser-local (`localStorage` key `amaya-admin-notifications`).
+* **Modular Frontend Costing Utility (`src/utils/menuCosting.js`):**
+  * Created pure, testable menu costing module mirroring backend `summarizeCosting` with identical epsilon ceiling logic, gross margin calculation, and prototype-safe dictionary operations.
+* **Interactive Menu Price Preview (`src/pages/admin/AdminMenuManagement.jsx`):**
+  * Explicitly relabeled `.menu-target-cost-selector` to **"Price Preview:"**.
+  * Added visual `Default` badge to the pill corresponding to the store-wide setting, and a 1-click `Reset` button when overriding.
+  * Clarified that selecting preview pills is an ephemeral simulation and does not alter store-wide settings or product recipes.
+  * Extended live preview and "Apply ₱X" suggested pricing to single-price products (`sizes = []`) and direct `costPrice` inventory items.
+  * Hardened recipe sizing lookup against prototype-polluting keys (`"toString"`, `"constructor"`).
+* **Live Target Variance & Highlights in Reports (`src/pages/admin/AdminReport.jsx`):**
+  * Added `Food cost vs target` metric in Sales Summary showing actual COGS percentage vs configured store target with signed percentage-point delta (`+X.X pts over` / `-X.X pts under` / `On target`).
+  * Added `Food cost target` highlight card with `Partial COGS` warning flag when uncosted menu items exist.
+* **Accessibility (WCAG 2.2 AA) Polish:**
+  * Verified text contrast `>= 4.5:1` across labels, badges, and preview pills.
+  * Added `role="switch"` and `aria-checked` to setting toggle controls and preserved visible focus rings.
+
+---
+
+### 3. 🧪 Automated Test Certification & Verification Harness (`tests/`)
+* **New Integration Test Suite (`tests/settingsFlow.test.js`):**
+  * 15 comprehensive automated test cases covering backend costing utilities, role-scoped settings retrieval, cache header hygiene, validation boundaries, ReDoS safety, downstream propagation, and Migration 029 constraint enforcement.
+* **Test Server Harness Upgrade (`tests/helpers/testServer.js`):**
+  * Mounted `settingsRoutes` and implemented automatic snapshot and restoration of `business_settings` row `id = 1` across test suite runs to prevent database state leakage.
+* **Full Verification Benchmark:**
+  * `npm test`: **82 / 82 tests passing across 19 suites** (`node --test`).
+  * `npm run lint`: **0 errors, 0 warnings** (`eslint .`).
+  * `npm run build:portal` & `npm run build`: Dual Vite production builds compiled cleanly.
+  * Zero `/refund/i` matches maintained across all codebase layers.
+
+---
+
 ## [v2.1.0] — 2026-10-20
 
 ### 🎯 3-Wave Logical Audit & Zero-Defect Remediation (Coordinated by Hazel & Bob)

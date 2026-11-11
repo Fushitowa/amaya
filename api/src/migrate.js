@@ -34,6 +34,7 @@ const migrations = [
   "026_order_audit_void_and_addon_cogs.sql",
   "027_structured_inventory_movements.sql",
   "028_cashier_sessions.sql",
+  "029_business_settings_target_food_cost_check.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",

@@ -10,6 +10,7 @@ import orderRoutes from "../../api/src/routes/orders.js";
 import inventoryRoutes from "../../api/src/routes/inventory.js";
 import sessionRoutes from "../../api/src/routes/sessions.js";
 import reportRoutes from "../../api/src/routes/reports.js";
+import settingsRoutes from "../../api/src/routes/settings.js";
 
 export function makeUniqueTag(prefix = "Tala") {
   const rand = Math.floor(Math.random() * 1_000_000);
@@ -26,6 +27,7 @@ export function createTestApp() {
   app.use("/api/inventory", inventoryRoutes);
   app.use("/api/sessions", sessionRoutes);
   app.use("/api/reports", reportRoutes);
+  app.use("/api/settings", settingsRoutes);
 
   app.use((request, response) => {
     response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });
@@ -93,6 +95,52 @@ export function createCleanupTracker() {
   const inventoryItemIds = new Set();
   const menuCategoryIds = new Set();
   const inventoryCategoryIds = new Set();
+  let businessSettingsSnapshot = null;
+
+  async function trackBusinessSettings() {
+    if (businessSettingsSnapshot) return businessSettingsSnapshot;
+    const [[row]] = await pool.execute(
+      `SELECT id, business_name, email, phone, address, opening_time, closing_time, target_food_cost, updated_at
+         FROM business_settings
+        WHERE id = 1
+        LIMIT 1`,
+    );
+    businessSettingsSnapshot = row ? { hadRow: true, row: { ...row } } : { hadRow: false, row: null };
+    return businessSettingsSnapshot;
+  }
+
+  async function restoreBusinessSettings() {
+    if (!businessSettingsSnapshot) return;
+    if (businessSettingsSnapshot.hadRow) {
+      const orig = businessSettingsSnapshot.row;
+      await pool.execute(
+        `INSERT INTO business_settings
+           (id, business_name, email, phone, address, opening_time, closing_time, target_food_cost, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           business_name = VALUES(business_name),
+           email = VALUES(email),
+           phone = VALUES(phone),
+           address = VALUES(address),
+           opening_time = VALUES(opening_time),
+           closing_time = VALUES(closing_time),
+           target_food_cost = VALUES(target_food_cost),
+           updated_at = VALUES(updated_at)`,
+        [
+          orig.business_name,
+          orig.email,
+          orig.phone,
+          orig.address,
+          orig.opening_time,
+          orig.closing_time,
+          orig.target_food_cost,
+          orig.updated_at,
+        ],
+      );
+    } else {
+      await pool.execute("DELETE FROM business_settings WHERE id = 1");
+    }
+  }
 
   async function createUser({
     role = "staff",
@@ -136,7 +184,8 @@ export function createCleanupTracker() {
   }
 
   async function cleanup() {
-    const uIds = [...userIds];
+    try {
+      const uIds = [...userIds];
     const sIds = [...sessionIds];
     const pIds = [...productIds];
     const invIds = [...inventoryItemIds];
@@ -267,8 +316,15 @@ export function createCleanupTracker() {
     if (iCatIds.length > 0) {
       await pool.execute(`DELETE FROM inventory_categories WHERE id IN (${iCatIds.map(() => "?").join(",")})`, iCatIds);
     }
-    if (uIds.length > 0) {
-      await pool.execute(`DELETE FROM users WHERE id IN (${uIds.map(() => "?").join(",")})`, uIds);
+      if (uIds.length > 0) {
+        await pool.execute(`DELETE FROM users WHERE id IN (${uIds.map(() => "?").join(",")})`, uIds);
+      }
+    } finally {
+      try {
+        await restoreBusinessSettings();
+      } finally {
+        businessSettingsSnapshot = null;
+      }
     }
   }
 
@@ -282,6 +338,8 @@ export function createCleanupTracker() {
     inventoryCategoryIds,
     createUser,
     refreshToken,
+    trackBusinessSettings,
+    restoreBusinessSettings,
     cleanup,
   };
 }

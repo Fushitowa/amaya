@@ -48,3 +48,35 @@ Two production decision endpoints were integrated into the Express backend:
 * **Vite Customer App:** `npm run dev:customer` / `vite build --mode customer` $\rightarrow$ **Clean build (1.65s)**
 * **Vite Staff/Admin Portal:** `npm run dev:portal` / `vite build --mode portal` $\rightarrow$ **Clean build (946ms)**
 * **Backend Express Syntax:** Verified with `node --check` across all modified routes and middleware.
+
+---
+
+## 5. Settings & Target Costing Wiring Remediation (2026-11-11)
+
+### 5.1 Investigation & Defect Identification
+On 2026-11-11, an end-to-end audit of `.admin-settings-card` (Admin Settings) and `.menu-target-cost-selector` (Admin Menu Management) was performed. While `PUT /api/settings` persisted `target_food_cost` to `business_settings`, the connection between the settings screen and menu pricing was only partial, asymmetric, and exhibited multiple architectural risks:
+
+1. **`SEC-01` Sensitive Data Leakage & Cache Drift:** `GET /api/settings` exposed `targetFoodCost` to unauthenticated and counter staff requests without cache control headers, risking proxy leakage.
+2. **`SEC-02` Missing Input Validation & DB Bounds:** `PUT /api/settings` accepted arbitrary objects and lacked numeric range bounds on `targetFoodCost`, lacking database constraint enforcement.
+3. **`SEC-03` Prototype Pollution Exposure:** Sizing dictionary lookups in menu costing lacked null-prototype isolation, making them vulnerable to prototype keys (`"toString"`, `"constructor"`).
+4. **IEEE-754 Ceil Boundary Overshoot:** `Math.ceil((rawCost / target) / 5) * 5` suffered from IEEE-754 precision overshoot (e.g. `5.25 / 0.35 / 5 = 3.0000000000000004`), jumping ₱5 higher than intended.
+5. **Single-Price & Direct-Cost Gaps:** `.menu-target-cost-selector` and suggested pricing calculations were disabled on single-price (`sizes = []`) and `costPrice`-fallback menu items.
+6. **Report Variance Disconnect:** `AdminReport.jsx` received `summary.targetFoodCost` from the backend but did not compare it against actual COGS or display food cost variance.
+7. **Accessibility & Clarity Deficits:** Missing toggle semantics (`role="switch"`), suboptimal text contrast, and ambiguity regarding whether `.menu-target-cost-selector` changed global settings or ephemeral previews.
+
+### 5.2 Remediations Applied
+
+| Remediation | Target Files | Key Technical Change |
+| :--- | :--- | :--- |
+| **`SEC-01` Role-Scoping & Headers** | `api/src/routes/settings.js` | Strip `targetFoodCost` for public/staff callers. Emit `Cache-Control: private, no-store` and `Vary: Authorization`. |
+| **`SEC-02` Input & DB Hardening** | `api/src/routes/settings.js`<br>`database/migrations/029_*.sql` | Enforce non-object root payloads, ReDoS-safe email validation (`<= 254` chars), `[0.10, 0.90]` bounds, and MariaDB `CHECK` constraint. |
+| **`SEC-03` Prototype Isolation** | `src/utils/menuCosting.js`<br>`AdminMenuManagement.jsx` | Use `Object.create(null)` for sizing maps; sanitize variation keys before indexing. |
+| **IEEE-754 Epsilon Rounding** | `api/src/utils/costing.js`<br>`src/utils/menuCosting.js` | Applied `(rawCost / target) - 1e-9` epsilon before `Math.ceil(val / 5) * 5` in backend and frontend. |
+| **Full Sizing & Costing Parity** | `AdminMenuManagement.jsx`<br>`src/utils/menuCosting.js` | Extended dynamic pricing preview, profit margins, and "Apply ₱X" suggested pricing to single-price and `costPrice` items. |
+| **Financial Report Variance** | `AdminReport.jsx` | Added `Food cost vs target` in Sales Summary and `Food cost target` in Highlights with `Partial COGS` warning flag. |
+| **UX & WCAG 2.2 AA Polish** | `AdminSettings.jsx`, `.css`<br>`AdminMenuManagement.jsx`, `.css` | Relabeled selector to "Price Preview:", added Store Default badge and Reset button, implemented `role="switch"` and `aria-checked`. |
+
+### 5.3 Automated Verification Evidence
+* **Integration Tests:** `tests/settingsFlow.test.js` (15 tests), `tests/menuEditFormSafety.test.js` (24 tests), `tests/reportingAnalytics.test.js` (5 tests).
+* **Suite Benchmark:** **82 / 82 tests pass across 19 suites in 20.45s** (`node --test`).
+* **Lint & Build:** ESLint exited with **0 errors, 0 warnings**; dual Vite builds for customer and portal completed cleanly in under 2 seconds. Zero `/refund/i` matches confirmed.

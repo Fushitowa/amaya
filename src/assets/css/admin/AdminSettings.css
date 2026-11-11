@@ -2,7 +2,7 @@
 
 :root {
 	--settings-ink: #2d1f1a;
-	--settings-muted: #8a7c73;
+	--settings-muted: #68584e;
 	--settings-line: rgba(52, 39, 29, 0.1);
 	--settings-bg: #f8f2ee;
 	--settings-panel: #fffdfb;
@@ -10,7 +10,7 @@
 	--settings-accent: #8b5e3c;
 	--settings-accent-dark: #70482f;
 	--settings-soft: #f5ebe4;
-	--settings-success: #5d8b68;
+	--settings-success: #3d6b47;
 }
 
 * { box-sizing: border-box; }
@@ -59,7 +59,7 @@
 .admin-settings-card-header p { margin: 0; color: var(--settings-muted); font-size: 11px; }
 .admin-settings-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .admin-settings-fields label { display: flex; flex-direction: column; gap: 7px; color: #685a52; font-size: 11px; font-weight: 700; }
-.admin-settings-fields input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #e5dcd5; border-radius: 7px; outline: 0; background: #fffdfb; color: var(--settings-ink); font: 12px "DM Sans", sans-serif; transition: border .2s, box-shadow .2s; }
+.admin-settings-fields input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #e5dcd5; border-radius: 7px; outline: 2px solid transparent; outline-offset: 2px; background: #fffdfb; color: var(--settings-ink); font: 12px "DM Sans", sans-serif; transition: border .2s, box-shadow .2s; }
 .admin-settings-fields input:focus { border-color: var(--settings-accent); box-shadow: 0 0 0 3px rgba(139, 94, 60, .1); }
 .field-wide { grid-column: 1 / -1; }.hours-fields { grid-template-columns: 1fr 1fr; max-width: 470px; }
 .admin-settings-hours-note { display: flex; align-items: center; gap: 7px; margin-top: 20px; padding: 11px 12px; border-radius: 7px; background: #f5faf5; color: var(--settings-success); font-size: 10px; }
@@ -67,7 +67,7 @@
 .admin-settings-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 16px 0; border-top: 1px solid #f1ebe6; }
 .admin-settings-toggle-row strong, .security-row strong { display: block; color: var(--settings-ink); font-size: 12px; }.admin-settings-toggle-row p { margin: 4px 0 0; color: var(--settings-muted); font-size: 10px; line-height: 1.45; }
 .admin-settings-toggle { position: relative; width: 36px; height: 20px; flex: 0 0 36px; border: 0; border-radius: 20px; background: #d9d2cc; cursor: pointer; transition: background .2s; }.admin-settings-toggle span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .2s; }.admin-settings-toggle.is-active { background: var(--settings-accent); }.admin-settings-toggle.is-active span { transform: translateX(16px); }
-.security-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 0; border-top: 1px solid #f1ebe6; }.security-row span { display: block; margin-top: 4px; color: var(--settings-muted); font-size: 10px; }.settings-secondary-button { padding: 7px 10px; border: 1px solid #dfd4ca; border-radius: 6px; background: #fff; color: #6b5548; font: 600 10px "DM Sans", sans-serif; cursor: pointer; }.security-badge { padding: 5px 8px; border-radius: 5px; background: #fff3dc; color: #b87923 !important; font-size: 9px !important; font-weight: 700; white-space: nowrap; }
+.security-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 0; border-top: 1px solid #f1ebe6; }.security-row span { display: block; margin-top: 4px; color: var(--settings-muted); font-size: 10px; }.settings-secondary-button { padding: 7px 10px; border: 1px solid #dfd4ca; border-radius: 6px; background: #fff; color: #6b5548; font: 600 10px "DM Sans", sans-serif; cursor: pointer; }.security-badge { padding: 5px 8px; border-radius: 5px; background: #fff3dc; color: #8b5614 !important; font-size: 9px !important; font-weight: 700; white-space: nowrap; }
 .admin-settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 20px; padding: 18px 0 4px; border-top: 1px solid var(--settings-line); color: var(--settings-muted); font-size: 11px; }.admin-settings-save-button { min-width: 132px; min-height: 38px; padding: 11px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 7px; background: var(--settings-accent); color: #fff; font: 700 11px "DM Sans", sans-serif; cursor: pointer; box-shadow: 0 6px 14px rgba(139, 94, 60, .16); transition: background .3s ease, box-shadow .3s ease, transform .3s ease; }.admin-settings-save-button:hover:not(:disabled) { background: var(--settings-accent-dark); transform: translateY(-1px); box-shadow: 0 8px 18px rgba(112, 72, 47, .2); }.admin-settings-save-button:disabled { cursor: wait; opacity: .9; }.admin-settings-save-button.is-success { background: var(--settings-success); box-shadow: 0 6px 16px rgba(93, 139, 104, .22); }.admin-settings-save-button > span:not(.save-spinner):not(.save-check) { margin-left: 2px; font-size: 15px; }.save-spinner { width: 13px; height: 13px; margin: 0; border: 2px solid rgba(255, 255, 255, .38); border-top-color: #fff; border-radius: 50%; animation: settingsSpin .7s linear infinite; }.save-check { margin: 0; font-size: 15px; line-height: 1; animation: settingsCheck .3s ease both; } @keyframes settingsSpin { to { transform: rotate(360deg); } } @keyframes settingsCheck { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
 
 @media (max-width: 1100px) { .admin-settings-content { padding: 30px; }.admin-settings-layout { grid-template-columns: 1fr; }.admin-settings-secondary-column { grid-template-columns: 1fr 1fr; } }
@@ -147,7 +147,8 @@
 }
 
 .admin-settings-password-modal > label input:focus {
-  outline: 0;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   border-color: var(--settings-accent);
   box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.12);
 }
@@ -618,5 +619,205 @@
 	.settings-mobile-menu-btn,
 	.admin-settings-page > .amaya-sidebar.amaya-sidebar--admin-frame {
 		transition-duration: 120ms !important;
+	}
+}
+
+/* ==========================================================================
+   Settings Load/Validation States, WCAG Focus & Switch Hit Target Expansion
+   ========================================================================== */
+
+.admin-settings-fields input,
+.admin-settings-password-modal > label input {
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+}
+
+.admin-settings-fields input:focus-visible,
+.admin-settings-password-modal > label input:focus-visible,
+.admin-settings-toggle:focus-visible,
+.settings-secondary-button:focus-visible,
+.admin-settings-save-button:focus-visible,
+.settings-retry-button:focus-visible,
+.settings-refresh-button:focus-visible,
+.admin-settings-password-modal button:focus-visible {
+	outline: 2px solid #70482f;
+	outline-offset: 2px;
+}
+
+.admin-settings-save-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.65;
+}
+
+.admin-settings-save-button.is-saving:disabled {
+	cursor: wait;
+	opacity: 0.9;
+}
+
+.admin-settings-save-state.is-loading {
+	border-color: #e2d6ca;
+	background: #fbf7f3;
+	color: #68584e;
+}
+
+.admin-settings-save-state.is-loading .settings-status-dot {
+	background: #8b5e3c;
+	box-shadow: 0 0 0 4px rgba(139, 94, 60, 0.14);
+}
+
+.admin-settings-save-state.is-load-error {
+	border-color: #e4b5ac;
+	background: #fff6f3;
+	color: #914f43;
+}
+
+.admin-settings-save-state.is-load-error .settings-status-dot {
+	background: #b25243;
+	box-shadow: 0 0 0 4px rgba(178, 82, 67, 0.14);
+}
+
+.settings-load-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 20px;
+	padding: 13px 16px;
+	border: 1px solid #e4b5ac;
+	border-left: 4px solid #96392c;
+	border-radius: 12px;
+	background: #fff6f3;
+	color: #914f43;
+	font-size: 12.5px;
+	font-weight: 600;
+	line-height: 1.45;
+}
+
+.settings-retry-button {
+	min-height: 36px;
+	padding: 0 14px;
+	border: 1px solid #96392c;
+	border-radius: 8px;
+	background: #ffffff;
+	color: #96392c;
+	font: 700 12px "DM Sans", sans-serif;
+	cursor: pointer;
+	touch-action: manipulation;
+	white-space: nowrap;
+}
+
+.settings-retry-button:hover:not(:disabled) {
+	background: #96392c;
+	color: #ffffff;
+}
+
+.settings-refresh-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 20px;
+	padding: 13px 16px;
+	border: 1px solid #f0d39a;
+	border-left: 4px solid #d97706;
+	border-radius: 12px;
+	background: #fff8eb;
+	color: #713f12;
+	font-size: 12.5px;
+	font-weight: 600;
+	line-height: 1.45;
+}
+
+.settings-refresh-button {
+	min-height: 36px;
+	padding: 0 14px;
+	border: 1px solid #b45309;
+	border-radius: 8px;
+	background: #ffffff;
+	color: #713f12;
+	font: 700 12px "DM Sans", sans-serif;
+	cursor: pointer;
+	touch-action: manipulation;
+	white-space: nowrap;
+}
+
+.settings-refresh-button:hover:not(:disabled) {
+	background: #713f12;
+	border-color: #713f12;
+	color: #ffffff;
+}
+
+.settings-retry-button:disabled,
+.settings-refresh-button:disabled {
+	opacity: 0.65;
+	cursor: wait;
+}
+
+.admin-settings-fields input[aria-invalid="true"] {
+	border-color: #96392c;
+	background: #fffaf8;
+}
+
+.settings-field-error {
+	margin: 2px 0 0;
+	color: #96392c;
+	font-size: 11.5px;
+	font-weight: 700;
+	line-height: 1.4;
+}
+
+.settings-field-help {
+	margin: 2px 0 0;
+	color: #68584e;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.45;
+}
+
+.settings-local-badge {
+	display: inline-flex;
+	align-items: center;
+	margin-left: auto;
+	padding: 4px 8px;
+	border: 1px solid #dfd0c0;
+	border-radius: 999px;
+	background: #faf4ed;
+	color: #5c3922;
+	font-size: 10px;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.settings-local-scope-note {
+	margin: -6px 0 14px;
+	padding: 9px 11px;
+	border: 1px dashed #dfd0c0;
+	border-radius: 8px;
+	background: #fbf7f3;
+	color: #68584e;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.45;
+}
+
+.admin-settings-toggle {
+	position: relative;
+	touch-action: manipulation;
+}
+
+.admin-settings-toggle::before {
+	content: "";
+	position: absolute;
+	inset: -10px -6px;
+}
+
+@media (pointer: coarse) {
+	.settings-secondary-button,
+	.settings-retry-button,
+	.settings-refresh-button {
+		min-height: 40px;
+		padding-inline: 14px;
 	}
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
+  Check,
   CheckCircle2,
   Clock,
   FolderOpen,
@@ -18,6 +19,7 @@ import {
   Search,
   Trash2,
   Warehouse,
+  X,
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
@@ -1288,329 +1290,491 @@ function AdminInventory() {
       )}
 
       {showForm && (
-        <div className="admin-inventory-modal-backdrop" role="presentation">
-          <form className="admin-inventory-modal admin-inventory-item-modal" onSubmit={handleSave} role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="admin-inventory-modal-header">
-              <div>
-                <span className="admin-inventory-eyebrow">INVENTORY UPDATE</span>
-                <h3>{editingItem ? "Edit inventory item" : "Add inventory item"}</h3>
+        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={resetForm}>
+          <form
+            className="admin-inventory-modal admin-inventory-item-modal clipboard-docket-board"
+            onSubmit={handleSave}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inventory-docket-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* Top Mechanical Brass Spring-Clip */}
+            <div className="clipboard-top-clip" aria-hidden="true">
+              <span className="clipboard-clip-rivet rivet-left" />
+              <div className="clipboard-clip-plate">
+                <span className="clipboard-clip-hole" />
+                <span className="clipboard-clip-stamp">AMAYA WORKSHOP · REQUISITION DOCKET</span>
+                <span className="clipboard-clip-screw" />
               </div>
-              <button type="button" onClick={resetForm} aria-label="Close form">×</button>
+              <span className="clipboard-clip-rivet rivet-right" />
             </div>
 
-            <div className="admin-inventory-modal-body">
-              <div className="admin-inventory-form-grid">
-              <span className="admin-inventory-form-section-title">1. Item Identification</span>
-              <label>
-                <span className="inventory-field-label-text">
-                  Inventory Item Name
-                  <FieldHelpTooltip
-                    title="Item Name"
-                    text="Exact ingredient or packaging name (e.g. Non-Dairy Milk Powder, 22oz Cups, Assam Black Tea). Keep it specific so recipes attach to the right stock!"
-                    align="left"
-                  />
-                </span>
-                <input
-                  type="text"
-                  value={formValues.item}
-                  autoFocus
-                  onChange={(event) => setFormValues({ ...formValues, item: event.target.value })}
-                  placeholder="e.g. Milk Powder, Assorted Pearls, 22oz Cups"
-                  required
-                />
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Category
-                  <Link to="/admin/categories" style={{ fontSize: "0.75rem", color: "#5a3d28", fontWeight: "600", textDecoration: "underline", marginLeft: "auto", marginRight: "6px" }} title="Manage Categories">
-                    ⚙ Manage
-                  </Link>
-                  <FieldHelpTooltip
-                    title="Category"
-                    text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Cups' | Straws/Bags = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"
-                    align="right"
-                  />
-                </span>
-                <select
-                  value={formValues.category}
-                  onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
-                >
-                  <option value="">-- Choose Category --</option>
-                  {formValues.category && !categories.includes(formValues.category) && (
-                    <option value={formValues.category}>{formValues.category} (current)</option>
-                  )}
-                  {categories.filter((category) => category !== "All").map((category) => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="inventory-image-field-wrap">
-                <span className="inventory-field-label-text">
-                  Item Photo (Optional)
-                  <FieldHelpTooltip
-                    title="Item Photo"
-                    text="Upload a picture of the ingredient or packaging. Displays on inventory cards, tables, and recipe pickers."
-                    align="right"
-                  />
-                </span>
-
-                {formValues.image ? (
-                  <div className="inventory-form-image-preview">
-                    <img
-                      src={formValues.image}
-                      alt={formValues.item || "Inventory item"}
-                      className="inventory-form-image-img"
-                    />
-                    <div className="inventory-form-image-controls">
-                      <label className="inventory-img-btn change" title="Choose a new file to replace this image">
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleImageFile(file);
-                          }}
-                          aria-label="Change inventory image"
-                          style={{ display: "none" }}
-                        />
-                        <FolderOpen size={13} strokeWidth={2.2} />
-                        <span>Change Photo</span>
-                      </label>
-                      <button
-                        type="button"
-                        className="inventory-img-btn remove"
-                        onClick={() => setFormValues((prev) => ({ ...prev, image: "" }))}
-                        title="Remove this image"
-                      >
-                        <Trash2 size={13} strokeWidth={2} />
-                        <span>Remove</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <label
-                    className="inventory-dropzone"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleImageDrop}
-                  >
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleImageFile(file);
-                      }}
-                      aria-label="Upload inventory item image"
-                      style={{ display: "none" }}
-                    />
-                    <span className="inventory-dropzone-icon" aria-hidden="true">
-                      <ImagePlus size={20} strokeWidth={1.8} />
-                    </span>
-                    <span className="inventory-dropzone-text">
-                      <strong>Click to upload</strong> or drag photo here
-                    </span>
-                    <small>PNG, JPG, WEBP (Up to 5MB)</small>
-                  </label>
-                )}
-              </div>
-
-              <span className="admin-inventory-form-section-title">2. Procurement & Package Specification</span>
-              <label>
-                <span className="inventory-field-label-text">
-                  Purchase Price (₱)
-                  <FieldHelpTooltip
-                    title="Purchase Price"
-                    text="Total money paid for this batch (e.g. ₱3,300 for a 25kg sack of powder). System divides this by total quantity to get your true cost per cup!"
-                    align="left"
-                  />
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formValues.purchasePrice}
-                  onChange={(event) => setFormValues({ ...formValues, purchasePrice: event.target.value })}
-                  placeholder="e.g. 99.00 or 3300.00"
-                />
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Package Quantity Purchased
-                  <FieldHelpTooltip
-                    title="Package Quantity"
-                    text="Number of containers, sacks, or boxes bought (e.g. 1 sack of powder, 5 boxes of cups). Multiplied by package contents to auto-calculate your total stock!"
-                    align="right"
-                  />
-                </span>
-                <input
-                  type="number"
-                  min="0.001"
-                  step="any"
-                  value={formValues.packageQuantity}
-                  onChange={(event) => {
-                    const newPkgQty = event.target.value;
-                    const nextTotal = (Number(newPkgQty || 1) * Number(formValues.contentsPerPackage || 0));
-                    setFormValues((prev) => ({
-                      ...prev,
-                      packageQuantity: newPkgQty,
-                      quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
-                    }));
-                  }}
-                  placeholder="e.g. 1, 5, 10"
-                />
-                <small className="inventory-field-helper">
-                  Leave blank to use 1 package. Enter a quantity when recording a purchase price.
-                </small>
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Package Type / Unit
-                  <FieldHelpTooltip
-                    title="Package Container"
-                    text="Container packaging medium (sack, box, bottle, bag, pack). Gives staff a clear audit specification label on inventory cards!"
-                    align="left"
-                  />
-                </span>
-                <select
-                  value={formValues.packageUnit}
-                  onChange={(event) => setFormValues({ ...formValues, packageUnit: event.target.value })}
-                >
-                  {!packageUnitOptions.includes(formValues.packageUnit) && <option value={formValues.packageUnit}>{formValues.packageUnit} (current)</option>}
-                  {packageUnitOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Contents per Package
-                  <FieldHelpTooltip
-                    title="Contents per Package"
-                    text="Measurable amount inside ONE package (e.g. 25000g for a 25kg sack, 1000pcs for a box of cups, 2500ml for syrup). Critical for calculating cost per cup!"
-                    align="right"
-                  />
-                </span>
-                <input
-                  type="number"
-                  min="0.001"
-                  step="any"
-                  value={formValues.contentsPerPackage}
-                  onChange={(event) => {
-                    const newContents = event.target.value;
-                    const nextTotal = (Number(formValues.packageQuantity || 1) * Number(newContents || 0));
-                    setFormValues((prev) => ({
-                      ...prev,
-                      contentsPerPackage: newContents,
-                      quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
-                    }));
-                  }}
-                  placeholder="e.g. 1000 (for 1kg), 750 (ml), 2000 (pcs)"
-                />
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Stock Measurement Unit
-                  <FieldHelpTooltip
-                    title="Stock Unit"
-                    text="Recipe dispensing unit: 'g' for powders/tea/pearls, 'ml' for syrups/liquids, 'pcs' for cups/lids/straws. Must match your menu recipe unit!"
-                    align="left"
-                  />
-                </span>
-                <select
-                  value={formValues.unit}
-                  onChange={(event) => setFormValues({ ...formValues, unit: event.target.value })}
-                >
-                  {!inventoryUnitGroups.some((group) => group.options.some(([value]) => value === formValues.unit)) && <option value={formValues.unit}>{formValues.unit} (current)</option>}
-                  {inventoryUnitGroups.map((group) => (
-                    <optgroup label={group.label} key={group.label}>
-                      {group.options.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
-
-              <div className="inventory-costing-preview-box">
-                <div className="costing-preview-header">
-                  <span className="costing-preview-title">Live Costing & Stock Conversion</span>
-                  <span className="costing-preview-badge">₱{formatUnitCost(liveUnitCost)} / {formValues.unit || "unit"}</span>
+            {/* List Board Header Bar */}
+            <div className="admin-inventory-modal-header clipboard-header">
+              <div className="clipboard-header-info">
+                <div className="clipboard-header-tags">
+                  <span className="clipboard-tag-amber">
+                    <span className="clipboard-tag-pip" />
+                    REQUISITION DOCKET
+                  </span>
+                  <span className="clipboard-tag-num">
+                    {editingItem ? `#${editingItem.id || "EDIT"}` : "#NEW"}
+                  </span>
                 </div>
-                <div className="costing-preview-metrics">
-                  <div>
-                    <small>Batch Inflow Stock</small>
-                    <strong>{liveTotalMeasurable > 0 ? liveTotalMeasurable.toLocaleString() : "0"} {formValues.unit}</strong>
-                  </div>
-                  <div>
-                    <small>Total Purchase Cost</small>
-                    <strong>₱{livePurchasePrice.toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <small>Valuation at Stock</small>
-                    <strong>₱{liveInventoryValue.toFixed(2)}</strong>
-                  </div>
-                </div>
-                <p className="costing-preview-hint">
-                  {livePurchasePrice > 0 && liveContents <= 0
-                    ? "Enter the measurable contents in each package to calculate an accurate unit cost."
-                    : `Unit Cost = Purchase Price (₱${livePurchasePrice.toFixed(2)}) ÷ (${livePkgQty} ${formValues.packageUnit} × ${liveContents || 1} ${formValues.unit}) = ₱${formatUnitCost(liveUnitCost)} per ${formValues.unit}`}
+                <h3 id="inventory-docket-title" className="clipboard-title">
+                  {editingItem ? "Edit Inventory Item Spec" : "Add Inventory Item"}
+                </h3>
+                <p className="clipboard-subtitle">
+                  Workshop master sheet for raw ingredient tracking, recipe conversions, and storage floors.
                 </p>
               </div>
 
-              <span className="admin-inventory-form-section-title">3. Stock Levels & Thresholds</span>
-              <label>
-                <span className="inventory-field-label-text">
-                  Current Measurable Stock ({formValues.unit})
-                  <FieldHelpTooltip
-                    title="Current Stock"
-                    text="Actual measurable amount in your cafe right now (e.g. 25,000g or 500 pcs). POS automatically subtracts from this every time a drink is sold!"
-                    align="left"
-                  />
-                </span>
-                <input
-                  type="number"
-                  value={formValues.quantity}
-                  onChange={(event) => setFormValues({ ...formValues, quantity: event.target.value })}
-                  min="0"
-                  step="any"
-                  placeholder="Total stock in storage"
-                  required
-                />
-              </label>
-
-              <label>
-                <span className="inventory-field-label-text">
-                  Maximum Stock ({formValues.unit})
-                  <FieldHelpTooltip
-                    title="Maximum Stock"
-                    text="Optional upper target for the amount you want to keep. The system flags this item when its quantity goes above this level."
-                    align="right"
-                  />
-                </span>
-                <input
-                  type="number"
-                  value={formValues.maximumStock}
-                  onChange={(event) => setFormValues({ ...formValues, maximumStock: event.target.value })}
-                  min="0.000001"
-                  step="0.000001"
-                  placeholder="No maximum set"
-                />
-                <small className="inventory-field-helper">
-                  {editingItem ? "Leave blank for no maximum." : "Leave blank to use the starting quantity as the maximum."}
-                </small>
-              </label>
-            </div>
-
-            {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
-            </div>
-
-            <div className="admin-inventory-modal-actions">
-              <button type="button" className="modal-cancel" onClick={resetForm}>Cancel</button>
-              <button type="submit" className="modal-save" disabled={isSaving}>
-                {isSaving ? "Saving…" : editingItem ? "Save changes" : "Add item"}
+              <button
+                type="button"
+                className="clipboard-close-btn"
+                onClick={resetForm}
+                aria-label="Close form"
+                title="Discard and close docket"
+              >
+                <X size={18} strokeWidth={2.4} />
               </button>
+            </div>
+
+            {/* List Board Body holding Two Clipped Docket Papers */}
+            <div className="admin-inventory-modal-body clipboard-body">
+              <div className="clipboard-dockets-grid">
+
+                {/* DOCKET SHEET 1: Item Identity & Storage Floor */}
+                <article className="clipboard-sheet sheet-identity">
+                  <div className="docket-sheet-pin-bar">
+                    <span className="docket-pin-badge">
+                      <span className="docket-pin-dot" />
+                      #1 ITEM SPEC & STORAGE
+                    </span>
+                    <span className="docket-sheet-folio">DOC-01 / MASTER ID</span>
+                  </div>
+
+                  <div className="docket-sheet-content">
+                    <div className="clipboard-field-group">
+                      <label htmlFor="inventory-item-name" className="clipboard-label">
+                        <span className="inventory-field-label-text">
+                          Inventory Item Name
+                          <FieldHelpTooltip
+                            title="Item Name"
+                            text="Exact ingredient or packaging name (e.g. Non-Dairy Milk Powder, 22oz Cups, Assam Black Tea). Keep it specific so recipes attach to the right stock!"
+                            align="left"
+                          />
+                        </span>
+                      </label>
+                      <input
+                        id="inventory-item-name"
+                        type="text"
+                        className="clipboard-input"
+                        value={formValues.item}
+                        autoFocus
+                        onChange={(event) => setFormValues({ ...formValues, item: event.target.value })}
+                        placeholder="e.g. Non-Dairy Creamer, Assam Black Tea, 22oz Cups"
+                        required
+                      />
+                    </div>
+
+                    <div className="clipboard-field-group">
+                      <label htmlFor="inventory-category-select" className="clipboard-label">
+                        <span className="inventory-field-label-text">
+                          Warehouse Category
+                          <Link
+                            to="/admin/categories"
+                            className="clipboard-manage-link"
+                            title="Manage Categories"
+                          >
+                            ⚙ Manage
+                          </Link>
+                          <FieldHelpTooltip
+                            title="Category"
+                            text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Cups' | Straws/Bags = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"
+                            align="right"
+                          />
+                        </span>
+                      </label>
+                      <select
+                        id="inventory-category-select"
+                        className="clipboard-select"
+                        value={formValues.category}
+                        onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
+                      >
+                        <option value="">-- Choose Category --</option>
+                        {formValues.category && !categories.includes(formValues.category) && (
+                          <option value={formValues.category}>{formValues.category} (current)</option>
+                        )}
+                        {categories.filter((category) => category !== "All").map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Photo Specimen Frame */}
+                    <div className="clipboard-field-group">
+                      <span className="inventory-field-label-text">
+                        Item Photo (Optional)
+                        <FieldHelpTooltip
+                          title="Item Photo"
+                          text="Upload a picture of the ingredient or packaging. Displays on inventory cards, tables, and recipe pickers."
+                          align="right"
+                        />
+                      </span>
+
+                      {formValues.image ? (
+                        <div className="inventory-form-image-preview clipboard-image-preview">
+                          <img
+                            src={formValues.image}
+                            alt={formValues.item || "Inventory item"}
+                            className="inventory-form-image-img"
+                          />
+                          <div className="inventory-form-image-controls">
+                            <label className="inventory-img-btn change" title="Choose a new file to replace this image">
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleImageFile(file);
+                                }}
+                                aria-label="Change inventory image"
+                                style={{ display: "none" }}
+                              />
+                              <FolderOpen size={13} strokeWidth={2.2} />
+                              <span>Change Photo</span>
+                            </label>
+                            <button
+                              type="button"
+                              className="inventory-img-btn remove"
+                              onClick={() => setFormValues((prev) => ({ ...prev, image: "" }))}
+                              title="Remove this image"
+                            >
+                              <Trash2 size={13} strokeWidth={2} />
+                              <span>Remove</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <label
+                          className="inventory-dropzone clipboard-dropzone"
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={handleImageDrop}
+                        >
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageFile(file);
+                            }}
+                            aria-label="Upload inventory item image"
+                            style={{ display: "none" }}
+                          />
+                          <span className="inventory-dropzone-icon" aria-hidden="true">
+                            <ImagePlus size={22} strokeWidth={1.8} />
+                          </span>
+                          <span className="inventory-dropzone-text">
+                            <strong>Click to upload</strong> or drag photo here
+                          </span>
+                          <small>PNG, JPG, WEBP (Up to 5MB)</small>
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Storage Floor Sub-section */}
+                    <div className="docket-subheading-divider">
+                      <span className="docket-subheading-label">STORAGE FLOOR LEVELS</span>
+                      <span className="docket-subheading-line" />
+                    </div>
+
+                    <div className="clipboard-row-2col">
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-current-stock" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Current Stock
+                            <FieldHelpTooltip
+                              title="Current Stock"
+                              text="Actual measurable amount in your cafe right now (e.g. 25,000g or 500 pcs). POS automatically subtracts from this every time a drink is sold!"
+                              align="left"
+                            />
+                          </span>
+                        </label>
+                        <div className="clipboard-input-with-dock">
+                          <input
+                            id="inventory-current-stock"
+                            type="number"
+                            className="clipboard-input"
+                            value={formValues.quantity}
+                            onChange={(event) => setFormValues({ ...formValues, quantity: event.target.value })}
+                            min="0"
+                            step="any"
+                            placeholder="0"
+                            required
+                          />
+                          <span className="clipboard-dock-badge">{formValues.unit || "unit"}</span>
+                        </div>
+                      </div>
+
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-max-stock" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Target Max
+                            <FieldHelpTooltip
+                              title="Maximum Stock"
+                              text="Optional upper target for the amount you want to keep. The system flags this item when its quantity goes above this level."
+                              align="right"
+                            />
+                          </span>
+                        </label>
+                        <div className="clipboard-input-with-dock">
+                          <input
+                            id="inventory-max-stock"
+                            type="number"
+                            className="clipboard-input"
+                            value={formValues.maximumStock}
+                            onChange={(event) => setFormValues({ ...formValues, maximumStock: event.target.value })}
+                            min="0.000001"
+                            step="0.000001"
+                            placeholder="Optional ceiling"
+                          />
+                          <span className="clipboard-dock-badge">{formValues.unit || "unit"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+                {/* DOCKET SHEET 2: Procurement & Live Costing Receipt */}
+                <article className="clipboard-sheet sheet-procurement">
+                  <div className="docket-sheet-pin-bar">
+                    <span className="docket-pin-badge">
+                      <span className="docket-pin-dot" />
+                      #2 PROCUREMENT & UNIT COST
+                    </span>
+                    <span className="docket-sheet-folio">DOC-02 / BATCH SPEC</span>
+                  </div>
+
+                  <div className="docket-sheet-content">
+                    <div className="clipboard-row-2col">
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-purchase-price" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Purchase Price (₱)
+                            <FieldHelpTooltip
+                              title="Purchase Price"
+                              text="Total money paid for this batch (e.g. ₱3,300 for a 25kg sack of powder). System divides this by total quantity to get your true cost per cup!"
+                              align="left"
+                            />
+                          </span>
+                        </label>
+                        <div className="clipboard-input-with-prefix">
+                          <span className="clipboard-prefix-symbol">₱</span>
+                          <input
+                            id="inventory-purchase-price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="clipboard-input"
+                            value={formValues.purchasePrice}
+                            onChange={(event) => setFormValues({ ...formValues, purchasePrice: event.target.value })}
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-pkg-qty" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Package Qty
+                            <FieldHelpTooltip
+                              title="Package Quantity"
+                              text="Number of containers, sacks, or boxes bought (e.g. 1 sack of powder, 5 boxes of cups). Multiplied by package contents to auto-calculate your total stock!"
+                              align="right"
+                            />
+                          </span>
+                        </label>
+                        <input
+                          id="inventory-pkg-qty"
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          className="clipboard-input"
+                          value={formValues.packageQuantity}
+                          onChange={(event) => {
+                            const newPkgQty = event.target.value;
+                            const nextTotal = (Number(newPkgQty || 1) * Number(formValues.contentsPerPackage || 0));
+                            setFormValues((prev) => ({
+                              ...prev,
+                              packageQuantity: newPkgQty,
+                              quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
+                            }));
+                          }}
+                          placeholder="e.g. 1, 5"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="clipboard-row-2col">
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-pkg-unit" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Container Type
+                            <FieldHelpTooltip
+                              title="Package Container"
+                              text="Container packaging medium (sack, box, bottle, bag, pack). Gives staff a clear audit specification label on inventory cards!"
+                              align="left"
+                            />
+                          </span>
+                        </label>
+                        <select
+                          id="inventory-pkg-unit"
+                          className="clipboard-select"
+                          value={formValues.packageUnit}
+                          onChange={(event) => setFormValues({ ...formValues, packageUnit: event.target.value })}
+                        >
+                          {!packageUnitOptions.includes(formValues.packageUnit) && (
+                            <option value={formValues.packageUnit}>{formValues.packageUnit} (current)</option>
+                          )}
+                          {packageUnitOptions.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="clipboard-field-group">
+                        <label htmlFor="inventory-contents-pkg" className="clipboard-label">
+                          <span className="inventory-field-label-text">
+                            Contents / Pack
+                            <FieldHelpTooltip
+                              title="Contents per Package"
+                              text="Measurable amount inside ONE package (e.g. 25000g for a 25kg sack, 1000pcs for a box of cups, 2500ml for syrup). Critical for calculating cost per cup!"
+                              align="right"
+                            />
+                          </span>
+                        </label>
+                        <input
+                          id="inventory-contents-pkg"
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          className="clipboard-input"
+                          value={formValues.contentsPerPackage}
+                          onChange={(event) => {
+                            const newContents = event.target.value;
+                            const nextTotal = (Number(formValues.packageQuantity || 1) * Number(newContents || 0));
+                            setFormValues((prev) => ({
+                              ...prev,
+                              contentsPerPackage: newContents,
+                              quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
+                            }));
+                          }}
+                          placeholder="e.g. 25000"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="clipboard-field-group">
+                      <label htmlFor="inventory-recipe-unit" className="clipboard-label">
+                        <span className="inventory-field-label-text">
+                          Recipe Dispensing Unit
+                          <FieldHelpTooltip
+                            title="Stock Unit"
+                            text="Recipe dispensing unit: 'g' for powders/tea/pearls, 'ml' for syrups/liquids, 'pcs' for cups/lids/straws. Must match your menu recipe unit!"
+                            align="left"
+                          />
+                        </span>
+                      </label>
+                      <select
+                        id="inventory-recipe-unit"
+                        className="clipboard-select"
+                        value={formValues.unit}
+                        onChange={(event) => setFormValues({ ...formValues, unit: event.target.value })}
+                      >
+                        {!inventoryUnitGroups.some((group) => group.options.some(([value]) => value === formValues.unit)) && (
+                          <option value={formValues.unit}>{formValues.unit} (current)</option>
+                        )}
+                        {inventoryUnitGroups.map((group) => (
+                          <optgroup label={group.label} key={group.label}>
+                            {group.options.map(([value, label]) => (
+                              <option value={value} key={value}>{label}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* PINNED COSTING AUDIT RECEIPT */}
+                    <div className="clipboard-costing-receipt">
+                      <div className="costing-receipt-pinned-tab">
+                        <span className="costing-pin-rivet" />
+                        <span className="costing-receipt-badge-title">COSTING & VALUE AUDIT</span>
+                      </div>
+
+                      <div className="costing-receipt-hero">
+                        <div className="costing-receipt-hero-lead">
+                          <span className="costing-receipt-caption">CALCULATED UNIT COST</span>
+                          <strong className="costing-receipt-price">
+                            ₱{formatUnitCost(liveUnitCost)}
+                            <span className="costing-receipt-unit"> / {formValues.unit || "unit"}</span>
+                          </strong>
+                        </div>
+                        <span className="costing-receipt-status-pill">
+                          {liveUnitCost > 0 ? "Cost Verified" : "Awaiting Data"}
+                        </span>
+                      </div>
+
+                      <div className="costing-receipt-metrics-grid">
+                        <div className="costing-receipt-metric-cell">
+                          <span className="receipt-cell-label">BATCH INFLOW</span>
+                          <strong className="receipt-cell-value">
+                            {liveTotalMeasurable > 0 ? liveTotalMeasurable.toLocaleString() : "0"} {formValues.unit}
+                          </strong>
+                        </div>
+                        <div className="costing-receipt-metric-cell">
+                          <span className="receipt-cell-label">PURCHASE OUTLAY</span>
+                          <strong className="receipt-cell-value">₱{livePurchasePrice.toFixed(2)}</strong>
+                        </div>
+                        <div className="costing-receipt-metric-cell">
+                          <span className="receipt-cell-label">TOTAL VALUATION</span>
+                          <strong className="receipt-cell-value">₱{liveInventoryValue.toFixed(2)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="costing-receipt-formula-box">
+                        <span className="costing-formula-icon">∑</span>
+                        <p className="costing-formula-text">
+                          {livePurchasePrice > 0 && liveContents <= 0
+                            ? "Enter the measurable contents in each package to calculate an accurate unit cost."
+                            : `Unit Cost = Purchase Price (₱${livePurchasePrice.toFixed(2)}) ÷ (${livePkgQty} ${formValues.packageUnit} × ${liveContents || 1} ${formValues.unit}) = ₱${formatUnitCost(liveUnitCost)} per ${formValues.unit}`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+              </div>
+
+              {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
+            </div>
+
+            {/* List Board Bottom Rail / Actions */}
+            <div className="admin-inventory-modal-actions clipboard-actions">
+              <div className="clipboard-actions-status">
+                <span className="clipboard-status-dot" />
+                <span>Auto-calculates POS recipe deduction rates & batch valuation</span>
+              </div>
+              <div className="clipboard-actions-btns">
+                <button type="button" className="clipboard-btn-cancel" onClick={resetForm}>
+                  Cancel
+                </button>
+                <button type="submit" className="clipboard-btn-save" disabled={isSaving}>
+                  <Check size={16} strokeWidth={2.4} />
+                  <span>{isSaving ? "Saving…" : editingItem ? "Save Changes" : "Save Item"}</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

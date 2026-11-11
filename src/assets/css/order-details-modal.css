@@ -532,6 +532,22 @@
   color: #166534;
 }
 
+.odm-tag-exact {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.odm-backdrop.dark-mode .odm-tag-exact {
+  background: #334155;
+  color: #cbd5e1;
+}
+
 .odm-aside {
   background: #f9f3eb;
   border: 1px solid #eadfd4;

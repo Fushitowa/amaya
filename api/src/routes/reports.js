@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { normalizeTargetFoodCost } from "../utils/costing.js";
 
 const router = Router();
 
@@ -401,7 +402,11 @@ function buildCsvDocument(headers, rows) {
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin"), (_request, response, next) => {
+  response.set("Cache-Control", "private, no-store");
+  response.set("Vary", "Authorization");
+  next();
+});
 
 router.get("/financial-summary", requireAuth, requireRole("admin"), async (request, response) => {
   const range = resolveRange(request.query);
@@ -415,7 +420,7 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
   ]);
 
   const inventoryAssetValue = round2(invSnapshotRow[0]?.[0]?.total_value);
-  const targetFoodCost = Number(settingsRow[0]?.[0]?.target_food_cost ?? 0.3);
+  const targetFoodCost = normalizeTargetFoodCost(settingsRow[0]?.[0]?.target_food_cost);
 
   const fullSummary = {
     ...summary,
@@ -1403,6 +1408,8 @@ async function queryOrdersReportData(range, query = {}, { paginate = true } = {}
       confirmedAt: order.confirmed_at ? new Date(order.confirmed_at).toISOString() : null,
       cashTendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
       changeDue: order.change_due == null ? null : Number(order.change_due),
+      cash_tendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
+      change_due: order.change_due == null ? null : Number(order.change_due),
       createdAt: new Date(order.created_at).toISOString(),
       items: orderItems
         .filter((item) => Number(item.order_id) === Number(order.id))

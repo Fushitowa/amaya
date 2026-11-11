@@ -1,8 +1,15 @@
 import { Router } from "express";
 import pool from "../database.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
+import {
+  MIN_TARGET_FOOD_COST,
+  MAX_TARGET_FOOD_COST,
+  normalizeTargetFoodCost,
+} from "../utils/costing.js";
 
 const router = Router();
+const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+const TIME_FORMAT_RE = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 const defaults = {
   businessName: "Amaya's Drinks and Bites",
   email: "jessiecataya25@gmail.com",
@@ -10,41 +17,87 @@ const defaults = {
   address: "Barangay Lilingayon, Valencia City, Bukidnon",
   openingTime: "09:00",
   closingTime: "19:00",
-  targetFoodCost: 0.3,
 };
-const mapSettings = (row) => row ? ({
-  businessName: row.business_name,
-  email: row.email || "",
-  phone: row.phone || "",
-  address: row.address || "",
-  openingTime: String(row.opening_time || "09:00:00").slice(0, 5),
-  closingTime: String(row.closing_time || "19:00:00").slice(0, 5),
-  targetFoodCost: Number(row.target_food_cost ?? 0.3),
-}) : defaults;
+const isInvalidOptionalString = (value) =>
+  value !== undefined && value !== null && typeof value !== "string";
 
-router.get("/", async (_request, response) => {
+const mapSettings = (row, includeCostTargets = false) => {
+  const mapped = row
+    ? {
+        businessName: row.business_name,
+        email: row.email || "",
+        phone: row.phone || "",
+        address: row.address || "",
+        openingTime: String(row.opening_time || "09:00:00").slice(0, 5),
+        closingTime: String(row.closing_time || "19:00:00").slice(0, 5),
+      }
+    : { ...defaults };
+
+  if (includeCostTargets) {
+    mapped.targetFoodCost = normalizeTargetFoodCost(row?.target_food_cost);
+  }
+  return mapped;
+};
+
+router.get("/", optionalAuth, async (request, response) => {
   const [[row]] = await pool.execute("SELECT * FROM business_settings WHERE id = 1");
-  response.json(mapSettings(row));
+  response.set("Cache-Control", "private, no-store");
+  response.set("Vary", "Authorization");
+  response.json(mapSettings(row, request.authUser?.role === "admin"));
 });
 
 router.put("/", requireAuth, requireRole("admin"), async (request, response) => {
-  const body = request.body || {};
-  const businessName = String(body.businessName || "").trim();
-  if (!businessName || businessName.length > 160) return response.status(400).json({ message: "Business name is required." });
-  const openingTime = String(body.openingTime || "09:00").slice(0, 5);
-  const closingTime = String(body.closingTime || "19:00").slice(0, 5);
-  const email = String(body.email || "").trim();
-  if (email && (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254)) {
+  const body = request.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return response.status(400).json({ message: "Invalid business settings payload." });
+  }
+  if (typeof body.businessName !== "string") {
+    return response.status(400).json({ message: "Business name is required." });
+  }
+  const businessName = body.businessName.trim();
+  if (!businessName || businessName.length > 160) {
+    return response.status(400).json({ message: "Business name is required." });
+  }
+  if (
+    isInvalidOptionalString(body.email) ||
+    isInvalidOptionalString(body.phone) ||
+    isInvalidOptionalString(body.address) ||
+    isInvalidOptionalString(body.openingTime) ||
+    isInvalidOptionalString(body.closingTime)
+  ) {
+    return response.status(400).json({ message: "Settings fields must be valid text values." });
+  }
+  const rawOpeningTime = (body.openingTime ?? "").trim() || "09:00";
+  const rawClosingTime = (body.closingTime ?? "").trim() || "19:00";
+  const email = (body.email ?? "").trim();
+  if (email && (email.length > 254 || !EMAIL_FORMAT_RE.test(email))) {
     return response.status(400).json({ message: "Enter a valid email address." });
   }
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(openingTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(closingTime)) {
+  if (!TIME_FORMAT_RE.test(rawOpeningTime) || !TIME_FORMAT_RE.test(rawClosingTime)) {
     return response.status(400).json({ message: "Enter valid opening and closing times." });
   }
+  const openingTime = rawOpeningTime.slice(0, 5);
+  const closingTime = rawClosingTime.slice(0, 5);
   let targetFoodCost = null;
-  if (body.targetFoodCost !== undefined && body.targetFoodCost !== null && body.targetFoodCost !== "") {
-    const parsed = Number(body.targetFoodCost);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= 1) {
-      return response.status(400).json({ message: "Target food cost ratio must be greater than 0 and less than 1." });
+  if (Object.hasOwn(body, "targetFoodCost") && body.targetFoodCost !== undefined) {
+    const rawTarget = body.targetFoodCost;
+    if (
+      rawTarget === null ||
+      typeof rawTarget === "boolean" ||
+      typeof rawTarget === "object" ||
+      (typeof rawTarget === "string" && !rawTarget.trim())
+    ) {
+      return response.status(400).json({
+        message: "Target food cost ratio must be between 0.10 (10%) and 0.90 (90%).",
+      });
+    }
+    const parsed = typeof rawTarget === "number" || typeof rawTarget === "string"
+      ? Number(rawTarget)
+      : Number.NaN;
+    if (!Number.isFinite(parsed) || parsed < MIN_TARGET_FOOD_COST || parsed > MAX_TARGET_FOOD_COST) {
+      return response.status(400).json({
+        message: "Target food cost ratio must be between 0.10 (10%) and 0.90 (90%).",
+      });
     }
     targetFoodCost = Number(parsed.toFixed(4));
   }
@@ -62,8 +115,8 @@ router.put("/", requireAuth, requireRole("admin"), async (request, response) => 
     [
       businessName,
       email || null,
-      String(body.phone || "").trim().slice(0, 40) || null,
-      String(body.address || "").trim().slice(0, 500) || null,
+      (body.phone ?? "").trim().slice(0, 40) || null,
+      (body.address ?? "").trim().slice(0, 500) || null,
       openingTime,
       closingTime,
       targetFoodCost,
@@ -71,7 +124,7 @@ router.put("/", requireAuth, requireRole("admin"), async (request, response) => 
     ],
   );
   const [[row]] = await pool.execute("SELECT * FROM business_settings WHERE id = 1");
-  response.json(mapSettings(row));
+  response.json(mapSettings(row, true));
 });
 
 export default router;

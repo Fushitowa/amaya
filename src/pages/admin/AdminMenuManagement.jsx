@@ -9,6 +9,22 @@ import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import {
+	DEFAULT_TARGET_FOOD_COST,
+	unitFactors,
+	safeLower,
+	safeItemName,
+	safeToFixed,
+	findInventoryItemInList,
+	convertRecipeAmount,
+	defaultSizeFactor,
+	scaleIngredientAmount,
+	normalizeTargetFoodCost,
+	buildSafeSizeQtyMap,
+	readSizeQtyValue,
+	writeSizeQtyValue,
+	computeMenuItemCostSummary,
+} from "../../utils/menuCosting.js";
 
 import "../../assets/css/admin/AdminMenuManagement.css";
 import "../../assets/css/portal-user.css";
@@ -24,62 +40,7 @@ const supportedUnits = [
 	{ group: "Volume", units: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["L", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
 	{ group: "Count", units: [["pcs", "Pieces (pcs)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
 ];
-const unitFactors = new Map();
-const registerUnit = (dimension, factorToBase, units) => units.forEach((unit) => unitFactors.set(unit.toLowerCase(), { dimension, factorToBase }));
-registerUnit("mass", 0.000001, ["µg", "μg", "ug", "mcg", "microgram", "micrograms"]);
-registerUnit("mass", 0.001, ["mg", "milligram", "milligrams"]);
-registerUnit("mass", 1, ["g", "gram", "grams"]);
-registerUnit("mass", 100, ["hg", "hectogram", "hectograms"]);
-registerUnit("mass", 1000, ["kg", "kilogram", "kilograms"]);
-registerUnit("mass", 1000000, ["t", "tonne", "tonnes", "metric ton", "metric tons"]);
-registerUnit("mass", 28.349523125, ["oz", "ounce", "ounces"]);
-registerUnit("mass", 453.59237, ["lb", "lbs", "pound", "pounds"]);
-registerUnit("volume", 1, ["ml", "milliliter", "milliliters", "millilitre", "millilitres", "cc", "cm3", "cm³"]);
-registerUnit("volume", 10, ["cl", "centiliter", "centiliters", "centilitre", "centilitres"]);
-registerUnit("volume", 100, ["dl", "deciliter", "deciliters", "decilitre", "decilitres"]);
-registerUnit("volume", 1000, ["l", "liter", "liters", "litre", "litres"]);
-registerUnit("volume", 4.92892159375, ["tsp", "teaspoon", "teaspoons"]);
-registerUnit("volume", 14.78676478125, ["tbsp", "tablespoon", "tablespoons"]);
-registerUnit("volume", 236.5882365, ["cup", "cups"]);
-registerUnit("volume", 29.5735295625, ["fl oz", "fluid ounce", "fluid ounces"]);
-registerUnit("volume", 473.176473, ["pt", "pint", "pints"]);
-registerUnit("volume", 946.352946, ["qt", "quart", "quarts"]);
-registerUnit("volume", 3785.411784, ["gal", "gallon", "gallons"]);
-registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
-registerUnit("count", 2, ["pair", "pairs"]);
-registerUnit("count", 12, ["dozen", "doz"]);
-const safeLower = (val) => String(val || "").trim().toLowerCase();
-const safeItemName = (entry) => String(entry?.item ?? entry?.name ?? "").trim();
 const getInvItemName = safeItemName;
-const safeToFixed = (val, fractionDigits = 2, fallback = "0.00") => {
-	const num = Number(val);
-	return Number.isFinite(num) ? num.toFixed(fractionDigits) : fallback;
-};
-
-const findInventoryItemInList = (inventoryList, query, id = null) => {
-	if (!Array.isArray(inventoryList)) return undefined;
-	const numericId = id != null && !Number.isNaN(Number(id)) ? Number(id) : null;
-	const clean = safeLower(query);
-	return inventoryList.find((entry) => {
-		if (!entry) return false;
-		if (numericId !== null && Number(entry.id) === numericId) return true;
-		if (!clean) return false;
-		return safeLower(safeItemName(entry)) === clean;
-	});
-};
-
-const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
-	const sourceName = safeLower(recipeUnit);
-	const targetName = safeLower(stockUnit);
-	const quantity = Number(amount);
-	const source = unitFactors.get(sourceName);
-	const target = unitFactors.get(targetName);
-	if (!Number.isFinite(quantity) || quantity <= 0) return null;
-	if (!source && !target && sourceName === targetName) return quantity;
-	if (!source || !target || source.dimension !== target.dimension) return null;
-	const converted = Number((quantity * source.factorToBase / target.factorToBase).toFixed(6));
-	return converted > 0 ? converted : null;
-};
 const amountAttachedToUnit = (unit) => /^\s*\d+(?:\.\d+)?\s*[a-z]/i.test(String(unit || ""));
 
 const KNOWN_UNITS_LOWER = new Set(supportedUnits.flatMap((group) => group.units.map(([unit]) => unit.toLowerCase())));
@@ -133,21 +94,6 @@ const VARIATION_PRESETS = {
 		{ label: "6 pcs (Sharing)", factor: 1.5 },
 		{ label: "12 pcs (Party)", factor: 3.0 },
 	],
-};
-
-
-const defaultSizeFactor = (factor, index = 0) => (Number.isFinite(Number(factor)) && Number(factor) > 0 ? Number(factor) : (index === 0 ? 1.0 : Number((1.0 + index * 0.25).toFixed(2))));
-
-
-const scaleIngredientAmount = (baseQty, factor, unit) => {
-	const numQty = Number(baseQty);
-	if (!Number.isFinite(numQty) || numQty <= 0) return "";
-	const unitDef = unitFactors.get(safeLower(unit));
-	if (unitDef?.dimension === "count" || ["pcs", "pc", "piece", "pieces", "ea", "each", "unit", "units", "cup", "cups"].includes(safeLower(unit))) {
-		return String(numQty);
-	}
-	const scaled = Number((numQty * factor).toFixed(2));
-	return String(scaled);
 };
 
 
@@ -217,13 +163,15 @@ function AdminMenuManagement() {
 	const [pickerCategory, setPickerCategory] = useState("all");
 	const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState(new Set());
 
-	// Target food cost percentage for suggested pricing (synced from Business Settings, overridable per item session)
+	// Target food cost percentage for suggested pricing (synced from Business Settings, previewable per modal session)
 	const configuredFoodCostPct = useMemo(
-		() => Math.max(10, Math.min(90, Math.round(Number(businessSettings?.targetFoodCost ?? 0.3) * 100))),
+		() => Number((normalizeTargetFoodCost(businessSettings?.targetFoodCost, DEFAULT_TARGET_FOOD_COST) * 100).toFixed(2)),
 		[businessSettings?.targetFoodCost],
 	);
 	const [targetFoodCostOverride, setTargetFoodCostOverride] = useState(null);
 	const targetFoodCostPct = targetFoodCostOverride ?? configuredFoodCostPct;
+	const isPreviewOverridden =
+		targetFoodCostOverride !== null && targetFoodCostOverride !== configuredFoodCostPct;
 	const targetCostOptions = useMemo(
 		() => Array.from(new Set([configuredFoodCostPct, 30, 40, 50, 60])).sort((a, b) => a - b),
 		[configuredFoodCostPct],
@@ -340,6 +288,7 @@ function AdminMenuManagement() {
 			setShowForm(false);
 			setEditingProduct(null);
 			setEditingSizeIndex(null);
+			setTargetFoodCostOverride(null);
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
@@ -415,8 +364,11 @@ function AdminMenuManagement() {
 		setFormValues((current) => {
 			const newSizes = [...(current.sizes || []), { label: nextStandard.label, price, factor, cupId: null }];
 			const updatedIngredients = (current.ingredients || []).map((ing) => {
-				const qMap = { ...(ing?.quantityBySize || {}) };
-				qMap[nextStandard.label] = amountForSize(ing, nextStandard.label, factor);
+				const qMap = writeSizeQtyValue(
+					ing?.quantityBySize,
+					nextStandard.label,
+					amountForSize(ing, nextStandard.label, factor),
+				);
 				return { ...ing, quantityBySize: qMap };
 			});
 			return { ...current, sizes: newSizes, ingredients: updatedIngredients };
@@ -445,7 +397,7 @@ function AdminMenuManagement() {
 					unit: chosenCup.unit || "pcs",
 					stockUnit: chosenCup.unit || "pcs",
 					quantityUsed: "1",
-					quantityBySize: {},
+					quantityBySize: buildSafeSizeQtyMap(),
 				});
 			}
 
@@ -456,10 +408,9 @@ function AdminMenuManagement() {
 					(chosenCup && safeLower(ing?.name) === safeLower(chosenCupName))
 				);
 				if (!isCup) return ing;
-				const qMap = { ...(ing?.quantityBySize || {}) };
 				const isThisCup = (numericCupId && Number(ing?.inventoryItemId) === numericCupId) ||
 					(chosenCup && safeLower(ing?.name) === safeLower(chosenCupName));
-				qMap[targetSize.label] = isThisCup ? "1" : "0";
+				const qMap = writeSizeQtyValue(ing?.quantityBySize, targetSize.label, isThisCup ? "1" : "0");
 				return { ...ing, quantityBySize: qMap };
 			});
 
@@ -477,8 +428,11 @@ function AdminMenuManagement() {
 			}
 			const updatedIngredients = (current.ingredients || []).map((ing) => {
 				if (isCupIngredient(ing)) return ing;
-				const qMap = { ...(ing?.quantityBySize || {}) };
-				qMap[targetSize.label] = scaleIngredientAmount(ing?.quantityUsed, factorNum, ing?.unit);
+				const qMap = writeSizeQtyValue(
+					ing?.quantityBySize,
+					targetSize.label,
+					scaleIngredientAmount(ing?.quantityUsed, factorNum, ing?.unit),
+				);
 				return { ...ing, quantityBySize: qMap };
 			});
 			return { ...current, sizes: updatedSizes, ingredients: updatedIngredients };
@@ -502,10 +456,11 @@ function AdminMenuManagement() {
 		});
 
 		const updatedIngredients = (formValues.ingredients || []).map((ing) => {
-			const qMap = { ...(ing?.quantityBySize || {}) };
+			let qMap = buildSafeSizeQtyMap(ing?.quantityBySize);
 			(presetList || []).forEach((preset, idx) => {
-				const factor = defaultSizeFactor(preset?.factor, idx);
-				qMap[preset?.label] = amountForSize(ing, preset?.label, factor);
+				if (!preset?.label) return;
+				const factor = defaultSizeFactor(preset.factor, idx);
+				qMap = writeSizeQtyValue(qMap, preset.label, amountForSize(ing, preset.label, factor));
 			});
 			return { ...ing, quantityBySize: qMap };
 		});
@@ -525,7 +480,7 @@ function AdminMenuManagement() {
 			sizes: [],
 			ingredients: (current.ingredients || []).map((ing) => ({
 				...ing,
-				quantityBySize: {},
+				quantityBySize: buildSafeSizeQtyMap(),
 			})),
 		}));
 		setEditingSizeIndex(null);
@@ -561,19 +516,17 @@ function AdminMenuManagement() {
 
 		const nonCupIngredients = (formValues.ingredients || []).filter((ing) => !isCupIngredient(ing));
 		const scaledNonCupIngredients = nonCupIngredients.map((ing) => {
-			const qMap = {};
-			newSizes.forEach((s) => {
-				qMap[s.label] = scaleIngredientAmount(ing?.quantityUsed, s.factor, ing?.unit);
-			});
+			const qMap = buildSafeSizeQtyMap(
+				newSizes.map((s) => [s.label, scaleIngredientAmount(ing?.quantityUsed, s.factor, ing?.unit)]),
+			);
 			return { ...ing, quantityBySize: qMap };
 		});
 
 		const cupIngredients = cupsToUse.map((cup, cupIdx) => {
 			const cupName = getInvItemName(cup);
-			const qMap = {};
-			newSizes.forEach((s, sIdx) => {
-				qMap[s.label] = cupIdx === sIdx ? "1" : "0";
-			});
+			const qMap = buildSafeSizeQtyMap(
+				newSizes.map((s, sIdx) => [s.label, cupIdx === sIdx ? "1" : "0"]),
+			);
 			return {
 				inventoryItemId: cup.id,
 				name: cupName,
@@ -617,20 +570,18 @@ function AdminMenuManagement() {
 				const isThisCup = (Number(ing?.inventoryItemId) === Number(cup.id)) || safeLower(ing?.name) === safeLower(cupName);
 				if (isThisCup) hasThisCup = true;
 
-				const qMap = { ...(ing?.quantityBySize || {}) };
-				if (isCup) {
-					qMap[label] = isThisCup ? "1" : "0";
-				} else {
-					qMap[label] = scaleIngredientAmount(ing?.quantityUsed, factor, ing?.unit);
-				}
+				const qMap = writeSizeQtyValue(
+					ing?.quantityBySize,
+					label,
+					isCup ? (isThisCup ? "1" : "0") : scaleIngredientAmount(ing?.quantityUsed, factor, ing?.unit),
+				);
 				return { ...ing, quantityBySize: qMap };
 			});
 
 			if (!hasThisCup) {
-				const qMap = {};
-				newSizes.forEach((s) => {
-					qMap[s.label] = safeLower(s?.label) === safeLower(label) ? "1" : "0";
-				});
+				const qMap = buildSafeSizeQtyMap(
+					newSizes.map((s) => [s.label, safeLower(s?.label) === safeLower(label) ? "1" : "0"]),
+				);
 				updatedIngredients.push({
 					inventoryItemId: cup.id,
 					name: cupName,
@@ -670,12 +621,16 @@ function AdminMenuManagement() {
 			);
 
 			const updatedIngredients = current.ingredients.map((ing) => {
-				const qMap = { ...(ing.quantityBySize || {}) };
-				if (oldLabel && oldLabel in qMap && oldLabel !== newLabel) {
-					delete qMap[oldLabel];
-				}
+				const prevMap = ing?.quantityBySize;
+				const retainedEntries =
+					prevMap && typeof prevMap === "object"
+						? Object.keys(prevMap)
+								.filter((key) => !(oldLabel && key === oldLabel && oldLabel !== newLabel))
+								.map((key) => [key, readSizeQtyValue(prevMap, key)])
+						: [];
+				let qMap = buildSafeSizeQtyMap(retainedEntries);
 				if (newLabel) {
-					qMap[newLabel] = amountForSize(ing, newLabel, factor);
+					qMap = writeSizeQtyValue(qMap, newLabel, amountForSize(ing, newLabel, factor));
 				}
 				return { ...ing, quantityBySize: qMap };
 			});
@@ -709,8 +664,14 @@ function AdminMenuManagement() {
 				...current,
 				sizes: current.sizes.filter((_, i) => i !== index),
 				ingredients: current.ingredients.map((ingredient) => {
-					const quantityBySize = { ...(ingredient.quantityBySize || {}) };
-					if (removedLabel) delete quantityBySize[removedLabel];
+					const prevMap = ingredient?.quantityBySize;
+					const quantityBySize = buildSafeSizeQtyMap(
+						prevMap && typeof prevMap === "object"
+							? Object.keys(prevMap)
+									.filter((key) => key !== removedLabel)
+									.map((key) => [key, readSizeQtyValue(prevMap, key)])
+							: null,
+					);
 					return { ...ingredient, quantityBySize };
 				}),
 			};
@@ -773,11 +734,11 @@ function AdminMenuManagement() {
 					quantityUsed: defaultQty,
 					unit,
 					stockUnit: unit,
-					quantityBySize: Object.fromEntries(
+					quantityBySize: buildSafeSizeQtyMap(
 						(current.sizes || []).map((size, idx) => [
 							size.label,
 							amountForSize({ name: safeItemName(inv), quantityUsed: defaultQty, unit }, size.label, defaultSizeFactor(size.factor, idx)),
-						])
+						]),
 					),
 				};
 			});
@@ -796,11 +757,11 @@ function AdminMenuManagement() {
 			...current,
 			ingredients: current.ingredients.map((ing, i) => {
 				if (i !== index) return ing;
-				const factorMap = Object.fromEntries(
+				const factorMap = buildSafeSizeQtyMap(
 					(current.sizes || []).map((size, idx) => [
 						size.label,
 						amountForSize({ ...ing, quantityUsed: Number(val) || 0 }, size.label, defaultSizeFactor(size.factor, idx)),
-					])
+					]),
 				);
 				return {
 					...ing,
@@ -855,7 +816,7 @@ function AdminMenuManagement() {
 		setFormValues((current) => ({
 			...current,
 			ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === ingredientIndex
-				? { ...entry, quantityBySize: { ...(entry.quantityBySize || {}), [sizeLabel]: quantityUsed } }
+				? { ...entry, quantityBySize: writeSizeQtyValue(entry.quantityBySize, sizeLabel, quantityUsed) }
 				: entry),
 		}));
 
@@ -1007,12 +968,12 @@ function AdminMenuManagement() {
 					unit: invItem?.unit || "pcs",
 					stockUnit: invItem?.unit || "pcs",
 					quantityUsed: "",
-					quantityBySize: {},
+					quantityBySize: buildSafeSizeQtyMap(),
 				};
 			}
 			const invId = ingredient?.inventoryItemId != null ? Number(ingredient.inventoryItemId) : null;
 			const invItem = findInventoryItem(ingredient?.name, invId);
-			const quantityBySize = Object.fromEntries(
+			const quantityBySize = buildSafeSizeQtyMap(
 				sizes.map((size) => {
 					const rawSizeObj = rawSizes.find((s) => s?.label === size.label);
 					const sizedIngredient = Array.isArray(rawSizeObj?.ingredients)
@@ -1022,7 +983,7 @@ function AdminMenuManagement() {
 						size.label,
 						sizedIngredient && sizedIngredient.quantityUsed != null ? String(sizedIngredient.quantityUsed) : "0",
 					];
-				})
+				}),
 			);
 			return {
 				...ingredient,
@@ -1070,7 +1031,7 @@ function AdminMenuManagement() {
 	// Amount an ingredient uses in one size; blank or 0 means "not used in this size".
 	const sizeQty = (ing, label) => {
 		if (!ing) return 0;
-		const explicit = ing.quantityBySize?.[label];
+		const explicit = readSizeQtyValue(ing.quantityBySize, label);
 		const fallback = ing.quantityUsed;
 		const raw = explicit ?? fallback;
 		const amount = Number(raw);
@@ -1096,7 +1057,11 @@ function AdminMenuManagement() {
 
 		// Clean and validate variation sizes
 		const cleanSizes = (formValues.sizes || [])
-			.map((s) => ({ label: String(s?.label || "").trim(), price: s?.price }))
+			.map((s) => ({
+				rawLabel: String(s?.label ?? ""),
+				label: String(s?.label || "").trim(),
+				price: s?.price,
+			}))
 			.filter((s) => s.label || (s.price !== "" && s.price !== null && s.price !== undefined));
 
 		if (cleanSizes.length > 0) {
@@ -1123,13 +1088,19 @@ function AdminMenuManagement() {
 					label: size.label,
 					price: Number(size.price),
 					ingredients: (formValues.ingredients || [])
-						.map((ingredient) => ({
-							...(ingredient?.inventoryItemId ? { inventoryItemId: Number(ingredient.inventoryItemId) } : {}),
-							name: String(ingredient?.name || "").trim(),
-							quantityUsed: sizeQty(ingredient, size.label),
-							unit: ingredient?.unit || "pcs",
-							stockUnit: ingredient?.stockUnit || ingredient?.unit || "pcs",
-						}))
+						.map((ingredient) => {
+							const matchedSizeLabel =
+								readSizeQtyValue(ingredient?.quantityBySize, size.rawLabel) !== undefined
+									? size.rawLabel
+									: size.label;
+							return {
+								...(ingredient?.inventoryItemId ? { inventoryItemId: Number(ingredient.inventoryItemId) } : {}),
+								name: String(ingredient?.name || "").trim(),
+								quantityUsed: sizeQty(ingredient, matchedSizeLabel),
+								unit: ingredient?.unit || "pcs",
+								stockUnit: ingredient?.stockUnit || ingredient?.unit || "pcs",
+							};
+						})
 						.filter((ingredient) => ingredient.quantityUsed > 0),
 				}))
 			: [{
@@ -1139,7 +1110,7 @@ function AdminMenuManagement() {
 						.map((ing) => ({
 							...(ing?.inventoryItemId ? { inventoryItemId: Number(ing.inventoryItemId) } : {}),
 							name: String(ing?.name || "").trim(),
-							quantityUsed: Number(ing?.quantityUsed ?? ing?.quantityBySize?.Regular ?? 0),
+							quantityUsed: Number(ing?.quantityUsed ?? readSizeQtyValue(ing?.quantityBySize, "Regular") ?? 0),
 							unit: ing?.unit || "pcs",
 							stockUnit: ing?.stockUnit || ing?.unit || "pcs",
 						}))
@@ -1241,54 +1212,47 @@ function AdminMenuManagement() {
 		return map;
 	}, [products]);
 
+	const effectiveTargetCostRatio = normalizeTargetFoodCost(
+		(Number(targetFoodCostPct) || 30) / 100,
+		DEFAULT_TARGET_FOOD_COST,
+	);
+
 	const sizeCostingsByIndex = useMemo(() => {
 		const formPrice = Number(formValues?.price) || 0;
 		const ingredients = (formValues?.ingredients || []).filter(Boolean);
-		const effectiveTargetFraction = Math.max(0.1, Math.min(0.9, (Number(targetFoodCostPct) || 30) / 100));
 
 		return (formValues?.sizes || []).map((size, idx) => {
-			const sizeLabel = size?.label;
 			const rawSizePrice = size?.price;
 			const numericPrice = rawSizePrice !== "" && rawSizePrice !== null && rawSizePrice !== undefined && !Number.isNaN(Number(rawSizePrice))
 				? Number(rawSizePrice)
 				: formPrice;
-			const factor = defaultSizeFactor(size?.factor, idx);
-			let rawCost = 0;
-			let costComplete = ingredients.length > 0;
-
-			for (const ing of ingredients) {
-				const invItem = findInventoryItem(ing.name || ing.item, ing.inventoryItemId);
-				const unitCost = Number(invItem?.unitCost ?? invItem?.unit_cost ?? ing.unitCost ?? 0);
-				const stockUnit = invItem?.unit || ing.stockUnit || ing.unit || "pcs";
-				const recipeUnit = ing.unit || stockUnit;
-				const rawSizeQty = sizeLabel ? ing.quantityBySize?.[sizeLabel] : undefined;
-				if (rawSizeQty !== undefined && !(Number(rawSizeQty) > 0)) continue;
-				const qtyUsed = Number(sizeLabel ? (ing.quantityBySize?.[sizeLabel] ?? scaleIngredientAmount(ing.quantityUsed, factor, recipeUnit)) : ing.quantityUsed);
-				const stockQty = convertRecipeAmount(qtyUsed, recipeUnit, stockUnit);
-				if (!stockQty || !(unitCost > 0)) {
-					costComplete = false;
-				} else {
-					rawCost += stockQty * unitCost;
-				}
-			}
-
-			const safeRawCost = Number.isFinite(rawCost) ? rawCost : 0;
-			const cost = Number(safeRawCost.toFixed(2));
-			const grossProfit = numericPrice > 0 ? Number((numericPrice - cost).toFixed(2)) : 0;
-			const margin = (numericPrice > 0 && Number.isFinite(cost)) ? Number((((numericPrice - cost) / numericPrice) * 100).toFixed(1)) : null;
-			const foodCostPercent = (numericPrice > 0 && Number.isFinite(cost)) ? Number(((cost / numericPrice) * 100).toFixed(1)) : null;
-			const suggestedPrice = safeRawCost > 0 ? Math.ceil((safeRawCost / effectiveTargetFraction) / 5) * 5 : null;
-
-			return {
-				cost: Number.isFinite(cost) ? cost : 0,
-				costComplete,
-				grossProfit: Number.isFinite(grossProfit) ? grossProfit : 0,
-				margin: Number.isFinite(margin) ? margin : null,
-				foodCostPercent: Number.isFinite(foodCostPercent) ? foodCostPercent : null,
-				suggestedPrice,
-			};
+			return computeMenuItemCostSummary({
+				sellingPrice: numericPrice,
+				directCostPrice: formValues?.costPrice,
+				sizeLabel: size?.label || "",
+				sizeFactor: defaultSizeFactor(size?.factor, idx),
+				ingredients,
+				inventory,
+				targetFoodCost: effectiveTargetCostRatio,
+			});
 		});
-	}, [findInventoryItem, formValues?.price, formValues?.sizes, formValues?.ingredients, targetFoodCostPct]);
+	}, [effectiveTargetCostRatio, formValues?.costPrice, formValues?.ingredients, formValues?.price, formValues?.sizes, inventory]);
+
+	const singleItemCosting = useMemo(() => {
+		const rawPrice = formValues?.price;
+		const numericPrice = rawPrice !== "" && rawPrice !== null && rawPrice !== undefined && !Number.isNaN(Number(rawPrice))
+			? Number(rawPrice)
+			: 0;
+		return computeMenuItemCostSummary({
+			sellingPrice: numericPrice,
+			directCostPrice: formValues?.costPrice,
+			sizeLabel: "",
+			sizeFactor: 1.0,
+			ingredients: (formValues?.ingredients || []).filter(Boolean),
+			inventory,
+			targetFoodCost: effectiveTargetCostRatio,
+		});
+	}, [effectiveTargetCostRatio, formValues?.costPrice, formValues?.ingredients, formValues?.price, inventory]);
 
 	const applySuggestedSizePrice = (index, suggestedPrice) => {
 		if (suggestedPrice == null) return;
@@ -1302,6 +1266,11 @@ function AdminMenuManagement() {
 				sizes: (current.sizes || []).map((s, i) => (i === index ? { ...s, price: nextPrice } : s)),
 			};
 		});
+	};
+
+	const applySuggestedBasePrice = (suggestedPrice) => {
+		if (suggestedPrice == null) return;
+		setFormValues((current) => ({ ...current, price: String(suggestedPrice) }));
 	};
 
 	return (
@@ -1941,7 +1910,7 @@ function AdminMenuManagement() {
 																{ing.quantityUsed ? `${ing.quantityUsed} ${ing.unit || ""}` : "—"}
 															</span>
 														</div>
-														{formValues.sizes && formValues.sizes.length > 1 && (
+														{formValues.sizes && formValues.sizes.length > 0 && (
 															<div className="recipe-item-size-pills">
 																{formValues.sizes.map((s) => {
 																	const sq = sizeQty(ing, s.label);
@@ -2047,7 +2016,7 @@ function AdminMenuManagement() {
 													borderColor: "#e7e5e4"
 												}}
 											/>
-											<small className="menu-field-hint" style={{ fontSize: "0.75rem", color: "#8a7a6e", marginTop: "2px" }}>
+											<small className="menu-field-hint">
 												{formValues.ingredients.length > 0
 													? "Auto-calculated from ingredients on hand"
 													: "Direct stock balance for retail/prepared items"}
@@ -2083,21 +2052,43 @@ function AdminMenuManagement() {
 											Item Variations &amp; Sizes
 										</label>
 										<div className="menu-builder-variations-actions">
-											{/* Target Food Cost Adjustment */}
-											<div className="menu-target-cost-selector" title="Choose target food cost percentage used to compute suggested serving price">
-												<span className="target-cost-label">Target Cost:</span>
+											{/* Target Food Cost Preview Simulator */}
+											<div
+												className="menu-target-cost-selector"
+												role="group"
+												aria-labelledby="menu-price-preview-label"
+												title="Temporary preview to simulate suggested prices. Store Default stays managed in Admin Settings."
+											>
+												<span id="menu-price-preview-label" className="target-cost-label">Price Preview:</span>
 												<div className="target-cost-pills">
-													{targetCostOptions.map((pct) => (
-														<button
-															key={pct}
-															type="button"
-															className={`target-cost-pill ${targetFoodCostPct === pct ? "active" : ""}`}
-															onClick={() => setTargetFoodCostOverride(pct)}
-														>
-															{pct}%
-														</button>
-													))}
+													{targetCostOptions.map((pct) => {
+														const isSelected = targetFoodCostPct === pct;
+														const isStoreDefault = pct === configuredFoodCostPct;
+														return (
+															<button
+																key={pct}
+																type="button"
+																className={`target-cost-pill ${isSelected ? "active" : ""} ${isStoreDefault ? "is-default" : ""}`}
+																aria-pressed={isSelected}
+																aria-label={isStoreDefault ? `${pct}% Store Default` : `${pct}% preview`}
+																onClick={() => setTargetFoodCostOverride(pct === configuredFoodCostPct ? null : pct)}
+															>
+																<span>{pct}%</span>
+																{isStoreDefault && <span className="target-cost-default-tag">Default</span>}
+															</button>
+														);
+													})}
 												</div>
+												{isPreviewOverridden && (
+													<button
+														type="button"
+														className="target-cost-reset-btn"
+														onClick={() => setTargetFoodCostOverride(null)}
+														aria-label={`Reset price preview to store default ${configuredFoodCostPct}%`}
+													>
+														Reset ({configuredFoodCostPct}%)
+													</button>
+												)}
 											</div>
 
 											<button
@@ -2364,17 +2355,29 @@ function AdminMenuManagement() {
 															</div>
 														</div>
 
-														<div className="size-costing-strip">
-															{(formValues.ingredients || []).length === 0 ? (
-																<span className="size-costing-note">Add recipe ingredients below to calculate COGS &amp; suggested price</span>
+														<div className="size-costing-strip" aria-live="polite" aria-atomic="true">
+															{(formValues.ingredients || []).length === 0 && !(Number(formValues.costPrice) > 0) ? (
+																<span className="size-costing-note">Add recipe ingredients below or enter Direct Cost Price above to calculate COGS &amp; suggested price</span>
+															) : (formValues.ingredients || []).length > 0 && sizeCosting?.usedCount === 0 ? (
+																<span className="size-costing-warning">All ingredient portions are 0 for this variation — enter a portion below</span>
 															) : (
 																<>
 																	<span>COGS <strong>₱{safeToFixed(sizeCosting?.cost, 2)}</strong></span>
-																	<span>·</span>
-																	<span>Profit <strong>₱{safeToFixed(sizeCosting?.grossProfit ?? 0, 2)}</strong></span>
+																	<span aria-hidden="true">·</span>
+																	<span>
+																		Profit{" "}
+																		<strong>
+																			{sizeCosting?.grossProfit != null && Number.isFinite(sizeCosting.grossProfit)
+																				? `₱${safeToFixed(sizeCosting.grossProfit, 2)}`
+																				: "—"}
+																		</strong>
+																	</span>
 																	<span className={`size-margin-badge ${marginTone}`}>
 																		Margin {sizeCosting?.margin != null && Number.isFinite(sizeCosting.margin) ? `${safeToFixed(sizeCosting.margin, 1)}%` : "—"}
 																	</span>
+																	{sizeCosting?.costSource === "direct" && (
+																		<span className="size-costing-note">Direct cost basis</span>
+																	)}
 																	{sizeCosting?.suggestedPrice != null && (
 																		<>
 																			<span>Suggested <strong>₱{sizeCosting.suggestedPrice}</strong> ({targetFoodCostPct}% food cost)</span>
@@ -2382,13 +2385,14 @@ function AdminMenuManagement() {
 																				type="button"
 																				className="size-apply-suggested-btn"
 																				onClick={() => applySuggestedSizePrice(index, sizeCosting.suggestedPrice)}
+																				aria-label={`Apply suggested price ₱${sizeCosting.suggestedPrice} for ${size?.label || "variation"}`}
 																			>
 																				Apply ₱{sizeCosting.suggestedPrice}
 																			</button>
 																		</>
 																	)}
 																	{!sizeCosting?.costComplete && (
-																		<span className="size-costing-warning">Some ingredients have ₱0 unit cost in Inventory</span>
+																		<span className="size-costing-warning">Some ingredients have ₱0 unit cost or incompatible units in Inventory</span>
 																	)}
 																</>
 															)}
@@ -2413,6 +2417,59 @@ function AdminMenuManagement() {
 													</button>
 												</div>
 											)}
+											<div className="size-costing-strip single-item" aria-live="polite" aria-atomic="true">
+												{(formValues.ingredients || []).length === 0 && !(Number(formValues.costPrice) > 0) ? (
+													<span className="size-costing-note">Add recipe ingredients below or enter Direct Cost Price above to calculate COGS &amp; suggested price</span>
+												) : (formValues.ingredients || []).length > 0 && singleItemCosting?.usedCount === 0 ? (
+													<span className="size-costing-warning">All ingredient portions are 0 — enter an amount per serving below</span>
+												) : (
+													(() => {
+														const singleMarginTone = singleItemCosting?.margin == null
+															? "neutral"
+															: singleItemCosting.margin >= 50
+																? "good"
+																: singleItemCosting.margin >= 30
+																	? "warn"
+																	: "low";
+														return (
+															<>
+																<span>COGS <strong>₱{safeToFixed(singleItemCosting?.cost, 2)}</strong></span>
+																<span aria-hidden="true">·</span>
+																<span>
+																	Profit{" "}
+																	<strong>
+																		{singleItemCosting?.grossProfit != null && Number.isFinite(singleItemCosting.grossProfit)
+																			? `₱${safeToFixed(singleItemCosting.grossProfit, 2)}`
+																			: "—"}
+																	</strong>
+																</span>
+																<span className={`size-margin-badge ${singleMarginTone}`}>
+																	Margin {singleItemCosting?.margin != null && Number.isFinite(singleItemCosting.margin) ? `${safeToFixed(singleItemCosting.margin, 1)}%` : "—"}
+																</span>
+																{singleItemCosting?.costSource === "direct" && (
+																	<span className="size-costing-note">Direct cost basis</span>
+																)}
+																{singleItemCosting?.suggestedPrice != null && (
+																	<>
+																		<span>Suggested <strong>₱{singleItemCosting.suggestedPrice}</strong> ({targetFoodCostPct}% food cost)</span>
+																		<button
+																			type="button"
+																			className="size-apply-suggested-btn"
+																			onClick={() => applySuggestedBasePrice(singleItemCosting.suggestedPrice)}
+																			aria-label={`Apply suggested base price ₱${singleItemCosting.suggestedPrice}`}
+																		>
+																			Apply ₱{singleItemCosting.suggestedPrice}
+																		</button>
+																	</>
+																)}
+																{!singleItemCosting?.costComplete && (
+																	<span className="size-costing-warning">Some ingredients have ₱0 unit cost or incompatible units in Inventory</span>
+																)}
+															</>
+														);
+													})()
+												)}
+											</div>
 										</div>
 									)}
 
@@ -2477,7 +2534,7 @@ function AdminMenuManagement() {
 												<div className="recipe-config-thead">
 													<div className="th-ingredient">Ingredient</div>
 													<div className="th-unit">Unit</div>
-													{formValues.sizes.length > 1 ? (
+													{formValues.sizes.length > 0 ? (
 														formValues.sizes.map((s) => (
 															<div key={s.label} className="th-qty size-col">
 																{s.label}
@@ -2517,14 +2574,14 @@ function AdminMenuManagement() {
 																	/>
 																</div>
 
-																{formValues.sizes.length > 1 ? (
+																{formValues.sizes.length > 0 ? (
 																	formValues.sizes.map((size) => (
 																		<div key={size.label} className="td-qty size-col">
 																			<input
 																				type="number"
 																				min="0"
 																				step="0.000001"
-																				value={ingredient.quantityBySize?.[size.label] ?? ingredient.quantityUsed ?? ""}
+																				value={readSizeQtyValue(ingredient.quantityBySize, size.label) ?? ingredient.quantityUsed ?? ""}
 																				onChange={(event) => updateSizeRecipeQuantity(index, size.label, event.target.value)}
 																				placeholder="0"
 																				aria-label={`${ingredientName} amount for ${size.label}`}

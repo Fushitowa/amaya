@@ -15,9 +15,10 @@
   --report-brass-light: #ebd3ad;
   --report-bookmark: #be4d3a;
   --report-bookmark-deep: #963322;
-  --report-positive: #4b8657;
+  --report-positive: #2f683b;
   --report-warning: #c6862e;
-  --report-critical: #b25243;
+  --report-warning-ink: #8b5614;
+  --report-critical: #96392c;
 }
 
 * {
@@ -1413,7 +1414,7 @@
 }
 
 .report-status-pill.pending strong {
-  color: var(--report-warning);
+  color: var(--report-warning-ink);
 }
 
 .report-status-pill.preparing {
@@ -1964,10 +1965,9 @@
 
 .cashier-table-wrap {
   margin-top: 12px;
-  max-height: 520px;
-  overflow-x: visible;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
   padding: 2px 4px 4px 0;
 }
 
@@ -4270,4 +4270,40 @@
     transition-duration: 120ms !important;
     transition-timing-function: ease !important;
   }
+}
+
+/* Food cost vs target variance & Partial COGS pill */
+.sales-metric-label-with-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-partial-cogs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid #d7a65c;
+  border-radius: 999px;
+  background: #fff6e5;
+  color: var(--report-warning-ink);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.sales-cost-variance-tag {
+  font-size: 0.78em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-cost-variance-tag.is-on-target {
+  color: var(--report-positive);
+}
+
+.sales-cost-variance-tag.is-over-target {
+  color: var(--report-critical);
 }

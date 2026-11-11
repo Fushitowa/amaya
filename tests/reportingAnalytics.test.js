@@ -216,6 +216,21 @@ describe("Tala Suite: Reporting Analytics, Manila TZ, >500-Order Pagination & CS
       token: admin.token,
     });
     assert.equal(res.status, 200);
+    const cacheTokens = String(res.headers.get("cache-control") || "")
+      .toLowerCase()
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    assert.equal(cacheTokens.includes("private"), true);
+    assert.equal(cacheTokens.includes("no-store"), true);
+    const varyTokens = String(res.headers.get("vary") || "")
+      .toLowerCase()
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    assert.equal(varyTokens.includes("authorization"), true);
+    assert.equal(typeof res.data.summary.targetFoodCost, "number");
+    assert.equal(res.data.summary.targetFoodCost >= 0.1 && res.data.summary.targetFoodCost <= 0.9, true);
     assert.equal(res.data.range.previousFrom, "2021-06-14");
     assert.equal(res.data.range.previousTo, "2021-06-14");
 

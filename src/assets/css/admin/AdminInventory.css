@@ -2494,68 +2494,751 @@
 /* ==========================================================================
    Procurement & Live Costing Preview Modal Additions
    ========================================================================== */
-.admin-inventory-modal {
-  width: min(980px, 94vw);
+/* ==========================================================================
+   Workshop Requisition Docket Modal (Amaya Atelier Harmonized Palette)
+   Consistent with Inventory Categories & Order Details Palette
+   ========================================================================== */
+.admin-inventory-modal.admin-inventory-item-modal.clipboard-docket-board {
+  width: min(1040px, 95vw);
+  max-height: min(92vh, 920px);
+  padding: 0 !important;
   border-radius: 20px;
-  overflow: hidden;
-}
-
-.admin-inventory-item-modal {
+  background: #ffffff;
+  border: 1px solid #ebdcd0;
+  box-shadow: 
+    0 24px 60px rgba(46, 38, 31, 0.18),
+    0 4px 16px rgba(46, 38, 31, 0.08);
   display: flex;
   flex-direction: column;
-  max-height: min(90vh, 900px);
-  padding: 0 !important;
+  position: relative;
+  overflow: hidden;
+  animation: clipboardArrive 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.admin-inventory-item-modal .admin-inventory-modal-header {
+@keyframes clipboardArrive {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.988);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Refined Subtle Champagne-Brass Top Clip Bracket */
+.clipboard-top-clip {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 15px;
-  padding: 24px 32px 16px;
-  margin-bottom: 0;
-  background: #fff;
-  border-bottom: 1px solid rgba(230, 220, 210, 0.6);
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 7px 20px;
+  background: linear-gradient(180deg, #faf6f0 0%, #f2ebe1 100%);
+  border-bottom: 1px solid #e5dcd1;
+  position: relative;
+  z-index: 3;
+}
+
+.clipboard-clip-plate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 16px;
+  background: #ffffff;
+  border: 1px solid #ded4c7;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(46, 38, 31, 0.04);
+}
+
+.clipboard-clip-hole {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2e261f;
+  border: 1px solid #5a4435;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
 }
 
-.admin-inventory-modal-body {
+.clipboard-clip-stamp {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  color: #5c4333;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.clipboard-clip-rivet {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f6e6bf, #c49c5e);
+  border: 1px solid #94723a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+
+/* Modal Header Bar (Clean Warm White matching Order Details Modal) */
+.admin-inventory-modal-header.clipboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 28px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #ece4df;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.clipboard-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clipboard-header-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tag matching Category List Pills from Image 1 */
+.clipboard-tag-amber {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: #fdf2e4;
+  border: 1px solid #f3dec6;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #8c5625;
+  text-transform: uppercase;
+}
+
+.clipboard-tag-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8c5625;
+}
+
+.clipboard-tag-num {
+  padding: 3px 8px;
+  background: #2f241f;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  font-family: monospace;
+}
+
+.clipboard-title {
+  margin: 4px 0 0;
+  font-size: 23px;
+  font-weight: 700;
+  font-family: "Playfair Display", Georgia, serif;
+  color: #24140b;
+  line-height: 1.25;
+}
+
+.clipboard-subtitle {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: #857b72;
+  line-height: 1.4;
+}
+
+/* Clean Circular Close Button */
+.clipboard-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid #ded5cc;
+  background: #ffffff;
+  color: #5c4333;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  flex-shrink: 0;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(46, 38, 31, 0.05);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clipboard-close-btn:hover {
+    background: #2f241f;
+    color: #ffffff;
+    border-color: #2f241f;
+    transform: scale(1.05);
+  }
+}
+
+.clipboard-close-btn:active {
+  transform: scale(0.95);
+  transition-duration: 0ms;
+}
+
+/* Modal Body (Warm Ivory Canvas matching App Background) */
+.admin-inventory-modal-body.clipboard-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px 32px 24px;
+  padding: 20px 26px 22px;
+  background: #faf7f4;
   scrollbar-width: thin;
-  scrollbar-color: #d6c7b8 transparent;
+  scrollbar-color: #d6c9be transparent;
 }
 
-.admin-inventory-modal-body::-webkit-scrollbar {
+.admin-inventory-modal-body.clipboard-body::-webkit-scrollbar {
   width: 8px;
 }
 
-.admin-inventory-modal-body::-webkit-scrollbar-track {
+.admin-inventory-modal-body.clipboard-body::-webkit-scrollbar-track {
   background: transparent;
-  margin: 6px 0;
+  margin: 8px 0;
 }
 
-.admin-inventory-modal-body::-webkit-scrollbar-thumb {
-  background: #d6c7b8;
+.admin-inventory-modal-body.clipboard-body::-webkit-scrollbar-thumb {
+  background: #d6c9be;
   border-radius: 999px;
 }
 
-.admin-inventory-modal-body::-webkit-scrollbar-thumb:hover {
-  background: #b8a28e;
+.admin-inventory-modal-body.clipboard-body::-webkit-scrollbar-thumb:hover {
+  background: #b8a698;
 }
 
-.admin-inventory-item-modal .admin-inventory-modal-actions {
+.clipboard-dockets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* Clean White Docket Cards */
+.clipboard-sheet {
+  background: #ffffff;
+  border: 1px solid #ebe2d8;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(46, 38, 31, 0.04);
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 32px 22px;
-  margin-top: 0;
-  background: #fff;
-  border-top: 1px solid rgba(230, 220, 210, 0.6);
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.docket-sheet-pin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fdfbf8;
+  border-bottom: 1px solid #f0e6dd;
+}
+
+/* #1 / #2 Pin Badge matching Image 1 Categories */
+.docket-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  background: #f5eee8;
+  border: 1px solid #e6dad0;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #3a2417;
+  text-transform: uppercase;
+}
+
+.docket-pin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f6e6bf, #c49c5e);
+  border: 1px solid #94723a;
   flex-shrink: 0;
+}
+
+.docket-sheet-folio {
+  font-size: 11px;
+  font-weight: 700;
+  color: #857b72;
+  letter-spacing: 0.6px;
+  font-family: monospace;
+}
+
+.docket-sheet-content {
+  padding: 18px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 auto;
+}
+
+/* Field Groups inside Dockets */
+.clipboard-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clipboard-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.clipboard-input,
+.clipboard-select {
+  border: 1px solid #ded5cc;
+  border-radius: 9px;
+  min-height: 42px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: #2e261f;
+  background: #ffffff;
+  box-sizing: border-box;
+  width: 100%;
+  transition: border-color 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.clipboard-input:focus,
+.clipboard-select:focus {
+  outline: none;
+  border-color: #8b5e3c;
+  box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.12);
+}
+
+.clipboard-manage-link {
+  margin-left: auto;
+  margin-right: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8b5e3c;
+  text-decoration: underline;
+  transition: color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clipboard-manage-link:hover {
+    color: #2f241f;
+  }
+}
+
+/* 2-Column Row within a Docket */
+.clipboard-row-2col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* Prefix & Docked Units */
+.clipboard-input-with-prefix {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.clipboard-prefix-symbol {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #857b72;
+  pointer-events: none;
+}
+
+.clipboard-input-with-prefix .clipboard-input {
+  padding-left: 28px !important;
+}
+
+.clipboard-input-with-dock {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.clipboard-dock-badge {
+  position: absolute;
+  right: 7px;
+  background: #f5ede3;
+  color: #5a3f2c;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #e4d7cb;
+  pointer-events: none;
+  text-transform: lowercase;
+}
+
+.clipboard-input-with-dock .clipboard-input {
+  padding-right: 54px !important;
+}
+
+/* Photo Upload Frame inside Docket */
+.clipboard-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fbf8f5;
+  border: 1px solid #e8ded4;
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+
+.clipboard-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 14px;
+  background: #faf7f4;
+  border: 1.5px dashed #ded4ca;
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clipboard-dropzone:hover {
+    background: #f3ece4;
+    border-color: #8b5e3c;
+  }
+}
+
+/* Docket Subheadings */
+.docket-subheading-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.docket-subheading-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #8b5e3c;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.docket-subheading-line {
+  flex: 1;
+  height: 1px;
+  background: #ede5dc;
+}
+
+/* Costing Audit Receipt Slip (Styled after Image 2 Collected Total Banner) */
+.clipboard-costing-receipt {
+  background: #faf6f0;
+  border: 1px solid #e8ded3;
+  border-radius: 12px;
+  padding: 14px 14px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(46, 38, 31, 0.03);
+}
+
+.costing-receipt-pinned-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.costing-pin-rivet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8c5625;
+  flex-shrink: 0;
+}
+
+.costing-receipt-badge-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #734c2c;
+  text-transform: uppercase;
+}
+
+/* Banner resembling the "Collected Total" banner from Image 2 */
+.costing-receipt-hero {
+  background: #734c2c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #ffffff;
+}
+
+.costing-receipt-hero-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.costing-receipt-caption {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #f3ded0;
+  text-transform: uppercase;
+}
+
+.costing-receipt-price {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.costing-receipt-unit {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f3ded0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Mint Green Status Badge matching Image 2 COMPLETED Badge */
+.costing-receipt-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  background: #d4f7e5;
+  color: #18602b;
+}
+
+.costing-receipt-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.costing-receipt-metric-cell {
+  background: #ffffff;
+  border: 1px solid #ebe2d8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-cell-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #857b72;
+  text-transform: uppercase;
+}
+
+.receipt-cell-value {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #2e261f;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+.costing-receipt-formula-box {
+  background: #ffffff;
+  border: 1px solid #ebe2d8;
+  border-left: 3px solid #8b5e3c;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.costing-formula-icon {
+  font-weight: 800;
+  font-size: 13px;
+  color: #8b5e3c;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.costing-formula-text {
+  margin: 0;
+  font-size: 11.5px;
+  color: #5c4738;
+  line-height: 1.45;
+}
+
+/* Modal Bottom Action Bar (Clean White matching Image 1) */
+.admin-inventory-modal-actions.clipboard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px 20px;
+  background: #ffffff;
+  border-top: 1px solid #ece4df;
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.clipboard-actions-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #857b72;
+  font-weight: 600;
+}
+
+.clipboard-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2e7d32;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.18);
+  flex-shrink: 0;
+}
+
+.clipboard-actions-btns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clipboard-btn-cancel {
+  border: 1px solid #ded5cc;
+  background: #ffffff;
+  color: #4a3525;
+  padding: 10px 20px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clipboard-btn-cancel:hover {
+    background: #f7f2ed;
+    color: #24140b;
+    border-color: #d1c4b8;
+  }
+}
+
+.clipboard-btn-cancel:active {
+  transform: scale(0.97);
+  transition-duration: 0ms;
+}
+
+/* Save Button matching "+ Add Inventory Category" Button from Image 1 */
+.clipboard-btn-save {
+  border: 1px solid #2f241f;
+  background: #2f241f;
+  color: #ffffff;
+  padding: 10px 24px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(47, 36, 31, 0.2);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1), background-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clipboard-btn-save:hover:not(:disabled) {
+    background: #473730;
+    border-color: #473730;
+    box-shadow: 0 4px 12px rgba(47, 36, 31, 0.3);
+    transform: translateY(-1px);
+  }
+}
+
+.clipboard-btn-save:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition-duration: 0ms;
+}
+
+.clipboard-btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Mobile & Tablet Responsive Layouts */
+@media (max-width: 860px) {
+  .clipboard-dockets-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .admin-inventory-modal.admin-inventory-item-modal.clipboard-docket-board {
+    width: min(100%, 96vw);
+    max-height: 94vh;
+  }
+  .admin-inventory-modal-header.clipboard-header {
+    padding: 16px 20px 12px;
+  }
+  .admin-inventory-modal-body.clipboard-body {
+    padding: 16px 18px 20px;
+  }
+  .admin-inventory-modal-actions.clipboard-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 20px 18px;
+  }
+  .clipboard-actions-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .clipboard-actions-status {
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-inventory-modal.admin-inventory-item-modal.clipboard-docket-board {
+    animation: none !important;
+  }
+  .clipboard-close-btn,
+  .clipboard-input,
+  .clipboard-select,
+  .clipboard-dropzone,
+  .clipboard-btn-cancel,
+  .clipboard-btn-save {
+    transition: none !important;
+  }
 }
 
 .inventory-delete-modal {

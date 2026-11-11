@@ -6,6 +6,12 @@ import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import {
+	DEFAULT_TARGET_FOOD_COST,
+	MIN_TARGET_FOOD_COST,
+	MAX_TARGET_FOOD_COST,
+	normalizeTargetFoodCost,
+} from "../../utils/menuCosting.js";
 
 import "../../assets/css/admin/AdminSettings.css";
 import "../../assets/css/portal-user.css";
@@ -35,10 +41,27 @@ function readNotificationPreferences() {
 
 function AdminSettings() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
-	const { businessSettings, saveBusinessSettings } = useBusiness();
+	const {
+		businessSettings,
+		settingsLoaded,
+		settingsLoading,
+		settingsError,
+		settingsRefreshError,
+		refreshBusinessSettings,
+		saveBusinessSettings,
+	} = useBusiness() || {};
 	const [settingsDraft, setSettingsDraft] = useState({});
+	const [businessNameError, setBusinessNameError] = useState("");
+	const businessNameRef = useRef(null);
 	const [targetFoodCostDraft, setTargetFoodCostDraft] = useState(null);
-	const settings = { ...defaultBusinessSettings, ...businessSettings, ...settingsDraft };
+	const [targetFoodCostError, setTargetFoodCostError] = useState("");
+	const targetFoodCostRef = useRef(null);
+	const baseSettings = {
+		...defaultBusinessSettings,
+		...(businessSettings || {}),
+		targetFoodCost: normalizeTargetFoodCost(businessSettings?.targetFoodCost, DEFAULT_TARGET_FOOD_COST),
+	};
+	const settings = { ...baseSettings, ...settingsDraft };
 	const [preferences, setPreferences] = useState(readNotificationPreferences);
 	const { notifications, orderAlerts, inventoryAlerts } = preferences;
 	const [saveState, setSaveState] = useState("idle");
@@ -215,35 +238,90 @@ function AdminSettings() {
 		return () => window.removeEventListener("keydown", closeOnEscape);
 	}, [showPasswordForm, passwordSaving, showAddCashier, cashierTarget, renameTarget, cashierActionLoading]);
 
+	const clearSaveTimers = () => {
+		saveTimers.current.forEach((timer) => clearTimeout(timer));
+		saveTimers.current = [];
+	};
+
 	const updateSetting = (event) => {
+		clearSaveTimers();
 		const { name, value } = event.target;
 		setSettingsDraft((current) => ({ ...current, [name]: value }));
+		if (name === "businessName" && businessNameError && value.trim()) {
+			setBusinessNameError("");
+		}
 		setSaveError("");
 		if (saveState !== "saving") setSaveState("dirty");
 	};
 
+	const validateTargetFoodCostPct = (raw) => {
+		const trimmed = String(raw ?? "").trim();
+		if (!trimmed) {
+			return "Enter a target food cost percentage between 10% and 90%.";
+		}
+		const numeric = Number(trimmed);
+		if (
+			!Number.isFinite(numeric) ||
+			numeric < MIN_TARGET_FOOD_COST * 100 ||
+			numeric > MAX_TARGET_FOOD_COST * 100
+		) {
+			return "Target food cost must be between 10% and 90%.";
+		}
+		return "";
+	};
+
 	const handleTargetFoodCostChange = (event) => {
+		clearSaveTimers();
 		const raw = event.target.value;
 		setTargetFoodCostDraft(raw);
 		setSaveError("");
-		if (raw !== "" && Number.isFinite(Number(raw))) {
-			const clampedPct = Math.max(10, Math.min(90, Math.round(Number(raw))));
-			setSettingsDraft((current) => ({ ...current, targetFoodCost: Number((clampedPct / 100).toFixed(2)) }));
+		const validationMessage = validateTargetFoodCostPct(raw);
+		if (!validationMessage) {
+			setTargetFoodCostError("");
+			const ratio = normalizeTargetFoodCost(Number(raw) / 100, DEFAULT_TARGET_FOOD_COST);
+			setSettingsDraft((current) => ({ ...current, targetFoodCost: ratio }));
+		} else if (targetFoodCostError) {
+			setTargetFoodCostError(validationMessage);
 		}
 		if (saveState !== "saving") setSaveState("dirty");
 	};
 
+	const handleTargetFoodCostBlur = () => {
+		const validationMessage = validateTargetFoodCostPct(targetFoodCostPctDisplay);
+		setTargetFoodCostError(validationMessage);
+	};
+
 	const handleSave = async (event) => {
 		event.preventDefault();
-		if (saveState === "saving") return;
+		if (!settingsLoaded || settingsError || saveState === "saving") return;
 
-		saveTimers.current.forEach((timer) => clearTimeout(timer));
+		if (!String(settings.businessName || "").trim()) {
+			const message = "Business name is required.";
+			setBusinessNameError(message);
+			setSaveState("error");
+			setSaveError(message);
+			businessNameRef.current?.focus();
+			return;
+		}
+
+		const validationMessage = validateTargetFoodCostPct(targetFoodCostPctDisplay);
+		if (validationMessage) {
+			setTargetFoodCostError(validationMessage);
+			setSaveState("error");
+			setSaveError(validationMessage);
+			targetFoodCostRef.current?.focus();
+			return;
+		}
+
+		clearSaveTimers();
 		setSaveState("saving");
 		setSaveError("");
+		setBusinessNameError("");
+		setTargetFoodCostError("");
 		try {
-			const normalizedFoodCost = Math.max(
-				0.1,
-				Math.min(0.9, Number(settings.targetFoodCost ?? defaultBusinessSettings.targetFoodCost ?? 0.3)),
+			const normalizedFoodCost = normalizeTargetFoodCost(
+				Number(targetFoodCostPctDisplay) / 100,
+				DEFAULT_TARGET_FOOD_COST,
 			);
 			await saveBusinessSettings({ ...settings, targetFoodCost: normalizedFoodCost });
 			setSettingsDraft({});
@@ -286,7 +364,31 @@ function AdminSettings() {
 		}
 	};
 
-	const targetFoodCostPctDisplay = targetFoodCostDraft ?? String(Math.round(Number(settings.targetFoodCost ?? 0.3) * 100));
+	const targetFoodCostPctDisplay = targetFoodCostDraft ?? String(Number((normalizeTargetFoodCost(settings.targetFoodCost, DEFAULT_TARGET_FOOD_COST) * 100).toFixed(2)));
+	const statusPillVariant =
+		saveState !== "idle"
+			? saveState
+			: settingsError
+				? "load-error"
+				: !settingsLoaded
+					? "loading"
+					: "idle";
+	const statusPillText =
+		saveState === "success"
+			? "Changes saved"
+			: saveState === "saving"
+				? "Saving changes…"
+				: saveState === "error"
+					? "Save failed"
+					: saveState === "dirty"
+						? "Unsaved changes"
+						: settingsError
+							? "Load failed"
+							: !settingsLoaded
+								? "Loading settings…"
+								: lastSaved
+									? "Settings saved"
+									: "Ready to configure";
 
 	return (
 		<div className={`admin-settings-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
@@ -323,19 +425,70 @@ function AdminSettings() {
 							<h2>Keep Amaya running smoothly.</h2>
 							<p>Manage your cafe profile, operating hours, food cost targets, and cashier team from one place.</p>
 						</div>
-						<div className={`admin-settings-save-state is-${saveState}`}><span className="settings-status-dot"></span>{saveState === "success" ? "Changes saved" : saveState === "saving" ? "Saving changes" : saveState === "error" ? "Save failed" : saveState === "dirty" ? "Unsaved changes" : lastSaved ? "Settings saved" : "Ready to configure"}</div>
+						<div className={`admin-settings-save-state is-${statusPillVariant}`} role="status" aria-live="polite"><span className="settings-status-dot" aria-hidden="true"></span>{statusPillText}</div>
 					</section>
 
-					<form className="admin-settings-form" onSubmit={handleSave}>
+					{settingsError && (
+						<div className="settings-load-banner" role="alert">
+							<span>
+								Could not load current settings ({settingsError}). Retry before saving so existing values aren&apos;t overwritten.
+							</span>
+							<button
+								type="button"
+								className="settings-retry-button"
+								disabled={settingsLoading}
+								aria-busy={settingsLoading ? "true" : undefined}
+								onClick={() => refreshBusinessSettings?.({ force: true })}
+							>
+								{settingsLoading ? "Retrying…" : "Retry loading"}
+							</button>
+						</div>
+					)}
+
+					{settingsRefreshError && !settingsError && (
+						<div className="settings-refresh-banner" role="status">
+							<span>
+								Could not refresh latest settings ({settingsRefreshError}). You can keep editing saved values or retry refreshing.
+							</span>
+							<button
+								type="button"
+								className="settings-refresh-button"
+								disabled={settingsLoading}
+								aria-busy={settingsLoading ? "true" : undefined}
+								onClick={() => refreshBusinessSettings?.({ force: true })}
+							>
+								{settingsLoading ? "Refreshing…" : "Refresh"}
+							</button>
+						</div>
+					)}
+
+					<form className="admin-settings-form" onSubmit={handleSave} noValidate>
 						<div className="admin-settings-layout">
 							<div className="admin-settings-primary-column">
 								<section className="admin-settings-card">
 									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">⌂</div><div><h3>Business profile</h3><p>Keep your public cafe details accurate.</p></div></div>
 									<div className="admin-settings-fields">
-										<label>Business name<input name="businessName" value={settings.businessName} onChange={updateSetting} /></label>
+										<label htmlFor="settings-business-name-input">
+											Business name
+											<input
+												id="settings-business-name-input"
+												ref={businessNameRef}
+												name="businessName"
+												value={settings.businessName}
+												onChange={updateSetting}
+												required
+												aria-invalid={businessNameError ? "true" : undefined}
+												aria-describedby={businessNameError ? "business-name-error" : undefined}
+											/>
+											{businessNameError && (
+												<p id="business-name-error" className="settings-field-error" role="alert">
+													{businessNameError}
+												</p>
+											)}
+										</label>
 										<label>Admin email<input type="email" name="email" value={settings.email} onChange={updateSetting} /></label>
-										<label>Contact number<input name="phone" value={settings.phone} onChange={updateSetting} /></label>
-										<label className="field-wide">Store address<input name="address" value={settings.address} onChange={updateSetting} /></label>
+										<label>Contact number<input type="tel" name="phone" autoComplete="tel" value={settings.phone} onChange={updateSetting} /></label>
+										<label className="field-wide">Store address<input name="address" autoComplete="street-address" value={settings.address} onChange={updateSetting} /></label>
 									</div>
 								</section>
 
@@ -351,18 +504,31 @@ function AdminSettings() {
 								<section className="admin-settings-card">
 									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">%</div><div><h3>Financial targets</h3><p>Default food cost target used for menu pricing recommendations and financial variance reports.</p></div></div>
 									<div className="admin-settings-fields hours-fields">
-										<label>
+										<label htmlFor="target-food-cost-input">
 											Target food cost (%)
 											<input
+												id="target-food-cost-input"
+												ref={targetFoodCostRef}
 												type="number"
 												name="targetFoodCostPct"
 												min="10"
 												max="90"
-												step="1"
+												step="0.01"
+												inputMode="decimal"
 												value={targetFoodCostPctDisplay}
 												onChange={handleTargetFoodCostChange}
-												onBlur={() => setTargetFoodCostDraft(null)}
+												onBlur={handleTargetFoodCostBlur}
+												aria-invalid={targetFoodCostError ? "true" : undefined}
+												aria-describedby={targetFoodCostError ? "target-food-cost-error target-food-cost-help" : "target-food-cost-help"}
 											/>
+											{targetFoodCostError && (
+												<p id="target-food-cost-error" className="settings-field-error" role="alert">
+													{targetFoodCostError}
+												</p>
+											)}
+											<p id="target-food-cost-help" className="settings-field-help">
+												Applies to Menu price previews &amp; Report variance (10%–90%).
+											</p>
 										</label>
 									</div>
 								</section>
@@ -370,7 +536,8 @@ function AdminSettings() {
 
 							<div className="admin-settings-secondary-column">
 								<section className="admin-settings-card notifications-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div></div>
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div><span className="settings-local-badge">This browser only</span></div>
+									<p className="settings-local-scope-note">Toggle switches save immediately on this device and are separate from &ldquo;Save changes&rdquo; below.</p>
 									<SettingToggle label="Admin notifications" description="Receive important updates from this browser." enabled={notifications} onToggle={() => setPreferences((current) => ({ ...current, notifications: !current.notifications }))} />
 									<SettingToggle label="New order alerts" description="Show an alert when a customer order arrives." enabled={orderAlerts} onToggle={() => setPreferences((current) => ({ ...current, orderAlerts: !current.orderAlerts }))} />
 									<SettingToggle label="Inventory limit alerts" description="Show alerts when stock is out or above its maximum." enabled={inventoryAlerts} onToggle={() => setPreferences((current) => ({ ...current, inventoryAlerts: !current.inventoryAlerts }))} />
@@ -445,7 +612,7 @@ function AdminSettings() {
 
 						{saveError && <p className="settings-save-error" role="alert">{saveError}</p>}
 						{passwordFeedback && <p className={`settings-password-feedback is-${passwordFeedback.type}`} role={passwordFeedback.type === "error" ? "alert" : "status"}>{passwordFeedback.message}</p>}
-						<div className="admin-settings-footer"><span>{lastSaved ? `Last saved ${lastSaved.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Settings are saved to the database when you submit."}</span><button type="submit" className={`admin-settings-save-button is-${saveState}`} disabled={saveState === "saving"} aria-live="polite">{saveState === "saving" ? <><span className="save-spinner" aria-hidden="true"></span>Saving changes</> : saveState === "success" ? <><span className="save-check" aria-hidden="true">✓</span>Changes Saved</> : saveState === "error" ? <>Retry save <span aria-hidden="true">↻</span></> : <>Save changes <span aria-hidden="true">→</span></>}</button></div>
+						<div className="admin-settings-footer"><span>{lastSaved ? `Last saved ${lastSaved.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Browser notifications auto-save locally` : "Business profile, hours & food cost targets save to the database when you submit."}</span><button type="submit" className={`admin-settings-save-button is-${saveState}`} disabled={!settingsLoaded || Boolean(settingsError) || saveState === "saving"} title={!settingsLoaded || settingsError ? "Load settings first before saving changes" : undefined} aria-live="polite">{saveState === "saving" ? <><span className="save-spinner" aria-hidden="true"></span>Saving changes</> : saveState === "success" ? <><span className="save-check" aria-hidden="true">✓</span>Changes Saved</> : saveState === "error" ? <>Retry save <span aria-hidden="true">↻</span></> : <>Save changes <span aria-hidden="true">→</span></>}</button></div>
 					</form>
 				</div>
 			</main>
@@ -578,10 +745,12 @@ function AdminSettings() {
 }
 
 function SettingToggle({ label, description, enabled, onToggle }) {
+	const labelId = `setting-toggle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+	const descId = `${labelId}-desc`;
 	return (
 		<div className="admin-settings-toggle-row">
-			<div><strong>{label}</strong><p>{description}</p></div>
-			<button type="button" className={`admin-settings-toggle ${enabled ? "is-active" : ""}`} onClick={onToggle} aria-label={`Toggle ${label}`} aria-pressed={enabled}><span></span></button>
+			<div><strong id={labelId}>{label}</strong><p id={descId}>{description}</p></div>
+			<button type="button" role="switch" aria-checked={Boolean(enabled)} aria-labelledby={labelId} aria-describedby={descId} className={`admin-settings-toggle ${enabled ? "is-active" : ""}`} onClick={onToggle}><span aria-hidden="true"></span></button>
 		</div>
 	);
 }

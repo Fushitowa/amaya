@@ -36,6 +36,7 @@ import {
   peso,
 } from "../../utils/staffActivityFormatters.js";
 import { usePrefersReducedMotion } from "../../utils/usePrefersReducedMotion.js";
+import { DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost } from "../../utils/menuCosting.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -537,6 +538,44 @@ function AdminReport() {
   const deltas = coreState.financial?.deltas ?? null;
   const isCoreLoading = !customRangeInvalid && coreState.queryKey !== coreQueryKey && !coreState.error;
 
+  const foodCostAnalysis = useMemo(() => {
+    const grossSales = Number(summary.grossCollectedSales || 0);
+    const cogs = Number(summary.cogs || 0);
+    const normalizedTarget = normalizeTargetFoodCost(
+      summary.targetFoodCost,
+      DEFAULT_TARGET_FOOD_COST,
+    );
+    const targetPct = normalizedTarget * 100;
+    const hasSales = Number.isFinite(grossSales) && grossSales > 0;
+    const rawActualPct = hasSales && Number.isFinite(cogs) ? (cogs / grossSales) * 100 : null;
+    const actualPct = rawActualPct !== null ? Number(rawActualPct.toFixed(1)) : null;
+    const rawDiffPts = rawActualPct !== null ? rawActualPct - targetPct : null;
+    const variancePts = rawDiffPts !== null ? Number(rawDiffPts.toFixed(1)) : null;
+    const hasUncosted = Number(summary.uncostedItemsCount || 0) > 0;
+
+    let varianceLabel = "";
+    let isOverTarget = false;
+    if (rawDiffPts !== null) {
+      if (Math.abs(rawDiffPts) < 0.05 || Math.abs(variancePts) === 0) {
+        varianceLabel = "On target";
+      } else if (variancePts > 0) {
+        varianceLabel = `+${variancePts.toFixed(1)} pts over`;
+        isOverTarget = true;
+      } else {
+        varianceLabel = `${Math.abs(variancePts).toFixed(1)} pts under`;
+      }
+    }
+
+    return {
+      targetPct,
+      actualPct,
+      variancePts,
+      varianceLabel,
+      isOverTarget,
+      hasUncosted,
+    };
+  }, [summary.cogs, summary.grossCollectedSales, summary.targetFoodCost, summary.uncostedItemsCount]);
+
   const staffList = useMemo(
     () => (Array.isArray(coreState.staffPerf?.staff) ? coreState.staffPerf.staff : []),
     [coreState.staffPerf],
@@ -819,6 +858,13 @@ function AdminReport() {
         value: `${p.productName}${p.sizeLabel ? ` (${p.sizeLabel})` : ""} · ${p.unitsSold} sold`,
       });
     }
+    if (foodCostAnalysis.actualPct != null) {
+      notes.push({
+        tone: foodCostAnalysis.hasUncosted || foodCostAnalysis.isOverTarget ? "warning" : "positive",
+        label: "Food cost target",
+        value: `${foodCostAnalysis.actualPct.toFixed(1)}% actual vs ${Number(foodCostAnalysis.targetPct.toFixed(2))}% target (${foodCostAnalysis.varianceLabel}${foodCostAnalysis.hasUncosted ? " · partial COGS" : ""})`,
+      });
+    }
     if (restockItems.length || stockBreakdown.over) {
       notes.push({
         tone: "warning",
@@ -827,7 +873,7 @@ function AdminReport() {
       });
     }
     return notes;
-  }, [channels, rankedProducts, restockItems.length, stockBreakdown.attention, stockBreakdown.over, trend.best]);
+  }, [channels, foodCostAnalysis, rankedProducts, restockItems.length, stockBreakdown.attention, stockBreakdown.over, trend.best]);
 
   const salesTrend = formatDeltaBadge(deltas?.grossCollectedSales, rangeKey);
   const avgTrend = formatDeltaBadge(deltas?.averageOrderValue, rangeKey);
@@ -1278,6 +1324,35 @@ function AdminReport() {
                     <strong>{peso(summary.cogs)}</strong>
                   </div>
                   <div>
+                    <span className="sales-metric-label-with-badge">
+                      Food cost vs target
+                      {foodCostAnalysis.hasUncosted && (
+                        <span
+                          className="report-partial-cogs-badge"
+                          title="One or more sold units are missing Inventory or Menu unit costs"
+                        >
+                          Partial COGS
+                        </span>
+                      )}
+                    </span>
+                    <strong>
+                      {foodCostAnalysis.actualPct != null ? (
+                        <>
+                          {foodCostAnalysis.actualPct.toFixed(1)}% vs {Number(foodCostAnalysis.targetPct.toFixed(2))}%{" "}
+                          <small
+                            className={`sales-cost-variance-tag ${
+                              foodCostAnalysis.isOverTarget ? "is-over-target" : "is-on-target"
+                            }`}
+                          >
+                            ({foodCostAnalysis.varianceLabel})
+                          </small>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
+                  </div>
+                  <div>
                     <span>Gross profit</span>
                     <strong>
                       {peso(summary.grossProfit)}
@@ -1591,7 +1666,7 @@ function AdminReport() {
               </div>
 
               {visibleStaffRoster.length ? (
-                <div className="inventory-table-wrap cashier-table-wrap">
+                <div className="cashier-table-wrap">
                   <div className="cashier-bar-list" key={`cashier-bars-${rangeKey}-${rosterFilter}-${rosterSort}`}>
                     <div className="cashier-bar-ruler" aria-hidden="true">
                       <div className="cashier-bar-ruler-label">SHIFT LEDGER · REVENUE SHARE</div>
@@ -2234,7 +2309,15 @@ function AdminReport() {
                     </span>
                   </div>
                   <span className="report-insight-icon" aria-hidden="true">
-                    {insight.label === "Best day" || insight.label === "Peak hour" ? "↗" : insight.label === "Top channel" ? "◉" : insight.label === "Best seller" ? "★" : "!"}
+                    {insight.label === "Best day" || insight.label === "Peak hour"
+                      ? "↗"
+                      : insight.label === "Top channel"
+                        ? "◉"
+                        : insight.label === "Best seller"
+                          ? "★"
+                          : insight.label === "Food cost target"
+                            ? "%"
+                            : "!"}
                   </span>
                   <div className="report-insight-copy">
                     <span>{insight.label}</span>
