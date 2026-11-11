@@ -629,17 +629,15 @@ function OrderDetailsModal({
                     {isWaitingDetails ? (
                       <p className="odm-subtitle">Loading ingredient deduction ledger...</p>
                     ) : consumptions.length > 0 ? (
-                      <table className="odm-consumption-table">
-                        <thead>
-                          <tr>
-                            <th>Ingredient</th>
-                            <th>Source</th>
-                            <th>Used</th>
-                            <th>Cost</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {consumptions.map((entry) => {
+                      <div className="odm-consumption-bars-wrap">
+                        <div className="odm-consumption-ruler" aria-hidden="true">
+                          <span>Ingredient</span>
+                          <span>Source</span>
+                          <span>Used Amount</span>
+                          <span>Line Cost</span>
+                        </div>
+                        <div className="odm-consumption-bar-list" role="list" aria-label="Ingredient deductions">
+                          {consumptions.map((entry, idx) => {
                             const ingredientName =
                               entry.inventoryName ||
                               entry.itemName ||
@@ -652,19 +650,30 @@ function OrderDetailsModal({
                                 ? "<₱0.01"
                                 : peso(rawCost);
                             return (
-                              <tr key={entry.id}>
-                                <td>
-                                  {ingredientName}
-                                  {entry.reversedAt && <span className="odm-tag-reversed">Restored</span>}
-                                </td>
-                                <td style={{ textTransform: "capitalize" }}>{entry.source}</td>
-                                <td>{formatConsumptionQuantity(entry.quantityUsed ?? entry.quantity, entry.unit)}</td>
-                                <td>{costDisplay}</td>
-                              </tr>
+                              <div className="odm-consumption-bar-row" key={entry.id || idx} role="listitem">
+                                <div className="odm-consumption-bar-main">
+                                  <span className="odm-consumption-bar-idx">#{String(idx + 1).padStart(2, "0")}</span>
+                                  <div className="odm-consumption-bar-info">
+                                    <strong className="odm-consumption-bar-title">{ingredientName}</strong>
+                                    {entry.reversedAt && <span className="odm-tag-reversed">Restored</span>}
+                                  </div>
+                                </div>
+                                <div className="odm-consumption-bar-source">
+                                  <span className="odm-consumption-source-tag">{entry.source || "Recipe"}</span>
+                                </div>
+                                <div className="odm-consumption-bar-qty">
+                                  <span className="odm-consumption-qty-chip">
+                                    {formatConsumptionQuantity(entry.quantityUsed ?? entry.quantity, entry.unit)}
+                                  </span>
+                                </div>
+                                <div className="odm-consumption-bar-cost">
+                                  <strong>{costDisplay}</strong>
+                                </div>
+                              </div>
                             );
                           })}
-                        </tbody>
-                      </table>
+                        </div>
+                      </div>
                     ) : (
                       <p className="odm-subtitle">No ingredient deductions recorded for this order.</p>
                     )}

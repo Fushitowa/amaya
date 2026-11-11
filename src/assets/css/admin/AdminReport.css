@@ -1727,6 +1727,253 @@
 }
 
 /* ==========================================================================
+   Operations Spread: Staff Shift Logbook (Left) + Stock Health Notebook (Right)
+   ========================================================================== */
+
+.admin-report-ops-spread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+  margin-bottom: 22px;
+}
+
+.admin-report-ops-spread > .admin-report-panel {
+  margin-bottom: 0;
+  height: 100%;
+}
+
+.admin-report-ops-spread .cashier-panel.report-folio-sheet,
+.admin-report-ops-spread .inventory-panel.report-notebook-sheet {
+  display: flex;
+  flex-direction: row;
+}
+
+/* Equalized compact padding */
+.admin-report-ops-spread .cashier-logbook-page,
+.admin-report-ops-spread .inventory-panel .report-notebook-page {
+  padding: 16px 20px 18px 28px;
+}
+
+/* Matching heading scale */
+.admin-report-ops-spread .cashier-panel-heading,
+.admin-report-ops-spread .inventory-panel-heading {
+  padding-bottom: 10px;
+}
+
+.admin-report-ops-spread .cashier-panel-heading h2,
+.admin-report-ops-spread .inventory-panel-heading h2 {
+  font-size: 20px;
+  margin-top: 3px;
+}
+
+.admin-report-ops-spread .cashier-panel-description,
+.admin-report-ops-spread .inventory-panel-description {
+  font-size: 11.5px;
+  margin: 3px 0 0;
+  line-height: 1.35;
+}
+
+/* Straight Slim Overview Bars (Replaces boxy container clutter with clean inline metrics) */
+.stock-overview-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  background: #fbf6ee;
+  border: 1px solid #ebdccf;
+  border-radius: 9px;
+  padding: 5px 10px;
+  margin-top: 10px;
+  gap: 6px;
+}
+
+.stock-overview-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 4px;
+}
+
+.stock-overview-item:not(:last-child) {
+  border-right: 1px solid #e7d8c6;
+}
+
+.stock-overview-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7b6659;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.stock-overview-val {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #2c1e16;
+  font-family: monospace;
+  margin-left: auto;
+  padding-right: 6px;
+}
+
+.stock-overview-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stock-overview-dot.healthy {
+  background: #2e7a44;
+}
+
+.stock-overview-dot.critical {
+  background: #d94f43;
+}
+
+.stock-overview-dot.over {
+  background: #b07718;
+}
+
+.cashier-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  background: #fbf6ee;
+  border: 1px solid #ebdccf;
+  border-radius: 9px;
+  padding: 5px 10px;
+  margin-top: 10px;
+  gap: 6px;
+}
+
+.cashier-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 4px;
+}
+
+.cashier-summary-item:not(:last-child) {
+  border-right: 1px solid #e7d8c6;
+}
+
+.cashier-summary-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7b6659;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.cashier-summary-val {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #2c1e16;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-right: 6px;
+}
+
+.cashier-summary-item.revenue .cashier-summary-val {
+  color: #216d3a;
+}
+
+/* Compact Toolbars */
+.admin-report-ops-spread .cashier-roster-toolbar {
+  margin-top: 10px;
+  padding-bottom: 8px;
+  gap: 8px;
+}
+
+.admin-report-ops-spread .cashier-filter-pill {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.admin-report-ops-spread .stock-list-toolbar {
+  margin: 10px 0 6px;
+  gap: 8px;
+}
+
+.admin-report-ops-spread .stock-filter-tabs button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+/* Height & Scroll Synchronization */
+.admin-report-ops-spread .cashier-bar-list {
+  max-height: 502px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cbb091 #f7ede0;
+}
+
+.admin-report-ops-spread .cashier-bar-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.admin-report-ops-spread .cashier-bar-list::-webkit-scrollbar-track {
+  background: #f7ede0;
+  border-radius: 99px;
+}
+
+.admin-report-ops-spread .cashier-bar-list::-webkit-scrollbar-thumb {
+  background: #cbb091;
+  border-radius: 99px;
+}
+
+.admin-report-ops-spread .cashier-bar-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+/* Row typography in half-width */
+.admin-report-ops-spread .cashier-bar-row {
+  padding: 12px 14px 13px;
+}
+
+.admin-report-ops-spread .cashier-name {
+  font-size: 13px;
+}
+
+.admin-report-ops-spread .cashier-meta-inline {
+  font-size: 11px;
+  gap: 4px;
+}
+
+.admin-report-ops-spread .cashier-bar-revenue {
+  font-size: 14px;
+}
+
+.admin-report-ops-spread .cashier-inspect-chip {
+  display: none;
+}
+
+@media (max-width: 1160px) {
+  .admin-report-ops-spread {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .admin-report-ops-spread .inventory-panel .stock-overview {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-report-ops-spread .cashier-inspect-chip {
+    display: inline-flex;
+  }
+}
+
+/* ==========================================================================
    Cashier Attribution Bound Log-Book (.cashier-panel.report-folio-sheet)
    ========================================================================== */
 
@@ -2619,6 +2866,10 @@
   margin-bottom: 4px;
 }
 
+.inventory-panel.report-notebook-sheet .report-notebook-page {
+  padding: 16px 20px 18px 30px;
+}
+
 .inventory-panel-heading {
   align-items: center;
   padding-right: 48px;
@@ -2626,14 +2877,14 @@
 
 .inventory-panel-heading h2,
 .inventory-panel-heading h3 {
-  margin-top: 4px;
-  font-size: 23px;
+  margin-top: 3px;
+  font-size: 21px;
 }
 
 .inventory-panel-description {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--report-muted);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .inventory-panel-actions {
@@ -2709,17 +2960,17 @@
 .stock-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 20px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .stock-overview-card {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  min-height: 76px;
-  padding: 13px 15px;
+  min-height: 66px;
+  padding: 10px 14px;
   border: 1px solid #e4d4bf;
   border-radius: 10px;
   background: linear-gradient(180deg, #fffefb 0%, #faf2e5 100%);
@@ -2796,28 +3047,13 @@
 
 .stock-list-toolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 22px;
-  padding-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  padding-bottom: 8px;
   border-bottom: 1.5px dashed rgba(155, 101, 60, 0.2);
-}
-
-.stock-list-toolbar > div:first-child strong,
-.stock-list-toolbar > div:first-child span {
-  display: block;
-}
-
-.stock-list-toolbar > div:first-child strong {
-  color: var(--report-ink);
-  font-size: 13.5px;
-}
-
-.stock-list-toolbar > div:first-child span {
-  margin-top: 3px;
-  color: var(--report-muted);
-  font-size: 11px;
 }
 
 .stock-toolbar-actions {
@@ -2905,140 +3141,390 @@
   color: #fffaf2;
 }
 
-/* Scrollable Ledger Stock Table */
+/* ==========================================================================
+   Stock Health Bar List (Atelier Notebook Integrated Ledger)
+   Zero Scroll Trap: Unconstrained Flow allows full page scrolling
+   ========================================================================== */
 .stock-table-wrap {
-  max-height: 450px;
-  margin-top: 8px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  border: 1px solid #e4d4be;
-  border-radius: 10px;
-  background: #fffdf9;
+  margin-top: 14px;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+  overscroll-behavior: auto;
+  padding: 2px 4px 4px 0;
 }
 
-.stock-table-wrap::-webkit-scrollbar,
-.inventory-table-wrap::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+.stock-bar-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dcc6ab;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 253, 249, 0.92),
+    0 4px 14px rgba(46, 38, 31, 0.05);
+  max-height: 502px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+  overscroll-behavior: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cbb091 #f7ede0;
 }
 
-.stock-table-wrap::-webkit-scrollbar-track,
-.inventory-table-wrap::-webkit-scrollbar-track {
+.stock-bar-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.stock-bar-list::-webkit-scrollbar-track {
   background: #f7ede0;
   border-radius: 99px;
 }
 
-.stock-table-wrap::-webkit-scrollbar-thumb,
-.inventory-table-wrap::-webkit-scrollbar-thumb {
+.stock-bar-list::-webkit-scrollbar-thumb {
   background: #cbb091;
   border-radius: 99px;
-  border: 2px solid #f7ede0;
 }
 
-@supports not selector(::-webkit-scrollbar) {
-  .stock-table-wrap,
-  .inventory-table-wrap {
-    scrollbar-color: #cbb091 #f7ede0;
-    scrollbar-width: thin;
-  }
+.stock-bar-list::-webkit-scrollbar-thumb:hover {
+  background: #b18f6c;
 }
 
-.inventory-table.stock-table {
-  min-width: 740px;
-}
-
-.stock-table thead th {
+.stock-bar-ruler {
   position: sticky;
   top: 0;
-  z-index: 2;
-  height: 42px;
-  padding-bottom: 10px;
-  background: #f8efe1;
-  box-shadow: 0 1px 0 #e2ceb5;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 16px 8px;
+  border-bottom: 1.5px solid #e4d1ba;
+  background: linear-gradient(180deg, #faf1e2 0%, #f5e9d6 100%);
+  box-shadow: 0 2px 6px rgba(46, 38, 31, 0.04);
 }
 
-.stock-table td {
-  height: 58px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-  font-size: 12px;
-}
-
-.stock-table th:nth-child(1) { width: 25%; }
-.stock-table th:nth-child(2) { width: 23%; }
-.stock-table th:nth-child(3) { width: 22%; }
-.stock-table th:nth-child(4) { width: 17%; }
-.stock-table th:nth-child(5) { width: 13%; }
-
-.stock-table td:nth-child(2) {
-  color: var(--report-muted);
-}
-
-.stock-level-value {
+.stock-bar-ruler-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
-  max-width: 156px;
-  color: var(--report-ink);
-  font-size: 12px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
-.stock-level-percent {
-  flex: 0 0 auto;
-  color: var(--report-muted);
-  font-size: 10.5px;
+.stock-bar-ruler-label {
+  color: var(--report-accent-dark);
+  font-size: 10px;
   font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
-.stock-level-percent.available { color: #4b8657; }
-.stock-level-percent.moderate { color: #aa7b28; }
-.stock-level-percent.low { color: #c4623c; }
-.stock-level-percent.critical { color: #b2483e; }
-.stock-level-percent.over { color: #aa7a34; }
+.stock-bar-ruler-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #7b6659;
+  letter-spacing: 0.02em;
+}
 
-.stock-level-track {
-  width: min(156px, 100%);
+.stock-ruler-dot {
+  width: 6px;
   height: 6px;
-  margin-top: 7px;
-  overflow: hidden;
-  border-radius: 99px;
-  background: #efe3d2;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  margin-left: 2px;
 }
 
-.stock-level-track.untracked {
+.stock-ruler-dot.critical { background: #d94f43; }
+.stock-ruler-dot.low { background: #df6d38; }
+.stock-ruler-dot.moderate { background: #d89e36; }
+.stock-ruler-dot.available { background: #4da465; }
+
+.stock-bar-ruler-scale {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) auto;
+  align-items: center;
+  color: #8c745f;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.stock-bar-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px 15px;
+  border: 0;
+  border-bottom: 1px solid #efe5da;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  touch-action: pan-y;
+  outline: none;
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stock-bar-row:last-child {
+  border-bottom: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stock-bar-row:hover {
+    background: #fdfaf6;
+  }
+}
+
+.stock-bar-row:active {
+  transform: scale(0.996);
+  transition-duration: 0ms;
+}
+
+.stock-bar-row:focus-visible {
+  outline: 2px solid var(--report-accent-dark);
+  outline-offset: -2px;
+}
+
+/* Top Meta Row inside Stock Bar */
+.stock-bar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.stock-bar-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stock-bar-pin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: #f5eee8;
+  border: 1px solid #e6dad0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #3a2417;
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.stock-bar-pin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f6e6bf, #c49c5e);
+  border: 1px solid #94723a;
+  flex-shrink: 0;
+}
+
+.stock-bar-name-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stock-bar-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #24140b;
+  line-height: 1.3;
+}
+
+.stock-bar-category-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fbf7f1;
+  border: 1px solid #ebe0d5;
+  color: #5c4333;
+}
+
+/* Right Metric Figures */
+.stock-bar-figures {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.stock-bar-quantity-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.stock-bar-qty-current {
+  font-size: 14px;
+  font-weight: 800;
+  color: #24140b;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.stock-bar-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5c4333;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.stock-bar-qty-max {
+  font-size: 11px;
+  font-weight: 600;
+  color: #857b72;
+  white-space: nowrap;
+}
+
+.stock-bar-pct-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+.stock-bar-pct-badge.available {
+  background: #d4f7e5;
+  color: #18602b;
+  border: 1px solid #bdebd0;
+}
+
+.stock-bar-pct-badge.moderate {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.stock-bar-pct-badge.low {
+  background: #ffedd5;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.stock-bar-pct-badge.critical {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.stock-bar-pct-badge.over {
+  background: #fef3c7;
+  color: #854d0e;
+  border: 1px solid #fde047;
+}
+
+/* Progress Meter Track */
+.stock-bar-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 12px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid #e1ceb7;
+  border-radius: 999px;
+  background: #f2e5d2;
+  box-shadow: inset 0 1px 2px rgba(84, 52, 22, 0.1);
+}
+
+.stock-bar-track.untracked {
   background: repeating-linear-gradient(135deg, #efe3d2, #efe3d2 4px, #fbf5ec 4px, #fbf5ec 8px);
 }
 
-.stock-level-fill {
+.stock-bar-ticks {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  pointer-events: none;
+}
+
+.stock-bar-ticks > span {
   display: block;
-  width: 100%;
+  border-right: 1px dashed rgba(139, 94, 60, 0.22);
+}
+
+.stock-bar-ticks > span:last-child {
+  border-right: 0;
+}
+
+.stock-bar-fill {
+  position: relative;
+  z-index: 1;
+  display: block;
   height: 100%;
-  border-radius: inherit;
-  background: #6ea879;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8bbf94 0%, #568c61 60%, #386542 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 252, 245, 0.55);
   transform-origin: left center;
   animation: barGrowX 440ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: width 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.stock-level-fill.over,
-.stock-level-fill.moderate {
-  background: #d8a545;
+.stock-bar-fill.available {
+  background: linear-gradient(90deg, #8bbf94 0%, #568c61 60%, #386542 100%);
 }
 
-.stock-level-fill.low {
-  background: #df774b;
+.stock-bar-fill.moderate {
+  background: linear-gradient(90deg, #f5d061 0%, #d89e36 60%, #b07718 100%);
 }
 
-.stock-level-fill.critical {
-  background: #ca564c;
+.stock-bar-fill.low {
+  background: linear-gradient(90deg, #f8a571 0%, #df6d38 60%, #b84918 100%);
 }
 
-.stock-level-fill.untracked {
+.stock-bar-fill.critical {
+  background: linear-gradient(90deg, #f28b82 0%, #d94f43 60%, #aa2f24 100%);
+}
+
+.stock-bar-fill.over {
+  background: linear-gradient(90deg, #f0c360 0%, #cf9326 60%, #996811 100%);
+}
+
+.stock-bar-fill.untracked {
   background: transparent;
+}
+
+.stock-bar-pip-carrier {
+  position: absolute;
+  inset: 2px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 3px;
+  pointer-events: none;
+}
+
+.stock-bar-pip {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 1.5px rgba(96, 54, 22, 0.28);
 }
 
 .inventory-status {
@@ -3340,7 +3826,6 @@
     color: var(--report-accent-dark);
   }
 
-  .stock-table-wrap::-webkit-scrollbar-thumb:hover,
   .inventory-table-wrap::-webkit-scrollbar-thumb:hover {
     background: #b18f6c;
   }
@@ -4063,7 +4548,8 @@
   }
 
   .stock-table-wrap {
-    max-height: 52vh;
+    max-height: none;
+    overflow: visible;
   }
 
   .inventory-panel-heading,

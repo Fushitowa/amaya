@@ -1596,7 +1596,9 @@ function AdminReport() {
             </section>
           </div>
 
-          <section className="admin-report-panel cashier-panel report-folio-sheet" aria-label="Cashier attribution report">
+          {/* Operations Spread: Cashier Shift Logbook (Left) + Stock Health Notebook (Right) */}
+          <div className="admin-report-ops-spread">
+            <section className="admin-report-panel cashier-panel report-folio-sheet" aria-label="Cashier attribution report">
             <div className="cashier-logbook-spine" aria-hidden="true">
               <span className="logbook-spine-rivet" />
               <span className="logbook-spine-stamp">LOG · STAFF</span>
@@ -1622,18 +1624,18 @@ function AdminReport() {
                 </span>
               </div>
 
-              <div className="cashier-summary" aria-label="Cashier sales summary">
-                <div className="cashier-summary-card">
-                  <span>Orders processed</span>
-                  <strong>{staffRosterTotals.ordersCount.toLocaleString()}</strong>
+              <div className="cashier-summary-bar" aria-label="Cashier sales summary">
+                <div className="cashier-summary-item">
+                  <span className="cashier-summary-label">Orders</span>
+                  <strong className="cashier-summary-val">{staffRosterTotals.ordersCount.toLocaleString()}</strong>
                 </div>
-                <div className="cashier-summary-card revenue">
-                  <span>Attributed revenue</span>
-                  <strong>{peso(staffRosterTotals.grossSales)}</strong>
+                <div className="cashier-summary-item revenue">
+                  <span className="cashier-summary-label">Attributed</span>
+                  <strong className="cashier-summary-val">{peso(staffRosterTotals.grossSales)}</strong>
                 </div>
-                <div className="cashier-summary-card">
-                  <span>Average ticket</span>
-                  <strong>{peso(staffRosterTotals.averageTicket)}</strong>
+                <div className="cashier-summary-item">
+                  <span className="cashier-summary-label">Avg Ticket</span>
+                  <strong className="cashier-summary-val">{peso(staffRosterTotals.averageTicket)}</strong>
                 </div>
               </div>
 
@@ -1781,6 +1783,236 @@ function AdminReport() {
               )}
             </div>
           </section>
+
+          {/* Right: Live Inventory Stock Health Notebook */}
+          <section className="admin-report-panel inventory-panel report-notebook-sheet" aria-label="Inventory report">
+            <div className="report-notebook-spine" aria-hidden="true">
+              {Array.from({ length: 10 }).map((_, idx) => (
+                <span key={idx} className="report-spine-ring">
+                  <i className="report-spine-hole" />
+                  <b className="report-spine-wire" />
+                </span>
+              ))}
+            </div>
+
+            <div className="report-notebook-bookmark" aria-hidden="true">
+              <span className="report-bookmark-eyelet" />
+              <span className="report-bookmark-text">STOCK</span>
+            </div>
+
+            <div className="report-notebook-page">
+              <div className="panel-heading inventory-panel-heading">
+                <div>
+                  <span className="admin-report-eyebrow">INVENTORY REPORT</span>
+                  <h2>Stock health</h2>
+                  <p className="inventory-panel-description">
+                    Live ingredient snapshot · Asset valuation {peso(summary.inventoryAssetValue)}.
+                  </p>
+                </div>
+                <div className="inventory-panel-actions">
+                  <button
+                    type="button"
+                    className="restock-open-button"
+                    onClick={(e) => {
+                      restockTriggerRef.current = e.currentTarget;
+                      setRestockNotice("");
+                      setRestockClosing(false);
+                      setRestockModalOpen(true);
+                    }}
+                    aria-haspopup="dialog"
+                    aria-label={`View restock list, ${restockItems.length} items need restock`}
+                  >
+                    View restock list <span>{restockItems.length}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Little Straight Overview Bar (4 Metrics) */}
+              <div className="stock-overview-bar" aria-label="Inventory summary">
+                <div className="stock-overview-item">
+                  <span className="stock-overview-label">Tracked</span>
+                  <strong className="stock-overview-val">{stockBreakdown.total}</strong>
+                </div>
+                <div className="stock-overview-item healthy">
+                  <span className="stock-overview-dot healthy" aria-hidden="true" />
+                  <span className="stock-overview-label">Healthy</span>
+                  <strong className="stock-overview-val">{stockBreakdown.healthy}</strong>
+                </div>
+                <div className="stock-overview-item critical">
+                  <span className="stock-overview-dot critical" aria-hidden="true" />
+                  <span className="stock-overview-label">Low &amp; Out</span>
+                  <strong className="stock-overview-val">{restockItems.length}</strong>
+                </div>
+                <div className="stock-overview-item over">
+                  <span className="stock-overview-dot over" aria-hidden="true" />
+                  <span className="stock-overview-label">Above Max</span>
+                  <strong className="stock-overview-val">{stockBreakdown.over}</strong>
+                </div>
+              </div>
+
+              {/* Minimal Toolbar (Controls only, legend moved to ruler) */}
+              <div className="stock-list-toolbar">
+                <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
+                  {STOCK_FILTERS.map((filter) => {
+                    const count = filter === "all"
+                      ? stockBreakdown.total
+                      : filter === "attention"
+                        ? stockBreakdown.attention
+                        : stockBreakdown.healthy;
+
+                    return (
+                      <button
+                        key={filter}
+                        type="button"
+                        role="tab"
+                        aria-selected={filter === stockFilter}
+                        className={filter === stockFilter ? "active" : ""}
+                        onClick={() => setStockFilter(filter)}
+                      >
+                        {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
+                        <span>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <label className="stock-sort-control">
+                  <span>Sort by</span>
+                  <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
+                    <option value="name">Item name</option>
+                    <option value="category">Category</option>
+                    <option value="low">Stock level: low to high</option>
+                    <option value="high">Stock level: high to low</option>
+                    <option value="status">Health status</option>
+                  </select>
+                </label>
+              </div>
+
+              {inventoryLoading && inventory.length === 0 ? (
+                <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+              ) : inventoryError && inventory.length === 0 ? (
+                <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+              ) : visibleStock.length ? (
+                <div className="stock-table-wrap">
+                  <div className="stock-bar-list" key={`stock-bars-${stockFilter}-${stockSort}`}>
+                    {/* Logbook Scale Ruler Header with Integrated Health Legend */}
+                    <div className="stock-bar-ruler" aria-hidden="true">
+                      <div className="stock-bar-ruler-top">
+                        <div className="stock-bar-ruler-label">CAPACITY LEDGER · STOCK LEVEL vs TARGET</div>
+                        <div className="stock-bar-ruler-legend">
+                          <span className="stock-ruler-dot critical" /> ≤20%
+                          <span className="stock-ruler-dot low" /> ≤40%
+                          <span className="stock-ruler-dot moderate" /> ≤70%
+                          <span className="stock-ruler-dot available" /> &gt;70%
+                        </div>
+                      </div>
+                      <div className="stock-bar-ruler-scale">
+                        <div>0%</div>
+                        <div>25%</div>
+                        <div>50%</div>
+                        <div>75%</div>
+                        <div>100%</div>
+                      </div>
+                    </div>
+
+                    {/* Integrated One-Bar Cards */}
+                    {visibleStock.map((item, index) => {
+                      const pct = item.capacityPercent ?? 0;
+                      const hasMax = item.maximumStock != null;
+                      const barWidth = hasMax ? Math.max(0, Math.min(100, pct)) : 0;
+                      const rankNum = String(index + 1).padStart(2, "0");
+
+                      return (
+                        <div
+                          className={`stock-bar-row ${item.healthTone}`}
+                          key={item.id ?? item.item}
+                          tabIndex={0}
+                          aria-label={`${item.item}: ${item.quantity.toLocaleString()} ${item.unit}, status: ${item.label}`}
+                        >
+                          {/* Top Row: Identity & Status Meta */}
+                          <div className="stock-bar-top">
+                            <div className="stock-bar-identity">
+                              <span className="stock-bar-pin-tag">
+                                <span className="stock-bar-pin-dot" />
+                                #{rankNum}
+                              </span>
+                              <div className="stock-bar-name-group">
+                                <span className="stock-bar-name">{item.item}</span>
+                                <span className="stock-bar-category-pill">{item.category}</span>
+                              </div>
+                            </div>
+
+                            <div className="stock-bar-figures">
+                              <div className="stock-bar-quantity-stack">
+                                <span className="stock-bar-qty-current">
+                                  {item.quantity.toLocaleString()} <span className="stock-bar-unit">{item.unit}</span>
+                                </span>
+                                <span className="stock-bar-qty-max">
+                                  {hasMax ? `/ ${Number(item.maximumStock).toLocaleString()} ${item.unit} max` : "No ceiling set"}
+                                </span>
+                              </div>
+
+                              {item.capacityPercent != null && (
+                                <span className={`stock-bar-pct-badge ${item.healthTone}`}>
+                                  {item.reportedPercent}%
+                                </span>
+                              )}
+
+                              <span className={`inventory-status ${item.healthTone}`}>
+                                <span aria-hidden="true" />
+                                {item.label}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Bottom Row: Recessed Visual Progress Track */}
+                          <div
+                            className={`stock-bar-track${item.capacityPercent == null ? " untracked" : ""}`}
+                            role={item.capacityPercent == null ? undefined : "progressbar"}
+                            aria-label={`${item.item} stock capacity`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={item.reportedPercent ?? undefined}
+                            aria-valuetext={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of target maximum`}
+                            title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of target maximum`}
+                          >
+                            <span className="stock-bar-ticks" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                              <span />
+                            </span>
+
+                            {hasMax ? (
+                              <span
+                                className={`stock-bar-fill ${item.healthTone}`}
+                                style={{ width: `${barWidth}%` }}
+                              >
+                                {barWidth > 10 && (
+                                  <span className="stock-bar-pip-carrier">
+                                    <span className="stock-bar-pip" />
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="stock-bar-fill untracked" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="admin-report-empty">
+                  <span>◔</span>
+                  <strong>Nothing to show for this filter</strong>
+                  <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
 
           {/* Period Inventory Activity & Expenditure Ledger (Pillar F) */}
           <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period inventory activity and expenditure">
@@ -2113,180 +2345,6 @@ function AdminReport() {
                 <p>Try adjusting the search text, status, or payment method filters above.</p>
               </div>
             )}
-          </section>
-
-          {/* Live Inventory Stock Health */}
-          <section className="admin-report-panel inventory-panel report-notebook-sheet" aria-label="Inventory report">
-            <div className="report-notebook-spine" aria-hidden="true">
-              {Array.from({ length: 10 }).map((_, idx) => (
-                <span key={idx} className="report-spine-ring">
-                  <i className="report-spine-hole" />
-                  <b className="report-spine-wire" />
-                </span>
-              ))}
-            </div>
-
-            <div className="report-notebook-bookmark" aria-hidden="true">
-              <span className="report-bookmark-eyelet" />
-              <span className="report-bookmark-text">STOCK</span>
-            </div>
-
-            <div className="report-notebook-page">
-              <div className="panel-heading inventory-panel-heading">
-                <div>
-                  <span className="admin-report-eyebrow">INVENTORY REPORT</span>
-                  <h2>Stock health</h2>
-                  <p className="inventory-panel-description">
-                    Live ingredient snapshot · Asset valuation {peso(summary.inventoryAssetValue)}.
-                  </p>
-                </div>
-                <div className="inventory-panel-actions">
-                  <button
-                    type="button"
-                    className="restock-open-button"
-                    onClick={(e) => {
-                      restockTriggerRef.current = e.currentTarget;
-                      setRestockNotice("");
-                      setRestockClosing(false);
-                      setRestockModalOpen(true);
-                    }}
-                    aria-haspopup="dialog"
-                    aria-label={`View restock list, ${restockItems.length} items need restock`}
-                  >
-                    View restock list <span>{restockItems.length}</span>
-                  </button>
-                  <span className="inventory-live-note"><span aria-hidden="true" /> Live inventory</span>
-                </div>
-              </div>
-
-              <div className="stock-overview" aria-label="Inventory summary">
-                <div className="stock-overview-card total">
-                  <span className="stock-overview-icon" aria-hidden="true">▤</span>
-                  <div><span>Tracked items</span><strong>{stockBreakdown.total}</strong></div>
-                </div>
-                <div className="stock-overview-card healthy">
-                  <span className="stock-overview-icon" aria-hidden="true">✓</span>
-                  <div><span>Healthy stock</span><strong>{stockBreakdown.healthy}</strong></div>
-                </div>
-                <div className="stock-overview-card critical">
-                  <span className="stock-overview-icon" aria-hidden="true">!</span>
-                  <div><span>Low &amp; out of stock</span><strong>{restockItems.length}</strong></div>
-                </div>
-                <div className="stock-overview-card over">
-                  <span className="stock-overview-icon" aria-hidden="true">↗</span>
-                  <div><span>Above maximum</span><strong>{stockBreakdown.over}</strong></div>
-                </div>
-              </div>
-
-              <div className="stock-list-toolbar">
-                <div>
-                  <strong>Inventory items</strong>
-                  <span>Health thresholds: red ≤20% · orange ≤40% · amber ≤70% · green above 70%.</span>
-                </div>
-                <div className="stock-toolbar-actions">
-                  <label className="stock-sort-control">
-                    <span>Sort by</span>
-                    <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
-                      <option value="name">Item name</option>
-                      <option value="category">Category</option>
-                      <option value="low">Stock level: low to high</option>
-                      <option value="high">Stock level: high to low</option>
-                      <option value="status">Health status</option>
-                    </select>
-                  </label>
-                  <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
-                    {STOCK_FILTERS.map((filter) => {
-                      const count = filter === "all"
-                        ? stockBreakdown.total
-                        : filter === "attention"
-                          ? stockBreakdown.attention
-                          : stockBreakdown.healthy;
-
-                      return (
-                        <button
-                          key={filter}
-                          type="button"
-                          role="tab"
-                          aria-selected={filter === stockFilter}
-                          className={filter === stockFilter ? "active" : ""}
-                          onClick={() => setStockFilter(filter)}
-                        >
-                          {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
-                          <span>{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {inventoryLoading && inventory.length === 0 ? (
-                <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
-              ) : inventoryError && inventory.length === 0 ? (
-                <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
-              ) : visibleStock.length ? (
-                <div className="inventory-table-wrap stock-table-wrap">
-                  <table className="inventory-table stock-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Inventory item</th>
-                        <th scope="col">Category</th>
-                        <th scope="col">Stock level</th>
-                        <th scope="col">Maximum stock</th>
-                        <th scope="col">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleStock.map((item) => {
-                        const pct = item.capacityPercent ?? 0;
-                        const clipRight = Math.max(0, 100 - Math.max(0, Math.min(100, pct)));
-                        return (
-                          <tr key={item.id ?? item.item}>
-                            <td>{item.item}</td>
-                            <td>{item.category}</td>
-                            <td>
-                              <div className="stock-level-value">
-                                <span>{item.quantity.toLocaleString()} {item.unit}</span>
-                                {item.capacityPercent != null && (
-                                  <span className={`stock-level-percent ${item.healthTone}`}>
-                                    {item.reportedPercent}%
-                                  </span>
-                                )}
-                              </div>
-                              <div
-                                className={`stock-level-track${item.capacityPercent == null ? " untracked" : ""}`}
-                                role={item.capacityPercent == null ? undefined : "progressbar"}
-                                aria-label={item.capacityPercent == null ? undefined : `${item.item} stock level`}
-                                aria-valuemin={item.capacityPercent == null ? undefined : 0}
-                                aria-valuemax={item.capacityPercent == null ? undefined : 100}
-                                aria-valuenow={item.reportedPercent ?? undefined}
-                                aria-valuetext={item.reportedPercent == null ? undefined : `${item.reportedPercent}% of maximum stock`}
-                                title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of maximum stock`}
-                              >
-                                <span
-                                  className={`stock-level-fill ${item.healthTone}`}
-                                  style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 99px)` }}
-                                />
-                              </div>
-                            </td>
-                            <td>{item.maximumStock == null ? "Not set" : `${item.maximumStock} ${item.unit}`}</td>
-                            <td>
-                              <span className={`inventory-status ${item.healthTone}`}><span aria-hidden="true" />{item.label}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="admin-report-empty">
-                  <span>◔</span>
-                  <strong>Nothing to show for this filter</strong>
-                  <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
-                </div>
-              )}
-            </div>
           </section>
 
           {insights.length ? (
