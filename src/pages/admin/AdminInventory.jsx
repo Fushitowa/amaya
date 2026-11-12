@@ -36,9 +36,11 @@ import "../../assets/css/sidebar-collapse.css";
 const inventoryUnitGroups = [
   { label: "Weight", options: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
   { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
-  { label: "Count", options: [["pcs", "Pieces (pcs)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
+  { label: "Count", options: [["pcs", "Pieces (pcs)"], ["can", "Cans (can)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
 ];
 const packageUnitOptions = ["pack", "box", "bag", "bottle", "can", "sack", "set", "tub", "jar", "carton"];
+
+const INVENTORY_ADD_DRAFT_KEY = "amaya_admin_inventory_add_draft";
 
 function createEmptyInventoryForm() {
   return {
@@ -53,6 +55,44 @@ function createEmptyInventoryForm() {
     quantity: "",
     maximumStock: "",
   };
+}
+
+function loadInventoryAddDraft() {
+  try {
+    const saved = localStorage.getItem(INVENTORY_ADD_DRAFT_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === "object") {
+        return { ...createEmptyInventoryForm(), ...parsed };
+      }
+    }
+  } catch {}
+  return createEmptyInventoryForm();
+}
+
+function saveInventoryAddDraft(formValues) {
+  try {
+    const hasContent = Boolean(
+      formValues.item || formValues.category || formValues.purchasePrice || (formValues.quantity && formValues.quantity !== "0") || formValues.image
+    );
+    if (hasContent) {
+      try {
+        localStorage.setItem(INVENTORY_ADD_DRAFT_KEY, JSON.stringify(formValues));
+      } catch {
+        // If image exceeds localStorage quota, safely drop image and preserve text fields
+        const safeDraft = { ...formValues, image: "" };
+        localStorage.setItem(INVENTORY_ADD_DRAFT_KEY, JSON.stringify(safeDraft));
+      }
+    } else {
+      localStorage.removeItem(INVENTORY_ADD_DRAFT_KEY);
+    }
+  } catch {}
+}
+
+function clearInventoryAddDraft() {
+  try {
+    localStorage.removeItem(INVENTORY_ADD_DRAFT_KEY);
+  } catch {}
 }
 
 const normalizeInventoryCategory = (cat) => cat || "Uncategorized";
@@ -169,8 +209,15 @@ function AdminInventory() {
   const [notice, setNotice] = useState("");
   const [inventoryAlertsEnabled] = useState(readInventoryAlertPreference);
   const [isSaving, setIsSaving] = useState(false);
-  const [formValues, setFormValues] = useState(createEmptyInventoryForm);
+  const [formValues, setFormValues] = useState(loadInventoryAddDraft);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Auto-persist unsaved add-item draft so closing the docket or switching tabs never loses user input
+  useEffect(() => {
+    if (!editingItem && showForm) {
+      saveInventoryAddDraft(formValues);
+    }
+  }, [formValues, editingItem, showForm]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [actionRow, setActionRow] = useState(null);
   const [isMobile, setIsMobile] = useState(
@@ -199,7 +246,15 @@ function AdminInventory() {
   const liveStockQty = Number.isFinite(parsedLiveStockQty) ? Math.max(0, parsedLiveStockQty) : 0;
   const liveInventoryValue = liveStockQty * liveUnitCost;
 
-  // Persistence now lives in InventoryContext, shared with Menu Management.
+  // Detect whether there is active unsaved content in the Add Item draft
+  const hasAddDraft = Boolean(
+    !editingItem &&
+    (formValues.item?.trim() ||
+     formValues.category?.trim() ||
+     formValues.purchasePrice?.trim() ||
+     (formValues.quantity?.trim() && formValues.quantity !== "0") ||
+     formValues.image)
+  );
 
   const filteredInventory = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -285,8 +340,13 @@ function AdminInventory() {
     if (!showForm && !restockItem && !itemToDelete && !movementHistory.item) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape" || isSaving) return;
-      setShowForm(false);
-      setEditingItem(null);
+      if (showForm) {
+        setShowForm(false);
+        if (editingItem) {
+          setEditingItem(null);
+          setFormValues(loadInventoryAddDraft());
+        }
+      }
       setRestockItem(null);
       setRestockBatchCost("");
       setRestockSupplierName("");
@@ -294,21 +354,26 @@ function AdminInventory() {
       setItemToDelete(null);
       setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
-      if (showForm) {
-        setEditingItem(null);
-        setFormValues(createEmptyInventoryForm());
-      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showForm, restockItem, itemToDelete, movementHistory.item, isSaving]);
+  }, [showForm, editingItem, restockItem, itemToDelete, movementHistory.item, isSaving]);
 
   const resetForm = () => {
     setShowForm(false);
-    setEditingItem(null);
     setActionError("");
     setIsSaving(false);
-    setFormValues(createEmptyInventoryForm());
+    if (editingItem) {
+      setEditingItem(null);
+      setFormValues(loadInventoryAddDraft());
+    }
+  };
+
+  const handleOpenAddForm = () => {
+    setEditingItem(null);
+    setActionError("");
+    setFormValues(loadInventoryAddDraft());
+    setShowForm(true);
   };
 
   const handleEdit = (item) => {
@@ -518,6 +583,10 @@ function AdminInventory() {
 
     setNotice(editingItem ? `${itemName} was updated.` : `${itemName} was added to inventory.`);
     setIsSaving(false);
+    if (!editingItem) {
+      clearInventoryAddDraft();
+      setFormValues(createEmptyInventoryForm());
+    }
     resetForm();
   };
 
@@ -695,7 +764,7 @@ function AdminInventory() {
             )}
           </ul>
 
-          <button type="button" className="ai-fab" onClick={() => { setEditingItem(null); setFormValues(createEmptyInventoryForm()); setActionError(""); setShowForm(true); }}>
+          <button type="button" className="ai-fab" onClick={handleOpenAddForm}>
             <Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add
           </button>
 
@@ -719,7 +788,7 @@ function AdminInventory() {
             <h1>Inventory management</h1>
             <p>Track ingredients, packaging, and supplies needed for your daily operations.</p>
           </div>
-          <div className="admin-inventory-topbar-actions" style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+          <div className="admin-inventory-topbar-actions">
             {inventoryAlertsEnabled && overMaximumCount + outOfStockCount > 0 && (
               <div className="admin-inventory-stock-alert" role="status">
                 <AlertTriangle size={15} aria-hidden="true" />
@@ -734,32 +803,13 @@ function AdminInventory() {
             <Link
               to="/admin/archive"
               className="admin-inventory-archive-button"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                padding: "0.65rem 1rem",
-                borderRadius: "10px",
-                background: "#ffffff",
-                color: "#2e261f",
-                fontWeight: "600",
-                fontSize: "0.88rem",
-                textDecoration: "none",
-                border: "1px solid #ece4df",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-              }}
             >
               <Archive size={16} /> View Archive
             </Link>
             <button
               type="button"
               className="admin-inventory-add-button"
-              onClick={() => {
-                setEditingItem(null);
-                setFormValues(createEmptyInventoryForm());
-                setActionError("");
-                setShowForm(true);
-              }}
+              onClick={handleOpenAddForm}
             >
               <Plus size={16} strokeWidth={2.6} aria-hidden="true" />
               <span>Add inventory item</span>
@@ -1321,6 +1371,16 @@ function AdminInventory() {
                   <span className="clipboard-tag-num">
                     {editingItem ? `#${editingItem.id || "EDIT"}` : "#NEW"}
                   </span>
+                  {hasAddDraft && (
+                    <span
+                      className="clipboard-tag-amber"
+                      style={{ background: "#eef8f2", color: "#1e7047", borderColor: "#c6e7d2" }}
+                      title="Your draft is automatically saved and preserved"
+                    >
+                      <span className="clipboard-tag-pip" style={{ background: "#1e7047" }} />
+                      DRAFT PRESERVED
+                    </span>
+                  )}
                 </div>
                 <h3 id="inventory-docket-title" className="clipboard-title">
                   {editingItem ? "Edit Inventory Item Spec" : "Add Inventory Item"}
@@ -1335,7 +1395,7 @@ function AdminInventory() {
                 className="clipboard-close-btn"
                 onClick={resetForm}
                 aria-label="Close form"
-                title="Discard and close docket"
+                title="Close docket (Draft is preserved)"
               >
                 <X size={18} strokeWidth={2.4} />
               </button>
@@ -1767,6 +1827,22 @@ function AdminInventory() {
                 <span>Auto-calculates POS recipe deduction rates & batch valuation</span>
               </div>
               <div className="clipboard-actions-btns">
+                {hasAddDraft && (
+                  <button
+                    type="button"
+                    className="clipboard-btn-cancel"
+                    style={{ color: "#8b5e3c", borderColor: "#e8dfd5" }}
+                    onClick={() => {
+                      if (window.confirm("Discard your saved draft and reset the form?")) {
+                        clearInventoryAddDraft();
+                        setFormValues(createEmptyInventoryForm());
+                      }
+                    }}
+                    title="Clear current unsaved draft"
+                  >
+                    Clear Draft
+                  </button>
+                )}
                 <button type="button" className="clipboard-btn-cancel" onClick={resetForm}>
                   Cancel
                 </button>

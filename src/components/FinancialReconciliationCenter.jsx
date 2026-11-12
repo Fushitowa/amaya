@@ -198,7 +198,7 @@ export default function FinancialReconciliationCenter() {
               <tbody>
                 {reconData.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ textAlign: "center", color: "#8b5e3c", padding: "2rem" }}>
+                    <td colSpan={10} style={{ textAlign: "center", color: "#8b5e3c", padding: "4rem 2rem" }}>
                       No daily asset snapshots recorded yet. Open a cashier shift to record today's BOD snapshot.
                     </td>
                   </tr>
@@ -376,49 +376,78 @@ export default function FinancialReconciliationCenter() {
               <tbody>
                 {journalData.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", color: "#8b5e3c", padding: "2rem" }}>
+                    <td colSpan={8} style={{ textAlign: "center", color: "#8b5e3c", padding: "4rem 2rem" }}>
                       No double-entry journal transactions recorded yet.
                     </td>
                   </tr>
                 ) : (
-                  journalData.map((e) => (
-                    <tr key={e.id} style={{ background: e.isReversal ? "#fdf8f8" : "transparent" }}>
-                      <td>
-                        <strong>{e.entryNumber}</strong>
-                        {e.isReversal && <span style={{ marginLeft: "6px", fontSize: "0.7rem", color: "#c53030", fontWeight: 700 }}>[REVERSAL]</span>}
-                      </td>
-                      <td style={{ fontSize: "0.8rem", color: "#6b5847" }}>{new Date(e.entryDate).toLocaleString()}</td>
-                      <td><span style={{ fontSize: "0.78rem", background: "#f0e9df", padding: "0.2rem 0.5rem", borderRadius: "4px" }}>{e.entryType}</span></td>
-                      <td style={{ maxWidth: "240px" }}>{e.memo}</td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.78rem" }}>
-                          {e.lines?.map((l) => (
-                            <div key={l.id}>
-                              {l.debit > 0 ? (
-                                <span style={{ color: "#1e7047" }}>DR {l.accountCode} ({l.accountName}): {peso(l.debit)}</span>
-                              ) : (
-                                <span style={{ color: "#8b5e3c" }}>CR {l.accountCode} ({l.accountName}): {peso(l.credit)}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </td>
-                      <td style={{ fontWeight: 700 }}>{peso(e.totalDebit)}</td>
-                      <td style={{ fontSize: "0.8rem" }}>{e.creatorName || "System"}</td>
-                      <td>
-                        {!e.isReversal && (
-                          <button
-                            type="button"
-                            onClick={() => handleReverseEntry(e.id)}
-                            style={{ background: "#f7d2a5", border: "none", padding: "0.3rem 0.6rem", borderRadius: "6px", fontSize: "0.75rem", cursor: "pointer", fontWeight: 600, color: "#3d230e" }}
-                          >
-                            <RotateCcw size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: "3px" }} />
-                            Reverse
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  journalData.map((e) => {
+                    const isAlreadyReversed = journalData.some(
+                      (item) => Number(item.reversesEntryId) === Number(e.id)
+                    );
+                    return (
+                      <tr
+                        key={e.id}
+                        style={{
+                          background: e.isReversal
+                            ? "#fdf8f8"
+                            : isAlreadyReversed
+                            ? "#faf7f4"
+                            : "transparent",
+                          opacity: isAlreadyReversed ? 0.78 : 1,
+                        }}
+                      >
+                        <td>
+                          <strong>{e.entryNumber}</strong>
+                          {e.isReversal && (
+                            <span style={{ marginLeft: "6px", fontSize: "0.7rem", color: "#c53030", fontWeight: 700 }}>
+                              [REVERSAL]
+                            </span>
+                          )}
+                          {isAlreadyReversed && (
+                            <span style={{ marginLeft: "6px", fontSize: "0.7rem", color: "#8b5e3c", fontWeight: 700 }}>
+                              [VOIDED]
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: "0.8rem", color: "#6b5847" }}>{new Date(e.entryDate).toLocaleString()}</td>
+                        <td><span style={{ fontSize: "0.78rem", background: "#f0e9df", padding: "0.2rem 0.5rem", borderRadius: "4px" }}>{e.entryType}</span></td>
+                        <td style={{ maxWidth: "240px", textDecoration: isAlreadyReversed ? "line-through" : "none" }}>{e.memo}</td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.78rem" }}>
+                            {e.lines?.map((l) => (
+                              <div key={l.id}>
+                                {l.debit > 0 ? (
+                                  <span style={{ color: isAlreadyReversed ? "#8b5e3c" : "#1e7047" }}>DR {l.accountCode} ({l.accountName}): {peso(l.debit)}</span>
+                                ) : (
+                                  <span style={{ color: "#8b5e3c" }}>CR {l.accountCode} ({l.accountName}): {peso(l.credit)}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{ fontWeight: 700 }}>{peso(e.totalDebit)}</td>
+                        <td style={{ fontSize: "0.8rem" }}>{e.creatorName || "System"}</td>
+                        <td>
+                          {!e.isReversal && !isAlreadyReversed && (
+                            <button
+                              type="button"
+                              onClick={() => handleReverseEntry(e.id)}
+                              style={{ background: "#f7d2a5", border: "none", padding: "0.3rem 0.6rem", borderRadius: "6px", fontSize: "0.75rem", cursor: "pointer", fontWeight: 600, color: "#3d230e" }}
+                            >
+                              <RotateCcw size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: "3px" }} />
+                              Reverse
+                            </button>
+                          )}
+                          {isAlreadyReversed && (
+                            <span style={{ fontSize: "0.72rem", color: "#8b5e3c", fontStyle: "italic", background: "#f0e9df", padding: "0.2rem 0.5rem", borderRadius: "4px" }}>
+                              Voided
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

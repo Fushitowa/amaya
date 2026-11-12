@@ -25,6 +25,7 @@ register("volume", 473.176473, ["pt", "pint", "pints"]);
 register("volume", 946.352946, ["qt", "quart", "quarts"]);
 register("volume", 3785.411784, ["gal", "gallon", "gallons"]);
 register("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
+register("count", 1, ["can", "cans"]);
 register("count", 12, ["dozen", "doz"]);
 register("count", 2, ["pair", "pairs"]);
 

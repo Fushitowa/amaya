@@ -614,7 +614,6 @@ function AdminDashboard() {
             <div className="admin-header-dock" aria-hidden={!docked}>
               <div className="dock-chip stat-card-sales"><CircleDollarSign size={15} strokeWidth={1.9} /><span>Sales</span><strong>₱{effectiveTodaysSales.toFixed(2)}</strong></div>
               <div className="dock-chip stat-card-orders"><ShoppingBag size={15} strokeWidth={1.9} /><span>Sold</span><strong>{effectiveTodaysUnits} units</strong></div>
-              <div className="dock-chip stat-card-pending"><Warehouse size={15} strokeWidth={1.9} /><span>Inventory</span><strong>₱{inventoryAssetValue.toFixed(2)}</strong></div>
               <div className="dock-chip stat-card-products"><Coins size={15} strokeWidth={1.9} /><span>Cash</span><strong>₱{effectiveTodaysCashCollected.toFixed(2)}</strong></div>
             </div>
           </div>
@@ -659,20 +658,6 @@ function AdminDashboard() {
                     : "0 units sold yet today"}
                   {" • "}
                   <span title="All-time units sold across all sessions">All-time: {effectiveAllTimeUnits} units</span>
-                </small>
-              </div>
-            </div>
-
-            <div className="admin-stat-card stat-card-pending">
-              <div className="stat-icon"><Warehouse size={21} strokeWidth={1.8} /></div>
-
-              <div className="stat-info">
-                <span>Inventory Value</span>
-                <h3>₱{inventoryAssetValue.toFixed(2)}</h3>
-                <small>
-                  {(inventory || []).length
-                    ? `Live stock across ${inventory.length} ingredients`
-                    : "No inventory stock recorded"}
                 </small>
               </div>
             </div>

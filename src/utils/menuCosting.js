@@ -44,6 +44,7 @@ registerUnit("volume", 473.176473, ["pt", "pint", "pints"]);
 registerUnit("volume", 946.352946, ["qt", "quart", "quarts"]);
 registerUnit("volume", 3785.411784, ["gal", "gallon", "gallons"]);
 registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
+registerUnit("count", 1, ["can", "cans"]);
 registerUnit("count", 2, ["pair", "pairs"]);
 registerUnit("count", 12, ["dozen", "doz"]);
 

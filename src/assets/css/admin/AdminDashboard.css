@@ -2764,7 +2764,7 @@ body {
     grid-row: 2;
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-rows: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
     gap: 0;
     height: clamp(320px, 50vh, 560px);
     margin: 0 0 18px;

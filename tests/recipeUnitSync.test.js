@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { retargetRecipeUnits } from "../api/src/utils/recipeUnitSync.js";
+import { toInventoryQuantity } from "../api/src/utils/inventoryUnits.js";
 
 // Fake connection: SELECTs return fixtures per table, UPDATEs are recorded.
 function fakeConnection(fixtures) {
@@ -40,5 +41,14 @@ describe("Inventory unit change cascades to menu recipes", () => {
     });
     assert.equal(await retargetRecipeUnits(conn, 7, "pcs", "ml"), 3);
     assert.ok(conn.updates.some((u) => u.sql.includes("product_addons SET usage_unit")));
+  });
+
+  it("converts discrete 'can' and 'cans' units seamlessly", () => {
+    assert.equal(toInventoryQuantity(1, "can", "can"), 1);
+    assert.equal(toInventoryQuantity(2, "cans", "can"), 2);
+    assert.equal(toInventoryQuantity(0.5, "can", "can"), 0.5);
+    assert.equal(toInventoryQuantity(1, "can", "pcs"), 1);
+    assert.equal(toInventoryQuantity(12, "cans", "dozen"), 1);
+    assert.equal(toInventoryQuantity(1, "can", "g"), null);
   });
 });
