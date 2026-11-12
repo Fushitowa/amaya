@@ -21,6 +21,7 @@ export function setAuthToken(token) {
 }
 
 export async function apiRequest(path, options = {}) {
+  const cleanPath = path.startsWith('/api/') ? path.slice(4) : (path === '/api' ? '' : path);
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
@@ -28,14 +29,14 @@ export async function apiRequest(path, options = {}) {
 
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    response = await fetch(`${API_BASE_URL}${cleanPath}`, { ...options, headers });
   } catch {
     throw new Error("Could not reach the Amaya API. Make sure the API server is running.");
   }
 
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));
-  if (response.status === 401 && path !== "/auth/login") {
+  if (response.status === 401 && cleanPath !== "/auth/login") {
     setAuthToken(null);
     window.dispatchEvent(new Event("amaya:unauthorized"));
   }
@@ -44,13 +45,14 @@ export async function apiRequest(path, options = {}) {
 }
 
 export async function apiFetchBlob(path, options = {}) {
+  const cleanPath = path.startsWith('/api/') ? path.slice(4) : (path === '/api' ? '' : path);
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    response = await fetch(`${API_BASE_URL}${cleanPath}`, { ...options, headers });
   } catch {
     throw new Error("Could not reach the Amaya API. Make sure the API server is running.");
   }

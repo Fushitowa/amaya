@@ -158,6 +158,15 @@ router.get("/current", requireAuth, requireRole("admin", "staff"), async (reques
   response.json({ session: row ? mapSessionRow(row) : null });
 });
 
+function getManilaDateString() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 router.post("/open", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const rawFloat = request.body?.openingFloat ?? 0;
   const openingFloat = rawFloat === "" || rawFloat == null ? 0 : Number(rawFloat);
@@ -184,6 +193,44 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
       [request.authUser.sub, cashierNameSnapshot, terminalLabel, Number(openingFloat.toFixed(2))],
     );
     sessionId = result.insertId;
+
+    // Ensure Beginning-of-Day (BOD) asset snapshot exists for today
+    const today = getManilaDateString();
+    const [[existingSnapshot]] = await connection.execute(
+      "SELECT id, status FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
+      [today]
+    );
+    if (!existingSnapshot) {
+      const [coaRows] = await connection.query(
+        `SELECT coa.account_code, COALESCE(v.current_balance, 0.00) AS balance
+           FROM chart_of_accounts coa
+           LEFT JOIN view_account_balances v ON v.id = coa.id
+          WHERE coa.is_active = TRUE`
+      );
+      const accMap = new Map(coaRows.map((r) => [r.account_code, Number(r.balance || 0)]));
+      const liquid = Number(((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0)).toFixed(2));
+      const equipment = Number((accMap.get("1510") || 0).toFixed(2));
+
+      const [[invRow]] = await connection.query(
+        "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS inv_val FROM inventory_items WHERE is_archived = FALSE"
+      );
+      const inventoryVal = Number(Number(invRow?.inv_val || 0).toFixed(2));
+      const totalAssets = Number((liquid + inventoryVal + equipment).toFixed(2));
+
+      await connection.execute(
+        `INSERT INTO store_daily_asset_snapshots (
+           business_date, status, opening_liquid_assets, opening_inventory_value,
+           opening_non_current_assets, opening_total_assets, opened_by
+         ) VALUES (?, 'open', ?, ?, ?, ?, ?)`,
+        [today, liquid, inventoryVal, equipment, totalAssets, request.authUser.sub]
+      );
+    } else if (existingSnapshot.status === "closed") {
+      await connection.execute(
+        "UPDATE store_daily_asset_snapshots SET status = 'open' WHERE id = ?",
+        [existingSnapshot.id]
+      );
+    }
+
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -246,6 +293,47 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
         WHERE id = ?`,
       [expectedCash, roundedCounted, variance, closingNotes, request.authUser.sub, sessionId],
     );
+
+    // Update store daily asset snapshot with closing figures and net asset delta
+    const today = getManilaDateString();
+    const [[existingSnapshot]] = await connection.execute(
+      "SELECT * FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
+      [today]
+    );
+    if (existingSnapshot) {
+      const [coaRows] = await connection.query(
+        `SELECT coa.account_code, COALESCE(v.current_balance, 0.00) AS balance
+           FROM chart_of_accounts coa
+           LEFT JOIN view_account_balances v ON v.id = coa.id
+          WHERE coa.is_active = TRUE`
+      );
+      const accMap = new Map(coaRows.map((r) => [r.account_code, Number(r.balance || 0)]));
+      const liquid = Number(((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0)).toFixed(2));
+      const equipment = Number((accMap.get("1510") || 0).toFixed(2));
+
+      const [[invRow]] = await connection.query(
+        "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS inv_val FROM inventory_items WHERE is_archived = FALSE"
+      );
+      const inventoryVal = Number(Number(invRow?.inv_val || 0).toFixed(2));
+      const totalClosingAssets = Number((liquid + inventoryVal + equipment).toFixed(2));
+      const openingTotal = Number(existingSnapshot.opening_total_assets || 0);
+      const delta = Number((totalClosingAssets - openingTotal).toFixed(2));
+
+      await connection.execute(
+        `UPDATE store_daily_asset_snapshots
+            SET status = 'closed',
+                closing_liquid_assets = ?,
+                closing_inventory_value = ?,
+                closing_non_current_assets = ?,
+                closing_total_assets = ?,
+                net_asset_delta = ?,
+                closed_by = ?,
+                closed_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [liquid, inventoryVal, equipment, totalClosingAssets, delta, request.authUser.sub, existingSnapshot.id]
+      );
+    }
+
     await connection.commit();
   } catch (error) {
     await connection.rollback();

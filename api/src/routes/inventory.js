@@ -775,6 +775,46 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
         ],
       );
     }
+    // Automated double-entry posting for inventory restock
+    if (hasBatchCost && parsedBatchCost > 0) {
+      const [accRows] = await connection.query(
+        "SELECT id, account_code FROM chart_of_accounts WHERE account_code IN ('1050', '1010')"
+      );
+      const codeMap = new Map(accRows.map((r) => [r.account_code, Number(r.id)]));
+      const inventoryAccId = codeMap.get("1050");
+      const cashAccId = codeMap.get("1010");
+
+      if (inventoryAccId && cashAccId) {
+        const entryNumber = `JE-RESTOCK-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
+        const cleanCost = Number(parsedBatchCost.toFixed(2));
+        const [jeResult] = await connection.execute(
+          `INSERT INTO journal_entries (entry_number, entry_type, memo, reference_number, created_by)
+           VALUES (?, 'inventory_restock', ?, ?, ?)`,
+          [
+            entryNumber,
+            `Restock ${current.name}: +${quantity} ${current.unit} (batch cost ₱${cleanCost.toFixed(2)})`,
+            referenceNo ? String(referenceNo).slice(0, 100) : null,
+            request.authUser.sub,
+          ]
+        );
+        const jeId = jeResult.insertId;
+
+        // Line 1: DR 1050 Merchandise Inventory
+        await connection.execute(
+          `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
+           VALUES (?, ?, ?, 0.00, ?)`,
+          [jeId, inventoryAccId, cleanCost, `Debit 1050 Restock ${current.name}`]
+        );
+
+        // Line 2: CR 1010 Cash Drawer
+        await connection.execute(
+          `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
+           VALUES (?, ?, 0.00, ?, ?)`,
+          [jeId, cashAccId, cleanCost, `Credit 1010 Cash for ${current.name}`]
+        );
+      }
+    }
+
     // First restock of an item that has no maximum and no stock (e.g. auto-created from a menu
     // recipe at 0): use the restocked amount as the maximum. Never touches a maximum that is set.
     if (current.maximum_stock == null && Number(current.quantity || 0) <= 0) {

@@ -11,6 +11,7 @@ import inventoryRoutes from "../../api/src/routes/inventory.js";
 import sessionRoutes from "../../api/src/routes/sessions.js";
 import reportRoutes from "../../api/src/routes/reports.js";
 import settingsRoutes from "../../api/src/routes/settings.js";
+import financesRoutes from "../../api/src/routes/finances.js";
 
 export function makeUniqueTag(prefix = "Tala") {
   const rand = Math.floor(Math.random() * 1_000_000);
@@ -28,6 +29,7 @@ export function createTestApp() {
   app.use("/api/sessions", sessionRoutes);
   app.use("/api/reports", reportRoutes);
   app.use("/api/settings", settingsRoutes);
+  app.use("/api/finances", financesRoutes);
 
   app.use((request, response) => {
     response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });
@@ -317,7 +319,19 @@ export function createCleanupTracker() {
       await pool.execute(`DELETE FROM inventory_categories WHERE id IN (${iCatIds.map(() => "?").join(",")})`, iCatIds);
     }
       if (uIds.length > 0) {
-        await pool.execute(`DELETE FROM users WHERE id IN (${uIds.map(() => "?").join(",")})`, uIds);
+        const uMarks = uIds.map(() => "?").join(",");
+        await pool.execute(
+          `DELETE jel FROM journal_entry_lines jel
+             JOIN journal_entries je ON je.id = jel.journal_entry_id
+            WHERE je.created_by IN (${uMarks})`,
+          uIds
+        );
+        await pool.execute(`DELETE FROM journal_entries WHERE created_by IN (${uMarks})`, uIds);
+        await pool.execute(
+          `DELETE FROM store_daily_asset_snapshots WHERE opened_by IN (${uMarks}) OR closed_by IN (${uMarks})`,
+          [...uIds, ...uIds]
+        );
+        await pool.execute(`DELETE FROM users WHERE id IN (${uMarks})`, uIds);
       }
     } finally {
       try {

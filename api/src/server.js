@@ -14,6 +14,7 @@ import archiveRoutes, { runArchivePurgeCheck } from "./routes/archive.js";
 import decisionRoutes from "./routes/decisions.js";
 import sessionRoutes from "./routes/sessions.js";
 import reportRoutes from "./routes/reports.js";
+import financesRoutes from "./routes/finances.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -62,6 +63,7 @@ app.use("/api/archive", archiveRoutes);
 app.use("/api/decisions", decisionRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/finances", financesRoutes);
 
 app.use((request, response) => {
   response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });

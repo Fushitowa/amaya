@@ -1,0 +1,388 @@
+/* -------------------------------------------------------------
+   AMAYA DOUBLE-ENTRY FINANCIAL MANAGEMENT & ASSET RECONCILIATION
+   Warm Cafe Palette (#4a2c11, #8b5e3c, #f7f3ee, #e8dfd5, #2d5a27)
+------------------------------------------------------------- */
+
+.store-assets-hero-card {
+  background: linear-gradient(135deg, #3d230e 0%, #5c3818 100%);
+  color: #fff;
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 8px 24px rgba(61, 35, 14, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.store-assets-hero-card::after {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 180px;
+  height: 180px;
+  background: radial-gradient(circle, rgba(214, 199, 184, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.store-assets-hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.store-assets-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.store-assets-icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f7d2a5;
+}
+
+.store-assets-title-group h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: #fdfaf6;
+}
+
+.store-assets-subtitle {
+  font-size: 0.8rem;
+  color: #d6c7b8;
+  margin: 0.15rem 0 0 0;
+}
+
+.store-assets-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-financial-action {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s ease;
+}
+
+.btn-financial-action:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-financial-primary {
+  background: #f7d2a5;
+  color: #3d230e;
+  border: 1px solid #eec08c;
+}
+
+.btn-financial-primary:hover {
+  background: #fae1c3;
+  color: #2b1809;
+}
+
+.store-assets-main-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.store-assets-total-amount {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.store-assets-tag {
+  background: rgba(46, 117, 89, 0.35);
+  color: #92e0be;
+  border: 1px solid rgba(146, 224, 190, 0.3);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.store-assets-chips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.store-asset-chip {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.store-asset-chip:hover {
+  background: rgba(0, 0, 0, 0.32);
+  transform: translateY(-2px);
+}
+
+.chip-label {
+  font-size: 0.72rem;
+  color: #c9bbae;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chip-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Financial Reconciliation Center (Admin Report) */
+.financial-center-panel {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e8dfd5;
+  box-shadow: 0 4px 16px rgba(74, 44, 17, 0.05);
+  margin-top: 1.75rem;
+  overflow: hidden;
+}
+
+.financial-center-header {
+  padding: 1.25rem 1.5rem;
+  background: #fdfaf6;
+  border-bottom: 1px solid #e8dfd5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.financial-center-title h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #3d230e;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.financial-center-title p {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.83rem;
+  color: #7d6551;
+}
+
+.financial-tabs-nav {
+  display: flex;
+  gap: 0.4rem;
+  background: #f0e9df;
+  padding: 0.3rem;
+  border-radius: 10px;
+  border: 1px solid #ded5c9;
+}
+
+.financial-tab-btn {
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #634b35;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.financial-tab-btn:hover {
+  color: #2b1809;
+}
+
+.financial-tab-btn.active {
+  background: #ffffff;
+  color: #3d230e;
+  box-shadow: 0 2px 6px rgba(61, 35, 14, 0.08);
+}
+
+.financial-tab-content {
+  padding: 1.5rem;
+}
+
+/* Financial Tables */
+.fin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #ece4da;
+  border-radius: 10px;
+}
+
+.fin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  text-align: left;
+}
+
+.fin-table th {
+  background: #fbf8f5;
+  color: #5a4029;
+  font-weight: 700;
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid #e8dfd5;
+  white-space: nowrap;
+}
+
+.fin-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f2ebe3;
+  color: #332316;
+  font-variant-numeric: tabular-nums;
+}
+
+.fin-table tr:hover td {
+  background: #fefdfb;
+}
+
+.status-badge-open {
+  background: #eef8f2;
+  color: #1e7047;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-badge-closed {
+  background: #f3efe9;
+  color: #6d5b4a;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Modal Form Styles */
+.fin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 16, 5, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.fin-modal-box {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 540px;
+  box-shadow: 0 16px 40px rgba(45, 23, 7, 0.22);
+  border: 1px solid #e8dfd5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 90vh;
+}
+
+.fin-modal-header {
+  padding: 1.25rem 1.5rem;
+  background: #fdfaf6;
+  border-bottom: 1px solid #e8dfd5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fin-modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #3d230e;
+  font-weight: 700;
+}
+
+.fin-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.fin-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.fin-form-group label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #4a2c11;
+}
+
+.fin-form-input {
+  border: 1px solid #d6c7b8;
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.92rem;
+  color: #2b1809;
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fin-form-input:focus {
+  outline: none;
+  border-color: #8b5e3c;
+  box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.14);
+}
+
+.fin-modal-footer {
+  padding: 1rem 1.5rem;
+  background: #fdfaf6;
+  border-top: 1px solid #e8dfd5;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}

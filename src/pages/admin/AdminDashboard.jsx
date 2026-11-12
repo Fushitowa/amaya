@@ -16,6 +16,7 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import StoreAssetsHeroCard from "../../components/StoreAssetsHeroCard.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
@@ -617,6 +618,9 @@ function AdminDashboard() {
               <div className="dock-chip stat-card-products"><Coins size={15} strokeWidth={1.9} /><span>Cash</span><strong>₱{effectiveTodaysCashCollected.toFixed(2)}</strong></div>
             </div>
           </div>
+
+          <StoreAssetsHeroCard />
+
           <section className="admin-stats">
             <div className="admin-stat-card stat-card-sales">
               <div className="stat-icon"><CircleDollarSign size={21} strokeWidth={1.8} /></div>

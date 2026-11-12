@@ -15,6 +15,7 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffActivityModal from "../../components/StaffActivityModal.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import FinancialReconciliationCenter from "../../components/FinancialReconciliationCenter.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import {
   getPaymentMethodLabel,
@@ -1425,6 +1426,8 @@ function AdminReport() {
               </div>
             </section>
           </div>
+
+          <FinancialReconciliationCenter />
 
           <div className="admin-report-middle-grid">
             <section className="admin-report-sales-layout" aria-label="Sales breakdown">
