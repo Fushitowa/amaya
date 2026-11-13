@@ -25,6 +25,7 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { formatUnitCost } from "../../utils/inventoryFormatting.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
@@ -66,7 +67,7 @@ function loadInventoryAddDraft() {
         return { ...createEmptyInventoryForm(), ...parsed };
       }
     }
-  } catch {}
+  } catch { /* ignore localStorage failures */ }
   return createEmptyInventoryForm();
 }
 
@@ -86,13 +87,13 @@ function saveInventoryAddDraft(formValues) {
     } else {
       localStorage.removeItem(INVENTORY_ADD_DRAFT_KEY);
     }
-  } catch {}
+  } catch { /* ignore localStorage failures */ }
 }
 
 function clearInventoryAddDraft() {
   try {
     localStorage.removeItem(INVENTORY_ADD_DRAFT_KEY);
-  } catch {}
+  } catch { /* ignore localStorage failures */ }
 }
 
 const normalizeInventoryCategory = (cat) => cat || "Uncategorized";
@@ -191,6 +192,9 @@ function AdminInventory() {
     restockInventoryItem,
   } = useInventory() || {};
   const categories = (categoryNames && categoryNames.length) ? categoryNames : ["All"];
+  const { businessSettings } = useBusiness() || {};
+  const lowThreshold = businessSettings?.lowStockThresholdPercent ?? 40;
+  const criticalThreshold = businessSettings?.criticalStockThresholdPercent ?? 20;
   const inventory = storedInventory || EMPTY_INVENTORY;
   const [activeCategory, setActiveCategory] = useState("All");
   const [viewMode, setViewMode] = useState("grid");
@@ -203,9 +207,12 @@ function AdminInventory() {
   const [restockBatchCost, setRestockBatchCost] = useState("");
   const [restockSupplierName, setRestockSupplierName] = useState("");
   const [restockReferenceNo, setRestockReferenceNo] = useState("");
+  const [restockCreditAccountCode, setRestockCreditAccountCode] = useState("1010");
+  const [restockDiluteZeroCost, setRestockDiluteZeroCost] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [movementHistory, setMovementHistory] = useState({ item: null, rows: [], loading: false, error: "" });
   const [actionError, setActionError] = useState("");
+  const [confirmedAdjKey, setConfirmedAdjKey] = useState("");
   const [notice, setNotice] = useState("");
   const [inventoryAlertsEnabled] = useState(readInventoryAlertPreference);
   const [isSaving, setIsSaving] = useState(false);
@@ -279,7 +286,7 @@ function AdminInventory() {
     const { capacityPercent, reportedPercent: stockRatio, tone: stockHealthTone } = getStockHealth(
       entry.quantity,
       entry.maximumStock,
-      { overMaximum: status === "Over Maximum" },
+      { overMaximum: status === "Over Maximum", lowThreshold, criticalThreshold },
     );
     const stockLevelKey = {
       available: "health-green",
@@ -291,7 +298,7 @@ function AdminInventory() {
     }[stockHealthTone];
     const ratio = capacityPercent == null ? null : capacityPercent / 100;
     const hasMaximum = ratio != null;
-    const isLowStock = hasMaximum && status !== "Out of Stock" && ratio <= 0.25;
+    const isLowStock = hasMaximum && status !== "Out of Stock" && (stockRatio ?? 100) <= lowThreshold;
     const unitCost = Number(entry.unitCost || entry.unit_cost || 0);
     const inventoryValue = Number((Number(entry.quantity || 0) * unitCost).toFixed(2));
     const packageSpec = `${entry.packageQuantity || 1} ${entry.packageUnit || "pack"}${entry.contentsPerPackage ? ` (${entry.contentsPerPackage} ${entry.unit})` : ""}`;
@@ -306,6 +313,8 @@ function AdminInventory() {
       cardStatusKey: isLowStock ? "low-stock" : status === "In Stock" ? "in-stock" : status === "Over Maximum" ? "over-maximum" : "out-of-stock",
       stockLevelKey,
       isLowStock,
+      lowThreshold,
+      criticalThreshold,
       stockRatio,
     };
   }).sort((left, right) => {
@@ -316,7 +325,7 @@ function AdminInventory() {
       return order[left.status] - order[right.status] || left.item.localeCompare(right.item);
     }
     return left.item.localeCompare(right.item);
-  }), [filteredInventory, sortBy]);
+  }), [filteredInventory, sortBy, lowThreshold, criticalThreshold]);
 
   const categoryCounts = useMemo(() => {
     const counts = { All: inventory.length };
@@ -351,6 +360,8 @@ function AdminInventory() {
       setRestockBatchCost("");
       setRestockSupplierName("");
       setRestockReferenceNo("");
+      setRestockCreditAccountCode("1010");
+      setRestockDiluteZeroCost(false);
       setItemToDelete(null);
       setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
@@ -427,6 +438,8 @@ function AdminInventory() {
     setRestockBatchCost("");
     setRestockSupplierName("");
     setRestockReferenceNo("");
+    setRestockCreditAccountCode("1010");
+    setRestockDiluteZeroCost(false);
     setActionError("");
   };
 
@@ -458,12 +471,18 @@ function AdminInventory() {
         batchCost: restockBatchCost,
         supplierName: restockSupplierName.trim() || undefined,
         referenceNo: restockReferenceNo.trim() || undefined,
+        creditAccountCode: Number(restockBatchCost) > 0 ? restockCreditAccountCode : undefined,
+        diluteZeroCost: restockBatchCost !== "" && Number(restockBatchCost) === 0 ? restockDiluteZeroCost : false,
       });
       setNotice(`${restockItem.item} restocked by ${quantity} ${restockItem.unit}.`);
       setRestockItem(null);
       setRestockBatchCost("");
       setRestockSupplierName("");
       setRestockReferenceNo("");
+      setRestockCreditAccountCode("1010");
+      setRestockDiluteZeroCost(false);
+      setRestockCreditAccountCode("1010");
+      setRestockDiluteZeroCost(false);
     } catch (error) {
       setActionError(error.message || "Could not restock this item.");
     } finally {
@@ -552,13 +571,32 @@ function AdminInventory() {
       return;
     }
 
+    const prevQty = Number(editingItem?.quantity ?? 0);
+    const maxAdjPct = Number(businessSettings?.maxInventoryAdjustmentPct ?? 200);
+    const adjPct = editingItem && prevQty > 0 ? Math.abs(((quantity - prevQty) / prevQty) * 100) : 0;
+    const adjKey = editingItem ? `${editingItem.id}:${prevQty}->${quantity}` : "";
+    if (editingItem && prevQty > 0 && adjPct > maxAdjPct && confirmedAdjKey !== adjKey) {
+      setConfirmedAdjKey(adjKey);
+      setActionError(
+        `Large adjustment warning: ${adjPct.toFixed(0)}% change exceeds your ${maxAdjPct}% Store Rule. Click "Save Changes" again to confirm.`,
+      );
+      return;
+    }
+
     const totalMeasurable = packageQuantity * contentsPerPackage;
-    const unitCost = (purchasePrice > 0 && totalMeasurable > 0)
-      ? Number((purchasePrice / totalMeasurable).toFixed(6))
-      : 0;
+    const pricingUnchangedInEdit = Boolean(editingItem) &&
+      Number(editingItem.purchasePrice ?? 0) === purchasePrice &&
+      Number(editingItem.packageQuantity ?? 1) === packageQuantity &&
+      (editingItem.contentsPerPackage == null ? 1 : Number(editingItem.contentsPerPackage)) === contentsPerPackage;
+    const unitCost = pricingUnchangedInEdit
+      ? Number(editingItem.unitCost ?? 0)
+      : (purchasePrice > 0 && totalMeasurable > 0)
+        ? Number((purchasePrice / totalMeasurable).toFixed(6))
+        : 0;
 
     setIsSaving(true);
     setActionError("");
+    let savedItem;
     try {
       const values = {
         item: itemName,
@@ -568,20 +606,25 @@ function AdminInventory() {
         packageQuantity,
         packageUnit,
         contentsPerPackage,
-        unitCost,
+        ...(pricingUnchangedInEdit ? {} : { unitCost }),
         quantity,
         unit,
         maximumStock,
       };
-      if (editingItem) await updateInventoryItem(editingItem.id, values);
-      else await addInventoryItem(values);
+      if (editingItem) savedItem = await updateInventoryItem(editingItem.id, values);
+      else savedItem = await addInventoryItem(values);
     } catch (error) {
       setActionError(error.message || "Could not save the inventory item.");
       setIsSaving(false);
       return;
     }
 
-    setNotice(editingItem ? `${itemName} was updated.` : `${itemName} was added to inventory.`);
+    setConfirmedAdjKey("");
+    setNotice(
+      savedItem?.unitDimensionWarning
+        ? `${itemName} updated. Warning: ${savedItem.unitDimensionWarning}`
+        : (editingItem ? `${itemName} was updated.` : `${itemName} was added to inventory.`),
+    );
     setIsSaving(false);
     if (!editingItem) {
       clearInventoryAddDraft();
@@ -1873,7 +1916,23 @@ function AdminInventory() {
                   <div className="inventory-history-list">
                     {movementHistory.rows.map((row) => (
                       <article className="inventory-history-row" key={row.id}>
-                        <div><strong>{row.type === "usage" ? "Order usage" : row.type === "restock" ? "Restocked" : "Stock adjustment"}</strong><span>{row.note || "Inventory updated"}</span><small>{row.actor} · {new Date(row.timestamp).toLocaleString()}</small></div>
+                        <div>
+                          <strong>
+                            {row.type === "usage"
+                              ? "Order usage"
+                              : row.type === "restock"
+                                ? "Restocked"
+                                : row.type === "spoilage"
+                                  ? "Void spoilage"
+                                  : row.type === "void_restore"
+                                    ? "Void stock restore"
+                                    : row.type === "opening_balance"
+                                      ? "Opening stock"
+                                      : "Stock adjustment"}
+                          </strong>
+                          <span>{row.note || "Inventory updated"}</span>
+                          <small>{row.actor} · {new Date(row.timestamp).toLocaleString()}</small>
+                        </div>
                         <b className={row.quantityChange > 0 ? "is-increase" : "is-decrease"}>{row.quantityChange > 0 ? "+" : ""}{row.quantityChange} {movementHistory.item.unit}</b>
                       </article>
                     ))}
@@ -1911,6 +1970,33 @@ function AdminInventory() {
               />
               <small>Enter total batch cost to recalculate weighted-average unit cost.</small>
             </label>
+            {restockBatchCost !== "" && Number(restockBatchCost) > 0 && (
+              <label className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
+                Payment / Funding Source
+                <select
+                  value={restockCreditAccountCode}
+                  onChange={(event) => setRestockCreditAccountCode(event.target.value)}
+                >
+                  <option value="1010">1010 - Cash Drawer (Counter 1)</option>
+                  <option value="1020">1020 - GCash Official Wallet</option>
+                  <option value="1030">1030 - Store Bank Account</option>
+                  <option value="1040">1040 - Owner Capital Reserve</option>
+                  <option value="2010">2010 - Accounts Payable (Supplier Credit)</option>
+                  <option value="3010">3010 - Owner Capital Contribution</option>
+                </select>
+                <small>Credits the selected account and debits 1050 Merchandise Inventory.</small>
+              </label>
+            )}
+            {restockBatchCost !== "" && Number(restockBatchCost) === 0 && (
+              <label className="inventory-restock-checkbox" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.75rem", fontSize: "0.84rem" }}>
+                <input
+                  type="checkbox"
+                  checked={restockDiluteZeroCost}
+                  onChange={(event) => setRestockDiluteZeroCost(event.target.checked)}
+                />
+                <span>Dilute weighted-average unit cost with ₱0 free/bonus batch</span>
+              </label>
+            )}
             <div className="inventory-restock-meta-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.75rem" }}>
               <label className="inventory-restock-field">
                 Supplier Name — Optional
@@ -1933,12 +2019,12 @@ function AdminInventory() {
                 />
               </label>
             </div>
-            {Number(restockBatchCost) > 0 && Number(restockQuantity) > 0 && (
+            {(Number(restockBatchCost) > 0 || (restockBatchCost !== "" && Number(restockBatchCost) === 0 && restockDiluteZeroCost)) && Number(restockQuantity) > 0 && (
               <div className="inventory-costing-preview-box" style={{ marginTop: "0.75rem" }}>
                 <div className="costing-preview-header">
                   <span className="costing-preview-title">Weighted-Average Cost Preview</span>
                   <span className="costing-preview-badge">
-                    ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
+                    ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost || 0)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
                   </span>
                 </div>
                 <div className="costing-preview-metrics">
@@ -1948,12 +2034,12 @@ function AdminInventory() {
                   </div>
                   <div>
                     <small>Batch Unit Cost</small>
-                    <strong>₱{formatUnitCost(Number(restockBatchCost) / Number(restockQuantity))} / {restockItem.unit}</strong>
+                    <strong>₱{formatUnitCost(Number(restockBatchCost || 0) / Number(restockQuantity))} / {restockItem.unit}</strong>
                   </div>
                   <div>
                     <small>New Weighted-Average Cost</small>
                     <strong>
-                      ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
+                      ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost || 0)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
                     </strong>
                   </div>
                 </div>

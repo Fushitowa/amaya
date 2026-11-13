@@ -24,7 +24,10 @@ const configuredOrigins = (process.env.WEB_ORIGIN || "").split(",").map((origin)
 const devOrigins = ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", lanOriginRegex];
 const allowedOrigins = [...new Set([...configuredOrigins, ...devOrigins])];
 app.use(helmet());
-app.use(cors({ origin: allowedOrigins }));
+app.use(cors({
+  origin: allowedOrigins,
+  exposedHeaders: ["X-Export-Truncated", "X-Export-Total", "X-Export-Count"],
+}));
 app.use(express.json({ limit: "9mb" }));
 
 app.get("/", (_request, response) => {
@@ -33,11 +36,10 @@ app.get("/", (_request, response) => {
 
 app.get("/api/health", async (_request, response) => {
   try {
-    const [rows] = await pool.query("SELECT DATABASE() AS databaseName, 1 AS connected");
+    const [rows] = await pool.query("SELECT 1 AS connected");
     response.json({
       status: "ok",
-      database: rows[0].databaseName,
-      connected: Boolean(rows[0].connected),
+      connected: Boolean(rows[0]?.connected),
     });
   } catch (error) {
     console.error("Database health check failed:", error.message);

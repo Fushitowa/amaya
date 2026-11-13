@@ -56,19 +56,28 @@ export default function StoreAssetsHeroCard() {
 
   useEffect(() => {
     let active = true;
-    apiRequest("/finances/accounts")
-      .then((res) => {
-        if (!active) return;
-        setData(res);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setError(err?.message || "Could not retrieve store financial balances.");
-        setLoading(false);
-      });
+    const syncAccounts = () => {
+      apiRequest("/finances/accounts")
+        .then((res) => {
+          if (!active) return;
+          setData(res);
+          setError(null);
+          setLoading(false);
+        })
+        .catch((err) => {
+          if (!active) return;
+          setError(err?.message || "Could not retrieve store financial balances.");
+          setLoading(false);
+        });
+    };
+
+    syncAccounts();
+    window.addEventListener("amaya:stock-mutated", syncAccounts);
+    window.addEventListener("amaya:session-changed", syncAccounts);
     return () => {
       active = false;
+      window.removeEventListener("amaya:stock-mutated", syncAccounts);
+      window.removeEventListener("amaya:session-changed", syncAccounts);
     };
   }, []);
 

@@ -44,7 +44,7 @@ export async function apiRequest(path, options = {}) {
   return payload;
 }
 
-export async function apiFetchBlob(path, options = {}) {
+export async function apiFetchBlobWithMeta(path, options = {}) {
   const cleanPath = path.startsWith('/api/') ? path.slice(4) : (path === '/api' ? '' : path);
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
@@ -65,7 +65,16 @@ export async function apiFetchBlob(path, options = {}) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.message || `Download failed (${response.status}).`);
   }
-  return response.blob();
+  const blob = await response.blob();
+  const truncated = response.headers.get("X-Export-Truncated") === "true";
+  const totalCount = Number(response.headers.get("X-Export-Total") || 0);
+  const exportedCount = Number(response.headers.get("X-Export-Count") || 0);
+  return { blob, truncated, totalCount, exportedCount };
+}
+
+export async function apiFetchBlob(path, options = {}) {
+  const { blob } = await apiFetchBlobWithMeta(path, options);
+  return blob;
 }
 
 export { API_BASE_URL };

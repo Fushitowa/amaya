@@ -1,19 +1,15 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import {
+  round2,
+  generateEntryNumber,
+  getManilaDateString,
+  assertValidDateRange,
+  parseBoundedPositiveInt,
+} from "../utils/ledgerService.js";
 
 const router = Router();
-
-function round2(val) {
-  const num = Number(val || 0);
-  return Number.isFinite(num) ? Number(num.toFixed(2)) : 0.00;
-}
-
-function generateEntryNumber(type) {
-  const prefix = String(type || "JE").toUpperCase().slice(0, 8);
-  const rand = Math.floor(Math.random() * 100_000).toString().padStart(5, "0");
-  return `JE-${prefix}-${Date.now().toString().slice(-6)}-${rand}`;
-}
 
 // -------------------------------------------------------------
 // 1. TRIAL BALANCE & RECONCILIATION SUMMARY (Admin Only)
@@ -162,11 +158,19 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
     notes = "Initial business capital registration",
   } = request.body || {};
 
-  const numCash = Math.max(0, Number(cashDrawer) || 0);
-  const numGcash = Math.max(0, Number(gcash) || 0);
-  const numBank = Math.max(0, Number(bank) || 0);
-  const numReserve = Math.max(0, Number(capitalReserve) || 0);
-  const numEquip = Math.max(0, Number(equipment) || 0);
+  const rawAmounts = [cashDrawer, gcash, bank, capitalReserve, equipment];
+  for (const val of rawAmounts) {
+    const parsed = val === "" || val === null || val === undefined ? 0 : Number(val);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw httpError(400, "Opening capital amounts must be finite non-negative numbers.");
+    }
+  }
+
+  const numCash = Number(cashDrawer || 0);
+  const numGcash = Number(gcash || 0);
+  const numBank = Number(bank || 0);
+  const numReserve = Number(capitalReserve || 0);
+  const numEquip = Number(equipment || 0);
 
   const totalOpeningDebits = round2(numCash + numGcash + numBank + numReserve + numEquip);
   if (totalOpeningDebits <= 0) {
@@ -241,9 +245,10 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
 // 4. JOURNAL ENTRIES LIST & SEARCH (Admin Only)
 // -------------------------------------------------------------
 router.get("/journal-entries", requireAuth, requireRole("admin"), async (request, response) => {
-  const { type, from, to, page = 1, limit = 25 } = request.query || {};
-  const numPage = Math.max(1, Number(page) || 1);
-  const numLimit = Math.min(100, Math.max(1, Number(limit) || 25));
+  const { type, from, to, page, limit } = request.query || {};
+  const { from: cleanFrom, to: cleanTo } = assertValidDateRange(from, to);
+  const numPage = parseBoundedPositiveInt(page, 1, 1, 100_000, "Page");
+  const numLimit = parseBoundedPositiveInt(limit, 25, 1, 100, "Limit");
   const offset = (numPage - 1) * numLimit;
 
   const conditions = [];
@@ -253,13 +258,13 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
     conditions.push("je.entry_type = ?");
     params.push(String(type).trim());
   }
-  if (from) {
+  if (cleanFrom) {
     conditions.push("je.entry_date >= ?");
-    params.push(`${from} 00:00:00`);
+    params.push(`${cleanFrom} 00:00:00`);
   }
-  if (to) {
+  if (cleanTo) {
     conditions.push("je.entry_date <= ?");
-    params.push(`${to} 23:59:59`);
+    params.push(`${cleanTo} 23:59:59`);
   }
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -271,7 +276,8 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
 
   const [entries] = await pool.query(
     `SELECT je.*,
-            COALESCE(u.display_name, u.username) AS creator_name
+            COALESCE(u.display_name, u.username) AS creator_name,
+            EXISTS (SELECT 1 FROM journal_entries r WHERE r.reverses_entry_id = je.id) AS is_already_reversed
        FROM journal_entries je
        LEFT JOIN users u ON u.id = je.created_by
        ${whereClause}
@@ -327,6 +333,7 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
       orderId: e.order_id ? Number(e.order_id) : null,
       sessionId: e.session_id ? Number(e.session_id) : null,
       isReversal: Boolean(e.is_reversal),
+      isAlreadyReversed: Boolean(e.is_already_reversed),
       reversesEntryId: e.reverses_entry_id ? Number(e.reverses_entry_id) : null,
       createdBy: Number(e.created_by),
       creatorName: e.creator_name,
@@ -389,8 +396,13 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     for (const l of rawLines) {
       const accCode = String(l.accountCode || "").trim();
       if (!accCode) throw httpError(400, "Every journal entry line requires a valid accountCode.");
-      const d = round2(Math.max(0, Number(l.debit) || 0));
-      const c = round2(Math.max(0, Number(l.credit) || 0));
+      const rawDebit = l.debit === undefined || l.debit === null || l.debit === "" ? 0 : Number(l.debit);
+      const rawCredit = l.credit === undefined || l.credit === null || l.credit === "" ? 0 : Number(l.credit);
+      if (!Number.isFinite(rawDebit) || !Number.isFinite(rawCredit) || rawDebit < 0 || rawCredit < 0) {
+        throw httpError(400, "Journal entry line debit and credit amounts must be finite non-negative numbers.");
+      }
+      const d = round2(rawDebit);
+      const c = round2(rawCredit);
       totalD += d;
       totalC += c;
       finalLines.push({
@@ -421,8 +433,13 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     }
 
     if (debitAmount !== undefined && creditAmount !== undefined) {
-      const dAmt = round2(Number(debitAmount));
-      const cAmt = round2(Number(creditAmount));
+      const parsedDebit = Number(debitAmount);
+      const parsedCredit = Number(creditAmount);
+      if (!Number.isFinite(parsedDebit) || !Number.isFinite(parsedCredit)) {
+        throw httpError(400, "Debit and credit amounts must be finite numbers.");
+      }
+      const dAmt = round2(parsedDebit);
+      const cAmt = round2(parsedCredit);
       if (Math.abs(dAmt - cAmt) >= 0.005) {
         throw httpError(
           400,
@@ -431,7 +448,11 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       }
     }
 
-    const cleanAmount = round2(amount !== undefined ? amount : debitAmount);
+    const rawAmount = amount !== undefined ? Number(amount) : Number(debitAmount);
+    if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+      throw httpError(400, "Transaction amount must be a finite positive number.");
+    }
+    const cleanAmount = round2(rawAmount);
     if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
       throw httpError(400, "Transaction amount must be a positive number.");
     }
@@ -516,6 +537,13 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
     if (originalEntry.is_reversal) {
       throw httpError(400, "Cannot reverse an entry that is already a reversal.");
     }
+    const [[existingReversal]] = await connection.execute(
+      "SELECT id FROM journal_entries WHERE reverses_entry_id = ? LIMIT 1 FOR UPDATE",
+      [targetId]
+    );
+    if (existingReversal) {
+      throw httpError(409, "This journal entry has already been reversed.");
+    }
 
     const [lines] = await connection.execute(
       "SELECT * FROM journal_entry_lines WHERE journal_entry_id = ?",
@@ -526,11 +554,19 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
     }
 
     const reversalNumber = generateEntryNumber("REV");
-    const [revHeader] = await connection.execute(
-      `INSERT INTO journal_entries (entry_number, entry_type, memo, is_reversal, reverses_entry_id, created_by)
-       VALUES (?, 'void_reversal', ?, TRUE, ?, ?)`,
-      [reversalNumber, `Reversal of ${originalEntry.entry_number}: ${reason}`, targetId, request.authUser.sub]
-    );
+    let revHeader;
+    try {
+      [revHeader] = await connection.execute(
+        `INSERT INTO journal_entries (entry_number, entry_type, memo, is_reversal, reverses_entry_id, created_by)
+         VALUES (?, 'void_reversal', ?, TRUE, ?, ?)`,
+        [reversalNumber, `Reversal of ${originalEntry.entry_number}: ${reason}`, targetId, request.authUser.sub]
+      );
+    } catch (insertError) {
+      if (insertError?.code === "ER_DUP_ENTRY") {
+        throw httpError(409, "This journal entry has already been reversed.");
+      }
+      throw insertError;
+    }
     reversalEntryId = revHeader.insertId;
 
     // Flip debits and credits
@@ -563,7 +599,8 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
 // 7. FORMAL PROFIT & LOSS (P&L) STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from, to } = request.query || {};
+  const { from: rawFrom, to: rawTo } = request.query || {};
+  const { from, to } = assertValidDateRange(rawFrom, rawTo);
   const conditions = [];
   const params = [];
 
@@ -587,7 +624,8 @@ router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async 
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN chart_of_accounts coa ON coa.id = jel.account_id
        ${whereClause}
-      GROUP BY coa.account_code, coa.account_name, coa.account_category`
+      GROUP BY coa.account_code, coa.account_name, coa.account_category`,
+    params
   );
 
   let grossSales = 0;
@@ -626,7 +664,7 @@ router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async 
   const roundedCogs = round2(Math.max(0, cogs));
   const grossProfit = round2(netSales - roundedCogs);
   const grossMarginPercent = netSales > 0 ? round2((grossProfit / netSales) * 100) : 0.0;
-  const roundedTotalOpex = round2(Math.max(0, totalOpex));
+  const roundedTotalOpex = round2(totalOpex);
   const netOperatingProfit = round2(grossProfit - roundedTotalOpex);
 
   response.json({
@@ -646,7 +684,8 @@ router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async 
 // 8. CASH FLOW STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from, to } = request.query || {};
+  const { from: rawFrom, to: rawTo } = request.query || {};
+  const { from, to } = assertValidDateRange(rawFrom, rawTo);
   const conditions = [];
   const params = [];
 
@@ -663,18 +702,27 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
   const [lines] = await pool.query(
     `SELECT coa.account_code,
             je.entry_type,
+            EXISTS (
+              SELECT 1
+                FROM journal_entry_lines jel_liq
+                JOIN chart_of_accounts coa_liq ON coa_liq.id = jel_liq.account_id
+               WHERE jel_liq.journal_entry_id = je.id
+                 AND coa_liq.account_code IN ('1010', '1020', '1030', '1040')
+            ) AS touches_liquid,
             COALESCE(SUM(jel.debit), 0.00) AS total_debit,
             COALESCE(SUM(jel.credit), 0.00) AS total_credit
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN chart_of_accounts coa ON coa.id = jel.account_id
        ${whereClause}
-      GROUP BY coa.account_code, je.entry_type`
+      GROUP BY coa.account_code, je.entry_type, touches_liquid`,
+    params
   );
 
   let cashSalesInflow = 0;
   let opexCashOutflow = 0;
   let restockCashOutflow = 0;
+  let otherOperatingCashNet = 0;
   let equipmentInvestingOutflow = 0;
   let capitalInflow = 0;
   let drawingOutflow = 0;
@@ -685,20 +733,21 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
     const debit = Number(l.total_debit || 0);
     const credit = Number(l.total_credit || 0);
 
-    // Liquid accounts: 1010, 1020, 1030
-    if (["1010", "1020", "1030"].includes(code)) {
+    // Liquid accounts: 1010, 1020, 1030, 1040
+    if (["1010", "1020", "1030", "1040"].includes(code)) {
       if (type === "sales_revenue") cashSalesInflow += (debit - credit);
       else if (type === "operating_expense") opexCashOutflow += (credit - debit);
       else if (type === "inventory_restock") restockCashOutflow += (credit - debit);
       else if (type === "capital_injection" || type === "opening_balance") capitalInflow += (debit - credit);
       else if (type === "owner_withdrawal") drawingOutflow += (credit - debit);
+      else if (type === "void_reversal" || type === "adjustment") otherOperatingCashNet += (debit - credit);
     }
-    if (code === "1510") {
+    if (code === "1510" && Boolean(l.touches_liquid) && type !== "opening_balance") {
       equipmentInvestingOutflow += (debit - credit);
     }
   }
 
-  const operatingCashFlow = round2(cashSalesInflow - (opexCashOutflow + restockCashOutflow));
+  const operatingCashFlow = round2(cashSalesInflow + otherOperatingCashNet - (opexCashOutflow + restockCashOutflow));
   const investingCashFlow = round2(-Math.max(0, equipmentInvestingOutflow));
   const financingCashFlow = round2(capitalInflow - drawingOutflow);
   const netCashFlow = round2(operatingCashFlow + investingCashFlow + financingCashFlow);
@@ -706,6 +755,7 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
   response.json({
     operatingActivities: {
       cashSalesInflow: round2(cashSalesInflow),
+      otherOperatingCashNet: round2(otherOperatingCashNet),
       opexCashOutflow: round2(opexCashOutflow),
       restockCashOutflow: round2(restockCashOutflow),
       netOperatingCashFlow: operatingCashFlow,
@@ -727,9 +777,10 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
 // 9. DAILY STORE ASSET RECONCILIATION LEDGER (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/daily-reconciliation", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from, to, page = 1, limit = 25 } = request.query || {};
-  const numPage = Math.max(1, Number(page) || 1);
-  const numLimit = Math.min(100, Math.max(1, Number(limit) || 25));
+  const { from: rawFrom, to: rawTo, page, limit } = request.query || {};
+  const { from, to } = assertValidDateRange(rawFrom, rawTo);
+  const numPage = parseBoundedPositiveInt(page, 1, 1, 100_000, "Page");
+  const numLimit = parseBoundedPositiveInt(limit, 25, 1, 100, "Limit");
   const offset = (numPage - 1) * numLimit;
 
   const conditions = [];
@@ -829,6 +880,7 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
   const gcash = accountMap.get("1020") || 0.00;
   const bank = accountMap.get("1030") || 0.00;
   const reserve = accountMap.get("1040") || 0.00;
+  const ledgerInventoryValue = accountMap.get("1050") || 0.00;
   const equipment = accountMap.get("1510") || 0.00;
 
   const currentAssets = [
@@ -836,12 +888,13 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
     { accountCode: "1020", accountName: "GCash Official Wallet", amount: gcash },
     { accountCode: "1030", accountName: "Store Bank Account", amount: bank },
     { accountCode: "1040", accountName: "Owner Capital Reserve", amount: reserve },
-    { accountCode: "1050", accountName: "Merchandise Inventory (Live Stock)", amount: liveInventoryValue },
+    { accountCode: "1050", accountName: "Merchandise Inventory (Ledger)", amount: ledgerInventoryValue },
   ];
   const nonCurrentAssets = [
     { accountCode: "1510", accountName: "Kitchen & Espresso Equipment", amount: equipment },
   ];
-  const totalAssets = round2(cashDrawer + gcash + bank + reserve + liveInventoryValue + equipment);
+  const totalAssets = round2(cashDrawer + gcash + bank + reserve + ledgerInventoryValue + equipment);
+  const inventoryValuationVariance = round2(liveInventoryValue - ledgerInventoryValue);
 
   const payables = accountMap.get("2010") || 0.00;
   const taxesPayable = accountMap.get("2020") || 0.00;
@@ -853,19 +906,36 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
 
   const ownerCapital = accountMap.get("3010") || 0.00;
   const ownerDrawings = accountMap.get("3020") || 0.00;
-  const retainedEarnings = round2(totalAssets - totalLiabilities - (ownerCapital - ownerDrawings));
+
+  // Compute true Retained Earnings directly from Revenue & Expense accounts in COA
+  let revNet = 0;
+  let expenseTotal = 0;
+  for (const acc of accounts) {
+    const code = acc.account_code;
+    const bal = Number(acc.current_balance || 0);
+    if (code === "4010") revNet += bal;
+    else if (code === "4020") revNet -= bal;
+    else if (code === "5010" || code.startsWith("60")) expenseTotal += bal;
+    else if (acc.account_category === "revenue" && code !== "4010" && code !== "4020") revNet += bal;
+    else if (acc.account_category === "expense" && code !== "5010" && !code.startsWith("60")) expenseTotal += bal;
+  }
+  const retainedEarnings = round2(revNet - expenseTotal);
   const totalEquity = round2(ownerCapital - ownerDrawings + retainedEarnings);
 
-  const isBalanced = Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.005;
+  const balanceDifference = round2(totalAssets - (totalLiabilities + totalEquity));
+  const isBalanced = Math.abs(balanceDifference) < 0.005;
 
   response.json({
-    asOfDate: new Date().toISOString().slice(0, 10),
+    asOfDate: getManilaDateString(),
     assets: {
       current: currentAssets,
       nonCurrent: nonCurrentAssets,
       totalAssets,
     },
     totalAssets,
+    ledgerInventoryValue,
+    liveInventoryValue,
+    inventoryValuationVariance,
     liabilities: {
       current: currentLiabilities,
       totalLiabilities,
@@ -880,6 +950,7 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
       totalEquity,
     },
     totalEquity,
+    balanceDifference,
     isBalanced,
   });
 });

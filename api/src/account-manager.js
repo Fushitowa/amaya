@@ -194,12 +194,16 @@ export async function renameCashier(cashierId, displayName) {
 }
 
 export async function toggleCashier(cashierId) {
+  const id = Number(cashierId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw statusError(400, "Invalid cashier ID.");
+  }
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
       "SELECT id, display_name, is_active FROM users WHERE id = ? AND role = 'staff' LIMIT 1 FOR UPDATE",
-      [cashierId]
+      [id]
     );
     const cashier = rows[0];
     if (!cashier) throw statusError(404, "Cashier not found.");

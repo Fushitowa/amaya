@@ -174,6 +174,15 @@ export function MenuProvider({ children }) {
       await apiRequest(`/menu/categories/${id}`, { method: "DELETE" });
       setCategories((current) => current.filter((c) => c.id !== id));
     },
+    reassignAndDeleteCategory: async (id, targetCategoryId) => {
+      const result = await apiRequest(`/menu/categories/${id}/reassign-and-delete`, {
+        method: "PUT",
+        body: JSON.stringify({ targetCategoryId }),
+      });
+      setCategories((current) => current.filter((c) => c.id !== id));
+      await refreshProducts();
+      return result;
+    },
     addProduct: async (product) => {
       const created = withLocalImage(await apiRequest("/menu", { method: "POST", body: JSON.stringify(product) }));
       setProducts((current) => [...current, created]);

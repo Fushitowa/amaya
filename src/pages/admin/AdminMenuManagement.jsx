@@ -8,7 +8,6 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
-import { apiRequest } from "../../utils/api.js";
 import {
 	DEFAULT_TARGET_FOOD_COST,
 	unitFactors,
@@ -115,7 +114,7 @@ const computeInventoryBasedSizePrice = (sizeCost, baseCost, basePrice, factor, i
 };
 
 function AdminMenuManagement() {
-	const { products = [], menuError, addProduct, updateProduct, deleteProduct } = useMenu() || {};
+	const { products = [], categories: contextMenuCategories = [], menuError, addProduct, updateProduct, deleteProduct, refreshCategories } = useMenu() || {};
 	const { inventory = [], refreshInventory } = useInventory() || {};
 	const { businessSettings } = useBusiness() || {};
 	const cupInventoryItems = useMemo(() => {
@@ -130,9 +129,15 @@ function AdminMenuManagement() {
 			});
 	}, [inventory]);
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
-	const [categories, setCategories] = useState(["All items"]);
-	const [dbCategories, setDbCategories] = useState([]);
-	const [categoriesLoading, setCategoriesLoading] = useState(true);
+	const dbCategories = useMemo(
+		() => (contextMenuCategories || []).filter((cat) => cat && cat.name && cat.isActive !== false),
+		[contextMenuCategories],
+	);
+	const categories = useMemo(
+		() => ["All items", ...dbCategories.map((cat) => cat.name)],
+		[dbCategories],
+	);
+	const categoriesLoading = false;
 	const [activeCategory, setActiveCategory] = useState("All items");
 	const [search, setSearch] = useState("");
 	const [sortBy, setSortBy] = useState("popular");
@@ -228,30 +233,8 @@ function AdminMenuManagement() {
 	};
 
 	useEffect(() => {
-		let isMounted = true;
-		apiRequest("/menu/categories")
-			.then((data) => {
-				if (!isMounted || !Array.isArray(data)) return;
-				const validCats = data.filter((cat) => cat && cat.name);
-				setDbCategories(validCats);
-				const categoryNames = validCats.map((cat) => cat.name);
-				setCategories(["All items", ...categoryNames]);
-				setCategoriesLoading(false);
-				setFormValues((prev) => {
-					if (!prev.category && validCats.length > 0) {
-						return { ...prev, category: validCats[0].name };
-					}
-					return prev;
-				});
-			})
-			.catch((err) => {
-				console.warn("Failed to fetch menu categories:", err);
-				if (isMounted) setCategoriesLoading(false);
-			});
-		return () => {
-			isMounted = false;
-		};
-	}, []);
+		refreshCategories?.();
+	}, [refreshCategories]);
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -2365,7 +2348,7 @@ function AdminMenuManagement() {
 																	<span>COGS <strong>₱{safeToFixed(sizeCosting?.cost, 2)}</strong></span>
 																	<span aria-hidden="true">·</span>
 																	<span>
-																		Profit{" "}
+																		{sizeCosting?.costComplete ? "Profit" : "Est. Profit (Partial)"}{" "}
 																		<strong>
 																			{sizeCosting?.grossProfit != null && Number.isFinite(sizeCosting.grossProfit)
 																				? `₱${safeToFixed(sizeCosting.grossProfit, 2)}`
@@ -2373,7 +2356,9 @@ function AdminMenuManagement() {
 																		</strong>
 																	</span>
 																	<span className={`size-margin-badge ${marginTone}`}>
-																		Margin {sizeCosting?.margin != null && Number.isFinite(sizeCosting.margin) ? `${safeToFixed(sizeCosting.margin, 1)}%` : "—"}
+																		Margin {sizeCosting?.margin != null && Number.isFinite(sizeCosting.margin)
+																			? `${sizeCosting?.costComplete ? "" : "~"}${safeToFixed(sizeCosting.margin, 1)}%${sizeCosting?.costComplete ? "" : " (Partial)"}`
+																			: "—"}
 																	</span>
 																	{sizeCosting?.costSource === "direct" && (
 																		<span className="size-costing-note">Direct cost basis</span>
@@ -2436,7 +2421,7 @@ function AdminMenuManagement() {
 																<span>COGS <strong>₱{safeToFixed(singleItemCosting?.cost, 2)}</strong></span>
 																<span aria-hidden="true">·</span>
 																<span>
-																	Profit{" "}
+																	{singleItemCosting?.costComplete ? "Profit" : "Est. Profit (Partial)"}{" "}
 																	<strong>
 																		{singleItemCosting?.grossProfit != null && Number.isFinite(singleItemCosting.grossProfit)
 																			? `₱${safeToFixed(singleItemCosting.grossProfit, 2)}`
@@ -2444,7 +2429,9 @@ function AdminMenuManagement() {
 																	</strong>
 																</span>
 																<span className={`size-margin-badge ${singleMarginTone}`}>
-																	Margin {singleItemCosting?.margin != null && Number.isFinite(singleItemCosting.margin) ? `${safeToFixed(singleItemCosting.margin, 1)}%` : "—"}
+																	Margin {singleItemCosting?.margin != null && Number.isFinite(singleItemCosting.margin)
+																		? `${singleItemCosting?.costComplete ? "" : "~"}${safeToFixed(singleItemCosting.margin, 1)}%${singleItemCosting?.costComplete ? "" : " (Partial)"}`
+																		: "—"}
 																</span>
 																{singleItemCosting?.costSource === "direct" && (
 																	<span className="size-costing-note">Direct cost basis</span>

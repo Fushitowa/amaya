@@ -31,14 +31,6 @@ function isStoreOpen(openingTime, closingTime, currentDate) {
 	return closing > opening ? now >= opening && now < closing : now >= opening || now < closing;
 }
 
-function readNotificationPreferences() {
-	try {
-		return { notifications: true, orderAlerts: true, inventoryAlerts: true, ...JSON.parse(localStorage.getItem("amaya-admin-notifications") || "{}") };
-	} catch {
-		return { notifications: true, orderAlerts: true, inventoryAlerts: true };
-	}
-}
-
 function AdminSettings() {
 	const { sidebarCollapsed, toggleSidebar } = useSidebar();
 	const {
@@ -62,14 +54,17 @@ function AdminSettings() {
 		targetFoodCost: normalizeTargetFoodCost(businessSettings?.targetFoodCost, DEFAULT_TARGET_FOOD_COST),
 	};
 	const settings = { ...baseSettings, ...settingsDraft };
-	const [preferences, setPreferences] = useState(readNotificationPreferences);
-	const { notifications, orderAlerts, inventoryAlerts } = preferences;
+	const [newDiscountLabel, setNewDiscountLabel] = useState("");
+	const [newDiscountPct, setNewDiscountPct] = useState("");
+	const notifications = Boolean(settings.notifyAllEnabled);
+	const orderAlerts = Boolean(settings.notifyOrderAlerts);
+	const inventoryAlerts = Boolean(settings.notifyInventoryAlerts);
 	const [saveState, setSaveState] = useState("idle");
 	const [saveError, setSaveError] = useState("");
 	const [lastSaved, setLastSaved] = useState(null);
 	const [statusClock, setStatusClock] = useState(() => new Date());
 	const [mobileNavOpen, setMobileNavOpen] = useState(false);
-	const storeOpen = isStoreOpen(settings.openingTime, settings.closingTime, statusClock);
+	const storeOpen = !settings.isTemporarilyClosed && isStoreOpen(settings.openingTime, settings.closingTime, statusClock);
 	// Cashier Team State
 	const [cashiers, setCashiers] = useState([]);
 	const [cashiersLoading, setCashiersLoading] = useState(true);
@@ -217,12 +212,15 @@ function AdminSettings() {
 	}, []);
 	useEffect(() => {
 		try {
-			localStorage.setItem("amaya-admin-notifications", JSON.stringify(preferences));
+			localStorage.setItem(
+				"amaya-admin-notifications",
+				JSON.stringify({ notifications, orderAlerts, inventoryAlerts }),
+			);
 			window.dispatchEvent(new Event("amaya-admin-notification-preferences"));
 		} catch {
 			// Notification preferences remain available for the current session.
 		}
-	}, [preferences]);
+	}, [inventoryAlerts, notifications, orderAlerts]);
 	useEffect(() => {
 		if (!showPasswordForm && !showAddCashier && !cashierTarget && !renameTarget) return undefined;
 		const closeOnEscape = (event) => {
@@ -245,13 +243,43 @@ function AdminSettings() {
 
 	const updateSetting = (event) => {
 		clearSaveTimers();
-		const { name, value } = event.target;
-		setSettingsDraft((current) => ({ ...current, [name]: value }));
-		if (name === "businessName" && businessNameError && value.trim()) {
+		const { name, type, value, checked } = event.target;
+		const nextValue = type === "checkbox" ? Boolean(checked) : value;
+		setSettingsDraft((current) => ({ ...current, [name]: nextValue }));
+		if (name === "businessName" && businessNameError && String(nextValue).trim()) {
 			setBusinessNameError("");
 		}
 		setSaveError("");
 		if (saveState !== "saving") setSaveState("dirty");
+	};
+
+	const setRuleField = (field, nextValue) => {
+		clearSaveTimers();
+		setSettingsDraft((current) => ({ ...current, [field]: nextValue }));
+		setSaveError("");
+		if (saveState !== "saving") setSaveState("dirty");
+	};
+
+	const handleAddDiscountPreset = () => {
+		const label = newDiscountLabel.trim().slice(0, 50);
+		const pct = Number(newDiscountPct);
+		if (!label || !Number.isFinite(pct) || pct <= 0 || pct > 100) {
+			setSaveError("Discount preset requires a label and a percentage between 0.01% and 100%.");
+			return;
+		}
+		const currentList = Array.isArray(settings.discountPresets) ? settings.discountPresets : [];
+		if (currentList.length >= 10) {
+			setSaveError("Maximum of 10 discount presets reached.");
+			return;
+		}
+		setRuleField("discountPresets", [...currentList, { label, pct: Number(pct.toFixed(2)) }]);
+		setNewDiscountLabel("");
+		setNewDiscountPct("");
+	};
+
+	const handleRemoveDiscountPreset = (idx) => {
+		const currentList = Array.isArray(settings.discountPresets) ? settings.discountPresets : [];
+		setRuleField("discountPresets", currentList.filter((_, i) => i !== idx));
 	};
 
 	const validateTargetFoodCostPct = (raw) => {
@@ -323,7 +351,36 @@ function AdminSettings() {
 				Number(targetFoodCostPctDisplay) / 100,
 				DEFAULT_TARGET_FOOD_COST,
 			);
-			await saveBusinessSettings({ ...settings, targetFoodCost: normalizedFoodCost });
+			const lowThreshold = Number.parseInt(settings.lowStockThresholdPercent, 10);
+			const criticalThreshold = Number.parseInt(settings.criticalStockThresholdPercent, 10);
+			if (!Number.isInteger(lowThreshold) || lowThreshold < 5 || lowThreshold > 90) {
+				throw new Error("Low stock threshold must be a whole number between 5% and 90%.");
+			}
+			if (!Number.isInteger(criticalThreshold) || criticalThreshold < 1 || criticalThreshold >= lowThreshold) {
+				throw new Error("Critical stock threshold must be a whole number below the low stock threshold.");
+			}
+			await saveBusinessSettings({
+				...settings,
+				targetFoodCost: normalizedFoodCost,
+				isTemporarilyClosed: Boolean(settings.isTemporarilyClosed),
+				lowStockThresholdPercent: lowThreshold,
+				criticalStockThresholdPercent: criticalThreshold,
+				inactivityAlertDays: Number.parseInt(settings.inactivityAlertDays, 10) || 30,
+				archiveRetentionDays: Number.parseInt(settings.archiveRetentionDays, 10) || 30,
+				maxInventoryAdjustmentPct: Number.parseInt(settings.maxInventoryAdjustmentPct, 10) || 200,
+				vatEnabled: Boolean(settings.vatEnabled),
+				vatRatePercent: Number(settings.vatRatePercent ?? 12),
+				discountPresets: Array.isArray(settings.discountPresets) ? settings.discountPresets : [],
+				enforceShiftGate: Boolean(settings.enforceShiftGate),
+				autoPrintReceipt: Boolean(settings.autoPrintReceipt),
+				defaultVoidStockAction: settings.defaultVoidStockAction === "spoilage" ? "spoilage" : "restore",
+				requireKitchenNoteApproval: Boolean(settings.requireKitchenNoteApproval),
+				idleLockMinutes: Number.parseInt(settings.idleLockMinutes, 10) || 0,
+				exportRowLimit: Number.parseInt(settings.exportRowLimit, 10) || 5000,
+				notifyAllEnabled: Boolean(settings.notifyAllEnabled),
+				notifyOrderAlerts: Boolean(settings.notifyOrderAlerts),
+				notifyInventoryAlerts: Boolean(settings.notifyInventoryAlerts),
+			});
 			setSettingsDraft({});
 			setTargetFoodCostDraft(null);
 			setLastSaved(new Date());
@@ -486,24 +543,32 @@ function AdminSettings() {
 												</p>
 											)}
 										</label>
-										<label>Admin email<input type="email" name="email" value={settings.email} onChange={updateSetting} /></label>
+										<label>Public storefront contact email<input type="email" name="email" value={settings.email} onChange={updateSetting} /></label>
 										<label>Contact number<input type="tel" name="phone" autoComplete="tel" value={settings.phone} onChange={updateSetting} /></label>
 										<label className="field-wide">Store address<input name="address" autoComplete="street-address" value={settings.address} onChange={updateSetting} /></label>
 									</div>
 								</section>
 
 								<section className="admin-settings-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">◷</div><div><h3>Operating hours</h3><p>Set the hours shown to staff and customers.</p></div></div>
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">◷</div><div><h3>Operating hours &amp; store status</h3><p>Set storefront hours or pause ordering manually.</p></div></div>
 									<div className="admin-settings-fields hours-fields">
 										<label>Opening time<input type="time" name="openingTime" value={settings.openingTime} onChange={updateSetting} /></label>
 										<label>Closing time<input type="time" name="closingTime" value={settings.closingTime} onChange={updateSetting} /></label>
 									</div>
-									<div className={`admin-settings-hours-note ${storeOpen ? "is-open" : "is-closed"}`}><span aria-hidden="true">●</span> Store is currently {storeOpen ? "open" : "closed"}<strong>Today, {formatBusinessTime(settings.openingTime)} - {formatBusinessTime(settings.closingTime)}</strong></div>
+									<div style={{ marginTop: "14px" }}>
+										<SettingToggle
+											label="Temporarily close storefront"
+											description="Display a temporary closure notice on the public storefront immediately."
+											enabled={Boolean(settings.isTemporarilyClosed)}
+											onToggle={() => setRuleField("isTemporarilyClosed", !settings.isTemporarilyClosed)}
+										/>
+									</div>
+									<div className={`admin-settings-hours-note ${storeOpen ? "is-open" : "is-closed"}`}><span aria-hidden="true">●</span> Store is currently {settings.isTemporarilyClosed ? "paused (closed manually)" : storeOpen ? "open" : "closed"}<strong>Today, {formatBusinessTime(settings.openingTime)} - {formatBusinessTime(settings.closingTime)}</strong></div>
 								</section>
 
 								<section className="admin-settings-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">%</div><div><h3>Financial targets</h3><p>Default food cost target used for menu pricing recommendations and financial variance reports.</p></div></div>
-									<div className="admin-settings-fields hours-fields">
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">%</div><div><h3>Financial targets &amp; inventory rules</h3><p>Food cost targets, stock health alerts, archive retention &amp; export caps.</p></div></div>
+									<div className="admin-settings-fields">
 										<label htmlFor="target-food-cost-input">
 											Target food cost (%)
 											<input
@@ -527,26 +592,162 @@ function AdminSettings() {
 												</p>
 											)}
 											<p id="target-food-cost-help" className="settings-field-help">
-												Applies to Menu price previews &amp; Report variance (10%–90%).
+												Menu price previews &amp; Report variance (10%–90%).
 											</p>
 										</label>
+										<label>
+											Low stock warning (%)
+											<input type="number" min="5" max="90" value={settings.lowStockThresholdPercent ?? 40} onChange={(e) => setRuleField("lowStockThresholdPercent", e.target.value)} />
+										</label>
+										<label>
+											Critical stock alert (%)
+											<input type="number" min="1" max="85" value={settings.criticalStockThresholdPercent ?? 20} onChange={(e) => setRuleField("criticalStockThresholdPercent", e.target.value)} />
+										</label>
+										<label>
+											Dead-stock inactivity (days)
+											<input type="number" min="1" max="365" value={settings.inactivityAlertDays ?? 30} onChange={(e) => setRuleField("inactivityAlertDays", e.target.value)} />
+										</label>
+										<label>
+											Archive retention window (days)
+											<input type="number" min="1" max="365" value={settings.archiveRetentionDays ?? 30} onChange={(e) => setRuleField("archiveRetentionDays", e.target.value)} />
+										</label>
+										<label>
+											Adjustment variance guard (%)
+											<input type="number" min="25" max="1000" value={settings.maxInventoryAdjustmentPct ?? 200} onChange={(e) => setRuleField("maxInventoryAdjustmentPct", e.target.value)} />
+										</label>
+										<label className="field-wide">
+											CSV export row limit (100–25,000)
+											<input type="number" min="100" max="25000" step="100" value={settings.exportRowLimit ?? 5000} onChange={(e) => setRuleField("exportRowLimit", e.target.value)} />
+										</label>
+									</div>
+								</section>
+
+								<section className="admin-settings-card">
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">₱</div><div><h3>POS tax, discounts &amp; checkout policy</h3><p>Control VAT collection, cashier shift gates, void stock behavior, and receipt footer.</p></div></div>
+									<SettingToggle
+										label="Charge VAT on POS orders"
+										description="Calculate tax on checkout and credit Liability 2020 in the double-entry ledger."
+										enabled={Boolean(settings.vatEnabled)}
+										onToggle={() => setRuleField("vatEnabled", !settings.vatEnabled)}
+									/>
+									{settings.vatEnabled && (
+										<div className="admin-settings-fields" style={{ marginBottom: "12px" }}>
+											<label>
+												VAT rate (%)
+												<input type="number" min="0" max="30" step="0.5" value={settings.vatRatePercent ?? 12} onChange={(e) => setRuleField("vatRatePercent", e.target.value)} />
+											</label>
+										</div>
+									)}
+									<SettingToggle
+										label="Require open cashier shift before checkout"
+										description="Block POS order placement unless the signed-in cashier has an open drawer session."
+										enabled={Boolean(settings.enforceShiftGate)}
+										onToggle={() => setRuleField("enforceShiftGate", !settings.enforceShiftGate)}
+									/>
+									<SettingToggle
+										label="Auto-print POS receipt"
+										description="Automatically open the print dialog when landing on Staff Receipt."
+										enabled={Boolean(settings.autoPrintReceipt)}
+										onToggle={() => setRuleField("autoPrintReceipt", !settings.autoPrintReceipt)}
+									/>
+									<SettingToggle
+										label="Kitchen note AI guard check"
+										description="Screen free-text customer kitchen notes for unpaid extras or allergy warnings before checkout."
+										enabled={Boolean(settings.requireKitchenNoteApproval)}
+										onToggle={() => setRuleField("requireKitchenNoteApproval", !settings.requireKitchenNoteApproval)}
+									/>
+									<div className="admin-settings-fields" style={{ marginTop: "14px" }}>
+										<label>
+											Default void action (Preparing / Completed)
+											<select
+												value={settings.defaultVoidStockAction || "restore"}
+												onChange={(e) => setRuleField("defaultVoidStockAction", e.target.value)}
+												style={{ width: "100%", minHeight: "44px", padding: "0 12px", border: "1px solid #e5dcd5", borderRadius: "7px", background: "#fffdfb", font: "12px 'DM Sans', sans-serif" }}
+											>
+												<option value="restore">Restore ingredients to stock</option>
+												<option value="spoilage">Record as wasted / spoilage</option>
+											</select>
+										</label>
+										<label>
+											Thermal receipt footer note
+											<input maxLength={255} value={settings.receiptFooter ?? ""} onChange={(e) => setRuleField("receiptFooter", e.target.value)} placeholder="Thank you for visiting Amaya!" />
+										</label>
+									</div>
+
+									<div style={{ marginTop: "18px", paddingTop: "14px", borderTop: "1px solid #f1ebe6" }}>
+										<strong style={{ display: "block", fontSize: "12px", color: "var(--settings-ink)", marginBottom: "8px" }}>
+											POS Discount Presets ({(settings.discountPresets || []).length}/10)
+										</strong>
+										<div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "10px" }}>
+											{(settings.discountPresets || []).map((preset, idx) => (
+												<div key={`${preset.label}-${idx}`} className="security-row" style={{ padding: "8px 0" }}>
+													<div>
+														<strong>{preset.label}</strong>
+														<span>{Number(preset.pct)}% off subtotal (DR 4020 Sales Discounts)</span>
+													</div>
+													<button type="button" className="settings-secondary-button" onClick={() => handleRemoveDiscountPreset(idx)}>
+														Remove
+													</button>
+												</div>
+											))}
+										</div>
+										<div style={{ display: "grid", gridTemplateColumns: "1fr 110px auto", gap: "8px", alignItems: "center" }}>
+											<input
+												type="text"
+												placeholder="Preset label (e.g. Promo 15%)"
+												value={newDiscountLabel}
+												onChange={(e) => setNewDiscountLabel(e.target.value)}
+												style={{ minHeight: "38px", padding: "0 10px", border: "1px solid #e5dcd5", borderRadius: "7px", fontSize: "12px" }}
+											/>
+											<input
+												type="number"
+												min="0.01"
+												max="100"
+												step="0.5"
+												placeholder="%"
+												value={newDiscountPct}
+												onChange={(e) => setNewDiscountPct(e.target.value)}
+												style={{ minHeight: "38px", padding: "0 10px", border: "1px solid #e5dcd5", borderRadius: "7px", fontSize: "12px" }}
+											/>
+											<button type="button" className="settings-secondary-button" onClick={handleAddDiscountPreset}>
+												+ Add
+											</button>
+										</div>
 									</div>
 								</section>
 							</div>
 
 							<div className="admin-settings-secondary-column">
 								<section className="admin-settings-card notifications-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Choose what deserves your attention.</p></div><span className="settings-local-badge">This browser only</span></div>
-									<p className="settings-local-scope-note">Toggle switches save immediately on this device and are separate from &ldquo;Save changes&rdquo; below.</p>
-									<SettingToggle label="Admin notifications" description="Receive important updates from this browser." enabled={notifications} onToggle={() => setPreferences((current) => ({ ...current, notifications: !current.notifications }))} />
-									<SettingToggle label="New order alerts" description="Show an alert when a customer order arrives." enabled={orderAlerts} onToggle={() => setPreferences((current) => ({ ...current, orderAlerts: !current.orderAlerts }))} />
-									<SettingToggle label="Inventory limit alerts" description="Show alerts when stock is out or above its maximum." enabled={inventoryAlerts} onToggle={() => setPreferences((current) => ({ ...current, inventoryAlerts: !current.inventoryAlerts }))} />
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon"><NotificationIcon size={17} /></div><div><h3>Notifications</h3><p>Synced to your account &amp; saved on submit.</p></div><span className="settings-local-badge">Account synced</span></div>
+									<SettingToggle label="Admin notifications" description="Receive operational updates across portal bells." enabled={notifications} onToggle={() => setRuleField("notifyAllEnabled", !notifications)} />
+									<SettingToggle label="New order alerts" description="Show an alert when a customer order arrives." enabled={orderAlerts} onToggle={() => setRuleField("notifyOrderAlerts", !orderAlerts)} />
+									<SettingToggle label="Inventory limit alerts" description="Show alerts when stock is out, low, or above maximum." enabled={inventoryAlerts} onToggle={() => setRuleField("notifyInventoryAlerts", !inventoryAlerts)} />
 								</section>
 
 								<section className="admin-settings-card security-card">
-									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">▣</div><div><h3>Account security</h3><p>Review access to your admin portal.</p></div></div>
+									<div className="admin-settings-card-header"><div className="admin-settings-card-icon">▣</div><div><h3>Account &amp; session security</h3><p>Credentials, JWT RBAC &amp; idle portal auto-lock.</p></div></div>
 									<div className="security-row"><div><strong>Password</strong><span>Keep your administrator account secure.</span></div><button type="button" className="settings-secondary-button" onClick={() => { setPasswordFeedback(null); setShowPasswordForm(true); }}>Update</button></div>
-									<div className="security-row"><div><strong>Two-factor authentication</strong><span>Not configured for this account.</span></div><span className="security-badge">Unavailable</span></div>
+									<div className="security-row">
+										<div>
+											<strong>Idle session auto-lock</strong>
+											<span>Automatically sign out inactive terminals after idle period.</span>
+										</div>
+										<select
+											aria-label="Idle session auto-lock"
+											value={settings.idleLockMinutes ?? 15}
+											onChange={(e) => setRuleField("idleLockMinutes", Number(e.target.value))}
+											style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid #dfd4ca", fontSize: "11px", fontWeight: 600 }}
+										>
+											<option value={0}>Disabled</option>
+											<option value={5}>5 mins</option>
+											<option value={10}>10 mins</option>
+											<option value={15}>15 mins</option>
+											<option value={30}>30 mins</option>
+											<option value={60}>1 hour</option>
+											<option value={120}>2 hours</option>
+										</select>
+									</div>
 								</section>
 
 								<section className="admin-settings-card cashiers-card">

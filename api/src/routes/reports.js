@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { normalizeTargetFoodCost } from "../utils/costing.js";
+import { loadBusinessSettings } from "./settings.js";
 
 const router = Router();
 
@@ -237,9 +238,12 @@ const LINE_COGS_EXPR = `
 `;
 
 const UNCOSTED_CASE_EXPR = `
-  COALESCE(oic_sum.consumption_cost, 0) <= 0
-  AND COALESCE(oi.unit_cost_snapshot, 0) <= 0
-  AND COALESCE(mp.cost_price, 0) <= 0
+  COALESCE(oic_sum.uncosted_ingredient_count, 0) > 0
+  OR (
+    COALESCE(oic_sum.consumption_cost, 0) <= 0
+    AND COALESCE(oi.unit_cost_snapshot, 0) <= 0
+    AND COALESCE(mp.cost_price, 0) <= 0
+  )
 `;
 
 async function queryPeriodFinancialMetrics(bounds, filters) {
@@ -257,7 +261,7 @@ async function queryPeriodFinancialMetrics(bounds, filters) {
        COALESCE(SUM(CASE WHEN o.payment_status = 'Unpaid' AND o.order_status <> 'Cancelled' THEN 1 ELSE 0 END), 0) AS unpaid_orders_count,
        COALESCE(SUM(CASE WHEN o.order_status = 'Cancelled' THEN 1 ELSE 0 END), 0) AS voided_orders_count,
        COALESCE(SUM(CASE WHEN o.order_status = 'Cancelled' THEN o.total ELSE 0 END), 0) AS voided_sales_total,
-       COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' AND o.payment_method = 'Cash' THEN o.total ELSE 0 END), 0) AS cash_collected,
+       COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' AND COALESCE(o.payment_method, 'Cash') = 'Cash' THEN o.total ELSE 0 END), 0) AS cash_collected,
        COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' AND o.payment_method = 'GCash' THEN o.total ELSE 0 END), 0) AS gcash_collected,
        COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' AND o.payment_method = 'Card' THEN o.total ELSE 0 END), 0) AS card_collected
      FROM orders o
@@ -312,7 +316,9 @@ async function queryPeriodFinancialMetrics(bounds, filters) {
      JOIN orders o ON o.id = oi.order_id
      LEFT JOIN menu_products mp ON mp.id = oi.product_id
      LEFT JOIN (
-       SELECT order_item_id, SUM(line_cost) AS consumption_cost
+       SELECT order_item_id,
+              SUM(line_cost) AS consumption_cost,
+              SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
          FROM order_inventory_consumptions
         WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
         GROUP BY order_item_id
@@ -467,7 +473,9 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
          JOIN orders o ON o.id = oi.order_id
          LEFT JOIN menu_products mp ON mp.id = oi.product_id
          LEFT JOIN (
-           SELECT order_item_id, SUM(line_cost) AS consumption_cost
+           SELECT order_item_id,
+                  SUM(line_cost) AS consumption_cost,
+                  SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
              FROM order_inventory_consumptions
             WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
             GROUP BY order_item_id
@@ -660,7 +668,9 @@ async function queryStaffPerformanceData(range, query = {}) {
          JOIN orders o ON o.id = oi.order_id
          LEFT JOIN menu_products mp ON mp.id = oi.product_id
          LEFT JOIN (
-           SELECT order_item_id, SUM(line_cost) AS consumption_cost
+           SELECT order_item_id,
+                  SUM(line_cost) AS consumption_cost,
+                  SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
              FROM order_inventory_consumptions
             WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
             GROUP BY order_item_id
@@ -740,9 +750,11 @@ async function queryStaffPerformanceData(range, query = {}) {
     const displayName = user.display_name || user.username;
     if (search && !displayName.toLowerCase().includes(search)) continue;
 
-    const grossSales = round2(ord?.gross_sales);
-    const cogs = round2(itm?.cogs);
-    const attributedGrossProfit = round2(grossSales - cogs);
+    const rawRowGrossSales = Number(ord?.gross_sales || 0);
+    const rawRowCogs = Number(itm?.cogs || 0);
+    const grossSales = round2(rawRowGrossSales);
+    const cogs = round2(rawRowCogs);
+    const attributedGrossProfit = round2(rawRowGrossSales - rawRowCogs);
 
     rawStaff.push({
       userId: uid,
@@ -766,6 +778,8 @@ async function queryStaffPerformanceData(range, query = {}) {
       sessionsCount,
       inventoryActionsCount,
       uncostedItemsCount: Number(itm?.uncosted_units || 0),
+      _rawGrossSales: rawRowGrossSales,
+      _rawCogs: rawRowCogs,
     });
   }
 
@@ -793,13 +807,14 @@ async function queryStaffPerformanceData(range, query = {}) {
     (acc, row) => {
       acc.ordersCount += row.ordersCount;
       acc.voidedOrdersCount += row.voidedOrdersCount;
-      acc.grossSales = round2(acc.grossSales + row.grossSales);
-      acc.cogs = round2(acc.cogs + row.cogs);
-      acc.attributedGrossProfit = round2(acc.attributedGrossProfit + row.attributedGrossProfit);
+      acc._rawSales += row._rawGrossSales;
+      acc._rawCogs += row._rawCogs;
       acc.unitsSold += row.unitsSold;
       acc.sessionsCount += row.sessionsCount;
       acc.inventoryActionsCount += row.inventoryActionsCount;
       acc.uncostedItemsCount += row.uncostedItemsCount;
+      delete row._rawGrossSales;
+      delete row._rawCogs;
       return acc;
     },
     {
@@ -814,8 +829,15 @@ async function queryStaffPerformanceData(range, query = {}) {
       uncostedItemsCount: 0,
       unassignedOrdersCount,
       unassignedGrossSales: round2(unassignedGrossSales),
+      _rawSales: 0,
+      _rawCogs: 0,
     },
   );
+  totals.grossSales = round2(totals._rawSales);
+  totals.cogs = round2(totals._rawCogs);
+  totals.attributedGrossProfit = round2(totals._rawSales - totals._rawCogs);
+  delete totals._rawSales;
+  delete totals._rawCogs;
 
   return { staff: rawStaff, totals };
 }
@@ -894,8 +916,11 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
     [orderCountRows],
     [orderRows],
     [sessionRows],
+    [sessionCountRows],
     [movementRows],
+    [movementCountRows],
     [stageRows],
+    [stageCountRows],
   ] = await Promise.all([
     pool.execute(
       `SELECT COALESCE(o.payment_method, 'Cash') AS method,
@@ -918,7 +943,9 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
          JOIN orders o ON o.id = oi.order_id
          LEFT JOIN menu_products mp ON mp.id = oi.product_id
          LEFT JOIN (
-           SELECT order_item_id, SUM(line_cost) AS consumption_cost
+           SELECT order_item_id,
+                  SUM(line_cost) AS consumption_cost,
+                  SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
              FROM order_inventory_consumptions
             WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
             GROUP BY order_item_id
@@ -945,7 +972,9 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
          JOIN orders o ON o.id = oi.order_id
          LEFT JOIN menu_products mp ON mp.id = oi.product_id
          LEFT JOIN (
-           SELECT order_item_id, SUM(line_cost) AS consumption_cost
+           SELECT order_item_id,
+                  SUM(line_cost) AS consumption_cost,
+                  SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
              FROM order_inventory_consumptions
             WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
             GROUP BY order_item_id
@@ -989,6 +1018,10 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
       sessionParams,
     ),
     pool.execute(
+      `SELECT COUNT(*) AS total FROM cashier_sessions cs WHERE ${sessionRangeConditions.join(" AND ")}`,
+      sessionParams,
+    ),
+    pool.execute(
       `SELECT m.*,
               COALESCE(ii.name, m.item_name_snapshot) AS item_name,
               ii.unit AS current_item_unit,
@@ -1002,12 +1035,20 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
       movParams,
     ),
     pool.execute(
+      `SELECT COUNT(*) AS total FROM inventory_movements m WHERE ${movRangeConditions.join(" AND ")}`,
+      movParams,
+    ),
+    pool.execute(
       `SELECT e.id, e.order_id, o.order_number, e.from_status, e.to_status, e.reason, e.created_at
          FROM order_status_events e
          JOIN orders o ON o.id = e.order_id
         WHERE ${stageConditions.join(" AND ")}
         ORDER BY e.created_at DESC, e.id DESC
         LIMIT 100`,
+      stageParams,
+    ),
+    pool.execute(
+      `SELECT COUNT(*) AS total FROM order_status_events e WHERE ${stageConditions.join(" AND ")}`,
       stageParams,
     ),
   ]);
@@ -1060,9 +1101,9 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
     summary: {
       ...summary,
       attributedGrossProfit: summary.grossProfit,
-      inventoryActionsCount: movementRows.length,
-      sessionsCount: sessionRows.length,
-      stageActionsCount: stageRows.length,
+      inventoryActionsCount: Number(movementCountRows?.[0]?.total ?? movementRows.length),
+      sessionsCount: Number(sessionCountRows?.[0]?.total ?? sessionRows.length),
+      stageActionsCount: Number(stageCountRows?.[0]?.total ?? stageRows.length),
     },
     paymentBreakdown: paymentRows.map((row) => ({
       method: row.method,
@@ -1215,7 +1256,8 @@ async function queryProductReportData(range, query = {}) {
          SELECT order_item_id,
                 SUM(line_cost) AS consumption_cost,
                 SUM(CASE WHEN source = 'recipe' THEN line_cost ELSE 0 END) AS recipe_cost,
-                SUM(CASE WHEN source = 'addon' THEN line_cost ELSE 0 END) AS addon_cost
+                SUM(CASE WHEN source = 'addon' THEN line_cost ELSE 0 END) AS addon_cost,
+                SUM(CASE WHEN COALESCE(unit_cost_snapshot, 0) <= 0 THEN 1 ELSE 0 END) AS uncosted_ingredient_count
            FROM order_inventory_consumptions
           WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
           GROUP BY order_item_id
@@ -1312,7 +1354,7 @@ router.get("/products", requireAuth, requireRole("admin"), async (request, respo
   });
 });
 
-async function queryOrdersReportData(range, query = {}, { paginate = true } = {}) {
+async function queryOrdersReportData(range, query = {}, { paginate = true, maxRows = 5000 } = {}) {
   const filters = parseOrderFilters(query);
   const { whereSql, params } = buildOrderWhereClause({
     start: range.start,
@@ -1347,7 +1389,8 @@ async function queryOrdersReportData(range, query = {}, { paginate = true } = {}
      ORDER BY o.created_at DESC, o.id DESC
      ${paginate ? "LIMIT ? OFFSET ?" : "LIMIT ?"}
   `;
-  const orderParams = paginate ? [...params, limit, offset] : [...params, 5000];
+  const safeMaxRows = Math.min(25000, Math.max(100, Number(maxRows) || 5000));
+  const orderParams = paginate ? [...params, limit, offset] : [...params, safeMaxRows];
   const [orderRows] = await pool.query(orderSql, orderParams);
 
   let orderItems = [];
@@ -1454,7 +1497,7 @@ router.get("/orders", requireAuth, requireRole("admin"), async (request, respons
   });
 });
 
-async function queryInventoryActivityData(range, query = {}, { paginate = true } = {}) {
+async function queryInventoryActivityData(range, query = {}, { paginate = true, maxRows = 5000 } = {}) {
   const rawUserId = query.userId !== undefined && query.userId !== "" ? query.userId : query.staffId;
   const rawType = query.movementType !== undefined && query.movementType !== "" ? query.movementType : query.type;
   const { itemId, search } = query;
@@ -1555,7 +1598,9 @@ async function queryInventoryActivityData(range, query = {}, { paginate = true }
         ${whereClause}
         ORDER BY m.created_at DESC, m.id DESC
         ${paginate ? "LIMIT ? OFFSET ?" : "LIMIT ?"}`,
-      paginate ? [...params, limit, offset] : [...params, 5000],
+      paginate
+        ? [...params, limit, offset]
+        : [...params, Math.min(25000, Math.max(100, Number(maxRows) || 5000))],
     ),
   ]);
 
@@ -1628,11 +1673,17 @@ router.get("/export.csv", requireAuth, requireRole("admin"), async (request, res
     throw httpError(400, "Invalid export type. Expected orders, staff, products, or inventory.");
   }
 
+  const bizSettings = await loadBusinessSettings().catch(() => ({ exportRowLimit: 5000 }));
+  const exportRowLimit = Math.min(25000, Math.max(100, Number(bizSettings?.exportRowLimit) || 5000));
   const range = resolveRange(request.query);
   let csvContent;
+  let totalCount;
+  let exportedCount;
 
   if (exportType === "orders") {
-    const data = await queryOrdersReportData(range, request.query, { paginate: false });
+    const data = await queryOrdersReportData(range, request.query, { paginate: false, maxRows: exportRowLimit });
+    totalCount = data.total;
+    exportedCount = data.items.length;
     const headers = [
       "Order Number",
       "Created At",
@@ -1664,6 +1715,8 @@ router.get("/export.csv", requireAuth, requireRole("admin"), async (request, res
     csvContent = buildCsvDocument(headers, rows);
   } else if (exportType === "staff") {
     const data = await queryStaffPerformanceData(range, request.query);
+    totalCount = data.staff.length;
+    exportedCount = data.staff.length;
     const headers = [
       "Staff ID",
       "Display Name",
@@ -1705,6 +1758,8 @@ router.get("/export.csv", requireAuth, requireRole("admin"), async (request, res
     csvContent = buildCsvDocument(headers, rows);
   } else if (exportType === "products") {
     const data = await queryProductReportData(range, request.query);
+    totalCount = data.items.length;
+    exportedCount = data.items.length;
     const headers = [
       "Product ID",
       "Product Name",
@@ -1740,8 +1795,10 @@ router.get("/export.csv", requireAuth, requireRole("admin"), async (request, res
     const data = await queryInventoryActivityData(
       range,
       { ...request.query, type: request.query?.movementType ?? "" },
-      { paginate: false },
+      { paginate: false, maxRows: exportRowLimit },
     );
+    totalCount = data.total;
+    exportedCount = data.items.length;
     const headers = [
       "Movement ID",
       "Timestamp",
@@ -1780,6 +1837,9 @@ router.get("/export.csv", requireAuth, requireRole("admin"), async (request, res
   const stamp = getManilaTodayDateStr();
   response.setHeader("Content-Type", "text/csv; charset=utf-8");
   response.setHeader("Content-Disposition", `attachment; filename="amaya-${exportType}-report-${stamp}.csv"`);
+  response.setHeader("X-Export-Truncated", totalCount > exportedCount ? "true" : "false");
+  response.setHeader("X-Export-Total", String(totalCount));
+  response.setHeader("X-Export-Count", String(exportedCount));
   response.send(csvContent);
 });
 

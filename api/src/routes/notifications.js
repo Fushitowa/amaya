@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { loadBusinessSettings } from "./settings.js";
 
 const router = Router();
 
@@ -33,20 +34,27 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
   if (request.authUser.role === "staff" && !STAFF_PERMITTED_EVENTS.has(type)) {
     throw httpError(403, "Staff members are restricted to transaction event notifications.");
   }
-  const title = String(request.body?.title || "Notice").trim().slice(0, 80);
-  const message = String(request.body?.message || "").trim().slice(0, 200);
+  const title = String(request.body?.title || "Notice").trim().slice(0, 120);
+  const message = String(request.body?.message || "").trim().slice(0, 500);
+  const targetRole = request.authUser.role === "admin" && ["admin", "staff"].includes(String(request.body?.targetRole || "").toLowerCase())
+    ? String(request.body.targetRole).toLowerCase()
+    : null;
   const eventKey = String(request.body?.eventKey || randomUUID()).trim().slice(0, 120);
   if (!type || !title || !eventKey) throw httpError(400, "Notification type, title, and event key are required.");
+  const roleFilter = targetRole ? "AND role = ?" : "";
+  const queryParams = targetRole ? [eventKey, type, title, message, targetRole] : [eventKey, type, title, message];
   await pool.execute(
     `INSERT INTO notifications (user_id, event_key, type, title, message)
-     SELECT id, ?, ?, ?, ? FROM users WHERE is_active = TRUE
+     SELECT id, ?, ?, ?, ? FROM users WHERE is_active = TRUE ${roleFilter}
      ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
-    [eventKey, type, title, message],
+    queryParams,
   );
   response.status(201).json({ saved: true, eventKey });
 });
 
 export async function runInventoryAlertCheck() {
+  const bizSettings = await loadBusinessSettings().catch(() => ({ inactivityAlertDays: 30 }));
+  const inactivityAlertDays = Number(bizSettings?.inactivityAlertDays || 30);
   const connection = await pool.getConnection();
   let lockAcquired = false;
   let transactionStarted = false;
@@ -62,12 +70,13 @@ export async function runInventoryAlertCheck() {
               COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) AS last_activity_at,
               ia.last_activity_at AS previous_activity_at,
               ia.is_inactive AS was_inactive,
-              (COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) <= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 DAY)) AS inactive_now
+              (COALESCE((SELECT MAX(m.created_at) FROM inventory_movements m WHERE m.inventory_item_id = i.id), i.created_at) <= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ? DAY)) AS inactive_now
          FROM inventory_items i
          LEFT JOIN inventory_alert_states s ON s.inventory_item_id = i.id
          LEFT JOIN inventory_inactivity_states ia ON ia.inventory_item_id = i.id
-        WHERE i.archived_at IS NULL
+        WHERE i.is_archived = FALSE
         ORDER BY i.id FOR UPDATE`,
+      [inactivityAlertDays],
     );
     const alerts = [];
     const inactiveAlerts = [];
@@ -96,7 +105,7 @@ export async function runInventoryAlertCheck() {
       const alreadyAlertedForThisInactivePeriod = Boolean(item.was_inactive)
         && previousActivityAt === lastActivityAt;
       if (inactive && !alreadyAlertedForThisInactivePeriod) {
-        const inactiveDays = Math.max(30, Math.floor((Date.now() - lastActivityAt) / 86_400_000));
+        const inactiveDays = Math.max(inactivityAlertDays, Math.floor((Date.now() - lastActivityAt) / 86_400_000));
         inactiveAlerts.push({
           itemId: Number(item.id),
           name: item.name,
@@ -123,8 +132,8 @@ export async function runInventoryAlertCheck() {
     }
     if (inactiveAlerts.length) {
       const title = inactiveAlerts.length === 1
-        ? `${inactiveAlerts[0].name} has been inactive for 30+ days`
-        : `${inactiveAlerts.length} inventory items inactive for 30+ days`;
+        ? `${inactiveAlerts[0].name} has been inactive for ${inactivityAlertDays}+ days`
+        : `${inactiveAlerts.length} inventory items inactive for ${inactivityAlertDays}+ days`;
       const details = inactiveAlerts.slice(0, 7).map((item) => {
         const date = new Date(item.lastActivityAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
         return `${item.name} · no stock movement since ${date} (${item.inactiveDays} days)`;
@@ -132,7 +141,7 @@ export async function runInventoryAlertCheck() {
       if (inactiveAlerts.length > details.length) details.push(`and ${inactiveAlerts.length - details.length} more item${inactiveAlerts.length - details.length === 1 ? "" : "s"}`);
       await connection.execute(
         `INSERT INTO notifications (user_id, event_key, type, title, message)
-         SELECT id, ?, 'inventory_inactive', ?, ? FROM users WHERE is_active = TRUE`,
+         SELECT id, ?, 'inventory_inactive', ?, ? FROM users WHERE is_active = TRUE AND role = 'admin'`,
         [`inventory-inactive-${randomUUID()}`, title, details.join(" · ").slice(0, 1000)],
       );
     }

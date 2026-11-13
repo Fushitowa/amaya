@@ -86,22 +86,33 @@ export function usePortalNotifications() {
   }, [refresh]);
 
   const markAllRead = useCallback(async () => {
-    saveNotifications(notifications.filter((item) => item.source !== "server").map((item) => ({ ...item, read: true })));
-    await apiRequest("/notifications/read-all", { method: "PATCH", body: "{}" }).catch(() => {});
-    refresh();
+    try {
+      await apiRequest("/notifications/read-all", { method: "PATCH", body: "{}" });
+      saveNotifications(notifications.filter((item) => item.source !== "server").map((item) => ({ ...item, read: true })));
+      refresh();
+    } catch {
+      refresh();
+    }
   }, [notifications, refresh, saveNotifications]);
 
   const clearNotifications = useCallback(async () => {
-    saveNotifications([]);
-    await apiRequest("/notifications", { method: "DELETE" }).catch(() => {});
-    refresh();
+    try {
+      await apiRequest("/notifications", { method: "DELETE" });
+      saveNotifications([]);
+      refresh();
+    } catch {
+      refresh();
+    }
   }, [refresh, saveNotifications]);
 
   const markOneRead = useCallback(async (id) => {
     const selected = notifications.find((item) => item.id === id);
     if (selected?.source === "server") {
-      await apiRequest(`/notifications/${id}/read`, { method: "PATCH", body: "{}" }).catch(() => {});
-      refresh();
+      try {
+        await apiRequest(`/notifications/${id}/read`, { method: "PATCH", body: "{}" });
+      } finally {
+        refresh();
+      }
       return;
     }
     saveNotifications(notifications.filter((item) => item.source !== "server").map((item) =>

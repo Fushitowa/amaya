@@ -6,8 +6,9 @@ export const VOID_REASON_PRESETS = [
   "Preparation quality issue",
 ];
 
-export function getDefaultVoidStockAction(status) {
-  return String(status || "") === "Pending" ? "restore" : "spoilage";
+export function getDefaultVoidStockAction(status, defaultAction = "restore") {
+  if (String(status || "") === "Pending") return "restore";
+  return defaultAction === "spoilage" ? "spoilage" : "restore";
 }
 
 export function formatAuditTimestamp(iso) {

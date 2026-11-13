@@ -12,6 +12,8 @@ import sessionRoutes from "../../api/src/routes/sessions.js";
 import reportRoutes from "../../api/src/routes/reports.js";
 import settingsRoutes from "../../api/src/routes/settings.js";
 import financesRoutes from "../../api/src/routes/finances.js";
+import archiveRoutes from "../../api/src/routes/archive.js";
+import notificationsRoutes from "../../api/src/routes/notifications.js";
 
 export function makeUniqueTag(prefix = "Tala") {
   const rand = Math.floor(Math.random() * 1_000_000);
@@ -30,6 +32,8 @@ export function createTestApp() {
   app.use("/api/reports", reportRoutes);
   app.use("/api/settings", settingsRoutes);
   app.use("/api/finances", financesRoutes);
+  app.use("/api/archive", archiveRoutes);
+  app.use("/api/notifications", notificationsRoutes);
 
   app.use((request, response) => {
     response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });
@@ -102,7 +106,13 @@ export function createCleanupTracker() {
   async function trackBusinessSettings() {
     if (businessSettingsSnapshot) return businessSettingsSnapshot;
     const [[row]] = await pool.execute(
-      `SELECT id, business_name, email, phone, address, opening_time, closing_time, target_food_cost, updated_at
+      `SELECT id, business_name, email, phone, address, opening_time, closing_time, is_temporarily_closed,
+              target_food_cost, low_stock_threshold_pct, critical_stock_threshold_pct,
+              inactivity_alert_days, archive_retention_days, max_inventory_adjustment_pct,
+              vat_enabled, vat_rate_pct, discount_presets_json,
+              enforce_shift_gate, auto_print_receipt, default_void_stock_action,
+              require_kitchen_note_approval, idle_lock_minutes, receipt_footer, export_row_limit,
+              notify_all_enabled, notify_order_alerts, notify_inventory_alerts, updated_at
          FROM business_settings
         WHERE id = 1
         LIMIT 1`,
@@ -117,8 +127,14 @@ export function createCleanupTracker() {
       const orig = businessSettingsSnapshot.row;
       await pool.execute(
         `INSERT INTO business_settings
-           (id, business_name, email, phone, address, opening_time, closing_time, target_food_cost, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, business_name, email, phone, address, opening_time, closing_time, is_temporarily_closed,
+            target_food_cost, low_stock_threshold_pct, critical_stock_threshold_pct,
+            inactivity_alert_days, archive_retention_days, max_inventory_adjustment_pct,
+            vat_enabled, vat_rate_pct, discount_presets_json,
+            enforce_shift_gate, auto_print_receipt, default_void_stock_action,
+            require_kitchen_note_approval, idle_lock_minutes, receipt_footer, export_row_limit,
+            notify_all_enabled, notify_order_alerts, notify_inventory_alerts, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            business_name = VALUES(business_name),
            email = VALUES(email),
@@ -126,7 +142,26 @@ export function createCleanupTracker() {
            address = VALUES(address),
            opening_time = VALUES(opening_time),
            closing_time = VALUES(closing_time),
+           is_temporarily_closed = VALUES(is_temporarily_closed),
            target_food_cost = VALUES(target_food_cost),
+           low_stock_threshold_pct = VALUES(low_stock_threshold_pct),
+           critical_stock_threshold_pct = VALUES(critical_stock_threshold_pct),
+           inactivity_alert_days = VALUES(inactivity_alert_days),
+           archive_retention_days = VALUES(archive_retention_days),
+           max_inventory_adjustment_pct = VALUES(max_inventory_adjustment_pct),
+           vat_enabled = VALUES(vat_enabled),
+           vat_rate_pct = VALUES(vat_rate_pct),
+           discount_presets_json = VALUES(discount_presets_json),
+           enforce_shift_gate = VALUES(enforce_shift_gate),
+           auto_print_receipt = VALUES(auto_print_receipt),
+           default_void_stock_action = VALUES(default_void_stock_action),
+           require_kitchen_note_approval = VALUES(require_kitchen_note_approval),
+           idle_lock_minutes = VALUES(idle_lock_minutes),
+           receipt_footer = VALUES(receipt_footer),
+           export_row_limit = VALUES(export_row_limit),
+           notify_all_enabled = VALUES(notify_all_enabled),
+           notify_order_alerts = VALUES(notify_order_alerts),
+           notify_inventory_alerts = VALUES(notify_inventory_alerts),
            updated_at = VALUES(updated_at)`,
         [
           orig.business_name,
@@ -135,7 +170,26 @@ export function createCleanupTracker() {
           orig.address,
           orig.opening_time,
           orig.closing_time,
+          orig.is_temporarily_closed,
           orig.target_food_cost,
+          orig.low_stock_threshold_pct,
+          orig.critical_stock_threshold_pct,
+          orig.inactivity_alert_days,
+          orig.archive_retention_days,
+          orig.max_inventory_adjustment_pct,
+          orig.vat_enabled,
+          orig.vat_rate_pct,
+          orig.discount_presets_json,
+          orig.enforce_shift_gate,
+          orig.auto_print_receipt,
+          orig.default_void_stock_action,
+          orig.require_kitchen_note_approval,
+          orig.idle_lock_minutes,
+          orig.receipt_footer,
+          orig.export_row_limit,
+          orig.notify_all_enabled,
+          orig.notify_order_alerts,
+          orig.notify_inventory_alerts,
           orig.updated_at,
         ],
       );
@@ -324,6 +378,10 @@ export function createCleanupTracker() {
           `DELETE jel FROM journal_entry_lines jel
              JOIN journal_entries je ON je.id = jel.journal_entry_id
             WHERE je.created_by IN (${uMarks})`,
+          uIds
+        );
+        await pool.execute(
+          `UPDATE journal_entries SET reverses_entry_id = NULL WHERE created_by IN (${uMarks}) AND reverses_entry_id IS NOT NULL`,
           uIds
         );
         await pool.execute(`DELETE FROM journal_entries WHERE created_by IN (${uMarks})`, uIds);

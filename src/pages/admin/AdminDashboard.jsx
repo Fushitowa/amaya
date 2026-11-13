@@ -21,6 +21,7 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import "../../assets/css/admin/AdminDashboard.css";
@@ -35,7 +36,12 @@ function AdminDashboard() {
   const { orders, confirmOrder, voidOrder } = useOrders();
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
   const { products = [] } = useMenu() || {};
+  const { businessSettings } = useBusiness() || {};
+  const lowThreshold = businessSettings?.lowStockThresholdPercent ?? 40;
+  const criticalThreshold = businessSettings?.criticalStockThresholdPercent ?? 20;
   const [salesRange, setSalesRange] = useState("today");
+  const [serverTrendState, setServerTrendState] = useState({ range: null, series: null, error: false });
+  const [serverAllProducts, setServerAllProducts] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [serverSummary, setServerSummary] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -68,6 +74,11 @@ function AdminDashboard() {
           if (active && data && typeof data === "object") setServerSummary(data);
         })
         .catch(() => {});
+      apiRequest("/reports/products?rangeKey=all")
+        .then((data) => {
+          if (active && Array.isArray(data?.items)) setServerAllProducts(data.items);
+        })
+        .catch(() => {});
     };
     syncSummary();
     window.addEventListener("amaya:stock-mutated", syncSummary);
@@ -78,6 +89,48 @@ function AdminDashboard() {
       window.removeEventListener("amaya:session-changed", syncSummary);
     };
   }, [orders]);
+
+  useEffect(() => {
+    if (salesRange === "today") return undefined;
+    let active = true;
+    const loadTrend = async () => {
+      try {
+        const manilaTodayStr = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Manila",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date());
+        let qs;
+        if (salesRange === "week") {
+          qs = "rangeKey=7d";
+        } else if (salesRange === "month") {
+          qs = "rangeKey=30d";
+        } else {
+          const [yStr, mStr] = manilaTodayStr.split("-");
+          const y = Number(yStr);
+          const m = Number(mStr);
+          const startDate = new Date(Date.UTC(y, m - 12, 1));
+          const fromStr = `${startDate.getUTCFullYear()}-${String(startDate.getUTCMonth() + 1).padStart(2, "0")}-01`;
+          qs = `rangeKey=custom&from=${fromStr}&to=${manilaTodayStr}`;
+        }
+        const res = await apiRequest(`/reports/financial-summary?${qs}`);
+        if (active && Array.isArray(res?.series)) {
+          setServerTrendState({ range: salesRange, series: res.series, error: false });
+        }
+      } catch {
+        if (active) setServerTrendState({ range: salesRange, series: null, error: true });
+      }
+    };
+    loadTrend();
+    window.addEventListener("amaya:stock-mutated", loadTrend);
+    window.addEventListener("amaya:session-changed", loadTrend);
+    return () => {
+      active = false;
+      window.removeEventListener("amaya:stock-mutated", loadTrend);
+      window.removeEventListener("amaya:session-changed", loadTrend);
+    };
+  }, [salesRange]);
 
   // 1. Total Sales (strictly from non-cancelled verified Paid orders)
   const paidOrders = useMemo(() => orders.filter((order) => isOrderPaid(order)), [orders]);
@@ -172,7 +225,7 @@ function AdminDashboard() {
         const { capacityPercent, reportedPercent, tone: healthTone } = getStockHealth(
           quantity,
           maximumStock,
-          { overMaximum: false },
+          { overMaximum: false, lowThreshold, criticalThreshold },
         );
         const isOutOfStock = status === "Out of Stock" || quantity <= 0;
         const effectiveTone = isOutOfStock ? "critical" : healthTone;
@@ -200,7 +253,7 @@ function AdminDashboard() {
         };
       })
       .filter(Boolean);
-  }, [inventory]);
+  }, [criticalThreshold, inventory, lowThreshold]);
 
   const lowStockBreakdown = useMemo(() => ({
     total: lowStockReport.length,
@@ -223,6 +276,83 @@ function AdminDashboard() {
 
   const [topProductsTab, setTopProductsTab] = useState("all");
   const rankedProducts = useMemo(() => {
+    if (topProductsTab === "all" && Array.isArray(serverAllProducts)) {
+      const byKey = new Map();
+      products.forEach((product) => {
+        const normName = String(product.name || "").trim().toLowerCase();
+        byKey.set(`id:${product.id}`, {
+          key: `id:${product.id}`,
+          productId: product.id,
+          name: product.name,
+          category: product.category || "Menu item",
+          basePrice: parseMenuPrice(product.price),
+          image: product.image || "",
+          inCatalog: true,
+          unitsSold: 0,
+          revenue: 0,
+          cogs: 0,
+          ordersCount: 0,
+          profit: 0,
+          topSize: null,
+          _normName: normName,
+        });
+      });
+
+      const mergedByProduct = new Map();
+      for (const row of serverAllProducts) {
+        const key = row.productId != null ? `id:${row.productId}` : `name:${String(row.productName || "").trim().toLowerCase()}`;
+        const existing = mergedByProduct.get(key) || {
+          key,
+          productId: row.productId ?? null,
+          name: row.productName || "Menu Item",
+          category: row.category || "Archived item",
+          basePrice: 0,
+          image: productImageByName[String(row.productName || "").trim().toLowerCase()] || "",
+          inCatalog: byKey.has(key),
+          unitsSold: 0,
+          revenue: 0,
+          cogs: 0,
+          ordersCount: 0,
+          topSize: null,
+          topSizeUnits: -1,
+        };
+        const units = Number(row.unitsSold || 0);
+        existing.unitsSold += units;
+        existing.revenue += Number(row.sales || 0);
+        existing.cogs += Number(row.cogs || 0);
+        existing.ordersCount += Number(row.ordersCount || 0);
+        if (units > existing.topSizeUnits && row.sizeLabel) {
+          existing.topSize = row.sizeLabel;
+          existing.topSizeUnits = units;
+        }
+        mergedByProduct.set(key, existing);
+      }
+      for (const [key, base] of byKey.entries()) {
+        if (!mergedByProduct.has(key)) mergedByProduct.set(key, base);
+        else {
+          const item = mergedByProduct.get(key);
+          item.inCatalog = true;
+          item.image = base.image || item.image;
+          item.basePrice = base.basePrice;
+          item.name = base.name;
+          item.category = base.category;
+        }
+      }
+      const list = [...mergedByProduct.values()].map((entry) => ({
+        ...entry,
+        profit: entry.revenue - entry.cogs,
+      }));
+      list.sort((a, b) => b.unitsSold - a.unitsSold || b.revenue - a.revenue || a.name.localeCompare(b.name));
+      const totalUnits = list.reduce((sum, item) => sum + item.unitsSold, 0);
+      const maxUnits = Math.max(1, list[0]?.unitsSold || 0);
+      return list.map((item, idx) => ({
+        ...item,
+        rank: idx + 1,
+        sharePercent: totalUnits > 0 ? (item.unitsSold / totalUnits) * 100 : 0,
+        barPercent: item.unitsSold > 0 ? Math.max(6, (item.unitsSold / maxUnits) * 100) : 0,
+      }));
+    }
+
     const sourceOrders = topProductsTab === "today" ? todaysPaidOrders : paidOrders;
     const byKey = new Map();
     const nameToKey = new Map();
@@ -306,7 +436,7 @@ function AdminDashboard() {
       sharePercent: totalUnits > 0 ? (item.unitsSold / totalUnits) * 100 : 0,
       barPercent: item.unitsSold > 0 ? Math.max(6, (item.unitsSold / maxUnits) * 100) : 0,
     }));
-  }, [paidOrders, products, todaysPaidOrders, topProductsTab]);
+  }, [paidOrders, products, productImageByName, serverAllProducts, todaysPaidOrders, topProductsTab]);
   const [ordersTab, setOrdersTab] = useState("today");
   const todaysOrders = useMemo(() => orders.filter((order) => isToday(order.createdAt)), [orders]);
   const displayOrders = ordersTab === "today" ? todaysOrders : orders;
@@ -317,43 +447,79 @@ function AdminDashboard() {
     year: "numeric",
   });
   const salesBuckets = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const manilaTodayStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const [mYear, mMonth, mDay] = manilaTodayStr.split("-").map(Number);
+    const manilaMidnight = new Date(`${manilaTodayStr}T00:00:00+08:00`);
     let buckets;
 
     if (salesRange === "today") {
-      const hours = [8, 10, 12, 14, 16, 18, 20];
+      const hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
       buckets = hours.map((hour) => {
-        const start = new Date(today);
-        start.setHours(hour, 0, 0, 0);
-        const end = new Date(today);
-        end.setHours(hour + 2, 0, 0, 0);
-        const formatHour = hour === 12 ? "12PM" : hour > 12 ? `${hour - 12}PM` : `${hour}AM`;
+        const start = new Date(manilaMidnight.getTime() + hour * 3_600_000);
+        const end = new Date(manilaMidnight.getTime() + (hour + 2) * 3_600_000);
+        const formatHour = hour === 0 ? "12AM" : hour === 12 ? "12PM" : hour > 12 ? `${hour - 12}PM` : `${hour}AM`;
         return { start, end, label: formatHour };
       });
     } else if (salesRange === "year") {
       buckets = Array.from({ length: 12 }, (_, index) => {
-        const start = new Date(today.getFullYear(), today.getMonth() - 11 + index, 1);
-        const end = new Date(today.getFullYear(), today.getMonth() - 10 + index, 1);
-        return { start, end, label: start.toLocaleDateString("en-US", { month: "short" }) };
+        const dStart = new Date(Date.UTC(mYear, mMonth - 12 + index, 1));
+        const dEnd = new Date(Date.UTC(mYear, mMonth - 11 + index, 1));
+        const startStr = `${dStart.getUTCFullYear()}-${String(dStart.getUTCMonth() + 1).padStart(2, "0")}-01`;
+        const endStr = `${dEnd.getUTCFullYear()}-${String(dEnd.getUTCMonth() + 1).padStart(2, "0")}-01`;
+        const start = new Date(`${startStr}T00:00:00+08:00`);
+        const end = new Date(`${endStr}T00:00:00+08:00`);
+        const label = dStart.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+        return { start, end, label, ymKey: startStr.slice(0, 7) };
       });
     } else {
       const days = salesRange === "month" ? 30 : 7;
       const bucketDays = salesRange === "month" ? 5 : 1;
-      const start = new Date(today);
-      start.setDate(start.getDate() - days + 1);
+      const startBase = new Date(Date.UTC(mYear, mMonth - 1, mDay - days + 1));
       buckets = Array.from({ length: days / bucketDays }, (_, index) => {
-        const bucketStart = new Date(start);
-        bucketStart.setDate(bucketStart.getDate() + index * bucketDays);
-        const end = new Date(bucketStart);
-        end.setDate(end.getDate() + bucketDays);
+        const bStartUtc = new Date(startBase.getTime() + index * bucketDays * 86_400_000);
+        const bEndUtc = new Date(bStartUtc.getTime() + bucketDays * 86_400_000);
+        const startIso = `${bStartUtc.getUTCFullYear()}-${String(bStartUtc.getUTCMonth() + 1).padStart(2, "0")}-${String(bStartUtc.getUTCDate()).padStart(2, "0")}`;
+        const endIso = `${bEndUtc.getUTCFullYear()}-${String(bEndUtc.getUTCMonth() + 1).padStart(2, "0")}-${String(bEndUtc.getUTCDate()).padStart(2, "0")}`;
         return {
-          start: bucketStart,
-          end,
+          start: new Date(`${startIso}T00:00:00+08:00`),
+          end: new Date(`${endIso}T00:00:00+08:00`),
+          startIso,
+          endIso,
           label: salesRange === "week"
-            ? bucketStart.toLocaleDateString("en-US", { weekday: "short" })
-            : bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            ? bStartUtc.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })
+            : bStartUtc.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
         };
+      });
+    }
+
+    const activeServerSeries = salesRange !== "today" && serverTrendState.range === salesRange && Array.isArray(serverTrendState.series)
+      ? serverTrendState.series
+      : null;
+
+    if (activeServerSeries) {
+      return buckets.map((bucket) => {
+        let bucketTotal = 0;
+        let bucketCogs = 0;
+        let bucketProfit = 0;
+        for (const dayRow of activeServerSeries) {
+          if (salesRange === "year") {
+            if (String(dayRow.date || "").startsWith(bucket.ymKey)) {
+              bucketTotal += Number(dayRow.sales || 0);
+              bucketCogs += Number(dayRow.cogs || 0);
+              bucketProfit += Number(dayRow.profit ?? (Number(dayRow.sales || 0) - Number(dayRow.cogs || 0)));
+            }
+          } else if (dayRow.date >= bucket.startIso && dayRow.date < bucket.endIso) {
+            bucketTotal += Number(dayRow.sales || 0);
+            bucketCogs += Number(dayRow.cogs || 0);
+            bucketProfit += Number(dayRow.profit ?? (Number(dayRow.sales || 0) - Number(dayRow.cogs || 0)));
+          }
+        }
+        return { ...bucket, total: bucketTotal, cogs: bucketCogs, profit: bucketProfit };
       });
     }
 
@@ -380,7 +546,8 @@ function AdminDashboard() {
         profit: bucketTotal - bucketCogs,
       };
     });
-  }, [orders, salesRange]);
+  }, [orders, salesRange, serverTrendState]);
+  const usingCachedTrendFallback = salesRange !== "today" && serverTrendState.range === salesRange && serverTrendState.error;
   const periodSales = salesBuckets.reduce((sum, bucket) => sum + bucket.total, 0);
   const periodProfit = salesBuckets.reduce((sum, bucket) => sum + (bucket.profit || 0), 0);
   const chartMaximum = Math.max(1, ...salesBuckets.map((bucket) => bucket.total));
@@ -709,7 +876,10 @@ function AdminDashboard() {
                       <span className="sales-paper-stamp">VERIFIED</span>
                     </div>
                     <h3>Sales Overview</h3>
-                    <p>Sales performance for {chartRangeLabel}</p>
+                    <p>
+                      Sales performance for {chartRangeLabel}
+                      {usingCachedTrendFallback ? " (showing cached latest 500 orders)" : ""}
+                    </p>
                   </div>
 
                   <div className="sales-header-controls">

@@ -3,6 +3,8 @@ import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
+import { postOrderSaleAndCogs, postOrderVoidReversal } from "../utils/ledgerService.js";
+import { loadBusinessSettings } from "./settings.js";
 
 // A size with its own recipe rows uses them exclusively; only a size with none falls back to the base recipe.
 export const selectRecipe = (sizeRecipe, baseRecipe) => (sizeRecipe.length ? sizeRecipe : baseRecipe);
@@ -98,6 +100,10 @@ function mapOrderRecord(
           notes: item.instructions,
         };
       }),
+    subtotal: Number(order.subtotal ?? order.total),
+    discountAmount: Number(order.discount_amount ?? 0),
+    discountLabel: order.discount_label || null,
+    taxAmount: Number(order.tax_amount ?? 0),
     total: Number(order.total),
     status: order.order_status,
     type: order.order_type,
@@ -330,6 +336,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
   const paymentMethod = paymentMethods.includes(request.body.paymentMethod) ? request.body.paymentMethod : "Cash";
   const customer = String(request.body.customerName || "Walk-in Customer").trim().slice(0, 160) || "Walk-in Customer";
   const orderNotes = String(request.body?.notes || "").trim().slice(0, 500) || null;
+  const bizSettings = await loadBusinessSettings();
   const connection = await pool.getConnection();
   let orderNumber;
   try {
@@ -340,8 +347,11 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       [request.authUser.sub],
     );
     const sessionId = activeSession ? Number(activeSession.id) : null;
+    if (bizSettings.enforceShiftGate && !activeSession) {
+      throw httpError(409, "Open a cashier shift before placing orders (Shift Gate is active in Settings).");
+    }
     const lineItems = [];
-    let total = 0;
+    let subtotal = 0;
 
     for (const item of items) {
       const productId = Number(item.productId);
@@ -405,7 +415,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
           throw httpError(400, `The price for ${product.name} (${canonicalSizeLabel}) does not match the current menu price.`);
         }
       }
-      total = Math.round((total + unitPrice * quantity) * 100) / 100;
+      subtotal = Math.round((subtotal + unitPrice * quantity) * 100) / 100;
       const itemInstructions = String(item.instructions || item.notes || "").trim().slice(0, 500) || null;
       lineItems.push({
         product,
@@ -556,6 +566,43 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       }
     }
 
+    let discountAmount = 0;
+    let discountLabel = null;
+    const requestedDiscountLabel = String(request.body?.discountLabel || "").trim();
+    if (requestedDiscountLabel) {
+      const matchedPreset = (bizSettings.discountPresets || []).find(
+        (p) => String(p.label || "").trim().toLowerCase() === requestedDiscountLabel.toLowerCase(),
+      );
+      if (!matchedPreset) {
+        throw httpError(400, "Selected discount preset is not configured in Business Settings.");
+      }
+      discountLabel = matchedPreset.label;
+      discountAmount = Math.min(
+        subtotal,
+        Math.round(((subtotal * Number(matchedPreset.pct || 0)) / 100) * 100) / 100,
+      );
+    } else if (
+      request.body?.discountAmount !== undefined &&
+      request.body.discountAmount !== null &&
+      Number(request.body.discountAmount) > 0
+    ) {
+      if (request.authUser.role !== "admin") {
+        throw httpError(403, "Only admins may apply custom unconfigured discounts.");
+      }
+      const parsedDiscount = Number(request.body.discountAmount);
+      if (!Number.isFinite(parsedDiscount) || parsedDiscount < 0 || parsedDiscount > subtotal) {
+        throw httpError(400, "Discount amount must be between 0 and the order subtotal.");
+      }
+      discountAmount = Math.round(parsedDiscount * 100) / 100;
+      discountLabel = "Custom Admin Discount";
+    }
+
+    const netTaxable = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+    const taxAmount = bizSettings.vatEnabled && Number(bizSettings.vatRatePercent) > 0
+      ? Math.round(((netTaxable * Number(bizSettings.vatRatePercent)) / 100) * 100) / 100
+      : 0;
+    const total = Math.round((netTaxable + taxAmount) * 100) / 100;
+
     const tendered = paymentMethod === "Cash" ? Number(request.body.cashTendered ?? total) : null;
     if (tendered != null && (!Number.isFinite(tendered) || tendered < total)) throw httpError(400, "Cash tendered must cover the order total.");
     const change = tendered == null ? null : Math.round((tendered - total) * 100) / 100;
@@ -563,15 +610,18 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
     const [created] = await connection.execute(
       `INSERT INTO orders (
          order_number, customer_name, order_type, order_status, payment_status, payment_method,
-         subtotal, total, cash_tendered, change_due, paid_at, created_by, cashier_name,
+         subtotal, discount_amount, discount_label, tax_amount, total, cash_tendered, change_due, paid_at, created_by, cashier_name,
          notes, paid_by, session_id
-       ) VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
       [
         orderNumber,
         customer,
         type,
         paymentMethod,
-        total,
+        subtotal,
+        discountAmount,
+        discountLabel,
+        taxAmount,
         total,
         tendered,
         change,
@@ -600,6 +650,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       }
     }
 
+    let orderTotalCogs = 0;
     for (const line of lineItems) {
       if (line.hasRecipe) {
         await connection.execute(
@@ -630,8 +681,10 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       let itemUnitCostSnapshot = null;
       if (lineConsumptions.length > 0 && totalLineCost > 0 && line.quantity > 0) {
         itemUnitCostSnapshot = Number((totalLineCost / line.quantity).toFixed(4));
+        orderTotalCogs += totalLineCost;
       } else if (productCostPrice > 0) {
         itemUnitCostSnapshot = Number(productCostPrice.toFixed(4));
+        orderTotalCogs += productCostPrice * line.quantity;
       }
 
       const [createdItem] = await connection.execute(
@@ -691,6 +744,20 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         );
       }
     }
+
+    await postOrderSaleAndCogs(connection, {
+      orderId: created.insertId,
+      orderNumber,
+      total,
+      subtotal,
+      discountAmount,
+      taxAmount,
+      paymentMethod,
+      totalCogs: orderTotalCogs,
+      sessionId,
+      userId: request.authUser.sub,
+    });
+
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -794,7 +861,7 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
   try {
     await connection.beginTransaction();
     const [[order]] = await connection.execute(
-      "SELECT id, order_status, payment_status, payment_method, total, cash_tendered, change_due, paid_at FROM orders WHERE order_number = ? FOR UPDATE",
+      "SELECT id, order_number, order_status, payment_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due, paid_at, session_id FROM orders WHERE order_number = ? FOR UPDATE",
       [request.params.orderNumber],
     );
     if (!order) throw httpError(404, "Order not found.");
@@ -838,6 +905,34 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
        VALUES (?, ?, ?, ?, ?, ?)`,
       [order.id, order.order_status, order.order_status, actorId, actorName, `Payment recorded (${nextMethod})`],
     );
+
+    const [[cogsRow]] = await connection.execute(
+      `SELECT COALESCE((SELECT SUM(line_cost) FROM order_inventory_consumptions WHERE order_id = ?), 0) AS inv_cogs,
+              COALESCE((
+                SELECT SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0))
+                  FROM order_items oi
+                 WHERE oi.order_id = ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM order_inventory_consumptions oic
+                      WHERE oic.order_item_id = oi.id AND oic.source = 'recipe'
+                   )
+              ), 0) AS direct_cogs`,
+      [order.id, order.id],
+    );
+    const totalOrderCogs = Number(cogsRow?.inv_cogs || 0) + Number(cogsRow?.direct_cogs || 0);
+    await postOrderSaleAndCogs(connection, {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      total: orderTotal,
+      subtotal: Number(order.subtotal ?? orderTotal),
+      discountAmount: Number(order.discount_amount ?? 0),
+      taxAmount: Number(order.tax_amount ?? 0),
+      paymentMethod: nextMethod,
+      totalCogs: totalOrderCogs,
+      sessionId: order.session_id ? Number(order.session_id) : null,
+      userId: actorId,
+    });
+
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -892,7 +987,7 @@ router.post("/:orderNumber/void", requireAuth, requireRole("admin"), async (requ
     );
 
     const [consumptions] = await connection.execute(
-      `SELECT id, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit
+      `SELECT id, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, line_cost
          FROM order_inventory_consumptions
         WHERE order_id = ? AND reversed_at IS NULL
         ORDER BY inventory_item_id ASC, id ASC
@@ -975,8 +1070,9 @@ router.post("/:orderNumber/void", requireAuth, requireRole("admin"), async (requ
         await connection.execute(
           `INSERT INTO inventory_movements (
              inventory_item_id, user_id, movement_type, quantity_change, note,
-             item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit, order_id, session_id
-           ) VALUES (?, ?, 'spoilage', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
+             batch_cost, order_id, session_id
+           ) VALUES (?, ?, 'spoilage', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             invId,
             actorId,
@@ -986,12 +1082,37 @@ router.post("/:orderNumber/void", requireAuth, requireRole("admin"), async (requ
             currentQty,
             currentQty,
             state?.unit || consumption.unit,
+            Number(Number(consumption.line_cost || 0).toFixed(2)),
             order.id,
             sessionId,
           ],
         );
       }
     }
+
+    const [[voidCogsRow]] = await connection.execute(
+      `SELECT COALESCE((SELECT SUM(line_cost) FROM order_inventory_consumptions WHERE order_id = ?), 0) AS inv_cogs,
+              COALESCE((
+                SELECT SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0))
+                  FROM order_items oi
+                 WHERE oi.order_id = ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM order_inventory_consumptions oic
+                      WHERE oic.order_item_id = oi.id AND oic.source = 'recipe'
+                   )
+              ), 0) AS direct_cogs`,
+      [order.id, order.id],
+    );
+    const voidTotalCogs = Number(voidCogsRow?.inv_cogs || 0) + Number(voidCogsRow?.direct_cogs || 0);
+    await postOrderVoidReversal(connection, {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      restoreStock,
+      totalCogs: voidTotalCogs,
+      reason,
+      sessionId,
+      userId: actorId,
+    });
 
     await connection.commit();
   } catch (error) {

@@ -159,7 +159,7 @@ function Sidebar({
         {role !== "admin" && (
           <>
         <a
-          href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"}
+          href={import.meta.env.VITE_CUSTOMER_URL || (typeof window !== "undefined" ? `${window.location.origin}/` : "/")}
           className="amaya-sidebar-link"
           title="Back to Website"
         >
@@ -181,7 +181,7 @@ function Sidebar({
           <>
             {accountOpen && (
               <div className="amaya-sidebar-account-menu" role="menu">
-                <a href={import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173/"} className="amaya-sidebar-link" role="menuitem">
+                <a href={import.meta.env.VITE_CUSTOMER_URL || (typeof window !== "undefined" ? `${window.location.origin}/` : "/")} className="amaya-sidebar-link" role="menuitem">
                   <ArrowLeft aria-hidden="true" />
                   <span className="amaya-sidebar-link-label">Back to Website</span>
                 </a>

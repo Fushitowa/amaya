@@ -500,23 +500,30 @@ router.get("/categories", optionalAuth, async (request, response) => {
   const [rows] = await pool.execute(
     `SELECT c.id, c.name, c.description, c.operational_family AS operationalFamily,
             c.display_order AS displayOrder, c.is_active AS isActive,
-            COUNT(p.id) AS productCount
+            COUNT(CASE WHEN p.is_archived = FALSE THEN 1 END) AS productCount,
+            COUNT(CASE WHEN p.is_archived = TRUE THEN 1 END) AS archivedProductCount
        FROM menu_categories c
-       LEFT JOIN menu_products p ON p.category_id = c.id AND p.is_archived = FALSE
+       LEFT JOIN menu_products p ON p.category_id = c.id
       WHERE (? = 1 OR c.is_active = TRUE)
       GROUP BY c.id
       ORDER BY c.display_order ASC, c.name ASC`,
     [showAll ? 1 : 0],
   );
-  response.json(rows.map((row) => ({
-    id: Number(row.id),
-    name: row.name,
-    description: row.description || "",
-    operationalFamily: row.operationalFamily || "general",
-    displayOrder: Number(row.displayOrder || 0),
-    isActive: Boolean(row.isActive),
-    productCount: Number(row.productCount || 0),
-  })));
+  response.json(rows.map((row) => {
+    const productCount = Number(row.productCount || 0);
+    const archivedProductCount = Number(row.archivedProductCount || 0);
+    return {
+      id: Number(row.id),
+      name: row.name,
+      description: row.description || "",
+      operationalFamily: row.operationalFamily || "general",
+      displayOrder: Number(row.displayOrder || 0),
+      isActive: Boolean(row.isActive),
+      productCount,
+      archivedProductCount,
+      totalCount: productCount + archivedProductCount,
+    };
+  }));
 });
 
 router.post("/categories", requireAuth, requireRole("admin"), async (request, response) => {
@@ -619,6 +626,48 @@ router.delete("/categories/:id", requireAuth, requireRole("admin"), async (reque
 
   await pool.execute("DELETE FROM menu_categories WHERE id = ?", [id]);
   response.json({ message: `Menu category “${category.name}” deleted successfully.`, id });
+});
+
+router.put("/categories/:id/reassign-and-delete", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = idFrom(request.params.id);
+  const targetId = Number(request.body?.targetCategoryId);
+  if (!Number.isSafeInteger(targetId) || targetId <= 0 || targetId === id) {
+    throw httpError(400, "Valid target category ID is required for reassignment.");
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[sourceCategory]] = await connection.execute(
+      "SELECT id, name FROM menu_categories WHERE id = ? FOR UPDATE",
+      [id],
+    );
+    if (!sourceCategory) throw httpError(404, "Source menu category not found.");
+
+    const [[targetCategory]] = await connection.execute(
+      "SELECT id, name FROM menu_categories WHERE id = ? FOR UPDATE",
+      [targetId],
+    );
+    if (!targetCategory) throw httpError(404, "Target menu category not found.");
+
+    const [updateResult] = await connection.execute(
+      "UPDATE menu_products SET category_id = ? WHERE category_id = ?",
+      [targetId, id],
+    );
+
+    await connection.execute("DELETE FROM menu_categories WHERE id = ?", [id]);
+    await connection.commit();
+    response.json({
+      message: `Menu category “${sourceCategory.name}” deleted. Reassigned ${updateResult.affectedRows} item(s) to “${targetCategory.name}”.`,
+      id,
+      reassignedCount: updateResult.affectedRows,
+    });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 router.get("/", optionalAuth, async (request, response) => {

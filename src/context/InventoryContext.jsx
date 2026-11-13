@@ -140,6 +140,8 @@ function InventoryProvider({ children }) {
       const batchCost = isMetaObj ? metaOrBatchCost.batchCost : metaOrBatchCost;
       const supplierName = isMetaObj ? String(metaOrBatchCost.supplierName || "").trim() : "";
       const referenceNo = isMetaObj ? String(metaOrBatchCost.referenceNo || "").trim() : "";
+      const creditAccountCode = isMetaObj ? String(metaOrBatchCost.creditAccountCode || "").trim() : "";
+      const diluteZeroCost = isMetaObj ? Boolean(metaOrBatchCost.diluteZeroCost) : false;
       const payload = {
         quantity,
         ...(batchCost !== undefined && batchCost !== null && String(batchCost).trim() !== ""
@@ -147,6 +149,8 @@ function InventoryProvider({ children }) {
           : {}),
         ...(supplierName ? { supplierName } : {}),
         ...(referenceNo ? { referenceNo } : {}),
+        ...(creditAccountCode ? { creditAccountCode } : {}),
+        ...(diluteZeroCost ? { diluteZeroCost: true } : {}),
       };
       const saved = await apiRequest(`/inventory/${id}/restock`, { method: "POST", body: JSON.stringify(payload) });
       setInventory((current) => current.map((item) => item.id === id ? saved : item));

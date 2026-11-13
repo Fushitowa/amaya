@@ -1,23 +1,15 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { getManilaDateString, isValidIsoDateOnly, round2 } from "../utils/ledgerService.js";
 
 const router = Router();
-
-function isValidIsoDateOnly(value) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const check = new Date(Date.UTC(year, month - 1, day));
-  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
-}
 
 function mapSessionRow(row) {
   const openingFloat = Number(row.opening_float || 0);
   const cashSales = Number(row.cash_sales || 0);
-  const liveExpectedCash = Number((openingFloat + cashSales).toFixed(2));
+  const cashRestocks = Number(row.cash_restocks || 0);
+  const liveExpectedCash = Number((openingFloat + cashSales - cashRestocks).toFixed(2));
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
@@ -56,7 +48,8 @@ const SESSION_AGGREGATE_SQL = `
          COALESCE(os.cash_sales, 0) AS cash_sales,
          COALESCE(os.gcash_sales, 0) AS gcash_sales,
          COALESCE(os.card_sales, 0) AS card_sales,
-         COALESCE(ms.movements_count, 0) AS movements_count
+         COALESCE(ms.movements_count, 0) AS movements_count,
+         COALESCE(rs.cash_restocks, 0) AS cash_restocks
     FROM cashier_sessions cs
     LEFT JOIN users u ON u.id = cs.user_id
     LEFT JOIN users uc ON uc.id = cs.closed_by
@@ -79,6 +72,17 @@ const SESSION_AGGREGATE_SQL = `
        WHERE session_id IS NOT NULL
        GROUP BY session_id
     ) ms ON ms.session_id = cs.id
+    LEFT JOIN (
+      SELECT je.session_id,
+             COALESCE(SUM(jel.credit - jel.debit), 0.00) AS cash_restocks
+        FROM journal_entries je
+        JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+        JOIN chart_of_accounts coa ON coa.id = jel.account_id
+       WHERE je.session_id IS NOT NULL
+         AND je.entry_type = 'inventory_restock'
+         AND coa.account_code = '1010'
+       GROUP BY je.session_id
+    ) rs ON rs.session_id = cs.id
 `;
 
 async function fetchSessionById(sessionId) {
@@ -157,15 +161,6 @@ router.get("/current", requireAuth, requireRole("admin", "staff"), async (reques
   );
   response.json({ session: row ? mapSessionRow(row) : null });
 });
-
-function getManilaDateString() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 router.post("/open", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const rawFloat = request.body?.openingFloat ?? 0;
@@ -277,7 +272,17 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
         WHERE session_id = ?`,
       [sessionId],
     );
-    const expectedCash = Number((Number(session.opening_float || 0) + Number(cashRow?.cash_sales || 0)).toFixed(2));
+    const [[restockRow]] = await connection.execute(
+      `SELECT COALESCE(SUM(jel.credit - jel.debit), 0.00) AS cash_restocks
+         FROM journal_entries je
+         JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+        WHERE je.session_id = ?
+          AND je.entry_type = 'inventory_restock'
+          AND coa.account_code = '1010'`,
+      [sessionId],
+    );
+    const expectedCash = Number((Number(session.opening_float || 0) + Number(cashRow?.cash_sales || 0) - Number(restockRow?.cash_restocks || 0)).toFixed(2));
     const roundedCounted = Number(countedCash.toFixed(2));
     const variance = Number((roundedCounted - expectedCash).toFixed(2));
 
@@ -294,13 +299,33 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
       [expectedCash, roundedCounted, variance, closingNotes, request.authUser.sub, sessionId],
     );
 
-    // Update store daily asset snapshot with closing figures and net asset delta
-    const today = getManilaDateString();
-    const [[existingSnapshot]] = await connection.execute(
+    // Update store daily asset snapshot tied to the session's Manila open date
+    const sessionBusinessDate = getManilaDateString(new Date(session.opened_at));
+    let [[existingSnapshot]] = await connection.execute(
       "SELECT * FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
-      [today]
+      [sessionBusinessDate]
     );
+    if (!existingSnapshot) {
+      const todayManila = getManilaDateString();
+      [[existingSnapshot]] = await connection.execute(
+        "SELECT * FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
+        [todayManila]
+      );
+    }
     if (existingSnapshot) {
+      const targetDate = existingSnapshot.business_date
+        ? getManilaDateString(existingSnapshot.business_date)
+        : sessionBusinessDate;
+      const [[openSiblings]] = await connection.execute(
+        `SELECT COUNT(*) AS open_count
+           FROM cashier_sessions
+          WHERE status = 'open'
+            AND id <> ?
+            AND DATE(CONVERT_TZ(opened_at, '+00:00', '+08:00')) = ?`,
+        [sessionId, sessionBusinessDate]
+      );
+      const nextSnapStatus = Number(openSiblings?.open_count || 0) === 0 ? "closed" : "open";
+
       const [coaRows] = await connection.query(
         `SELECT coa.account_code, COALESCE(v.current_balance, 0.00) AS balance
            FROM chart_of_accounts coa
@@ -308,29 +333,110 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
           WHERE coa.is_active = TRUE`
       );
       const accMap = new Map(coaRows.map((r) => [r.account_code, Number(r.balance || 0)]));
-      const liquid = Number(((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0)).toFixed(2));
-      const equipment = Number((accMap.get("1510") || 0).toFixed(2));
+      const liquid = round2((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0));
+      const equipment = round2(accMap.get("1510") || 0);
 
       const [[invRow]] = await connection.query(
         "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS inv_val FROM inventory_items WHERE is_archived = FALSE"
       );
-      const inventoryVal = Number(Number(invRow?.inv_val || 0).toFixed(2));
-      const totalClosingAssets = Number((liquid + inventoryVal + equipment).toFixed(2));
+      const inventoryVal = round2(invRow?.inv_val || 0);
+      const totalClosingAssets = round2(liquid + inventoryVal + equipment);
       const openingTotal = Number(existingSnapshot.opening_total_assets || 0);
-      const delta = Number((totalClosingAssets - openingTotal).toFixed(2));
+      const delta = round2(totalClosingAssets - openingTotal);
+
+      // Compute full daily performance & ledger metrics for this businessDate
+      const [dailyJeLines] = await connection.execute(
+        `SELECT coa.account_code,
+                je.entry_type,
+                COALESCE(SUM(jel.debit), 0.00) AS total_debit,
+                COALESCE(SUM(jel.credit), 0.00) AS total_credit
+           FROM journal_entries je
+           JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+           JOIN chart_of_accounts coa ON coa.id = jel.account_id
+          WHERE DATE(CONVERT_TZ(je.entry_date, '+00:00', '+08:00')) = ?
+          GROUP BY coa.account_code, je.entry_type`,
+        [targetDate]
+      );
+
+      let grossSales = 0;
+      let discountsGranted = 0;
+      let cogsConsumed = 0;
+      let operatingExpenses = 0;
+      let capitalInjections = 0;
+      let ownerWithdrawals = 0;
+      let spoilageShrinkage = 0;
+
+      for (const l of dailyJeLines) {
+        const debit = Number(l.total_debit || 0);
+        const credit = Number(l.total_credit || 0);
+        if (l.account_code === "4010") grossSales += (credit - debit);
+        else if (l.account_code === "4020") discountsGranted += (debit - credit);
+        else if (l.account_code === "5010") cogsConsumed += (debit - credit);
+        else if (l.account_code === "6030") spoilageShrinkage += (debit - credit);
+        else if (l.account_code.startsWith("60")) operatingExpenses += (debit - credit);
+        else if (l.account_code === "3010" && l.entry_type === "capital_injection") capitalInjections += (credit - debit);
+        else if (l.account_code === "3020") ownerWithdrawals += (debit - credit);
+      }
+
+      const [[varianceSum]] = await connection.execute(
+        `SELECT COALESCE(SUM(variance), 0.00) AS day_variance
+           FROM cashier_sessions
+          WHERE status = 'closed'
+            AND DATE(CONVERT_TZ(opened_at, '+00:00', '+08:00')) = ?`,
+        [sessionBusinessDate]
+      );
+
+      const cleanGrossSales = round2(Math.max(0, grossSales));
+      const cleanDiscounts = round2(Math.max(0, discountsGranted));
+      const cleanNetSales = round2(Math.max(0, cleanGrossSales - cleanDiscounts));
+      const cleanCogs = round2(Math.max(0, cogsConsumed));
+      const cleanGrossProfit = round2(cleanNetSales - cleanCogs);
+      const cleanOpex = round2(operatingExpenses + Math.max(0, spoilageShrinkage));
+      const cleanNetProfit = round2(cleanGrossProfit - cleanOpex);
 
       await connection.execute(
         `UPDATE store_daily_asset_snapshots
-            SET status = 'closed',
+            SET status = ?,
                 closing_liquid_assets = ?,
                 closing_inventory_value = ?,
                 closing_non_current_assets = ?,
                 closing_total_assets = ?,
+                gross_sales = ?,
+                discounts_granted = ?,
+                net_sales = ?,
+                cogs_consumed = ?,
+                gross_profit = ?,
+                operating_expenses = ?,
+                net_operating_profit = ?,
+                capital_injections = ?,
+                owner_withdrawals = ?,
+                drawer_variance = ?,
+                spoilage_shrinkage = ?,
                 net_asset_delta = ?,
                 closed_by = ?,
                 closed_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
-        [liquid, inventoryVal, equipment, totalClosingAssets, delta, request.authUser.sub, existingSnapshot.id]
+        [
+          nextSnapStatus,
+          liquid,
+          inventoryVal,
+          equipment,
+          totalClosingAssets,
+          cleanGrossSales,
+          cleanDiscounts,
+          cleanNetSales,
+          cleanCogs,
+          cleanGrossProfit,
+          cleanOpex,
+          cleanNetProfit,
+          round2(Math.max(0, capitalInjections)),
+          round2(Math.max(0, ownerWithdrawals)),
+          round2(varianceSum?.day_variance || 0),
+          round2(Math.max(0, spoilageShrinkage)),
+          delta,
+          request.authUser.sub,
+          existingSnapshot.id,
+        ]
       );
     }
 
@@ -522,7 +628,9 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
     referenceNo: row.reference_no || null,
     orderId: row.order_id == null ? null : Number(row.order_id),
     orderNumber: row.order_number || null,
-    note: row.note || "",
+    note: isAdmin
+      ? (row.note || "")
+      : String(row.note || "").replace(/\s+for\s+₱[\d,.]+(?:\s*·\s*new avg\s+₱[\d,.]+\/[^\s)]+)?/gi, ""),
     actor: row.actor_name || "System",
     timestamp: new Date(row.created_at).toISOString(),
   }));

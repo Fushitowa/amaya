@@ -3,6 +3,8 @@ import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordArchiveAudit } from "./archive.js";
 import { retargetRecipeUnits } from "../utils/recipeUnitSync.js";
+import { getUnitDimension } from "../utils/inventoryUnits.js";
+import { postBalancedEntry, postInventoryValuationDelta } from "../utils/ledgerService.js";
 
 const router = Router();
 const mapItem = (row, includeCost = true) => {
@@ -135,25 +137,32 @@ router.get("/categories", requireAuth, requireRole("admin", "staff"), async (req
     `SELECT c.id, c.name, c.description, c.is_cup_category AS isCupCategory,
             c.is_system AS isSystem, c.display_order AS displayOrder,
             c.is_active AS isActive,
-            COUNT(i.id) AS itemCount
+            COUNT(CASE WHEN i.is_archived = FALSE THEN 1 END) AS itemCount,
+            COUNT(CASE WHEN i.is_archived = TRUE THEN 1 END) AS archivedItemCount
        FROM inventory_categories c
-       LEFT JOIN inventory_items i ON i.category COLLATE utf8mb4_unicode_ci = c.name COLLATE utf8mb4_unicode_ci AND i.is_archived = FALSE
+       LEFT JOIN inventory_items i ON i.category COLLATE utf8mb4_unicode_ci = c.name COLLATE utf8mb4_unicode_ci
       WHERE (? = 1 OR c.is_active = TRUE)
       GROUP BY c.id
       ORDER BY c.display_order ASC, c.name ASC`,
     [showAll ? 1 : 0],
   );
 
-  response.json(rows.map((row) => ({
-    id: Number(row.id),
-    name: row.name,
-    description: row.description || "",
-    isCupCategory: Boolean(row.isCupCategory),
-    isSystem: Boolean(row.isSystem),
-    displayOrder: Number(row.displayOrder || 0),
-    isActive: Boolean(row.isActive),
-    itemCount: Number(row.itemCount || 0),
-  })));
+  response.json(rows.map((row) => {
+    const itemCount = Number(row.itemCount || 0);
+    const archivedItemCount = Number(row.archivedItemCount || 0);
+    return {
+      id: Number(row.id),
+      name: row.name,
+      description: row.description || "",
+      isCupCategory: Boolean(row.isCupCategory),
+      isSystem: Boolean(row.isSystem),
+      displayOrder: Number(row.displayOrder || 0),
+      isActive: Boolean(row.isActive),
+      itemCount,
+      archivedItemCount,
+      totalCount: itemCount + archivedItemCount,
+    };
+  }));
 });
 
 router.post("/categories", requireAuth, requireRole("admin"), async (request, response) => {
@@ -563,7 +572,7 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await syncCupRow(connection, createdId, cleanCategory, name);
     if (quantity > 0) {
       await connection.execute("UPDATE inventory_items SET quantity = ? WHERE id = ?", [quantity, createdId]);
-      await connection.execute(
+      const [openMove] = await connection.execute(
         `INSERT INTO inventory_movements (
            inventory_item_id, user_id, movement_type, quantity_change, note,
            item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
@@ -584,6 +593,20 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
           sessionId,
         ],
       );
+      const openingValue = Number((quantity * unitCost).toFixed(2));
+      if (openingValue >= 0.01) {
+        await postInventoryValuationDelta(connection, {
+          inventoryMovementId: openMove.insertId,
+          itemName: name,
+          deltaValue: openingValue,
+          entryType: "opening_balance",
+          offsetAccountCode: "3010",
+          memo: `Opening stock: ${name} (+${quantity} ${cleanUnit} @ ₱${unitCost.toFixed(2)})`,
+          referenceNumber: referenceNo,
+          sessionId,
+          userId: request.authUser.sub,
+        });
+      }
     }
     await connection.commit();
   } catch (error) {
@@ -613,6 +636,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     throw httpError(400, "Enter valid inventory values. Maximum stock must be above zero or omitted.");
   }
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
+  let unitDimensionWarning = null;
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -625,7 +649,12 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     const sessionId = activeSession ? Number(activeSession.id) : null;
     // A unit change no longer blocks: menu recipes/add-ons follow the inventory unit (same transaction).
     if (String(current.unit).trim().toLowerCase() !== cleanUnit.toLowerCase()) {
-      await retargetRecipeUnits(connection, id, current.unit, cleanUnit);
+      const oldDim = getUnitDimension(current.unit);
+      const newDim = getUnitDimension(cleanUnit);
+      const changed = await retargetRecipeUnits(connection, id, current.unit, cleanUnit);
+      if (changed > 0 && oldDim && newDim && oldDim !== newDim) {
+        unitDimensionWarning = `Unit dimension changed (${oldDim} → ${newDim}) across ${changed} recipe row(s). Verify recipe portion amounts.`;
+      }
     }
 
     const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body, current);
@@ -643,11 +672,14 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     const oldUnitCost = Number(current.unit_cost || 0);
     const delta = Math.round((quantity - oldQty) * 1000000) / 1000000;
     const costChanged = Math.abs(unitCost - oldUnitCost) > 1e-6;
+    const adjOffsetAccount = ["6030", "3010", "6010"].includes(String(request.body?.adjustmentAccountCode || "").trim())
+      ? String(request.body.adjustmentAccountCode).trim()
+      : null;
     if (delta !== 0 || costChanged) {
       const note = delta !== 0
         ? (costChanged ? "Manual stock & cost adjustment" : "Manual inventory adjustment")
         : "Manual unit cost adjustment";
-      await connection.execute(
+      const [adjMove] = await connection.execute(
         `INSERT INTO inventory_movements (
            inventory_item_id, user_id, movement_type, quantity_change, note,
            item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
@@ -670,6 +702,20 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
           sessionId,
         ],
       );
+      const valuationDelta = Number(((quantity * unitCost) - (oldQty * oldUnitCost)).toFixed(2));
+      if (Math.abs(valuationDelta) >= 0.01) {
+        await postInventoryValuationDelta(connection, {
+          inventoryMovementId: adjMove.insertId,
+          itemName: name,
+          deltaValue: valuationDelta,
+          entryType: "adjustment",
+          offsetAccountCode: adjOffsetAccount,
+          memo: `${note}: ${name} (val delta ${valuationDelta >= 0 ? "+" : ""}₱${valuationDelta.toFixed(2)})`,
+          referenceNumber: referenceNo,
+          sessionId,
+          userId: request.authUser.sub,
+        });
+      }
     }
     await connection.commit();
   } catch (error) {
@@ -679,8 +725,12 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
   } finally {
     connection.release();
   }
-  response.json(await fetchMappedItemById(id, true));
+  const payload = await fetchMappedItemById(id, true);
+  if (unitDimensionWarning) payload.unitDimensionWarning = unitDimensionWarning;
+  response.json(payload);
 });
+
+const ALLOWED_RESTOCK_ACCOUNTS = new Set(["1010", "1020", "1030", "1040", "2010", "3010"]);
 
 router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, response) => {
   const id = Number(request.params.id);
@@ -692,6 +742,11 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
   const parsedBatchCost = hasBatchCost ? Number(rawBatchCost) : 0;
   if (hasBatchCost && (!Number.isFinite(parsedBatchCost) || parsedBatchCost < 0)) {
     throw httpError(400, "Batch cost must be zero or greater.");
+  }
+  const diluteZeroCost = Boolean(request.body?.diluteZeroCost);
+  const rawCreditAccount = String(request.body?.creditAccountCode || "1010").trim();
+  if (!ALLOWED_RESTOCK_ACCOUNTS.has(rawCreditAccount)) {
+    throw httpError(400, "Invalid restock funding account. Allowed: 1010, 1020, 1030, 1040, 2010, 3010.");
   }
   const supplierName = String(request.body?.supplierName || "").trim().slice(0, 120) || null;
   const referenceNo = String(request.body?.referenceNo || "").trim().slice(0, 80) || null;
@@ -710,8 +765,9 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
     const beforeQuantity = Number(current.quantity || 0);
     const afterQuantity = Math.round((beforeQuantity + quantity) * 1000000) / 1000000;
     const oldCost = Number(current.unit_cost || 0);
+    let restockMoveId = null;
 
-    if (hasBatchCost && parsedBatchCost > 0) {
+    if (hasBatchCost && (parsedBatchCost > 0 || (parsedBatchCost === 0 && diluteZeroCost))) {
       const oldQty = Math.max(0, beforeQuantity);
       const oldCostPositive = Math.max(0, oldCost);
       const batchUnitCost = parsedBatchCost / quantity;
@@ -725,7 +781,7 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
       );
       const formattedAvg = Number(newUnitCost.toFixed(3)).toFixed(newUnitCost.toFixed(3).endsWith("0") ? 2 : 3);
       const note = `Inventory restock (+${quantity} ${current.unit} for ₱${parsedBatchCost.toFixed(2)} · new avg ₱${formattedAvg}/${current.unit})`;
-      await connection.execute(
+      const [moveRes] = await connection.execute(
         `INSERT INTO inventory_movements (
            inventory_item_id, user_id, movement_type, quantity_change, note,
            item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
@@ -749,9 +805,10 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
           sessionId,
         ],
       );
+      restockMoveId = moveRes.insertId;
     } else {
       await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ? AND is_archived = FALSE", [quantity, id]);
-      await connection.execute(
+      const [moveRes] = await connection.execute(
         `INSERT INTO inventory_movements (
            inventory_item_id, user_id, movement_type, quantity_change, note,
            item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
@@ -774,45 +831,24 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
           sessionId,
         ],
       );
+      restockMoveId = moveRes.insertId;
     }
     // Automated double-entry posting for inventory restock
     if (hasBatchCost && parsedBatchCost > 0) {
-      const [accRows] = await connection.query(
-        "SELECT id, account_code FROM chart_of_accounts WHERE account_code IN ('1050', '1010')"
-      );
-      const codeMap = new Map(accRows.map((r) => [r.account_code, Number(r.id)]));
-      const inventoryAccId = codeMap.get("1050");
-      const cashAccId = codeMap.get("1010");
-
-      if (inventoryAccId && cashAccId) {
-        const entryNumber = `JE-RESTOCK-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
-        const cleanCost = Number(parsedBatchCost.toFixed(2));
-        const [jeResult] = await connection.execute(
-          `INSERT INTO journal_entries (entry_number, entry_type, memo, reference_number, created_by)
-           VALUES (?, 'inventory_restock', ?, ?, ?)`,
-          [
-            entryNumber,
-            `Restock ${current.name}: +${quantity} ${current.unit} (batch cost ₱${cleanCost.toFixed(2)})`,
-            referenceNo ? String(referenceNo).slice(0, 100) : null,
-            request.authUser.sub,
-          ]
-        );
-        const jeId = jeResult.insertId;
-
-        // Line 1: DR 1050 Merchandise Inventory
-        await connection.execute(
-          `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-           VALUES (?, ?, ?, 0.00, ?)`,
-          [jeId, inventoryAccId, cleanCost, `Debit 1050 Restock ${current.name}`]
-        );
-
-        // Line 2: CR 1010 Cash Drawer
-        await connection.execute(
-          `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-           VALUES (?, ?, 0.00, ?, ?)`,
-          [jeId, cashAccId, cleanCost, `Credit 1010 Cash for ${current.name}`]
-        );
-      }
+      const cleanCost = Number(parsedBatchCost.toFixed(2));
+      await postBalancedEntry(connection, {
+        entryType: "inventory_restock",
+        memo: `Restock ${current.name}: +${quantity} ${current.unit} (batch cost ₱${cleanCost.toFixed(2)} via ${rawCreditAccount})`,
+        referenceNumber: referenceNo ? String(referenceNo).slice(0, 100) : null,
+        inventoryMovementId: restockMoveId,
+        sessionId,
+        idempotencyKey: restockMoveId ? `inv_move:${restockMoveId}:inventory_restock` : null,
+        createdBy: request.authUser.sub,
+        lines: [
+          { accountCode: "1050", debit: cleanCost, credit: 0, lineMemo: `Debit 1050 Restock ${current.name}` },
+          { accountCode: rawCreditAccount, debit: 0, credit: cleanCost, lineMemo: `Credit ${rawCreditAccount} for ${current.name}` },
+        ],
+      });
     }
 
     // First restock of an item that has no maximum and no stock (e.g. auto-created from a menu
@@ -827,7 +863,8 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
   } finally {
     connection.release();
   }
-  response.json(await fetchMappedItemById(id, true));
+  const payload = await fetchMappedItemById(id, true);
+  response.json(payload);
 });
 
 router.delete("/:id", requireAuth, requireRole("admin"), async (request, response) => {

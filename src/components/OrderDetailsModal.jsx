@@ -24,6 +24,7 @@ import {
   WALK_IN_CUSTOMER_NAME,
 } from "../context/OrdersContext.jsx";
 import { findProductById, resolveProductSizes, useMenu } from "../context/MenuContext.jsx";
+import { useBusiness } from "../context/BusinessContext.jsx";
 import { apiRequest } from "../utils/api.js";
 import {
   formatAuditTimestamp,
@@ -60,6 +61,7 @@ function OrderDetailsModal({
 }) {
   const { products = [] } = useMenu() || {};
   const ordersContext = useOrders();
+  const { businessSettings } = useBusiness() || {};
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const dialogRef = useRef(null);
@@ -115,6 +117,8 @@ function OrderDetailsModal({
     return () => window.cancelAnimationFrame(raf);
   }, [orderId]);
 
+  const fetchOrderDetails = ordersContext?.fetchOrderDetails;
+
   // Double-rAF + entrance settle gating before loading deep audit details & consumptions
   useEffect(() => {
     if (!orderId) return undefined;
@@ -125,8 +129,8 @@ function OrderDetailsModal({
 
     const loadDetails = async () => {
       try {
-        const loader = ordersContext?.fetchOrderDetails
-          ? ordersContext.fetchOrderDetails
+        const loader = fetchOrderDetails
+          ? fetchOrderDetails
           : (id) => apiRequest(`/orders/${encodeURIComponent(id)}`);
         const data = await loader(orderId);
         if (!active) return;
@@ -157,7 +161,7 @@ function OrderDetailsModal({
       window.cancelAnimationFrame(raf2);
       window.clearTimeout(settleTimer);
     };
-  }, [orderId, ordersContext, prefersReducedMotion]);
+  }, [fetchOrderDetails, orderId, prefersReducedMotion]);
 
   // Escape & focus trap
   useEffect(() => {
@@ -238,7 +242,12 @@ function OrderDetailsModal({
   const handleEnterVoidMode = () => {
     setActionError("");
     setActionNotice("");
-    setStockAction(getDefaultVoidStockAction(displayOrder.status));
+    setStockAction(
+      getDefaultVoidStockAction(
+        displayOrder.status,
+        businessSettings?.defaultVoidStockAction || "restore",
+      ),
+    );
     setVoidReason("");
     setViewMode("void-confirm");
   };
@@ -314,7 +323,11 @@ function OrderDetailsModal({
                     ? `Void / Cancel Order #${displayOrder.id}`
                     : `Order #${displayOrder.id}`}
                 </h3>
-                <span className={`odm-status-pill ${statusClass}`}>{displayOrder.status}</span>
+                {displayOrder.status ? (
+                  <span className={`odm-status-pill ${statusClass}`}>{displayOrder.status}</span>
+                ) : (
+                  <span className="odm-status-pill">Loading...</span>
+                )}
               </div>
               <p className="odm-subtitle">
                 {displayOrder.customer || displayOrder.customerName || WALK_IN_CUSTOMER_NAME}
@@ -547,9 +560,19 @@ function OrderDetailsModal({
                     <span>Subtotal</span>
                     <strong>{peso(displayOrder.subtotal ?? orderTotal)}</strong>
                   </div>
+                  {Number(displayOrder.discountAmount || 0) > 0 && (
+                    <div className="odm-cost-row">
+                      <span>Discount{displayOrder.discountLabel ? ` (${displayOrder.discountLabel})` : ""}</span>
+                      <strong>-{peso(displayOrder.discountAmount)}</strong>
+                    </div>
+                  )}
                   <div className="odm-cost-row">
-                    <span>Tax (VAT 0%)</span>
-                    <strong>₱0.00</strong>
+                    <span>
+                      {Number(displayOrder.taxAmount || 0) > 0
+                        ? "Tax / VAT"
+                        : "Tax (VAT 0%)"}
+                    </span>
+                    <strong>{peso(displayOrder.taxAmount ?? 0)}</strong>
                   </div>
                   <div className="odm-cost-row">
                     <span>Payment Method</span>

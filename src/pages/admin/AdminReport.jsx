@@ -24,6 +24,7 @@ import {
 } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import {
@@ -183,6 +184,9 @@ function AdminReport() {
   const { orders = [], confirmOrder, voidOrder } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
   const { products: menuProducts = [] } = useMenu() || {};
+  const { businessSettings } = useBusiness() || {};
+  const lowThreshold = businessSettings?.lowStockThresholdPercent ?? 40;
+  const criticalThreshold = businessSettings?.criticalStockThresholdPercent ?? 20;
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -756,7 +760,7 @@ function AdminReport() {
       const { capacityPercent, reportedPercent, tone: healthTone } = getStockHealth(
         quantity,
         maximumStock,
-        { overMaximum: status === "Over Maximum" },
+        { overMaximum: status === "Over Maximum", lowThreshold, criticalThreshold },
       );
       const isOut = status === "Out of Stock" || quantity <= 0;
       const effectiveHealthTone = isOut ? "critical" : healthTone;
@@ -789,7 +793,7 @@ function AdminReport() {
         label: healthLabel,
       };
     });
-  }, [inventory]);
+  }, [criticalThreshold, inventory, lowThreshold]);
 
   const restockItems = useMemo(() => stockReport
     .filter((item) => item.tone === "critical" || item.healthTone === "critical" || item.healthTone === "low")
@@ -884,21 +888,34 @@ function AdminReport() {
     if (exportBusy || customRangeInvalid) return;
     setExportBusy(true);
     setExportError("");
+    const extra = { type: typeToExport };
+    if (typeToExport === "orders") {
+      if (ordersStatusFilter && ordersStatusFilter !== "All") extra.status = ordersStatusFilter;
+      if (ordersPaymentFilter && ordersPaymentFilter !== "All") extra.paymentMethod = ordersPaymentFilter;
+      if (ordersSearch.trim()) extra.search = ordersSearch.trim();
+    } else if (typeToExport === "inventory") {
+      if (movTypeFilter) extra.movementType = movTypeFilter;
+      if (movSearch.trim()) extra.search = movSearch.trim();
+    }
     const params = buildRangeSearchParams({
       rangeKey,
       from: customStart,
       to: customEnd,
       staffId: staffFilterId,
-      extra: { type: typeToExport },
+      extra,
     });
     const stamp = getManilaDateInputValue(0);
     const filename = `amaya-${typeToExport}-report-${rangeKey}-${stamp}.csv`;
 
     try {
-      await downloadAuthenticatedCsv(`/reports/export.csv?${params.toString()}`, filename);
-      setExportNotice(`Exported ${typeToExport} CSV`);
+      const meta = await downloadAuthenticatedCsv(`/reports/export.csv?${params.toString()}`, filename);
+      if (meta?.truncated) {
+        setExportNotice(`Exported first ${meta.exportedCount} of ${meta.totalCount} rows (5,000-row cap)`);
+      } else {
+        setExportNotice(`Exported ${typeToExport} CSV`);
+      }
       if (exportTimerRef.current) window.clearTimeout(exportTimerRef.current);
-      exportTimerRef.current = window.setTimeout(() => setExportNotice(""), 3000);
+      exportTimerRef.current = window.setTimeout(() => setExportNotice(""), 4500);
     } catch (err) {
       setExportError(err?.message || "Failed to download CSV export.");
     } finally {

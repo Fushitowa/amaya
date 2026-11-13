@@ -81,6 +81,7 @@ export default function AdminCategories() {
     addCategory: addMenuCategory,
     updateCategory: updateMenuCategory,
     deleteCategory: deleteMenuCategory,
+    reassignAndDeleteCategory: reassignAndDeleteMenuCategory,
   } = useMenu() || {};
 
   const {
@@ -382,13 +383,16 @@ export default function AdminCategories() {
 
   // Open Delete Confirm
   const promptDelete = (item, tab) => {
-    const count = tab === "menu" ? Number(item.productCount || 0) : Number(item.itemCount || 0);
+    const activeCount = tab === "menu" ? Number(item.productCount || 0) : Number(item.itemCount || 0);
+    const archivedCount = tab === "menu" ? Number(item.archivedProductCount || 0) : Number(item.archivedItemCount || 0);
+    const totalCount = Number(item.totalCount ?? (activeCount + archivedCount));
     setDeleteModal({
       isOpen: true,
       tab,
       id: item.id,
       name: item.name,
-      count,
+      count: totalCount,
+      archivedCount,
       isSystem: false,
       reassignTargetId: "",
     });
@@ -400,8 +404,13 @@ export default function AdminCategories() {
     setLoading(true);
     try {
       if (deleteModal.tab === "menu") {
-        await deleteMenuCategory(deleteModal.id);
-        showNotice("success", `Menu category "${deleteModal.name}" deleted.`);
+        if (deleteModal.count > 0 && deleteModal.reassignTargetId) {
+          await reassignAndDeleteMenuCategory(deleteModal.id, Number(deleteModal.reassignTargetId));
+          showNotice("success", `Menu category "${deleteModal.name}" deleted and items reassigned.`);
+        } else {
+          await deleteMenuCategory(deleteModal.id);
+          showNotice("success", `Menu category "${deleteModal.name}" deleted.`);
+        }
       } else {
         if (deleteModal.count > 0 && deleteModal.reassignTargetId) {
           await reassignAndDeleteCategory(deleteModal.id, Number(deleteModal.reassignTargetId));
@@ -1255,12 +1264,13 @@ export default function AdminCategories() {
                 Are you sure you want to delete the category{" "}
                 <strong>“{deleteModal.name}”</strong>?
               </p>
-              {deleteModal.count > 0 && deleteModal.tab === "inventory" ? (
+              {deleteModal.count > 0 ? (
                 <div className="delete-reassign-box">
                   <p className="delete-reassign-title">
                     <AlertTriangle size={15} strokeWidth={2.2} aria-hidden="true" />
                     <span>
-                      {deleteModal.count} inventory item(s) are currently in this category.
+                      {deleteModal.count} {deleteModal.tab === "menu" ? "menu" : "inventory"} item(s)
+                      {deleteModal.archivedCount > 0 ? ` (${deleteModal.archivedCount} archived)` : ""} are currently in this category.
                       Reassign them before deleting:
                     </span>
                   </p>
@@ -1273,7 +1283,7 @@ export default function AdminCategories() {
                     aria-label="Destination category for reassignment"
                   >
                     <option value="">-- Select Destination Category --</option>
-                    {inventoryCategories
+                    {(deleteModal.tab === "menu" ? menuCategories : inventoryCategories)
                       .filter((c) => c.id !== deleteModal.id)
                       .map((c) => (
                         <option key={c.id} value={c.id}>
@@ -1299,6 +1309,7 @@ export default function AdminCategories() {
                     id: null,
                     name: "",
                     count: 0,
+                    archivedCount: 0,
                     isSystem: false,
                     reassignTargetId: "",
                   })
@@ -1312,14 +1323,12 @@ export default function AdminCategories() {
                 onClick={confirmDelete}
                 disabled={
                   loading ||
-                  (deleteModal.count > 0 &&
-                    deleteModal.tab === "inventory" &&
-                    !deleteModal.reassignTargetId)
+                  (deleteModal.count > 0 && !deleteModal.reassignTargetId)
                 }
               >
                 {loading
                   ? "Deleting..."
-                  : deleteModal.count > 0 && deleteModal.tab === "inventory"
+                  : deleteModal.count > 0
                     ? "Reassign & Delete"
                     : "Delete Permanently"}
               </button>

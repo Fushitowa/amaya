@@ -585,4 +585,243 @@ describe("Tala Suite: Business Settings Security, Target Food Cost Bounds & Down
       }
     });
   });
+
+  describe("SUITE 6: Wave 3 Expanded Settings, Trust Tiers, Shift Gate, Discount & VAT Enforcement", () => {
+    it("TEST 6.1: 3-tier GET /api/settings trust scoping and partial PUT preservation work cleanly", async () => {
+      await tracker.trackBusinessSettings();
+      try {
+        const putRes = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: buildValidSettingsBody({
+            vatEnabled: true,
+            vatRatePercent: 12,
+            enforceShiftGate: true,
+            discountPresets: [{ label: "VIP (15%)", pct: 15 }],
+            lowStockThresholdPercent: 45,
+            criticalStockThresholdPercent: 15,
+            inactivityAlertDays: 21,
+            archiveRetentionDays: 45,
+            maxInventoryAdjustmentPct: 150,
+            idleLockMinutes: 30,
+            exportRowLimit: 2500,
+            receiptFooter: "Wave 3 Footer",
+          }),
+        });
+        assert.equal(putRes.status, 200);
+        assert.equal(putRes.data.vatEnabled, true);
+        assert.equal(putRes.data.vatRatePercent, 12);
+        assert.equal(putRes.data.enforceShiftGate, true);
+        assert.equal(putRes.data.archiveRetentionDays, 45);
+        assert.equal(putRes.data.exportRowLimit, 2500);
+
+        // Partial PUT omitting Wave 3 keys must preserve stored Wave 3 values
+        const partialRes = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: buildValidSettingsBody({ phone: "+63 999 111 2222" }),
+        });
+        assert.equal(partialRes.status, 200);
+        assert.equal(partialRes.data.phone, "+63 999 111 2222");
+        assert.equal(partialRes.data.vatEnabled, true);
+        assert.equal(partialRes.data.enforceShiftGate, true);
+        assert.equal(partialRes.data.archiveRetentionDays, 45);
+        assert.equal(partialRes.data.exportRowLimit, 2500);
+
+        // Tier 1: Unauthenticated -> public fields only
+        const unauthRes = await server.requestJson("/api/settings");
+        assert.equal(unauthRes.status, 200);
+        assert.equal(unauthRes.data.receiptFooter, "Wave 3 Footer");
+        assert.equal(Object.hasOwn(unauthRes.data, "targetFoodCost"), false);
+        assert.equal(Object.hasOwn(unauthRes.data, "vatEnabled"), false);
+        assert.equal(Object.hasOwn(unauthRes.data, "enforceShiftGate"), false);
+        assert.equal(Object.hasOwn(unauthRes.data, "archiveRetentionDays"), false);
+
+        // Tier 2: Staff -> POS operational fields included, admin financial/threshold fields omitted
+        const staffRes = await server.requestJson("/api/settings", { token: staffUser.token });
+        assert.equal(staffRes.status, 200);
+        assert.equal(staffRes.data.vatEnabled, true);
+        assert.equal(staffRes.data.enforceShiftGate, true);
+        assert.equal(staffRes.data.discountPresets[0].label, "VIP (15%)");
+        assert.equal(Object.hasOwn(staffRes.data, "targetFoodCost"), false);
+        assert.equal(Object.hasOwn(staffRes.data, "archiveRetentionDays"), false);
+        assert.equal(Object.hasOwn(staffRes.data, "exportRowLimit"), false);
+        assert.equal(Object.hasOwn(staffRes.data, "maxInventoryAdjustmentPct"), false);
+
+        // Tier 3: Admin -> full payload
+        const adminRes = await server.requestJson("/api/settings", { token: adminUser.token });
+        assert.equal(adminRes.status, 200);
+        assert.equal(adminRes.data.archiveRetentionDays, 45);
+        assert.equal(adminRes.data.exportRowLimit, 2500);
+        assert.equal(adminRes.data.maxInventoryAdjustmentPct, 150);
+      } finally {
+        await tracker.restoreBusinessSettings();
+      }
+    });
+
+    it("TEST 6.2: rejects invalid Wave 3 bounds (critical >= low, bad discountPresets, bad VAT/exportRowLimit)", async () => {
+      await tracker.trackBusinessSettings();
+      try {
+        const badThreshold = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: { lowStockThresholdPercent: 40, criticalStockThresholdPercent: 45 },
+        });
+        assert.equal(badThreshold.status, 400);
+
+        const badVat = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: { vatRatePercent: 35 },
+        });
+        assert.equal(badVat.status, 400);
+
+        const badPreset = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: { discountPresets: [{ label: "", pct: 20 }] },
+        });
+        assert.equal(badPreset.status, 400);
+
+        const badLimit = await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: { exportRowLimit: 999999 },
+        });
+        assert.equal(badLimit.status, 400);
+      } finally {
+        await tracker.restoreBusinessSettings();
+      }
+    });
+
+    it("TEST 6.3: enforceShiftGate blocks order without open shift (409) and applies preset discount + VAT + ledger posting/void reversal", async () => {
+      await tracker.trackBusinessSettings();
+      const tag = makeUniqueTag("Wave3Pos");
+      const categoryName = `Cat_${tag}`;
+      let orderId = null;
+
+      try {
+        await server.requestJson("/api/settings", {
+          method: "PUT",
+          token: adminUser.token,
+          body: buildValidSettingsBody({
+            enforceShiftGate: true,
+            vatEnabled: true,
+            vatRatePercent: 12,
+            discountPresets: [{ label: "Senior Citizen (20%)", pct: 20 }],
+          }),
+        });
+
+        const [catRes] = await pool.execute(
+          "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'single_fixed')",
+          [categoryName],
+        );
+        tracker.menuCategoryIds.add(Number(catRes.insertId));
+
+        const prodRes = await server.requestJson("/api/menu", {
+          method: "POST",
+          token: adminUser.token,
+          body: {
+            name: `Latte_${tag}`,
+            category: categoryName,
+            basePrice: 100,
+            costPrice: 30,
+            stock: 10,
+            available: true,
+            ingredients: [],
+          },
+        });
+        assert.equal(prodRes.status, 201);
+        const prodId = Number(prodRes.data.id);
+        tracker.productIds.add(prodId);
+
+        // Blocked when no open shift
+        const blockedRes = await server.requestJson("/api/orders", {
+          method: "POST",
+          token: staffUser.token,
+          body: {
+            items: [{ productId: prodId, quantity: 1 }],
+            paymentMethod: "Cash",
+            cashTendered: 200,
+          },
+        });
+        assert.equal(blockedRes.status, 409);
+
+        // Open shift for staffUser
+        const openRes = await server.requestJson("/api/sessions/open", {
+          method: "POST",
+          token: staffUser.token,
+          body: { openingFloat: 500, terminalLabel: "Counter Test" },
+        });
+        assert.equal(openRes.status, 201);
+        tracker.sessionIds.add(Number(openRes.data.id));
+
+        // Place order with Senior Citizen (20%) preset + 12% VAT on discounted net
+        // subtotal = 100, discount = 20, net = 80, vat = 9.60, total = 89.60
+        const orderRes = await server.requestJson("/api/orders", {
+          method: "POST",
+          token: staffUser.token,
+          body: {
+            items: [{ productId: prodId, quantity: 1 }],
+            paymentMethod: "Cash",
+            cashTendered: 100,
+            discountLabel: "Senior Citizen (20%)",
+          },
+        });
+        assert.equal(orderRes.status, 201);
+        const orderNumber = orderRes.data.id;
+        const [[dbOrder]] = await pool.execute("SELECT id FROM orders WHERE order_number = ?", [orderNumber]);
+        orderId = Number(dbOrder.id);
+        tracker.orderIds.add(orderId);
+
+        assert.equal(Number(orderRes.data.subtotal), 100);
+        assert.equal(Number(orderRes.data.discountAmount), 20);
+        assert.equal(orderRes.data.discountLabel, "Senior Citizen (20%)");
+        assert.equal(Number(orderRes.data.taxAmount), 9.6);
+        assert.equal(Number(orderRes.data.total), 89.6);
+
+        // Verify double-entry journal lines for sales_revenue balance & hit 1010/4020/4010/2020
+        const [saleLines] = await pool.execute(
+          `SELECT coa.account_code, jel.debit, jel.credit
+             FROM journal_entries je
+             JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+             JOIN chart_of_accounts coa ON coa.id = jel.account_id
+            WHERE je.order_id = ? AND je.entry_type = 'sales_revenue'`,
+          [orderId],
+        );
+        assert.ok(saleLines.length >= 4);
+        const sumDebit = saleLines.reduce((s, r) => s + Number(r.debit), 0);
+        const sumCredit = saleLines.reduce((s, r) => s + Number(r.credit), 0);
+        assert.ok(Math.abs(sumDebit - sumCredit) < 0.005);
+        assert.ok(saleLines.some((r) => r.account_code === "4020" && Number(r.debit) === 20));
+        assert.ok(saleLines.some((r) => r.account_code === "2020" && Number(r.credit) === 9.6));
+
+        // Void order and verify stock restore + void reversal entry balance
+        const voidRes = await server.requestJson(`/api/orders/${orderNumber}/void`, {
+          method: "POST",
+          token: adminUser.token,
+          body: { reason: "Wave 3 verification void", restoreStock: true },
+        });
+        assert.equal(voidRes.status, 200);
+        assert.equal(voidRes.data.status, "Cancelled");
+
+        const menuAfterVoid = await server.requestJson("/api/menu?all=true", { token: adminUser.token });
+        assert.equal(menuAfterVoid.status, 200);
+        const restoredItem = menuAfterVoid.data.find((p) => Number(p.id) === prodId);
+        assert.equal(Number(restoredItem.stock), 10);
+      } finally {
+        if (orderId) {
+          await pool.execute(
+            `DELETE jel FROM journal_entry_lines jel
+               JOIN journal_entries je ON je.id = jel.journal_entry_id
+              WHERE je.order_id = ?`,
+            [orderId],
+          );
+          await pool.execute("UPDATE journal_entries SET reverses_entry_id = NULL WHERE order_id = ?", [orderId]);
+          await pool.execute("DELETE FROM journal_entries WHERE order_id = ?", [orderId]);
+        }
+        await tracker.restoreBusinessSettings();
+      }
+    });
+  });
 });

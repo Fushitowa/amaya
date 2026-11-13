@@ -5,7 +5,9 @@ import amayaLogo from "../../assets/images/amayalogo.png";
 import cashIcon from "../../assets/images/icon/cash.svg";
 import gcashIcon from "../../assets/images/icon/gcash.svg";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { PAYMENT_STATUS_PAID, useOrders } from "../../context/OrdersContext.jsx";
+import { apiRequest } from "../../utils/api.js";
 import "../../assets/css/staff/staff-order-confirmation.css";
 
 const paymentMethods = [
@@ -43,6 +45,15 @@ function StaffOrderConfirmation() {
   const location = useLocation();
   const { addOrder } = useOrders() || {};
   const { user } = useAuth() || {};
+  const { businessSettings } = useBusiness() || {};
+  const discountPresets = useMemo(
+    () => (Array.isArray(businessSettings?.discountPresets) ? businessSettings.discountPresets : []),
+    [businessSettings],
+  );
+  const vatEnabled = Boolean(businessSettings?.vatEnabled);
+  const vatRatePercent = vatEnabled ? Number(businessSettings?.vatRatePercent || 0) : 0;
+  const enforceShiftGate = Boolean(businessSettings?.enforceShiftGate);
+  const requireKitchenNoteApproval = Boolean(businessSettings?.requireKitchenNoteApproval);
 
   const order = useMemo(() => location.state?.order || [], [location.state?.order]);
   const initialCustomer = location.state?.customerName || "Walk-in Customer";
@@ -51,12 +62,35 @@ function StaffOrderConfirmation() {
   const [customerName, setCustomerName] = useState(initialCustomer);
   const [orderType, setOrderType] = useState(initialType);
   const [selectedPayment, setSelectedPayment] = useState("Cash");
+  const [selectedDiscountLabel, setSelectedDiscountLabel] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [isNarrow, setIsNarrow] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [activeSession, setActiveSession] = useState(undefined);
+  const [noteGuardWarning, setNoteGuardWarning] = useState("");
+  const [noteGuardAcknowledged, setNoteGuardAcknowledged] = useState(false);
   // PENDING until the order is created, then PAID (counter sales settle immediately).
   const [paymentStatus, setPaymentStatus] = useState("PENDING");
+
+  useEffect(() => {
+    let active = true;
+    const syncSession = () => {
+      apiRequest("/sessions/current")
+        .then((res) => {
+          if (active) setActiveSession(res?.session || null);
+        })
+        .catch(() => {
+          if (active) setActiveSession(null);
+        });
+    };
+    syncSession();
+    window.addEventListener("amaya:session-changed", syncSession);
+    return () => {
+      active = false;
+      window.removeEventListener("amaya:session-changed", syncSession);
+    };
+  }, []);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 760px)");
@@ -74,6 +108,20 @@ function StaffOrderConfirmation() {
     );
   }, [order]);
 
+  const activeDiscountPreset = useMemo(
+    () => discountPresets.find((p) => p.label === selectedDiscountLabel) || null,
+    [discountPresets, selectedDiscountLabel],
+  );
+  const discountAmount = activeDiscountPreset
+    ? Math.min(subtotal, Math.round(((subtotal * Number(activeDiscountPreset.pct || 0)) / 100) * 100) / 100)
+    : 0;
+  const netTaxable = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+  const taxAmount = vatEnabled && vatRatePercent > 0
+    ? Math.round(((netTaxable * vatRatePercent) / 100) * 100) / 100
+    : 0;
+  const grandTotal = Math.round((netTaxable + taxAmount) * 100) / 100;
+  const shiftGateBlocked = enforceShiftGate && activeSession === null;
+
   const totalItems = useMemo(() => {
     return order.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   }, [order]);
@@ -81,10 +129,10 @@ function StaffOrderConfirmation() {
   const isCash = selectedPayment === "Cash";
   const hasTypedCash = String(cashTendered).trim() !== "";
   const tenderedAmount = isCash
-    ? (hasTypedCash ? Number(cashTendered) : subtotal)
-    : subtotal;
-  const changeDue = Math.max(0, (Number.isFinite(tenderedAmount) ? tenderedAmount : 0) - subtotal);
-  const isShort = isCash && hasTypedCash && (Number.isNaN(tenderedAmount) || tenderedAmount < subtotal);
+    ? (hasTypedCash ? Number(cashTendered) : grandTotal)
+    : grandTotal;
+  const changeDue = Math.max(0, (Number.isFinite(tenderedAmount) ? tenderedAmount : 0) - grandTotal);
+  const isShort = isCash && hasTypedCash && (Number.isNaN(tenderedAmount) || tenderedAmount < grandTotal);
 
   const itemInstructionsSummary = useMemo(() => {
     return order
@@ -101,10 +149,9 @@ function StaffOrderConfirmation() {
       navigate("/staff/menu");
       return;
     }
-    if (isShort || isSubmitting) return;
+    if (isShort || isSubmitting || shiftGateBlocked) return;
 
     setSubmitError("");
-    setIsSubmitting(true);
 
     const baseNotes = String(location.state?.notes || "").trim();
     const combinedNotes = [
@@ -114,6 +161,35 @@ function StaffOrderConfirmation() {
       .filter(Boolean)
       .join(" | ");
 
+    if (requireKitchenNoteApproval && combinedNotes && !noteGuardAcknowledged) {
+      setIsSubmitting(true);
+      try {
+        const guard = await apiRequest("/decisions/order-guard", {
+          method: "POST",
+          body: JSON.stringify({ note: combinedNotes, total: grandTotal }),
+        });
+        const answers = guard?.answers || {};
+        const flaggedUnpaid = Boolean(answers.requests_unpaid_extra_addon?.value ?? answers.requests_unpaid_extra_addon?.answer);
+        const flaggedAllergy = Boolean(answers.contains_allergy_or_dietary_warning?.value ?? answers.contains_allergy_or_dietary_warning?.answer);
+        if (flaggedUnpaid || flaggedAllergy) {
+          setIsSubmitting(false);
+          setNoteGuardAcknowledged(true);
+          setNoteGuardWarning(
+            flaggedUnpaid
+              ? "Kitchen note guard: note may request unpaid extras/add-ons. Review before confirming again."
+              : "Kitchen note guard: dietary/allergy note detected. Confirm kitchen awareness to proceed.",
+          );
+          return;
+        }
+      } catch {
+        // Decision service unavailable — do not block POS checkout cleanly.
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+
+    setIsSubmitting(true);
+
     let savedOrder;
     if (addOrder) {
       try {
@@ -122,7 +198,8 @@ function StaffOrderConfirmation() {
           customerName: customerName.trim() || "Walk-in Customer",
           type: orderType,
           paymentMethod: selectedPayment,
-          cashTendered: isCash ? tenderedAmount : subtotal,
+          discountLabel: activeDiscountPreset ? activeDiscountPreset.label : undefined,
+          cashTendered: isCash ? tenderedAmount : grandTotal,
           changeDue: isCash ? changeDue : 0,
           notes: combinedNotes || undefined,
         });
@@ -134,7 +211,11 @@ function StaffOrderConfirmation() {
     }
 
     const orderId = savedOrder?.id || `AM-${String(Date.now()).slice(-6)}`;
-    const persistedTotal = Number.isFinite(Number(savedOrder?.total)) ? Number(savedOrder.total) : subtotal;
+    const persistedSubtotal = Number.isFinite(Number(savedOrder?.subtotal)) ? Number(savedOrder.subtotal) : subtotal;
+    const persistedDiscountAmount = Number.isFinite(Number(savedOrder?.discountAmount)) ? Number(savedOrder.discountAmount) : discountAmount;
+    const persistedDiscountLabel = savedOrder?.discountLabel || activeDiscountPreset?.label || "";
+    const persistedTaxAmount = Number.isFinite(Number(savedOrder?.taxAmount)) ? Number(savedOrder.taxAmount) : taxAmount;
+    const persistedTotal = Number.isFinite(Number(savedOrder?.total)) ? Number(savedOrder.total) : grandTotal;
     const persistedCashTendered = isCash
       ? (Number.isFinite(Number(savedOrder?.cashTendered)) ? Number(savedOrder.cashTendered) : tenderedAmount)
       : persistedTotal;
@@ -154,7 +235,11 @@ function StaffOrderConfirmation() {
         paymentStatus: PAYMENT_STATUS_PAID,
         cashTendered: persistedCashTendered,
         changeDue: persistedChangeDue,
-        subtotal: persistedTotal,
+        subtotal: persistedSubtotal,
+        discountAmount: persistedDiscountAmount,
+        discountLabel: persistedDiscountLabel,
+        taxAmount: persistedTaxAmount,
+        vatRatePercent,
         total: persistedTotal,
         orderId,
         cashierName: savedOrder?.cashier || user?.displayName || "Cashier 1",
@@ -170,7 +255,6 @@ function StaffOrderConfirmation() {
   const itemRowGrid = isNarrow ? "minmax(0, 1fr) 36px 80px" : "minmax(0, 1fr) 58px 92px";
 
   if (isNarrow) {
-    const canConfirm = order.length > 0 && !isShort && !isSubmitting;
     return (
       <div className="am-app">
         <header className="am-appbar">
@@ -194,10 +278,26 @@ function StaffOrderConfirmation() {
             </div>
           )}
 
+          {shiftGateBlocked && (
+            <div className="confirm-error-banner" role="alert">
+              <span>Cashier shift required: open your shift drawer in Operations before checking out.</span>
+            </div>
+          )}
+
+          {noteGuardWarning && (
+            <div className="confirm-error-banner" role="status">
+              <span>{noteGuardWarning}</span>
+              <button type="button" onClick={() => setNoteGuardWarning("")} aria-label="Dismiss warning">×</button>
+            </div>
+          )}
+
           <section className="am-hero">
             <span className="am-hero-label">Total due</span>
-            <strong className="am-hero-amount">₱{subtotal.toFixed(2)}</strong>
-            <span className="am-hero-sub">Tax / VAT 0% included</span>
+            <strong className="am-hero-amount">₱{grandTotal.toFixed(2)}</strong>
+            <span className="am-hero-sub">
+              {discountAmount > 0 ? `Discount -₱${discountAmount.toFixed(2)} · ` : ""}
+              {vatEnabled ? `VAT (${vatRatePercent}%): ₱${taxAmount.toFixed(2)}` : "Tax / VAT 0% included"}
+            </span>
           </section>
 
           <section className="am-section">
@@ -236,14 +336,14 @@ function StaffOrderConfirmation() {
                   <span>Cash received</span>
                 </label>
                 <div className="am-chips">
-                  <button type="button" className={!hasTypedCash || Math.abs(tenderedAmount - subtotal) < 0.01 ? "on" : ""} onClick={() => setCashTendered(String(subtotal))}>Exact</button>
+                  <button type="button" className={!hasTypedCash || Math.abs(tenderedAmount - grandTotal) < 0.01 ? "on" : ""} onClick={() => setCashTendered(String(grandTotal))}>Exact</button>
                   {cashPresets.map((amount) => (
                     <button key={amount} type="button" className={hasTypedCash && Math.abs(tenderedAmount - amount) < 0.01 ? "on" : ""} onClick={() => setCashTendered(String(amount))}>₱{amount}</button>
                   ))}
                 </div>
                 <div className={`am-change ${isShort ? "short" : ""}`} aria-live="polite">
                   <span>{isShort ? "Short cash by" : "Change due"}</span>
-                  <strong>₱{isShort ? (subtotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}</strong>
+                  <strong>₱{isShort ? (grandTotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}</strong>
                 </div>
               </>
             ) : (
@@ -252,6 +352,23 @@ function StaffOrderConfirmation() {
                 <strong>No change</strong>
               </div>
             )}
+          </section>
+
+          <section className="am-section">
+            <h2 className="am-section-title">Discount preset</h2>
+            <select
+              aria-label="Discount preset"
+              value={selectedDiscountLabel}
+              onChange={(e) => setSelectedDiscountLabel(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: `1px solid ${theme.border}` }}
+            >
+              <option value="">No discount</option>
+              {discountPresets.map((preset) => (
+                <option key={preset.label} value={preset.label}>
+                  {preset.label} ({preset.pct}%)
+                </option>
+              ))}
+            </select>
           </section>
 
           <section className="am-section">
@@ -275,9 +392,9 @@ function StaffOrderConfirmation() {
         <footer className="am-bottombar">
           <div className="am-bottom-total">
             <span>Total</span>
-            <strong>₱{subtotal.toFixed(2)}</strong>
+            <strong>₱{grandTotal.toFixed(2)}</strong>
           </div>
-          <button type="button" className="am-fab" disabled={!canConfirm} onClick={handleConfirmOrder}>
+          <button type="button" className="am-fab" disabled={order.length === 0 || isShort || isSubmitting || shiftGateBlocked} onClick={handleConfirmOrder}>
             {isSubmitting ? "Placing…" : "Confirm & print"}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>
           </button>
@@ -598,12 +715,12 @@ function StaffOrderConfirmation() {
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
                     {(() => {
-                      const isExactSelected = !hasTypedCash || Math.abs(tenderedAmount - subtotal) < 0.01;
+                      const isExactSelected = !hasTypedCash || Math.abs(tenderedAmount - grandTotal) < 0.01;
                       return (
                         <button
                           type="button"
                           aria-pressed={isExactSelected}
-                          onClick={() => setCashTendered(String(subtotal))}
+                          onClick={() => setCashTendered(String(grandTotal))}
                           style={{
                             padding: "8px 14px",
                             borderRadius: "9px",
@@ -847,13 +964,49 @@ function StaffOrderConfirmation() {
                 Order summary
               </h2>
 
+              {discountPresets.length > 0 && (
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", marginBottom: "6px" }}>
+                    Discount preset
+                    <select
+                      value={selectedDiscountLabel}
+                      onChange={(e) => setSelectedDiscountLabel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        marginTop: "6px",
+                        padding: "9px 12px",
+                        borderRadius: "10px",
+                        border: `1px solid ${theme.border}`,
+                        background: theme.card,
+                        color: theme.text,
+                        fontSize: "13px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      <option value="">No discount applied</option>
+                      {discountPresets.map((preset) => (
+                        <option key={preset.label} value={preset.label}>
+                          {preset.label} (-{preset.pct}%)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", fontSize: "13.5px", color: theme.textMuted }}>
                 <span>Subtotal</span>
                 <span style={{ color: theme.text, fontWeight: 700 }}>₱{subtotal.toFixed(2)}</span>
               </div>
+              {discountAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", fontSize: "13.5px", color: theme.earthMid }}>
+                  <span>Discount ({activeDiscountPreset?.label})</span>
+                  <span style={{ fontWeight: 700 }}>-₱{discountAmount.toFixed(2)}</span>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", fontSize: "13.5px", color: theme.textMuted }}>
-                <span>Tax / VAT (0%)</span>
-                <span style={{ color: theme.text, fontWeight: 700 }}>₱0.00</span>
+                <span>Tax / VAT ({vatEnabled ? `${vatRatePercent}%` : "0%"})</span>
+                <span style={{ color: theme.text, fontWeight: 700 }}>₱{taxAmount.toFixed(2)}</span>
               </div>
 
               <div
@@ -881,9 +1034,20 @@ function StaffOrderConfirmation() {
                   Total due
                 </span>
                 <strong style={{ fontSize: "26px", fontWeight: 800, letterSpacing: "-0.5px", color: theme.green }}>
-                  ₱{subtotal.toFixed(2)}
+                  ₱{grandTotal.toFixed(2)}
                 </strong>
               </div>
+
+              {shiftGateBlocked && (
+                <div role="alert" style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "10px", background: theme.dangerSoft, border: `1px solid ${theme.dangerBorder}`, color: theme.danger, fontSize: "12px", fontWeight: 600 }}>
+                  Open a cashier shift first — Shift Gate is enabled in Admin Settings.
+                </div>
+              )}
+              {noteGuardWarning && (
+                <div role="status" style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "10px", background: theme.amberSoft, border: `1px solid ${theme.amberBorder}`, color: theme.amber, fontSize: "12px", fontWeight: 600 }}>
+                  {noteGuardWarning}
+                </div>
+              )}
 
               <div
                 style={{
@@ -969,19 +1133,19 @@ function StaffOrderConfirmation() {
 
             <button
               type="button"
-              disabled={order.length === 0 || isShort || isSubmitting}
+              disabled={order.length === 0 || isShort || isSubmitting || shiftGateBlocked}
               onClick={handleConfirmOrder}
               className="amaya-confirm-submit"
               style={{
                 padding: "13px 26px",
                 borderRadius: "10px",
                 border: "none",
-                background: isShort || isSubmitting ? "#DCD4CC" : theme.earth,
+                background: isShort || isSubmitting || shiftGateBlocked ? "#DCD4CC" : theme.earth,
                 color: "#ffffff",
                 fontSize: "14px",
                 fontWeight: 700,
-                cursor: isShort || isSubmitting ? "not-allowed" : "pointer",
-                boxShadow: isShort || isSubmitting ? "none" : "0 8px 22px rgba(90, 62, 43, 0.26)",
+                cursor: isShort || isSubmitting || shiftGateBlocked ? "not-allowed" : "pointer",
+                boxShadow: isShort || isSubmitting || shiftGateBlocked ? "none" : "0 8px 22px rgba(90, 62, 43, 0.26)",
                 display: "flex",
                 alignItems: "center",
                 gap: "9px",

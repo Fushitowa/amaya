@@ -219,6 +219,7 @@ function StaffActivityModal({
   useEffect(() => {
     if (!staffId || !openAnimSettled) return undefined;
     const onMutated = () => {
+      setSessionDetailsById({});
       fetchActivity();
     };
     window.addEventListener("amaya:stock-mutated", onMutated);
@@ -329,7 +330,7 @@ function StaffActivityModal({
     if (!orderNumber) return;
     orderTriggerRef.current = event?.currentTarget || null;
     const localMatch = activity?.orders?.items?.find((o) => o.id === orderNumber);
-    setActiveOrder(localMatch || { id: orderNumber, customer: "Loading...", status: "Pending", items: [] });
+    setActiveOrder(localMatch || { id: orderNumber, customer: "Loading...", status: "", items: [] });
   };
 
   const handleDownloadCsv = async () => {

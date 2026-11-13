@@ -151,10 +151,18 @@ export function getOrderTime(createdAt) {
   return new Date(createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+const MANILA_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Manila",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function isToday(createdAt) {
+  if (!createdAt) return false;
   const date = new Date(createdAt);
-  const today = new Date();
-  return date.toDateString() === today.toDateString();
+  if (Number.isNaN(date.getTime())) return false;
+  return MANILA_DATE_FORMAT.format(date) === MANILA_DATE_FORMAT.format(new Date());
 }
 
 export function isOrderPaid(order) {

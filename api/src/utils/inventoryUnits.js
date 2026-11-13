@@ -31,6 +31,10 @@ register("count", 2, ["pair", "pairs"]);
 
 const cleanUnit = (unit) => String(unit || "").trim().toLocaleLowerCase();
 
+export function getUnitDimension(unit) {
+  return unitDefinitions.get(cleanUnit(unit))?.dimension || null;
+}
+
 /** Convert a recipe amount to the inventory item's stock unit at six-decimal precision. */
 export function toInventoryQuantity(quantity, recipeUnit, stockUnit) {
   const amount = Number(quantity);

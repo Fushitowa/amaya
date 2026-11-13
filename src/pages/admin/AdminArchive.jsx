@@ -104,7 +104,11 @@ export default function AdminArchive() {
       setIsProcessing(true);
       if (type === "empty") {
         const result = await apiRequest("/archive/empty", { method: "DELETE" });
-        setNotice(result.message || "Archive trash emptied successfully.");
+        const skipped = [...(result.skippedMenu || []), ...(result.skippedInventory || [])];
+        setNotice(result.message || "Archive trash emptied.");
+        if (skipped.length > 0) {
+          setError(`Skipped items protected by referential integrity: ${skipped.join("; ")}`);
+        }
       } else {
         await apiRequest(`/archive/${type}/${id}`, { method: "DELETE" });
         setNotice(`“${name}” was permanently deleted.`);

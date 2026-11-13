@@ -10,18 +10,27 @@ async function evaluateWithTypeSafe(state, questions) {
   if (!apiKey) {
     throw httpError(503, "TYPESAFE_API_KEY is not configured on the server.");
   }
-  const response = await fetch(TYPESAFE_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "jev-latest",
-      state,
-      questions,
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(TYPESAFE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({
+        model: "jev-latest",
+        state,
+        questions,
+      }),
+    });
+  } catch (networkErr) {
+    if (networkErr?.name === "TimeoutError" || networkErr?.name === "AbortError") {
+      throw httpError(504, "TypeSafe evaluation service timed out.");
+    }
+    throw httpError(502, "Could not reach TypeSafe evaluation service.");
+  }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw httpError(502, `TypeSafe Jev evaluation failed (${response.status}): ${detail.slice(0, 200)}`);
@@ -125,7 +134,7 @@ router.post("/order-guard", requireAuth, requireRole("admin", "staff"), async (r
     { note, orderTotal },
     {
       requests_unpaid_extra_addon: {
-        type: "noul",
+        type: "bool",
         instructions: "Does `note` ask for extra paid toppings/add-ons (such as extra pearls, extra cheese, extra shots, or upsizing) inside the free-text kitchen instructions without paying?",
         criteria: {
           true: "Asks for extra physical ingredients, toppings, or larger size in the note",
@@ -133,7 +142,7 @@ router.post("/order-guard", requireAuth, requireRole("admin", "staff"), async (r
         },
       },
       contains_allergy_or_dietary_warning: {
-        type: "noul",
+        type: "bool",
         instructions: "Does `note` mention a food allergy, intolerance, or strict medical dietary restriction?",
         criteria: {
           true: "Mentions allergy, dairy/lactose intolerance, nut allergy, or medical restriction",

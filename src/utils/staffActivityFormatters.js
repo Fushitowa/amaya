@@ -1,4 +1,4 @@
-import { apiFetchBlob } from "./api.js";
+import { apiFetchBlobWithMeta } from "./api.js";
 
 export function peso(value) {
   const num = Number(value || 0);
@@ -82,7 +82,7 @@ export function getMovementTone(type) {
 }
 
 export async function downloadAuthenticatedCsv(urlPath, filename) {
-  const blob = await apiFetchBlob(urlPath);
+  const { blob, truncated, totalCount, exportedCount } = await apiFetchBlobWithMeta(urlPath);
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -94,4 +94,5 @@ export async function downloadAuthenticatedCsv(urlPath, filename) {
   window.setTimeout(() => {
     URL.revokeObjectURL(objectUrl);
   }, 1000);
+  return { truncated, totalCount, exportedCount };
 }

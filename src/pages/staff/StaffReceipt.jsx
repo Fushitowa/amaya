@@ -23,9 +23,14 @@ function StaffReceipt() {
     ? String(location.state.paymentStatus).toUpperCase()
     : getPaymentStatusLabel({ payment: location.state?.payment });
   const subtotal = Number(location.state?.subtotal ?? 0);
-  const total = Number(location.state?.total ?? subtotal);
+  const discountAmount = Number(location.state?.discountAmount ?? 0);
+  const discountLabel = location.state?.discountLabel || "";
+  const taxAmount = Number(location.state?.taxAmount ?? 0);
+  const vatRatePercent = Number(location.state?.vatRatePercent ?? (business.vatEnabled ? business.vatRatePercent || 0 : 0));
+  const total = Number(location.state?.total ?? Math.max(0, subtotal - discountAmount + taxAmount));
   const cashTendered = Number(location.state?.cashTendered ?? total);
   const changeDue = Number(location.state?.changeDue || 0);
+  const receiptFooterText = String(business.receiptFooter || "Thank you for visiting Amaya!").trim() || "Thank you for visiting Amaya!";
 
   // No fabricated order number: the receipt only ever shows a real one.
   const orderNumber = location.state?.orderId || "NEW";
@@ -53,11 +58,12 @@ function StaffReceipt() {
   }, []);
   const cashierName = location.state?.cashierName || user?.displayName || "Staff";
 
+  const shouldAutoPrint = Boolean(printPreferences.autoPrintReceipt || business.autoPrintReceipt);
   useEffect(() => {
-    if (!printPreferences.autoPrintReceipt || orderNumber === "NEW" || location.state?.testPrint) return undefined;
+    if (!shouldAutoPrint || orderNumber === "NEW" || location.state?.testPrint) return undefined;
     const timer = window.setTimeout(() => window.print(), 400);
     return () => window.clearTimeout(timer);
-  }, [location.state?.testPrint, orderNumber, printPreferences.autoPrintReceipt]);
+  }, [location.state?.testPrint, orderNumber, shouldAutoPrint]);
 
   const createdAt = location.state?.createdAt;
 
@@ -221,9 +227,15 @@ function StaffReceipt() {
               <span>Subtotal:</span>
               <span>₱{subtotal.toFixed(2)}</span>
             </div>
+            {discountAmount > 0 && (
+              <div className="slip-calc-row">
+                <span>Discount{discountLabel ? ` (${discountLabel})` : ""}:</span>
+                <span>-₱{discountAmount.toFixed(2)}</span>
+              </div>
+            )}
             <div className="slip-calc-row">
-              <span>Tax / VAT (0%):</span>
-              <span>₱0.00</span>
+              <span>Tax / VAT ({taxAmount > 0 || business.vatEnabled ? `${vatRatePercent}%` : "0%"}):</span>
+              <span>₱{taxAmount.toFixed(2)}</span>
             </div>
             <div className="slip-calc-row slip-calc-total">
               <strong>TOTAL AMOUNT:</strong>
@@ -257,7 +269,7 @@ function StaffReceipt() {
           </div>
 
           <footer className="slip-footer">
-            <p style={{ margin: "2px 0", fontWeight: 700 }}>Thank you for visiting Amaya!</p>
+            <p style={{ margin: "2px 0", fontWeight: 700 }}>{receiptFooterText}</p>
             <p style={{ margin: "2px 0" }}>Freshly crafted drinks & savory bites.</p>
             <p style={{ margin: "2px 0", fontSize: "9px" }}>Please present this slip when claiming order.</p>
           </footer>
@@ -328,7 +340,10 @@ function StaffReceipt() {
             </ul>
             <div className="rc-totals">
               <div><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
-              <div><span>Tax / VAT (0%)</span><span>₱0.00</span></div>
+              {discountAmount > 0 && (
+                <div><span>Discount{discountLabel ? ` (${discountLabel})` : ""}</span><span>-₱{discountAmount.toFixed(2)}</span></div>
+              )}
+              <div><span>Tax / VAT ({taxAmount > 0 || business.vatEnabled ? `${vatRatePercent}%` : "0%"})</span><span>₱{taxAmount.toFixed(2)}</span></div>
               {isCash && (
                 <>
                   <div><span>Cash tendered</span><span>₱{cashTendered.toFixed(2)}</span></div>
@@ -339,7 +354,7 @@ function StaffReceipt() {
             </div>
           </section>
 
-          <p className="rc-thanks">Thank you for visiting Amaya!</p>
+          <p className="rc-thanks">{receiptFooterText}</p>
         </main>
 
         <footer className="rc-bottombar">

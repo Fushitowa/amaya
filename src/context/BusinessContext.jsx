@@ -4,6 +4,12 @@ import { useAuth } from "./AuthContext.jsx";
 import { apiRequest } from "../utils/api.js";
 import { DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost } from "../utils/menuCosting.js";
 
+export const DEFAULT_DISCOUNT_PRESETS = [
+  { label: "Senior Citizen (20%)", pct: 20 },
+  { label: "PWD (20%)", pct: 20 },
+  { label: "Student (10%)", pct: 10 },
+];
+
 export const defaultBusinessSettings = {
   businessName: "Amaya's Drinks and Bites",
   email: "jessiecataya25@gmail.com",
@@ -11,7 +17,26 @@ export const defaultBusinessSettings = {
   address: "Barangay Lilingayon, Valencia City, Bukidnon",
   openingTime: "09:00",
   closingTime: "19:00",
+  isTemporarilyClosed: false,
+  receiptFooter: "Thank you for supporting local craft!",
   targetFoodCost: null,
+  lowStockThresholdPercent: 40,
+  criticalStockThresholdPercent: 20,
+  inactivityAlertDays: 30,
+  archiveRetentionDays: 30,
+  maxInventoryAdjustmentPct: 200,
+  vatEnabled: false,
+  vatRatePercent: 12,
+  discountPresets: DEFAULT_DISCOUNT_PRESETS,
+  enforceShiftGate: false,
+  autoPrintReceipt: true,
+  defaultVoidStockAction: "restore",
+  requireKitchenNoteApproval: false,
+  idleLockMinutes: 15,
+  exportRowLimit: 5000,
+  notifyAllEnabled: true,
+  notifyOrderAlerts: true,
+  notifyInventoryAlerts: true,
 };
 
 const FOCUS_REFRESH_DEBOUNCE_MS = 5000;
@@ -30,6 +55,19 @@ function getAuthIdentityKey(user) {
   return "anon";
 }
 
+function normalizeDiscountPresets(value) {
+  if (!Array.isArray(value)) return DEFAULT_DISCOUNT_PRESETS.map((p) => ({ ...p }));
+  return value
+    .filter((item) => item && typeof item.label === "string" && item.label.trim() && Number(item.pct) > 0 && Number(item.pct) <= 100)
+    .slice(0, 10)
+    .map((item) => ({ label: item.label.trim().slice(0, 50), pct: Number(Number(item.pct).toFixed(2)) }));
+}
+
+function normalizeInt(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
 function normalizeBusinessSettings(saved, isAdmin = false) {
   const source = saved && typeof saved === "object" ? saved : {};
   return {
@@ -45,9 +83,34 @@ function normalizeBusinessSettings(saved, isAdmin = false) {
     closingTime: typeof source.closingTime === "string" && source.closingTime
       ? source.closingTime
       : defaultBusinessSettings.closingTime,
+    isTemporarilyClosed: Boolean(source.isTemporarilyClosed),
+    receiptFooter: typeof source.receiptFooter === "string"
+      ? source.receiptFooter
+      : defaultBusinessSettings.receiptFooter,
     targetFoodCost: isAdmin
       ? normalizeTargetFoodCost(source.targetFoodCost, DEFAULT_TARGET_FOOD_COST)
       : null,
+    lowStockThresholdPercent: normalizeInt(source.lowStockThresholdPercent, defaultBusinessSettings.lowStockThresholdPercent, 5, 90),
+    criticalStockThresholdPercent: normalizeInt(source.criticalStockThresholdPercent, defaultBusinessSettings.criticalStockThresholdPercent, 1, 85),
+    inactivityAlertDays: normalizeInt(source.inactivityAlertDays, defaultBusinessSettings.inactivityAlertDays, 1, 365),
+    archiveRetentionDays: normalizeInt(source.archiveRetentionDays, defaultBusinessSettings.archiveRetentionDays, 1, 365),
+    maxInventoryAdjustmentPct: normalizeInt(source.maxInventoryAdjustmentPct, defaultBusinessSettings.maxInventoryAdjustmentPct, 25, 1000),
+    vatEnabled: Boolean(source.vatEnabled),
+    vatRatePercent: Number.isFinite(Number(source.vatRatePercent)) && Number(source.vatRatePercent) >= 0 && Number(source.vatRatePercent) <= 30
+      ? Number(Number(source.vatRatePercent).toFixed(2))
+      : defaultBusinessSettings.vatRatePercent,
+    discountPresets: Array.isArray(source.discountPresets)
+      ? normalizeDiscountPresets(source.discountPresets)
+      : defaultBusinessSettings.discountPresets.map((p) => ({ ...p })),
+    enforceShiftGate: source.enforceShiftGate === undefined ? defaultBusinessSettings.enforceShiftGate : Boolean(source.enforceShiftGate),
+    autoPrintReceipt: source.autoPrintReceipt === undefined ? defaultBusinessSettings.autoPrintReceipt : Boolean(source.autoPrintReceipt),
+    defaultVoidStockAction: source.defaultVoidStockAction === "spoilage" ? "spoilage" : "restore",
+    requireKitchenNoteApproval: Boolean(source.requireKitchenNoteApproval),
+    idleLockMinutes: normalizeInt(source.idleLockMinutes, defaultBusinessSettings.idleLockMinutes, 0, 240),
+    exportRowLimit: normalizeInt(source.exportRowLimit, defaultBusinessSettings.exportRowLimit, 100, 25000),
+    notifyAllEnabled: source.notifyAllEnabled === undefined ? defaultBusinessSettings.notifyAllEnabled : Boolean(source.notifyAllEnabled),
+    notifyOrderAlerts: source.notifyOrderAlerts === undefined ? defaultBusinessSettings.notifyOrderAlerts : Boolean(source.notifyOrderAlerts),
+    notifyInventoryAlerts: source.notifyInventoryAlerts === undefined ? defaultBusinessSettings.notifyInventoryAlerts : Boolean(source.notifyInventoryAlerts),
   };
 }
 
@@ -99,6 +162,20 @@ export function BusinessProvider({ children }) {
           settingsLoadedRef.current = true;
           authSyncIdentityRef.current = targetIdentityKey;
           setBusinessSettings(normalized);
+          try {
+            localStorage.setItem("amaya-idle-lock-minutes", String(normalized.idleLockMinutes));
+            if (effectiveIsAdmin) {
+              localStorage.setItem("amaya-admin-notifications", JSON.stringify({
+                notifications: normalized.notifyAllEnabled,
+                orderAlerts: normalized.notifyOrderAlerts,
+                inventoryAlerts: normalized.notifyInventoryAlerts,
+              }));
+              window.dispatchEvent(new Event("amaya-admin-notification-preferences"));
+            }
+            window.dispatchEvent(new CustomEvent("amaya:settings-updated", { detail: normalized }));
+          } catch {
+            // Storage may be unavailable in restricted contexts.
+          }
           setSettingsLoaded(true);
           setSettingsError("");
           setSettingsRefreshError("");
@@ -219,6 +296,18 @@ export function BusinessProvider({ children }) {
         settingsLoadedRef.current = true;
         authSyncIdentityRef.current = currentIdentityKey;
         setBusinessSettings(normalized);
+        try {
+          localStorage.setItem("amaya-idle-lock-minutes", String(normalized.idleLockMinutes));
+          localStorage.setItem("amaya-admin-notifications", JSON.stringify({
+            notifications: normalized.notifyAllEnabled,
+            orderAlerts: normalized.notifyOrderAlerts,
+            inventoryAlerts: normalized.notifyInventoryAlerts,
+          }));
+          window.dispatchEvent(new Event("amaya-admin-notification-preferences"));
+          window.dispatchEvent(new CustomEvent("amaya:settings-updated", { detail: normalized }));
+        } catch {
+          // Storage may be unavailable in restricted contexts.
+        }
         setSettingsLoaded(true);
         setSettingsError("");
         setSettingsRefreshError("");

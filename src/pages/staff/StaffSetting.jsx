@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Menu, Moon, Palette, Printer, Sun, User } from "lucide-react";
+import { Check, Menu, Moon, Palette, Printer, ShieldCheck, Sun, User } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useBusiness } from "../../context/BusinessContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
@@ -39,6 +40,7 @@ function readStaffPreferences() {
 function StaffSetting() {
   const { darkMode, toggleDarkMode } = useTheme();
   const { user } = useAuth() || {};
+  const { businessSettings } = useBusiness() || {};
   const cashierName = user?.displayName || "Cashier";
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -535,6 +537,78 @@ function StaffSetting() {
                   >
                     Reset Defaults
                   </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Read-only Active Store Policies synced from Admin Settings */}
+            <section className="ss-card">
+              <div className="ss-card-head">
+                <div className="ss-card-icon"><ShieldCheck size={18} /></div>
+                <div>
+                  <h2>Active Store Policies</h2>
+                  <p>Live POS rules configured by store administrators</p>
+                </div>
+              </div>
+              <div className="ss-card-body">
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Storefront Status</span>
+                    <span className="ss-sub">Current customer &amp; POS ordering availability</span>
+                  </div>
+                  <span className="ss-badge">{businessSettings?.isTemporarilyClosed ? "Temporarily Closed" : "Open"}</span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">VAT &amp; Tax Calculation</span>
+                    <span className="ss-sub">Applied automatically to checkout totals &amp; receipts</span>
+                  </div>
+                  <span className="ss-badge">
+                    {businessSettings?.vatEnabled ? `Enabled (${Number(businessSettings?.vatRatePercent ?? 12)}%)` : "Disabled (0%)"}
+                  </span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Cashier Shift Gate</span>
+                    <span className="ss-sub">Require open cashier shift before accepting orders</span>
+                  </div>
+                  <span className="ss-badge">{businessSettings?.enforceShiftGate ? "Required" : "Optional"}</span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Auto-Print Receipt</span>
+                    <span className="ss-sub">Trigger receipt printing upon checkout completion</span>
+                  </div>
+                  <span className="ss-badge">{businessSettings?.autoPrintReceipt !== false ? "On" : "Off"}</span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Void Default Stock Action</span>
+                    <span className="ss-sub">Pre-selected stock recovery mode when voiding orders</span>
+                  </div>
+                  <span className="ss-badge">{String(businessSettings?.defaultVoidStockAction || "restore")}</span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Idle Session Auto-Lock</span>
+                    <span className="ss-sub">Automatic lock timer on inactivity</span>
+                  </div>
+                  <span className="ss-badge">
+                    {Number(businessSettings?.idleLockMinutes || 0) > 0
+                      ? `${businessSettings.idleLockMinutes} mins`
+                      : "Disabled"}
+                  </span>
+                </div>
+                <div className="ss-row">
+                  <div>
+                    <span className="ss-label">Discount Presets</span>
+                    <span className="ss-sub">
+                      {Array.isArray(businessSettings?.discountPresets) && businessSettings.discountPresets.length > 0
+                        ? businessSettings.discountPresets.map((p) => `${p.label} (${p.pct}%)`).join(" · ")
+                        : "None configured"}
+                    </span>
+                  </div>
+                  <span className="ss-badge">{Array.isArray(businessSettings?.discountPresets) ? businessSettings.discountPresets.length : 0} presets</span>
                 </div>
               </div>
             </section>

@@ -36,6 +36,7 @@ registerUnit("volume", 1, ["ml", "milliliter", "milliliters", "millilitre", "mil
 registerUnit("volume", 10, ["cl", "centiliter", "centiliters", "centilitre", "centilitres"]);
 registerUnit("volume", 100, ["dl", "deciliter", "deciliters", "decilitre", "decilitres"]);
 registerUnit("volume", 1000, ["l", "liter", "liters", "litre", "litres"]);
+registerUnit("volume", 1000000, ["m3", "m³", "cubic meter", "cubic meters", "cubic metre", "cubic metres"]);
 registerUnit("volume", 4.92892159375, ["tsp", "teaspoon", "teaspoons"]);
 registerUnit("volume", 14.78676478125, ["tbsp", "tablespoon", "tablespoons"]);
 registerUnit("volume", 236.5882365, ["cup", "cups"]);
