@@ -381,6 +381,16 @@ describe("Tala Suite: Cashier Auth, RBAC, Shared Consumptions, Non-Destructive V
     assert.equal(staffDetail.data.items[0].unitCost, undefined);
     assert.equal(staffDetail.data.items[0].unitCostSnapshot, undefined);
     assert.equal(staffDetail.data.consumptions, undefined);
+    assert.ok(Array.isArray(staffDetail.data.ingredientsUsed));
+    assert.equal(staffDetail.data.ingredientsUsed.length, 1);
+    assert.equal(typeof staffDetail.data.ingredientsUsed[0].inventoryName, "string");
+    assert.ok(staffDetail.data.ingredientsUsed[0].inventoryName.length > 0);
+    assert.ok(staffDetail.data.ingredientsUsed[0].quantityUsed > 0);
+    assert.equal(typeof staffDetail.data.ingredientsUsed[0].unit, "string");
+    assert.equal(staffDetail.data.ingredientsUsed[0].unitCost, undefined);
+    assert.equal(staffDetail.data.ingredientsUsed[0].unitCostSnapshot, undefined);
+    assert.equal(staffDetail.data.ingredientsUsed[0].lineCost, undefined);
+    assert.equal(staffDetail.data.ingredientsUsed[0].totalCost, undefined);
 
     const adminDetail = await server.requestJson(`/api/orders/${orderNo}`, { token: admin.token });
     assert.equal(adminDetail.status, 200);
@@ -978,5 +988,365 @@ describe("Tala Suite: Cashier Auth, RBAC, Shared Consumptions, Non-Destructive V
     assert.equal(detailAdmin.data.productBreakdown[0].sales, 300);
     assert.equal(detailAdmin.data.productBreakdown[0].cogs, 6);
     assert.equal(detailAdmin.data.productBreakdown[0].grossProfit, 294);
+  });
+
+  it("reverts per-product items (Pending, Preparing admin auth, last-item cancel, partial revert + full void ledger parity)", async () => {
+    const tag = makeUniqueTag("ItemRevert");
+    const admin = await tracker.createUser({ role: "admin" });
+    const staff = await tracker.createUser({ role: "staff" });
+
+    const cupRes = await server.requestJson("/api/inventory", {
+      method: "POST",
+      token: admin.token,
+      body: { item: `Revert Cup ${tag}`, category: "Cups & Lids", quantity: 40, unit: "pcs", purchasePrice: 80, packageQuantity: 1, contentsPerPackage: 40 },
+    });
+    assert.equal(cupRes.status, 201);
+    const cupId = Number(cupRes.data.id);
+    tracker.inventoryItemIds.add(cupId);
+
+    const [dCat] = await pool.execute("INSERT INTO menu_categories (name, operational_family) VALUES (?, 'drink')", [`Revert_Drink_${tag}`]);
+    tracker.menuCategoryIds.add(Number(dCat.insertId));
+    const [sCat] = await pool.execute("INSERT INTO menu_categories (name, operational_family) VALUES (?, 'single_fixed')", [`Revert_Snack_${tag}`]);
+    tracker.menuCategoryIds.add(Number(sCat.insertId));
+
+    const drinkRes = await server.requestJson("/api/menu", {
+      method: "POST",
+      token: admin.token,
+      body: {
+        name: `Revert Drink ${tag}`,
+        category: `Revert_Drink_${tag}`,
+        price: "100.00",
+        stock: 0,
+        sizes: [{
+          label: "Regular",
+          price: 100,
+          ingredients: [{ inventoryItemId: cupId, name: `Revert Cup ${tag}`, quantityUsed: 1, unit: "pcs", stockUnit: "pcs" }],
+        }],
+        ingredients: [{ inventoryItemId: cupId, name: `Revert Cup ${tag}`, quantityUsed: 1, unit: "pcs", stockUnit: "pcs" }],
+      },
+    });
+    assert.equal(drinkRes.status, 201);
+    const drinkId = Number(drinkRes.data.id);
+    tracker.productIds.add(drinkId);
+
+    const snackRes = await server.requestJson("/api/menu", {
+      method: "POST",
+      token: admin.token,
+      body: {
+        name: `Revert Snack ${tag}`,
+        category: `Revert_Snack_${tag}`,
+        price: "50.00",
+        costPrice: "15.00",
+        stock: 10,
+        sizes: [{ label: "Regular", price: 50 }],
+        ingredients: [],
+      },
+    });
+    assert.equal(snackRes.status, 201);
+    const snackId = Number(snackRes.data.id);
+    tracker.productIds.add(snackId);
+
+    // Order A: 2x Drink (200, COGS 4) + 1x Snack (50, COGS 15) => total 250
+    const orderARes = await server.requestJson("/api/orders", {
+      method: "POST",
+      token: staff.token,
+      body: {
+        type: "Counter",
+        paymentMethod: "Cash",
+        cashTendered: 300,
+        items: [
+          { productId: drinkId, size: "Regular", quantity: 2 },
+          { productId: snackId, size: "Regular", quantity: 1 },
+        ],
+      },
+    });
+    assert.equal(orderARes.status, 201);
+    const orderANo = orderARes.data.id;
+    const drinkItemA = orderARes.data.items.find((i) => Number(i.productId) === drinkId);
+    const snackItemA = orderARes.data.items.find((i) => Number(i.productId) === snackId);
+    assert.ok(drinkItemA?.id);
+    assert.ok(snackItemA?.id);
+
+    // 1. Staff reverts 1x Drink while Pending WITHOUT adminPassword -> 200
+    const partialRes = await server.requestJson(`/api/orders/${orderANo}/items/${drinkItemA.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { quantity: 1, reason: "Wrong quantity punched", restoreStock: true },
+    });
+    assert.equal(partialRes.status, 200);
+    assert.equal(partialRes.data.status, "Pending");
+    assert.equal(Number(partialRes.data.total), 150);
+    assert.equal(partialRes.data.items.find((i) => Number(i.id) === Number(drinkItemA.id)).quantity, 1);
+
+    const [[cupAfterPartial]] = await pool.execute("SELECT quantity FROM inventory_items WHERE id = ?", [cupId]);
+    assert.equal(Number(cupAfterPartial.quantity), 39, "1 of 2 cups restored after partial qty revert");
+
+    // 2. Advance Order A to Preparing -> Staff revert without valid admin password gets 403
+    const prepRes = await server.requestJson(`/api/orders/${orderANo}/status`, {
+      method: "PATCH",
+      token: staff.token,
+      body: { status: "Preparing" },
+    });
+    assert.equal(prepRes.status, 200);
+
+    const noPassRes = await server.requestJson(`/api/orders/${orderANo}/items/${snackItemA.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Customer ordered something else", restoreStock: true },
+    });
+    assert.equal(noPassRes.status, 403);
+
+    const wrongPassRes = await server.requestJson(`/api/orders/${orderANo}/items/${snackItemA.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Customer ordered something else", restoreStock: true, adminPassword: "wrong-password" },
+    });
+    assert.equal(wrongPassRes.status, 403);
+
+    // With valid adminPassword -> 200 (backward compatibility + authorizedBy + admin audit notification)
+    const withPassRes = await server.requestJson(`/api/orders/${orderANo}/items/${snackItemA.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Customer ordered something else", restoreStock: true, adminPassword: admin.password },
+    });
+    assert.equal(withPassRes.status, 200);
+    assert.equal(Number(withPassRes.data.total), 100);
+    assert.equal(withPassRes.data.items.length, 1);
+    assert.deepEqual(withPassRes.data.authorizedBy, {
+      id: admin.id,
+      displayName: admin.displayName,
+      role: "admin",
+    });
+    assert.ok(
+      withPassRes.data.statusEvents.some((e) =>
+        String(e.reason || "").includes(`(Authorized by ${admin.displayName} [admin])`),
+      ),
+      "order_status_events must record admin authorizer name and role",
+    );
+
+    const [[snackAfterRevert]] = await pool.execute("SELECT stock_quantity FROM menu_products WHERE id = ?", [snackId]);
+    assert.equal(Number(snackAfterRevert.stock_quantity), 10, "Non-recipe snack stock restored cleanly");
+
+    // 3. Full /void on Order A after partial item reverts -> must NOT double-reverse already-reverted ledger amounts
+    const voidARes = await server.requestJson(`/api/orders/${orderANo}/void`, {
+      method: "POST",
+      token: admin.token,
+      body: { reason: "Full void after partial item reverts", restoreStock: true },
+    });
+    assert.equal(voidARes.status, 200);
+    assert.equal(voidARes.data.status, "Cancelled");
+
+    const [[orderARow]] = await pool.execute("SELECT id FROM orders WHERE order_number = ?", [orderANo]);
+    const [orderANetAccounts] = await pool.execute(
+      `SELECT coa.account_code,
+              ROUND(SUM(jel.debit), 2) AS total_debit,
+              ROUND(SUM(jel.credit), 2) AS total_credit,
+              ROUND(SUM(jel.debit) - SUM(jel.credit), 2) AS net_dc
+         FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+        WHERE je.order_id = ?
+        GROUP BY coa.account_code`,
+      [orderARow.id],
+    );
+    for (const acct of orderANetAccounts) {
+      assert.equal(Number(acct.net_dc), 0, `Account ${acct.account_code} on partially-reverted then voided order must net to 0`);
+    }
+
+    const [[trialBalance]] = await pool.execute(
+      "SELECT ROUND(SUM(debit), 2) AS debits, ROUND(SUM(credit), 2) AS credits FROM journal_entry_lines",
+    );
+    assert.equal(Number(trialBalance.debits), Number(trialBalance.credits), "Global trial balance must stay balanced");
+
+    // 4. Order B: single item -> reverting the last item cancels the full order non-destructively
+    const orderBRes = await server.requestJson("/api/orders", {
+      method: "POST",
+      token: staff.token,
+      body: {
+        type: "Counter",
+        paymentMethod: "Cash",
+        items: [{ productId: drinkId, size: "Regular", quantity: 1 }],
+      },
+    });
+    assert.equal(orderBRes.status, 201);
+    const orderBNo = orderBRes.data.id;
+    const drinkItemB = orderBRes.data.items[0];
+
+    const lastItemRevert = await server.requestJson(`/api/orders/${orderBNo}/items/${drinkItemB.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Wrong product ordered", restoreStock: true },
+    });
+    assert.equal(lastItemRevert.status, 200);
+    assert.equal(lastItemRevert.data.status, "Cancelled");
+    assert.match(lastItemRevert.data.voidReason || "", /Reverted/i);
+
+    const [[cupFinal]] = await pool.execute("SELECT quantity FROM inventory_items WHERE id = ?", [cupId]);
+    assert.equal(Number(cupFinal.quantity), 40, "All cups restored across Order A and Order B");
+
+    // 5. Order C (Completed): Staff-password revert authorization, Admin-only audit notifications, & void RBAC
+    const staffApprover = await tracker.createUser({
+      role: "staff",
+      displayName: `Tala Approver ${tag}`,
+    });
+
+    const orderCRes = await server.requestJson("/api/orders", {
+      method: "POST",
+      token: staff.token,
+      body: {
+        type: "Counter",
+        paymentMethod: "Cash",
+        cashTendered: 200,
+        items: [
+          { productId: drinkId, size: "Regular", quantity: 1 },
+          { productId: snackId, size: "Regular", quantity: 1 },
+        ],
+      },
+    });
+    assert.equal(orderCRes.status, 201);
+    const orderCNo = orderCRes.data.id;
+    const drinkItemC = orderCRes.data.items.find((i) => Number(i.productId) === drinkId);
+    const snackItemC = orderCRes.data.items.find((i) => Number(i.productId) === snackId);
+    assert.ok(drinkItemC?.id && snackItemC?.id);
+
+    // Advance Order C Pending -> Preparing -> Completed
+    assert.equal(
+      (await server.requestJson(`/api/orders/${orderCNo}/status`, {
+        method: "PATCH",
+        token: staff.token,
+        body: { status: "Preparing" },
+      })).status,
+      200,
+    );
+    assert.equal(
+      (await server.requestJson(`/api/orders/${orderCNo}/status`, {
+        method: "PATCH",
+        token: staff.token,
+        body: { status: "Completed" },
+      })).status,
+      200,
+    );
+
+    // Full-order /void must STILL return 403 for staff
+    const staffVoidDenied = await server.requestJson(`/api/orders/${orderCNo}/void`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Staff void attempt", restoreStock: true },
+    });
+    assert.equal(staffVoidDenied.status, 403, "POST /api/orders/:orderNumber/void must remain strictly 403 for staff");
+
+    // Completed item revert with missing / wrong password -> 403
+    const completedNoPass = await server.requestJson(`/api/orders/${orderCNo}/items/${drinkItemC.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Spilled at pickup", restoreStock: true },
+    });
+    assert.equal(completedNoPass.status, 403);
+
+    const completedWrongPass = await server.requestJson(`/api/orders/${orderCNo}/items/${drinkItemC.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: { reason: "Spilled at pickup", restoreStock: true, authorizationPassword: "not-a-valid-password" },
+    });
+    assert.equal(completedWrongPass.status, 403);
+
+    // Valid active staff password on Completed order -> 200 (inventory restored, authorizedBy.role === 'staff')
+    const staffAuthRevert = await server.requestJson(`/api/orders/${orderCNo}/items/${drinkItemC.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: {
+        reason: "Customer switched drink after completion",
+        restoreStock: true,
+        authorizationPassword: staffApprover.password,
+      },
+    });
+    assert.equal(staffAuthRevert.status, 200);
+    assert.equal(Number(staffAuthRevert.data.total), 50);
+    assert.equal(staffAuthRevert.data.items.length, 1);
+    assert.deepEqual(staffAuthRevert.data.authorizedBy, {
+      id: staffApprover.id,
+      displayName: staffApprover.displayName,
+      role: "staff",
+    });
+
+    const [[cupAfterStaffRevert]] = await pool.execute("SELECT quantity FROM inventory_items WHERE id = ?", [cupId]);
+    assert.equal(Number(cupAfterStaffRevert.quantity), 40, "Staff-authorized revert must restore cup inventory");
+
+    const [[orderCRow]] = await pool.execute("SELECT id FROM orders WHERE order_number = ?", [orderCNo]);
+    const [orderCEvents] = await pool.execute(
+      "SELECT reason, actor_name_snapshot FROM order_status_events WHERE order_id = ? ORDER BY id DESC LIMIT 1",
+      [orderCRow.id],
+    );
+    assert.equal(orderCEvents.length, 1);
+    assert.ok(
+      String(orderCEvents[0].reason || "").includes(`(Authorized by ${staffApprover.displayName} [staff])`),
+      "order_status_events must record staff authorizer name and role",
+    );
+
+    // Admin notification saved for active admin, NOT delivered to staff
+    const adminNotifs = await server.requestJson("/api/notifications", { token: admin.token });
+    assert.equal(adminNotifs.status, 200);
+    const revertNotif = adminNotifs.data.find(
+      (n) => n.type === "order_revert" && String(n.title || "").includes(orderCNo),
+    );
+    assert.ok(revertNotif, "Admin must receive persistent order_revert notification");
+    assert.ok(
+      String(revertNotif.message || "").includes(`Authorized by ${staffApprover.displayName} (staff)`),
+      "Admin notification must include authorizing staff displayName and role",
+    );
+
+    for (const sUser of [staff, staffApprover]) {
+      const staffNotifs = await server.requestJson("/api/notifications", { token: sUser.token });
+      assert.equal(staffNotifs.status, 200);
+      assert.equal(
+        staffNotifs.data.some((n) => n.type === "order_revert"),
+        false,
+        "order_revert notifications must NOT be delivered to staff accounts",
+      );
+    }
+
+    // Last remaining item on Completed Order C reverted with staff password -> cancels full order + preserves voidedBy & ledger parity
+    const finalItemStaffRevert = await server.requestJson(`/api/orders/${orderCNo}/items/${snackItemC.id}/revert`, {
+      method: "POST",
+      token: staff.token,
+      body: {
+        reason: "Customer cancelled remaining snack",
+        restoreStock: true,
+        authorizationPassword: staffApprover.password,
+      },
+    });
+    assert.equal(finalItemStaffRevert.status, 200);
+    assert.equal(finalItemStaffRevert.data.status, "Cancelled");
+    assert.equal(finalItemStaffRevert.data.voidedBy, staffApprover.id);
+    assert.ok(
+      String(finalItemStaffRevert.data.voidReason || "").includes(`(Authorized by ${staffApprover.displayName} [staff])`),
+      "Full cancel by last-item revert must preserve staff authorizer in void_reason",
+    );
+
+    const [[snackAfterStaffRevert]] = await pool.execute("SELECT stock_quantity FROM menu_products WHERE id = ?", [snackId]);
+    assert.equal(Number(snackAfterStaffRevert.stock_quantity), 10, "Snack stock restored after staff-authorized full cancel revert");
+
+    const [orderCNetAccounts] = await pool.execute(
+      `SELECT coa.account_code,
+              ROUND(SUM(jel.debit) - SUM(jel.credit), 2) AS net_dc
+         FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+        WHERE je.order_id = ?
+        GROUP BY coa.account_code`,
+      [orderCRow.id],
+    );
+    for (const acct of orderCNetAccounts) {
+      assert.equal(Number(acct.net_dc), 0, `Account ${acct.account_code} on staff-reverted Order C must net to 0`);
+    }
+
+    const [[trialBalancePostStaffRevert]] = await pool.execute(
+      "SELECT ROUND(SUM(debit), 2) AS debits, ROUND(SUM(credit), 2) AS credits FROM journal_entry_lines",
+    );
+    assert.equal(
+      Number(trialBalancePostStaffRevert.debits),
+      Number(trialBalancePostStaffRevert.credits),
+      "Global trial balance must remain balanced after staff-authorized reverts",
+    );
   });
 });

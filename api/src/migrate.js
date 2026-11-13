@@ -38,6 +38,7 @@ const migrations = [
   "030_double_entry_financial_management_system.sql",
   "031_financial_ledger_integrity.sql",
   "032_expand_business_settings.sql",
+  "033_allow_partial_reversals.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",

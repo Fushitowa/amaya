@@ -6,6 +6,13 @@ export const VOID_REASON_PRESETS = [
   "Preparation quality issue",
 ];
 
+export const ITEM_REVERT_REASON_PRESETS = [
+  "Wrong product ordered",
+  "Customer ordered something else",
+  "Wrong quantity punched",
+  "Duplicate / accidental entry",
+];
+
 export function getDefaultVoidStockAction(status, defaultAction = "restore") {
   if (String(status || "") === "Pending") return "restore";
   return defaultAction === "spoilage" ? "spoilage" : "restore";

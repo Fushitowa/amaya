@@ -8,8 +8,13 @@ import {
   Clock,
   CreditCard,
   Hash,
+  Info,
+  Lock,
   MessageSquare,
+  Minus,
+  Plus,
   Printer,
+  RotateCcw,
   ShieldAlert,
   User,
   Utensils,
@@ -30,6 +35,7 @@ import {
   formatAuditTimestamp,
   formatConsumptionQuantity,
   getDefaultVoidStockAction,
+  ITEM_REVERT_REASON_PRESETS,
   VOID_REASON_PRESETS,
 } from "../utils/orderDetailsHelpers.js";
 import { peso } from "../utils/staffActivityFormatters.js";
@@ -55,6 +61,7 @@ function OrderDetailsModal({
   canViewCostBreakdown = false,
   onConfirmOrder,
   onVoidOrder,
+  onRevertOrderItem,
   onPrintReceipt,
   triggerRef,
   onClosed,
@@ -64,6 +71,8 @@ function OrderDetailsModal({
   const { businessSettings } = useBusiness() || {};
   const prefersReducedMotion = usePrefersReducedMotion();
 
+  const revertOrderItemFn = onRevertOrderItem || ordersContext?.revertOrderItem;
+
   const dialogRef = useRef(null);
   const closeTimerRef = useRef(null);
 
@@ -71,6 +80,11 @@ function OrderDetailsModal({
   const [viewMode, setViewMode] = useState("details");
   const [voidReason, setVoidReason] = useState("");
   const [stockAction, setStockAction] = useState(() => getDefaultVoidStockAction(order?.status));
+  const [revertTargetItem, setRevertTargetItem] = useState(null);
+  const [revertQty, setRevertQty] = useState(1);
+  const [revertReason, setRevertReason] = useState("");
+  const [revertStockAction, setRevertStockAction] = useState(() => getDefaultVoidStockAction(order?.status));
+  const [authorizationPassword, setAuthorizationPassword] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
@@ -210,6 +224,12 @@ function OrderDetailsModal({
   const paymentMethod = displayOrder.paymentMethod || "Cash";
   const statusEvents = Array.isArray(displayOrder.statusEvents) ? displayOrder.statusEvents : [];
   const consumptions = Array.isArray(displayOrder.consumptions) ? displayOrder.consumptions : [];
+  const operationalIngredients =
+    consumptions.length > 0
+      ? consumptions
+      : Array.isArray(displayOrder.ingredientsUsed)
+        ? displayOrder.ingredientsUsed
+        : [];
 
   const totalCost = orderItems.reduce((sum, item) => {
     const unitCost = Number(item.unitCost ?? item.unitCostSnapshot ?? 0);
@@ -283,6 +303,70 @@ function OrderDetailsModal({
     }
   };
 
+  const handleEnterItemRevertMode = (item) => {
+    setActionError("");
+    setActionNotice("");
+    setRevertTargetItem(item);
+    setRevertQty(Math.max(1, Number(item.quantity || 1)));
+    setRevertReason("");
+    setAuthorizationPassword("");
+    setRevertStockAction(
+      getDefaultVoidStockAction(
+        displayOrder.status,
+        businessSettings?.defaultVoidStockAction || "restore",
+      ),
+    );
+    setViewMode("item-revert-confirm");
+  };
+
+  const needsAuthorizationPasswordForRevert = portal !== "admin" && displayOrder.status !== "Pending";
+  const maxRevertQty = Math.max(1, Number(revertTargetItem?.quantity || 1));
+  const willCancelFullOrderOnRevert =
+    Boolean(revertTargetItem) &&
+    orderItems.length === 1 &&
+    revertQty === Number(revertTargetItem.quantity || 1);
+
+  const handleItemRevertSubmit = async (event) => {
+    event.preventDefault();
+    if (!revertOrderItemFn || !revertTargetItem || actionBusy) return;
+    const trimmed = revertReason.trim();
+    if (trimmed.length < 3 || trimmed.length > 255) {
+      setActionError("Enter a revert reason between 3 and 255 characters.");
+      return;
+    }
+    if (needsAuthorizationPasswordForRevert && !authorizationPassword.trim()) {
+      setActionError("Staff or admin password is required to revert an item after preparation starts.");
+      return;
+    }
+    setActionBusy(true);
+    setActionError("");
+    try {
+      const updated = await revertOrderItemFn(displayOrder.id, revertTargetItem.id, {
+        quantity: revertQty,
+        reason: trimmed,
+        restoreStock: revertStockAction === "restore",
+        authorizationPassword: needsAuthorizationPasswordForRevert ? authorizationPassword : undefined,
+      });
+      if (updated) {
+        setFetchedState({ orderId, data: updated, loading: false, error: "" });
+      }
+      const itemTitle = revertTargetItem.title;
+      const revertedCount = revertQty;
+      setViewMode("details");
+      setRevertTargetItem(null);
+      setAuthorizationPassword("");
+      setActionNotice(
+        updated?.status === "Cancelled"
+          ? `Reverted ${revertedCount}× ${itemTitle} — Order ${displayOrder.id} cancelled and ${revertStockAction === "restore" ? "stock restored" : "spoilage recorded"}.`
+          : `Reverted ${revertedCount}× ${itemTitle} from Order ${displayOrder.id}${revertStockAction === "restore" ? " and restored stock." : " with spoilage recorded."}`,
+      );
+    } catch (err) {
+      setActionError(err?.message || "Failed to revert item.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const statusClass = String(displayOrder.status || "Pending").toLowerCase();
   const isWaitingDetails = fetchedState.orderId !== orderId;
 
@@ -303,13 +387,14 @@ function OrderDetailsModal({
       >
         <header className="odm-header">
           <div className="odm-header-left">
-            {viewMode === "void-confirm" && (
+            {(viewMode === "void-confirm" || viewMode === "item-revert-confirm") && (
               <button
                 type="button"
                 className="odm-icon-btn"
                 onClick={() => {
                   setViewMode("details");
                   setActionError("");
+                  setAuthorizationPassword("");
                 }}
                 aria-label="Back to order details"
               >
@@ -321,7 +406,9 @@ function OrderDetailsModal({
                 <h3 id="odm-dialog-title">
                   {viewMode === "void-confirm"
                     ? `Void / Cancel Order #${displayOrder.id}`
-                    : `Order #${displayOrder.id}`}
+                    : viewMode === "item-revert-confirm"
+                      ? `Revert Item · Order #${displayOrder.id}`
+                      : `Order #${displayOrder.id}`}
                 </h3>
                 {displayOrder.status ? (
                   <span className={`odm-status-pill ${statusClass}`}>{displayOrder.status}</span>
@@ -487,6 +574,199 @@ function OrderDetailsModal({
                 </button>
               </div>
             </form>
+          ) : viewMode === "item-revert-confirm" && revertTargetItem ? (
+            <form className="odm-void-panel" onSubmit={handleItemRevertSubmit}>
+              <div className="odm-void-summary">
+                <div>
+                  <span>PRODUCT TO REVERT</span>
+                  <strong>{revertTargetItem.title}</strong>
+                  <small className="odm-revert-meta">
+                    {[
+                      revertTargetItem.size || "Regular",
+                      revertTargetItem.sugarLevel || null,
+                      revertTargetItem.addons?.length ? `+${revertTargetItem.addons.join(", ")}` : null,
+                    ].filter(Boolean).join(" · ")}
+                  </small>
+                </div>
+                <div>
+                  <span>QUANTITY TO REVERT</span>
+                  <div className="odm-qty-stepper" role="group" aria-label="Revert quantity">
+                    <button
+                      type="button"
+                      className="odm-stepper-btn"
+                      onClick={() => setRevertQty((q) => Math.max(1, q - 1))}
+                      disabled={actionBusy || revertQty <= 1}
+                      aria-label="Decrease quantity to revert"
+                    >
+                      <Minus size={14} strokeWidth={2.4} aria-hidden="true" />
+                    </button>
+                    <strong className="odm-stepper-val">
+                      {revertQty} <small>/ {maxRevertQty}</small>
+                    </strong>
+                    <button
+                      type="button"
+                      className="odm-stepper-btn"
+                      onClick={() => setRevertQty((q) => Math.min(maxRevertQty, q + 1))}
+                      disabled={actionBusy || revertQty >= maxRevertQty}
+                      aria-label="Increase quantity to revert"
+                    >
+                      <Plus size={14} strokeWidth={2.4} aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <span>LINE AMOUNT REVERTED</span>
+                  <strong>{peso(Number(revertTargetItem.price || 0) * revertQty)}</strong>
+                  <small className="odm-revert-meta">{peso(Number(revertTargetItem.price || 0))} each</small>
+                </div>
+              </div>
+
+              {willCancelFullOrderOnRevert && (
+                <div className="odm-alert void-banner" role="note">
+                  <AlertTriangle size={17} aria-hidden="true" />
+                  <div>
+                    <strong>Last item on order:</strong> Reverting all {revertQty} unit{revertQty === 1 ? "" : "s"} of this product will cancel the full order (#{displayOrder.id}) and restore its ingredients.
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="odm-section-head">
+                  <h4>Select Revert Reason</h4>
+                </div>
+                <div className="odm-preset-group" role="group" aria-label="Common revert reasons">
+                  {ITEM_REVERT_REASON_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className={`odm-chip-btn ${revertReason === preset ? "is-active" : ""}`}
+                      onClick={() => setRevertReason(preset)}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700 }}>
+                  Revert Reason (Required, 3–255 characters)
+                </span>
+                <textarea
+                  className="odm-textarea"
+                  value={revertReason}
+                  maxLength={255}
+                  placeholder="Explain why this item is being reverted..."
+                  onChange={(e) => setRevertReason(e.target.value)}
+                  required
+                />
+                <small className="odm-char-counter">
+                  {revertReason.trim().length} / 255
+                </small>
+              </label>
+
+              <div>
+                <div className="odm-section-head">
+                  <h4>Inventory Handling</h4>
+                </div>
+                <div className="odm-radio-grid">
+                  <label className={`odm-radio-card ${revertStockAction === "restore" ? "is-selected" : ""}`}>
+                    <input
+                      type="radio"
+                      name="revertStockAction"
+                      value="restore"
+                      checked={revertStockAction === "restore"}
+                      onChange={() => setRevertStockAction("restore")}
+                    />
+                    <div>
+                      <strong>Restore Ingredients / Stock to Inventory</strong>
+                      <small>
+                        Returns the item&apos;s proportional recipe ingredients or unit stock back into inventory.
+                      </small>
+                    </div>
+                  </label>
+
+                  <label className={`odm-radio-card ${revertStockAction === "spoilage" ? "is-selected" : ""}`}>
+                    <input
+                      type="radio"
+                      name="revertStockAction"
+                      value="spoilage"
+                      checked={revertStockAction === "spoilage"}
+                      onChange={() => setRevertStockAction("spoilage")}
+                    />
+                    <div>
+                      <strong>Record Spoilage</strong>
+                      <small>
+                        Keeps ingredients deducted and records wastage/spoilage on the inventory and ledger trail.
+                      </small>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {portal !== "admin" && (
+                needsAuthorizationPasswordForRevert ? (
+                  <div className="odm-admin-auth-box">
+                    <div className="odm-admin-auth-head">
+                      <Lock size={15} strokeWidth={2.3} aria-hidden="true" />
+                      <strong>Staff or Admin Password Required ({displayOrder.status} Order)</strong>
+                    </div>
+                    <p className="odm-admin-auth-note">
+                      Owner away from the counter? Enter any active staff or admin password to confirm this revert. Everything is logged for Admin review.
+                    </p>
+                    <label className="odm-password-label">
+                      <span>Staff or Admin Password</span>
+                      <input
+                        type="password"
+                        className="odm-input"
+                        value={authorizationPassword}
+                        onChange={(e) => setAuthorizationPassword(e.target.value)}
+                        placeholder="Enter staff or admin password"
+                        autoComplete="current-password"
+                        required
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="odm-alert info" role="note">
+                    <Info size={17} aria-hidden="true" />
+                    <span>
+                      Pending orders revert directly with full inventory restoration and audit logging—no password needed.
+                    </span>
+                  </div>
+                )
+              )}
+
+              <div className="odm-void-footer">
+                <button
+                  type="button"
+                  className="odm-btn neutral"
+                  onClick={() => {
+                    setViewMode("details");
+                    setActionError("");
+                    setAuthorizationPassword("");
+                  }}
+                  disabled={actionBusy}
+                >
+                  Back to Order
+                </button>
+                <button
+                  type="submit"
+                  className="odm-btn danger-solid"
+                  disabled={
+                    actionBusy ||
+                    revertReason.trim().length < 3 ||
+                    (needsAuthorizationPasswordForRevert && !authorizationPassword.trim())
+                  }
+                >
+                  {actionBusy
+                    ? "Reverting Item..."
+                    : willCancelFullOrderOnRevert
+                      ? "Revert & Cancel Order"
+                      : "Confirm Item Revert"}
+                </button>
+              </div>
+            </form>
           ) : (
             <div className="odm-layout">
               <div>
@@ -546,6 +826,19 @@ function OrderDetailsModal({
                         </span>
 
                         <strong className="odm-item-total">{peso(lineTotal)}</strong>
+
+                        {!isCancelled && item.id != null && revertOrderItemFn && (
+                          <button
+                            type="button"
+                            className="odm-item-revert-btn"
+                            onClick={() => handleEnterItemRevertMode(item)}
+                            disabled={actionBusy}
+                            aria-label={`Revert ${item.title}`}
+                          >
+                            <RotateCcw size={13} strokeWidth={2.2} aria-hidden="true" />
+                            <span>Revert</span>
+                          </button>
+                        )}
                       </li>
                     );
                   }) : (
@@ -623,7 +916,7 @@ function OrderDetailsModal({
                   <strong>{peso(orderTotal)}</strong>
                 </div>
 
-                {canViewCostBreakdown && (
+                {canViewCostBreakdown ? (
                   <section className="odm-cogs-card" aria-label="Ingredient COGS and Margin Breakdown">
                     <div className="odm-section-head">
                       <h4>Cost &amp; Ingredient Breakdown ({portal === "admin" ? "Admin" : ""})</h4>
@@ -691,6 +984,55 @@ function OrderDetailsModal({
                                 </div>
                                 <div className="odm-consumption-bar-cost">
                                   <strong>{costDisplay}</strong>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="odm-subtitle">No ingredient deductions recorded for this order.</p>
+                    )}
+                  </section>
+                ) : (
+                  <section className="odm-cogs-card" aria-label="Ingredients used">
+                    <div className="odm-section-head">
+                      <h4>Ingredients Used</h4>
+                    </div>
+
+                    {isWaitingDetails ? (
+                      <p className="odm-subtitle">Loading ingredients used...</p>
+                    ) : operationalIngredients.length > 0 ? (
+                      <div className="odm-consumption-bars-wrap is-operational-only">
+                        <div className="odm-consumption-ruler" aria-hidden="true">
+                          <span>Ingredient</span>
+                          <span>Source</span>
+                          <span>Used Amount</span>
+                        </div>
+                        <div className="odm-consumption-bar-list" role="list" aria-label="Ingredients used">
+                          {operationalIngredients.map((entry, idx) => {
+                            const ingredientName =
+                              entry.inventoryName ||
+                              entry.itemName ||
+                              entry.productName ||
+                              entry.name ||
+                              "Ingredient";
+                            return (
+                              <div className="odm-consumption-bar-row" key={entry.id || idx} role="listitem">
+                                <div className="odm-consumption-bar-main">
+                                  <span className="odm-consumption-bar-idx">#{String(idx + 1).padStart(2, "0")}</span>
+                                  <div className="odm-consumption-bar-info">
+                                    <strong className="odm-consumption-bar-title">{ingredientName}</strong>
+                                    {entry.reversedAt && <span className="odm-tag-reversed">Restored</span>}
+                                  </div>
+                                </div>
+                                <div className="odm-consumption-bar-source">
+                                  <span className="odm-consumption-source-tag">{entry.source || "Recipe"}</span>
+                                </div>
+                                <div className="odm-consumption-bar-qty">
+                                  <span className="odm-consumption-qty-chip">
+                                    {formatConsumptionQuantity(entry.quantityUsed ?? entry.quantity, entry.unit)}
+                                  </span>
                                 </div>
                               </div>
                             );

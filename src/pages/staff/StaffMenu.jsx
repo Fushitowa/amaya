@@ -14,6 +14,7 @@ import {
   Search,
   Settings,
   ShoppingBag,
+  User,
   Utensils,
   X,
 } from "lucide-react";
@@ -104,7 +105,7 @@ function StaffMenu() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [customerName, setCustomerName] = useState("Walk-in Customer");
+  const [customerName] = useState("Walk-in Customer");
   const [customerNote, setCustomerNote] = useState("");
   const [orderType, setOrderType] = useState(() => {
     try {
@@ -645,8 +646,7 @@ function StaffMenu() {
       )}
 
       {/* Right Cart & POS Register Panel */}
-      <aside className="staff-menu-order-panel">
-        <div className="staff-menu-order-card">
+      <aside className="staff-menu-order-card">
           <div
             className="staff-menu-order-sheet-handle"
             onClick={() => setMobileCartOpen(false)}
@@ -694,16 +694,12 @@ function StaffMenu() {
               </div>
             </div>
 
-            <label className="staff-menu-order-field" htmlFor="staff-order-customer">
-              <span className="staff-menu-field-label">Customer Info</span>
-              <input
-                id="staff-order-customer"
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Walk-in Customer"
-              />
-            </label>
+            <div className="staff-menu-order-customer-row">
+              <span className="staff-menu-field-label">Customer</span>
+              <span id="staff-order-customer" className="staff-menu-customer-pill">
+                <User size={13} strokeWidth={2.2} aria-hidden="true" /> {customerName}
+              </span>
+            </div>
 
             <label className="staff-menu-order-field" htmlFor="staff-order-note">
               <span className="staff-menu-field-label">Customer Note</span>
@@ -781,7 +777,6 @@ function StaffMenu() {
               Place Order &amp; Checkout <span aria-hidden="true">→</span>
             </button>
           </footer>
-        </div>
       </aside>
 
       {/* Mobile Sticky Bottom Cart Bar */}

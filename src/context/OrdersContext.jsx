@@ -19,7 +19,9 @@ export const ORDER_STATUS_FLOW = ["Pending", "Preparing", "Completed"];
 export function getNextAllowedStatuses(currentStatus) {
   if (currentStatus === "Cancelled") return [];
   const index = ORDER_STATUS_FLOW.indexOf(currentStatus);
-  return index < 0 || index === ORDER_STATUS_FLOW.length - 1 ? [] : [ORDER_STATUS_FLOW[index + 1]];
+  return index < 0 || index === ORDER_STATUS_FLOW.length - 1
+    ? []
+    : ORDER_STATUS_FLOW.slice(index + 1);
 }
 
 export function canTransitionTo(currentStatus, nextStatus) {
@@ -133,6 +135,25 @@ export function OrdersProvider({ children }) {
         method: "POST",
         body: JSON.stringify({ reason, restoreStock }),
       });
+      const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
+      setOrders((items) => items.map((entry) => entry.id === orderNumber ? normalized : entry));
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+      return normalized;
+    },
+    revertOrderItem: async (orderNumber, itemId, { quantity, reason, restoreStock, authorizationPassword, adminPassword } = {}) => {
+      const updated = await apiRequest(
+        `/orders/${encodeURIComponent(orderNumber)}/items/${encodeURIComponent(itemId)}/revert`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            quantity,
+            reason,
+            restoreStock,
+            authorizationPassword: authorizationPassword ?? adminPassword,
+            adminPassword: adminPassword ?? authorizationPassword,
+          }),
+        },
+      );
       const normalized = normalizeOrderPayment(normalizeOrderCustomer(updated));
       setOrders((items) => items.map((entry) => entry.id === orderNumber ? normalized : entry));
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));

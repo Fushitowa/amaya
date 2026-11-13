@@ -181,7 +181,7 @@ async function fetchAllTodayPaidOrders({ from, to, rangeKey, staffId }) {
 
 function AdminReport() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
-  const { orders = [], confirmOrder, voidOrder } = useOrders() || {};
+  const { orders = [], confirmOrder, voidOrder, revertOrderItem } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
   const { products: menuProducts = [] } = useMenu() || {};
   const { businessSettings } = useBusiness() || {};
@@ -2612,6 +2612,12 @@ function AdminReport() {
           onVoidOrder={async (ord, payload) => {
             const updated = voidOrder ? await voidOrder(ord.id, payload) : null;
             setRefreshNonce((n) => n + 1);
+            return updated;
+          }}
+          onRevertOrderItem={async (orderNumber, itemId, payload) => {
+            const updated = revertOrderItem ? await revertOrderItem(orderNumber, itemId, payload) : null;
+            setRefreshNonce((n) => n + 1);
+            if (updated) setSelectedOrder(updated);
             return updated;
           }}
           triggerRef={orderTriggerRef}

@@ -33,7 +33,7 @@ import "../../assets/css/sidebar-collapse.css";
 
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
-  const { orders, confirmOrder, voidOrder } = useOrders();
+  const { orders, confirmOrder, voidOrder, revertOrderItem } = useOrders();
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
   const { products = [] } = useMenu() || {};
   const { businessSettings } = useBusiness() || {};
@@ -610,6 +610,12 @@ function AdminDashboard() {
       }}
       onVoidOrder={async (ord, payload) => {
         const updated = await voidOrder(ord?.id ?? ord, payload);
+        loadServerSummary();
+        if (updated) setSelectedOrder(updated);
+        return updated;
+      }}
+      onRevertOrderItem={async (orderNumber, itemId, payload) => {
+        const updated = await revertOrderItem(orderNumber, itemId, payload);
         loadServerSummary();
         if (updated) setSelectedOrder(updated);
         return updated;

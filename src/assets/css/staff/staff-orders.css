@@ -3795,3 +3795,673 @@
 .so-empty-cta { min-height: 48px; margin-top: 12px; padding: 0 22px; border: 0; border-radius: 16px; background: #5a3e2b; color: #fff; font: 600 14.5px inherit; touch-action: manipulation; transition: transform 120ms ease, background-color 150ms ease; }
 .so-empty-cta.ghost { background: #f4ebe3; color: #5a3e2b; }
 .so-empty-cta:active { transform: scale(.96); transition-duration: 0ms; }
+
+
+/* ============================================================================
+   AMAYA Elegant Order Queue & Product Card Polish (Desktop .staff-orders-main)
+   Preserves AMAYA Warm Cream & Espresso Palette (Light + Dark Mode)
+   ============================================================================ */
+.staff-orders-main {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 92% 4%, rgba(184, 134, 78, 0.09), transparent 36%),
+    #f5efe6;
+}
+
+.staff-orders-main .orders-content {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 20px;
+}
+
+.staff-orders-main .orders-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fffdf9;
+  border: 1px solid #e6d8c8;
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(68, 42, 25, 0.06);
+  overflow: hidden;
+}
+
+.staff-orders-main .orders-toolbar {
+  padding: 20px 24px;
+  background: linear-gradient(180deg, #fffaf2 0%, #fffdf9 100%);
+  border-bottom: 1px solid #ede1d3;
+  align-items: center;
+}
+
+.staff-orders-main .orders-toolbar h3 {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #2c1e16;
+}
+
+.staff-orders-main .orders-toolbar p {
+  color: #7c6758;
+  font-size: 13px;
+}
+
+.staff-orders-main .orders-toolbar-search {
+  border-radius: 999px;
+  border: 1px solid #e2d3c2;
+  background: #ffffff;
+  padding: 0 14px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.staff-orders-main .orders-toolbar-search:focus-within {
+  border-color: #8b5e3c;
+  box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.14);
+}
+
+.staff-orders-main .order-filters {
+  gap: 7px;
+}
+
+.staff-orders-main .filter-button {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #e5d7c7;
+  background: #faf3e9;
+  color: #5a4334;
+  font-weight: 700;
+  transition: transform 120ms ease, background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.staff-orders-main .filter-button:hover:not(.active) {
+  background: #f3e7d7;
+  border-color: #cfb79d;
+}
+
+.staff-orders-main .filter-button.active {
+  background: linear-gradient(135deg, #5a3822 0%, #7d5031 100%);
+  border-color: #5a3822;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(90, 56, 34, 0.22);
+}
+
+.staff-orders-main .order-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(285px, 1fr));
+  gap: 18px;
+  padding: 22px 24px 26px;
+}
+
+.staff-orders-main .order-card {
+  position: relative;
+  background: linear-gradient(180deg, #ffffff 0%, #fffcf7 100%);
+  border: 1px solid #e7d9c9;
+  border-radius: 18px;
+  padding: 16px;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(68, 42, 25, 0.045);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.staff-orders-main .order-card:hover {
+  transform: translateY(-3px);
+  border-color: #c8a887;
+  box-shadow: 0 12px 24px rgba(68, 42, 25, 0.1);
+}
+
+.staff-orders-main .order-card.cancelled {
+  background: #fdf9f8;
+  border-color: #eed4d0;
+  opacity: 0.88;
+}
+
+.staff-orders-main .order-card-id {
+  font-size: 15px;
+  font-weight: 800;
+  color: #2c1e16;
+  letter-spacing: -0.02em;
+}
+
+.staff-orders-main .order-card-time {
+  color: #877264;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.staff-orders-main .order-card-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.staff-orders-main .order-card-avatar {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #f3e4d2 0%, #e6cfb6 100%);
+  color: #5c3921;
+  border: 1px solid #dec6ac;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-card-divider {
+  margin: 2px 0;
+  border-top: 1px dashed #e9dccd;
+}
+
+.staff-orders-main .order-card-summary {
+  padding: 8px 12px 4px;
+  border-radius: 12px 12px 0 0;
+  background: #faf4eb;
+  border: 1px solid #eee2d3;
+  border-bottom: 0;
+}
+
+.staff-orders-main .order-card-count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #6b5444;
+}
+
+.staff-orders-main .order-card-total {
+  font-size: 16px;
+  font-weight: 800;
+  color: #3d2415;
+  font-variant-numeric: tabular-nums;
+}
+
+.staff-orders-main .order-card-items-preview {
+  padding: 6px 12px 10px;
+  border-radius: 0 0 12px 12px;
+  background: #faf4eb;
+  border: 1px solid #eee2d3;
+  border-top: 0;
+  min-height: 58px;
+  gap: 8px;
+}
+
+.staff-orders-main .order-card-item-preview {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 11px;
+  border: 1.5px solid #ffffff;
+  background: #f2e6d8;
+  box-shadow: 0 2px 6px rgba(44, 30, 22, 0.12);
+}
+
+.staff-orders-main .order-card-item-preview > span {
+  right: 2px;
+  bottom: 2px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #442a19;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-card-actions {
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.staff-orders-main .order-card-actions .order-status-select {
+  height: 38px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.staff-orders-main .order-card-actions .order-print-btn {
+  height: 38px;
+  padding: 0 13px;
+  border-radius: 10px;
+  border: 1px solid #dfd0bf;
+  background: #faf3e9;
+  color: #4a3121;
+  font-weight: 700;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.staff-orders-main .order-card-actions .order-print-btn:hover {
+  background: #f1e3d1;
+  border-color: #c9ac8f;
+}
+
+/* Dark Mode Alignment for Upgraded Order Queue & Cards */
+.staff-orders-page.dark-mode .staff-orders-main {
+  background:
+    radial-gradient(circle at 92% 4%, rgba(194, 142, 100, 0.08), transparent 36%),
+    #1b1410;
+}
+
+.staff-orders-page.dark-mode .orders-card {
+  background: #241c17;
+  border-color: #3a2d24;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.staff-orders-page.dark-mode .orders-toolbar {
+  background: linear-gradient(180deg, #2a211b 0%, #241c17 100%);
+  border-bottom-color: #3a2d24;
+}
+
+.staff-orders-page.dark-mode .orders-toolbar h3,
+.staff-orders-page.dark-mode .order-card-id {
+  color: #f5ebe1;
+}
+
+.staff-orders-page.dark-mode .orders-toolbar p,
+.staff-orders-page.dark-mode .order-card-time {
+  color: #b7a496;
+}
+
+.staff-orders-page.dark-mode .orders-toolbar-search {
+  background: #1c1512;
+  border-color: #44352c;
+}
+
+.staff-orders-page.dark-mode .filter-button {
+  background: #2e241e;
+  border-color: #44352c;
+  color: #e4d5c7;
+}
+
+.staff-orders-page.dark-mode .filter-button.active {
+  background: linear-gradient(135deg, #8b5e3c 0%, #b07a52 100%);
+  border-color: #b07a52;
+  color: #ffffff;
+}
+
+.staff-orders-page.dark-mode .order-card {
+  background: linear-gradient(180deg, #2b221c 0%, #241c17 100%);
+  border-color: #3d3028;
+}
+
+.staff-orders-page.dark-mode .order-card:hover {
+  border-color: #8b5e3c;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.4);
+}
+
+.staff-orders-page.dark-mode .order-card-summary,
+.staff-orders-page.dark-mode .order-card-items-preview {
+  background: #1e1713;
+  border-color: #362a23;
+}
+
+.staff-orders-page.dark-mode .order-card-total {
+  color: #f5ebe1;
+}
+
+.staff-orders-page.dark-mode .order-card-count {
+  color: #cbb9aa;
+}
+
+.staff-orders-page.dark-mode .order-card-item-preview {
+  border-color: #3a2d24;
+  background: #2c221c;
+}
+
+.staff-orders-page.dark-mode .order-card-actions .order-print-btn {
+  background: #332720;
+  border-color: #48382e;
+  color: #eddcd0;
+}
+
+/* ============================================================================
+   Big Hero Product Card Layout (.order-card-hero + itemized ticket body)
+   ============================================================================ */
+.staff-orders-main .order-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-content: start;
+  gap: 16px;
+  padding: 18px 22px 22px;
+}
+
+.staff-orders-main .order-card {
+  padding: 10px;
+  gap: 10px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.staff-orders-main .order-card-trigger {
+  padding: 0;
+  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.staff-orders-main .order-card-hero {
+  position: relative;
+  width: 100%;
+  height: 164px;
+  border-radius: 13px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f1e3d3 0%, #e4ceb6 100%);
+  border: 1px solid #e7d9c9;
+}
+
+.staff-orders-main .order-card-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.staff-orders-main .order-card:hover .order-card-hero-img {
+  transform: scale(1.04);
+}
+
+.staff-orders-main .order-card-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(28, 18, 12, 0.08) 0%, transparent 45%, rgba(28, 18, 12, 0.56) 100%);
+  pointer-events: none;
+}
+
+.staff-orders-main .order-card-hero .order-card-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+
+.staff-orders-main .order-card-hero-bottom {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.staff-orders-main .order-card-hero-qty {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.92);
+  color: #2c1e16;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-card-hero-stack {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.staff-orders-main .order-card-hero-chip {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1.5px solid #ffffff;
+  background: #f5ebe0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.staff-orders-main .order-card-hero-chip b {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #2c1e16;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-card-hero-more {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(44, 30, 22, 0.85);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-card-hero-price {
+  padding: 5px 11px;
+  border-radius: 10px;
+  background: rgba(44, 28, 18, 0.92);
+  color: #fffdf9;
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+}
+
+.staff-orders-main .order-card-body {
+  padding: 2px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.staff-orders-main .order-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.staff-orders-main .order-card-id {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #2c1e16;
+}
+
+.staff-orders-main .order-card-time {
+  margin-top: 0;
+  font-size: 12px;
+  color: #877264;
+  white-space: nowrap;
+}
+
+.staff-orders-main .order-card-item-lines {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #faf4eb;
+  border: 1px solid #eee2d3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.staff-orders-main .order-card-item-lines li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #2c1e16;
+  min-width: 0;
+}
+
+.staff-orders-main .order-card-line-qty {
+  font-weight: 800;
+  color: #7c4f31;
+  flex-shrink: 0;
+}
+
+.staff-orders-main .order-card-line-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.staff-orders-main .order-card-line-size {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #efe2d2;
+  color: #5a3822;
+  flex-shrink: 0;
+}
+
+.staff-orders-main .order-card-line-more,
+.staff-orders-main .order-card-line-empty {
+  font-size: 12px;
+  font-weight: 600;
+  color: #877264;
+}
+
+.staff-orders-main .order-card-customer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.staff-orders-main .order-card-avatar {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.staff-orders-main .order-card-customer-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.staff-orders-main .order-card-customer-text strong {
+  font-size: 12.5px;
+}
+
+.staff-orders-main .order-card-customer-text span {
+  margin-top: 0;
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #f3e9dc;
+  color: #6b5444;
+  font-weight: 700;
+}
+
+.staff-orders-main .order-card-actions {
+  padding: 0 6px 4px;
+}
+
+.staff-orders-page.dark-mode .order-card-hero {
+  border-color: #3a2d24;
+  background: #2b211b;
+}
+
+.staff-orders-page.dark-mode .order-card-item-lines {
+  background: #1e1713;
+  border-color: #362a23;
+}
+
+.staff-orders-page.dark-mode .order-card-item-lines li {
+  color: #f5ebe1;
+}
+
+.staff-orders-page.dark-mode .order-card-line-qty {
+  color: #d6a276;
+}
+
+.staff-orders-page.dark-mode .order-card-line-size {
+  background: #352922;
+  color: #e6d1be;
+}
+
+.staff-orders-page.dark-mode .order-card-customer-text span {
+  background: #332720;
+  color: #cbb9aa;
+}
+
+.staff-orders-main .order-complete-btn {
+  flex: 1;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #5a3822 0%, #7d5031 100%);
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(90, 56, 34, 0.22);
+  transition: transform 120ms ease, opacity 140ms ease;
+}
+
+.staff-orders-main .order-complete-btn:hover {
+  opacity: 0.94;
+}
+
+.staff-orders-main .order-complete-btn:active {
+  transform: scale(0.98);
+}
+
+.staff-orders-main .order-status-pill-muted {
+  flex: 1;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.staff-orders-main .order-status-pill-muted.is-completed {
+  background: #eaf8ef;
+  border: 1px solid #bce6cb;
+  color: #166b3a;
+}
+
+.staff-orders-main .order-status-pill-muted.is-cancelled {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.staff-orders-page.dark-mode .order-complete-btn {
+  background: linear-gradient(135deg, #8b5e3c 0%, #b07a52 100%);
+}
+
+.staff-orders-page.dark-mode .order-status-pill-muted.is-completed {
+  background: #173021;
+  border-color: #28563a;
+  color: #7ee2a8;
+}
+
+.staff-orders-page.dark-mode .order-status-pill-muted.is-cancelled {
+  background: #361919;
+  border-color: #5b2929;
+  color: #fca5a5;
+}

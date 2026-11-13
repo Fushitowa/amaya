@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   CheckCircle2,
@@ -8,34 +8,50 @@ import {
   Plus,
   Clock,
   Menu,
-  Printer,
   Settings,
   ShoppingBag,
   Utensils,
 } from "lucide-react";
 
 import Sidebar from "../../components/Sidebar.jsx";
-import PortalHero from "../../components/PortalHero.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import StaffOperationsBar from "../../components/StaffOperationsBar.jsx";
+import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
+import { useMenu } from "../../context/MenuContext.jsx";
 import { getOrderTime, isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 
 import "../../assets/css/staff/staff-dashboard.css";
-import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 function StaffDashboard() {
+  const navigate = useNavigate();
   const { darkMode } = useTheme();
   const { user } = useAuth() || {};
   const cashierName = user?.displayName || "Cashier";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { orders = [] } = useOrders() || {};
+  const { orders = [], confirmOrder, revertOrderItem } = useOrders() || {};
+  const { products = [] } = useMenu() || {};
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const modalTriggerRef = useRef(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const productImageByName = useMemo(() => {
+    const map = new Map();
+    products.forEach((product) => {
+      if (product?.name && product?.image) map.set(product.name, product.image);
+    });
+    return map;
+  }, [products]);
+
+  const openOrderDetails = (order, event) => {
+    modalTriggerRef.current = event?.currentTarget || null;
+    setSelectedOrder(order);
+  };
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
   );
@@ -74,7 +90,7 @@ function StaffDashboard() {
     [todaysOrders],
   );
 
-  const recentOrders = useMemo(() => orders.slice(0, 6), [orders]);
+  const recentOrders = useMemo(() => orders.slice(0, 15), [orders]);
 
   if (isMobile) {
     const kpis = [
@@ -225,18 +241,85 @@ function StaffDashboard() {
         </header>
 
         <div className="dashboard-content">
-          {/* Espresso Welcome Hero */}
-          <PortalHero
-            label="Staff Portal · Barista & Cashier"
-            greeting={greetingTime}
-            highlight={`${cashierName}!`}
-            subtitle="Here is what is currently happening at Amaya’s Drinks & Bites today."
-            date={liveDate}
-            statusTitle="Terminal active"
-          />
+          {/* Recent Orders Card (Left Adjustable Panel) */}
+          <section className="dashboard-card orders-card" aria-label="Recent counter orders">
+            <div className="card-header">
+              <div>
+                <h3>Recent Counter Orders</h3>
+                <p>Latest customer transactions received</p>
+              </div>
 
-          {/* 4 KPI Metric Cards: Total Orders, Pending, Preparing, Completed Today */}
-          <section className="stats-grid" aria-label="Quick metrics">
+              <Link to="/staff/orders" className="view-all">
+                View All Orders
+                <span>→</span>
+              </Link>
+            </div>
+
+            {/* Separate Fixed Header Bar */}
+            <div className="orders-bar-head" aria-hidden="true">
+              <span>Order ID</span>
+              <span>Customer</span>
+              <span>Items</span>
+              <span>Total</span>
+              <span>Status</span>
+            </div>
+
+            {/* Separate Scrollable Order Bars */}
+            <div className="orders-table" role="list" aria-label="Recent counter orders">
+              {recentOrders.length ? (
+                recentOrders.map((order) => {
+                  const itemCount = order.items
+                    ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+                    : 0;
+
+                  return (
+                    <article
+                      className="orders-bar-row"
+                      role="button"
+                      tabIndex={0}
+                      key={order.id}
+                      title="Click to inspect order details, ingredients used, and payment method"
+                      onClick={(e) => openOrderDetails(order, e)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openOrderDetails(order, e);
+                        }
+                      }}
+                    >
+                      <div className="orders-bar-cell orders-bar-id">
+                        <strong>{order.id}</strong>
+                        <span>{getOrderTime(order.createdAt)}</span>
+                      </div>
+                      <div className="orders-bar-cell orders-bar-customer">
+                        <strong>{order.customer || "Walk-in Customer"}</strong>
+                        <small>{order.type || "Counter"}</small>
+                      </div>
+                      <div className="orders-bar-cell orders-bar-items">
+                        {itemCount} item{itemCount === 1 ? "" : "s"}
+                      </div>
+                      <div className="orders-bar-cell orders-bar-total">
+                        <strong>₱{Number(order.total || 0).toFixed(2)}</strong>
+                      </div>
+                      <div className="orders-bar-cell orders-bar-status">
+                        <span className={`order-status ${order.status.toLowerCase()}`}>
+                          {order.status}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="empty-orders-state">
+                  <strong>No orders yet</strong>
+                  <span>New customer orders will appear here as they are processed.</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* 4 KPI Metric Cards (Right Vertical Rail) */}
+          <aside className="stats-grid" aria-label="Quick metrics">
             <div className={`stat-card ${todaysOrders.length ? "" : "empty-stat-card"}`}>
               <div className="stat-card-top">
                 <span className="stat-icon stat-icon-amber">
@@ -302,164 +385,38 @@ function StaffDashboard() {
                   : "No completed orders yet today"}
               </p>
             </div>
-          </section>
-          {/* Main Dashboard Grid: Recent Orders & Quick POS Actions */}
-          <section className="dashboard-grid">
-            {/* Recent Orders Card */}
-            <div className="dashboard-card orders-card">
-              <div className="card-header">
-                <div>
-                  <h3>Recent Counter Orders</h3>
-                  <p>Latest customer transactions received</p>
-                </div>
-
-                <Link to="/staff/orders" className="view-all">
-                  View All Orders
-                  <span>→</span>
-                </Link>
-              </div>
-
-              <div className="orders-table-wrapper">
-                <table className="orders-table">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Customer</th>
-                      <th>Items</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {recentOrders.length ? (
-                      recentOrders.map((order) => {
-                        const itemCount = order.items
-                          ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-                          : 0;
-
-                        return (
-                          <tr key={order.id}>
-                            <td>
-                              <strong>{order.id}</strong>
-                              <span>{getOrderTime(order.createdAt)}</span>
-                            </td>
-                            <td>
-                              <strong>{order.customer || "Walk-in Customer"}</strong>
-                              <small className="orders-table-sub">{order.type || "Counter"}</small>
-                            </td>
-                            <td>{itemCount} item{itemCount === 1 ? "" : "s"}</td>
-                            <td><strong>₱{Number(order.total || 0).toFixed(2)}</strong></td>
-                            <td>
-                              <span className={`order-status ${order.status.toLowerCase()}`}>
-                                {order.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan="5" className="empty-orders-cell">
-                          <div className="empty-orders-state">
-                            <strong>No orders yet</strong>
-                            <span>New customer orders will appear here as they are processed.</span>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Quick Actions Card */}
-            <div className="dashboard-card quick-card">
-              <div className="card-header">
-                <div>
-                  <h3>Quick POS Actions</h3>
-                  <p>Frequent staff counter tasks</p>
-                </div>
-              </div>
-
-              <div className="quick-actions">
-                <Link to="/staff/menu" className="quick-action">
-                  <span className="quick-action-icon quick-action-icon-amber">
-                    <Plus size={16} strokeWidth={2.4} />
-                  </span>
-                  <span className="quick-action-copy">
-                    <strong>New POS Order</strong>
-                    <span>Open menu &amp; build a customer order</span>
-                  </span>
-                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
-                </Link>
-
-                <Link to="/staff/orders" className="quick-action">
-                  <span className="quick-action-icon">
-                    <ClipboardList size={16} strokeWidth={2} />
-                  </span>
-                  <span className="quick-action-copy">
-                    <strong>Manage Order Queue</strong>
-                    <span>Advance statuses &amp; print receipts</span>
-                  </span>
-                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
-                </Link>
-
-                <Link to="/staff/settings" className="quick-action">
-                  <span className="quick-action-icon">
-                    <Printer size={16} strokeWidth={2} />
-                  </span>
-                  <span className="quick-action-copy">
-                    <strong>Printer &amp; Settings</strong>
-                    <span>Setup receipt printer &amp; preferences</span>
-                  </span>
-                  <ArrowRight className="quick-action-arrow" aria-hidden="true" size={16} strokeWidth={2} />
-                </Link>
-              </div>
-            </div>
-          </section>
-
-          {/* Today's Live Activity Stream */}
-          <section className="dashboard-card activity-card">
-            <div className="card-header">
-              <div>
-                <h3>Today&apos;s Live Activity</h3>
-                <p>Real-time audit log of recent staff portal transactions</p>
-              </div>
-            </div>
-
-            <div className="activity-list">
-              {todaysOrders.length ? (
-                todaysOrders.slice(0, 5).map((order) => {
-                  const itemCount = order.items
-                    ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-                    : 0;
-
-                  return (
-                    <div className="activity-item" key={`activity-${order.id}`}>
-                      <div className="activity-dot"></div>
-                      <div className="activity-content">
-                        <strong>Order #{order.id} ({order.status})</strong>
-                        <span>
-                          {itemCount} item(s) · ₱{Number(order.total || 0).toFixed(2)} · Placed at {getOrderTime(order.createdAt)} · Type: {order.type || "Counter"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="activity-item empty-activity">
-                  <div className="activity-dot"></div>
-                  <div className="activity-content">
-                    <strong>No transactions yet today</strong>
-                    <span>Activity events will log here automatically when orders are created or updated.</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
+          </aside>
         </div>
       </main>
+
+      {selectedOrder && (
+        <OrderDetailsModal
+          key={selectedOrder.id}
+          order={selectedOrder}
+          portal="staff"
+          darkMode={darkMode}
+          productImageByName={productImageByName}
+          canVoid={false}
+          canViewCostBreakdown={false}
+          triggerRef={modalTriggerRef}
+          onConfirmOrder={async (ord) => {
+            const updated = await confirmOrder?.(ord?.id ?? ord);
+            if (updated) {
+              setSelectedOrder(updated);
+            }
+            return updated;
+          }}
+          onRevertOrderItem={async (orderNumber, itemId, payload) => {
+            const updated = await revertOrderItem?.(orderNumber, itemId, payload);
+            if (updated) {
+              setSelectedOrder(updated);
+            }
+            return updated;
+          }}
+          onPrintReceipt={(ord) => navigate("/staff/receipt", { state: { order: ord } })}
+          onClosed={() => setSelectedOrder(null)}
+        />
+      )}
     </div>
   );
 }

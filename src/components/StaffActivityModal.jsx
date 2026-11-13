@@ -70,7 +70,7 @@ function StaffActivityModal({
   triggerRef,
   onClosed,
 }) {
-  const { confirmOrder, voidOrder } = useOrders() || {};
+  const { confirmOrder, voidOrder, revertOrderItem } = useOrders() || {};
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const dialogRef = useRef(null);
@@ -1008,6 +1008,12 @@ function StaffActivityModal({
           onVoidOrder={async (ord, payload) => {
             const updated = voidOrder ? await voidOrder(ord.id, payload) : null;
             fetchActivity();
+            return updated;
+          }}
+          onRevertOrderItem={async (orderNumber, itemId, payload) => {
+            const updated = revertOrderItem ? await revertOrderItem(orderNumber, itemId, payload) : null;
+            fetchActivity();
+            if (updated) setActiveOrder(updated);
             return updated;
           }}
           triggerRef={orderTriggerRef}

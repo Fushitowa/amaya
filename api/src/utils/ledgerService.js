@@ -298,6 +298,60 @@ export async function postOrderSaleAndCogs(connection, {
 }
 
 /**
+ * Compute remaining unreversed lines for an original journal entry after subtracting
+ * any prior partial reversal entries referencing `reverses_entry_id = origEntryId`.
+ */
+async function buildRemainingReversalLines(connection, orderId, origEntryId, { lineMemo, extraOffsets = [] } = {}) {
+  const [origLines] = await connection.execute(
+    `SELECT coa.account_code, jel.debit, jel.credit
+       FROM journal_entry_lines jel
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+      WHERE jel.journal_entry_id = ?`,
+    [origEntryId]
+  );
+  if (!origLines.length) return [];
+
+  const [priorRevs] = await connection.execute(
+    `SELECT coa.account_code,
+            COALESCE(SUM(jel.debit), 0) AS rev_debit,
+            COALESCE(SUM(jel.credit), 0) AS rev_credit
+       FROM journal_entries je
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+      WHERE je.order_id = ?
+        AND je.is_reversal = TRUE
+        AND je.reverses_entry_id = ?
+      GROUP BY coa.account_code`,
+    [orderId, origEntryId]
+  );
+
+  const netByAccount = new Map();
+  for (const l of origLines) {
+    const prev = netByAccount.get(l.account_code) || 0;
+    netByAccount.set(l.account_code, round2(prev + round2(l.debit) - round2(l.credit)));
+  }
+  for (const r of priorRevs) {
+    const prev = netByAccount.get(r.account_code) || 0;
+    netByAccount.set(r.account_code, round2(prev + round2(r.rev_debit) - round2(r.rev_credit)));
+  }
+  for (const off of extraOffsets) {
+    const prev = netByAccount.get(off.accountCode) || 0;
+    netByAccount.set(off.accountCode, round2(prev + round2(off.netDelta)));
+  }
+
+  const lines = [];
+  for (const [accountCode, net] of netByAccount.entries()) {
+    const cleanNet = round2(net);
+    if (cleanNet > 0) {
+      lines.push({ accountCode, debit: 0, credit: cleanNet, lineMemo });
+    } else if (cleanNet < 0) {
+      lines.push({ accountCode, debit: round2(Math.abs(cleanNet)), credit: 0, lineMemo });
+    }
+  }
+  return lines;
+}
+
+/**
  * Post traceable reversal entries when an order is voided, and handle restoreStock vs spoilage (6030).
  */
 export async function postOrderVoidReversal(connection, {
@@ -309,27 +363,22 @@ export async function postOrderVoidReversal(connection, {
   sessionId = null,
   userId,
 }) {
-  // 1. Reverse original sales_revenue entry if one was posted
+  // 1. Reverse remaining unreversed portion of original sales_revenue entry if one was posted
   const [[salesEntry]] = await connection.execute(
     `SELECT je.id, je.entry_number
        FROM journal_entries je
       WHERE je.order_id = ?
         AND je.entry_type = 'sales_revenue'
         AND je.is_reversal = FALSE
-        AND NOT EXISTS (SELECT 1 FROM journal_entries rev WHERE rev.reverses_entry_id = je.id)
       LIMIT 1`,
     [orderId]
   );
 
   if (salesEntry) {
-    const [salesLines] = await connection.execute(
-      `SELECT jel.debit, jel.credit, coa.account_code
-         FROM journal_entry_lines jel
-         JOIN chart_of_accounts coa ON coa.id = jel.account_id
-        WHERE jel.journal_entry_id = ?`,
-      [salesEntry.id]
-    );
-    if (salesLines.length >= 2) {
+    const remainingSalesLines = await buildRemainingReversalLines(connection, orderId, Number(salesEntry.id), {
+      lineMemo: `Void reversal for ${orderNumber}`,
+    });
+    if (remainingSalesLines.length >= 2) {
       await postBalancedEntry(connection, {
         entryType: "void_reversal",
         memo: `Void reversal (${salesEntry.entry_number}) Order #${orderNumber}: ${reason}`,
@@ -340,38 +389,48 @@ export async function postOrderVoidReversal(connection, {
         reversesEntryId: Number(salesEntry.id),
         idempotencyKey: `order:${orderId}:void_sales`,
         createdBy: userId,
-        lines: salesLines.map((l) => ({
-          accountCode: l.account_code,
-          debit: round2(l.credit),
-          credit: round2(l.debit),
-          lineMemo: `Void reversal for ${orderNumber}`,
-        })),
+        lines: remainingSalesLines,
       });
     }
   }
 
-  // 2. Reverse or reclassify COGS depending on restoreStock
+  // 2. Reverse remaining unreversed COGS or reclassify remaining COGS into spoilage (6030)
   const [[cogsEntry]] = await connection.execute(
     `SELECT je.id, je.entry_number
        FROM journal_entries je
       WHERE je.order_id = ?
         AND je.entry_type = 'cogs_consumption'
         AND je.is_reversal = FALSE
-        AND NOT EXISTS (SELECT 1 FROM journal_entries rev WHERE rev.reverses_entry_id = je.id)
       LIMIT 1`,
     [orderId]
   );
 
   if (restoreStock) {
     if (cogsEntry) {
-      const [cogsLines] = await connection.execute(
-        `SELECT jel.debit, jel.credit, coa.account_code
-           FROM journal_entry_lines jel
+      // If earlier partial item reverts recorded spoilage (DR 6030 / CR 5010), do not restore/re-credit those amounts.
+      const [[priorSpoilageRow]] = await connection.execute(
+        `SELECT COALESCE(SUM(jel.credit), 0) AS spoiled_cogs
+           FROM journal_entries je
+           JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
            JOIN chart_of_accounts coa ON coa.id = jel.account_id
-          WHERE jel.journal_entry_id = ?`,
-        [cogsEntry.id]
+          WHERE je.order_id = ?
+            AND je.entry_type = 'adjustment'
+            AND je.idempotency_key LIKE CONCAT('order:', ?, ':revert:%:spoilage')
+            AND coa.account_code = '5010'`,
+        [orderId, orderId]
       );
-      if (cogsLines.length >= 2) {
+      const priorSpoiledCogs = round2(priorSpoilageRow?.spoiled_cogs || 0);
+      const extraOffsets = priorSpoiledCogs > 0
+        ? [
+            { accountCode: "5010", netDelta: -priorSpoiledCogs },
+            { accountCode: "1050", netDelta: priorSpoiledCogs },
+          ]
+        : [];
+      const remainingCogsLines = await buildRemainingReversalLines(connection, orderId, Number(cogsEntry.id), {
+        lineMemo: `Inventory restored on void ${orderNumber}`,
+        extraOffsets,
+      });
+      if (remainingCogsLines.length >= 2) {
         await postBalancedEntry(connection, {
           entryType: "void_reversal",
           memo: `Stock restore COGS reversal for Order #${orderNumber}: ${reason}`,
@@ -382,17 +441,12 @@ export async function postOrderVoidReversal(connection, {
           reversesEntryId: Number(cogsEntry.id),
           idempotencyKey: `order:${orderId}:void_cogs_restore`,
           createdBy: userId,
-          lines: cogsLines.map((l) => ({
-            accountCode: l.account_code,
-            debit: round2(l.credit),
-            credit: round2(l.debit),
-            lineMemo: `Inventory restored on void ${orderNumber}`,
-          })),
+          lines: remainingCogsLines,
         });
       }
     }
   } else {
-    // Spoilage: reclassify COGS (or unposted inventory loss) into 6030 Inventory Wastage & Spoilage
+    // Spoilage: reclassify remaining COGS (or unposted inventory loss) into 6030 Inventory Wastage & Spoilage
     const cleanLoss = round2(totalCogs);
     if (cleanLoss > 0) {
       const creditAcc = cogsEntry ? "5010" : "1050";
@@ -407,6 +461,135 @@ export async function postOrderVoidReversal(connection, {
         lines: [
           { accountCode: "6030", debit: cleanLoss, credit: 0, lineMemo: `Spoilage loss ${orderNumber}` },
           { accountCode: creditAcc, debit: 0, credit: cleanLoss, lineMemo: `Offset spoilage for ${orderNumber}` },
+        ],
+      });
+    }
+  }
+}
+
+/**
+ * Post proportional double-entry reversal when a specific order line (or partial qty) is reverted.
+ */
+export async function postOrderItemRevertReversal(connection, {
+  orderId,
+  orderNumber,
+  revertKey,
+  subtotalDelta,
+  discountDelta = 0,
+  taxDelta = 0,
+  totalDelta = 0,
+  cogsDelta = 0,
+  restoreStock = true,
+  paymentMethod = "Cash",
+  reason = "Reverted item",
+  sessionId = null,
+  userId,
+}) {
+  void subtotalDelta;
+  const [[salesEntry]] = await connection.execute(
+    `SELECT je.id, je.entry_number
+       FROM journal_entries je
+      WHERE je.order_id = ?
+        AND je.entry_type = 'sales_revenue'
+        AND je.is_reversal = FALSE
+      LIMIT 1`,
+    [orderId]
+  );
+
+  const cleanTotalDelta = round2(Math.max(0, totalDelta));
+  const cleanDiscountDelta = round2(Math.max(0, discountDelta));
+  const cleanTaxDelta = round2(Math.max(0, taxDelta));
+  const cleanGrossSalesDelta = round2(cleanTotalDelta + cleanDiscountDelta - cleanTaxDelta);
+  const tenderAccount = resolveTenderAccountCode(paymentMethod);
+
+  if (cleanTotalDelta > 0 && cleanGrossSalesDelta >= 0) {
+    const revLines = [];
+    if (cleanGrossSalesDelta > 0) {
+      revLines.push({
+        accountCode: "4010",
+        debit: cleanGrossSalesDelta,
+        credit: 0,
+        lineMemo: `Item revert revenue reversal Order ${orderNumber}`,
+      });
+    }
+    if (cleanTaxDelta > 0) {
+      revLines.push({
+        accountCode: "2020",
+        debit: cleanTaxDelta,
+        credit: 0,
+        lineMemo: `Item revert VAT/Tax reversal Order ${orderNumber}`,
+      });
+    }
+    revLines.push({
+      accountCode: tenderAccount,
+      debit: 0,
+      credit: cleanTotalDelta,
+      lineMemo: `Item revert ${paymentMethod} reversal Order ${orderNumber}`,
+    });
+    if (cleanDiscountDelta > 0) {
+      revLines.push({
+        accountCode: "4020",
+        debit: 0,
+        credit: cleanDiscountDelta,
+        lineMemo: `Item revert discount reversal Order ${orderNumber}`,
+      });
+    }
+
+    await postBalancedEntry(connection, {
+      entryType: "void_reversal",
+      memo: `Item revert sales reversal Order #${orderNumber}: ${reason}`,
+      referenceNumber: orderNumber,
+      orderId,
+      sessionId,
+      isReversal: true,
+      reversesEntryId: salesEntry?.id ? Number(salesEntry.id) : null,
+      idempotencyKey: `order:${orderId}:revert:${revertKey}:sales`,
+      createdBy: userId,
+      lines: revLines,
+    });
+  }
+
+  const cleanCogsDelta = round2(cogsDelta);
+  if (cleanCogsDelta > 0) {
+    const [[cogsEntry]] = await connection.execute(
+      `SELECT je.id, je.entry_number
+         FROM journal_entries je
+        WHERE je.order_id = ?
+          AND je.entry_type = 'cogs_consumption'
+          AND je.is_reversal = FALSE
+        LIMIT 1`,
+      [orderId]
+    );
+
+    if (restoreStock) {
+      await postBalancedEntry(connection, {
+        entryType: "void_reversal",
+        memo: `Item revert stock restore COGS reversal Order #${orderNumber}: ${reason}`,
+        referenceNumber: orderNumber,
+        orderId,
+        sessionId,
+        isReversal: true,
+        reversesEntryId: cogsEntry?.id ? Number(cogsEntry.id) : null,
+        idempotencyKey: `order:${orderId}:revert:${revertKey}:cogs`,
+        createdBy: userId,
+        lines: [
+          { accountCode: "1050", debit: cleanCogsDelta, credit: 0, lineMemo: `Inventory restored on item revert ${orderNumber}` },
+          { accountCode: "5010", debit: 0, credit: cleanCogsDelta, lineMemo: `COGS reversed on item revert ${orderNumber}` },
+        ],
+      });
+    } else {
+      const creditAcc = cogsEntry ? "5010" : "1050";
+      await postBalancedEntry(connection, {
+        entryType: "adjustment",
+        memo: `Spoilage on reverted item Order #${orderNumber}: ${reason}`,
+        referenceNumber: orderNumber,
+        orderId,
+        sessionId,
+        idempotencyKey: `order:${orderId}:revert:${revertKey}:spoilage`,
+        createdBy: userId,
+        lines: [
+          { accountCode: "6030", debit: cleanCogsDelta, credit: 0, lineMemo: `Item revert spoilage loss ${orderNumber}` },
+          { accountCode: creditAcc, debit: 0, credit: cleanCogsDelta, lineMemo: `Offset spoilage for ${orderNumber}` },
         ],
       });
     }

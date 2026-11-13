@@ -1888,6 +1888,364 @@
 }
 
 /* ==========================================================================
+   Focused Top-to-Bottom Staff Dashboard Redesign (Orders Left + KPI Rail Right)
+   ========================================================================== */
+
+.staff-dashboard > .staff-main {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.staff-topbar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(255, 252, 248, 0.98);
+  border-bottom: 1px solid #e6d8ca;
+}
+
+.dashboard-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 20px;
+  padding: 22px 28px 24px;
+  align-items: stretch;
+}
+
+.dashboard-card.orders-card {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 22px;
+  border-radius: 14px 14px 18px 18px;
+  border: 1.5px solid #dfd0bf;
+  background: linear-gradient(180deg, #fffdf8 0%, #fbf5eb 100%);
+  contain: layout style;
+}
+
+.dashboard-card.orders-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  pointer-events: none;
+  z-index: 3;
+  background-color: #f3e7d8;
+  background-image:
+    radial-gradient(circle at 14px 13px, #4a3525 3.5px, transparent 4px),
+    repeating-linear-gradient(90deg, transparent 0 11px, #b88c67 11px 15px, transparent 15px 28px);
+  background-size: 28px 22px;
+  border-bottom: 1.5px dashed #d8c5b0;
+}
+
+.orders-card .card-header {
+  padding: 14px 22px;
+  border-bottom: 1.5px solid #eadccf;
+}
+
+.orders-bar-head {
+  display: grid;
+  grid-template-columns: 1.1fr 1.3fr 0.75fr 0.85fr 0.9fr;
+  gap: 12px;
+  align-items: center;
+  flex: 0 0 auto;
+  margin: 12px 16px 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #f3e6d6;
+  border: 1px solid #dfd0bf;
+  color: #5c3a21;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orders-card .orders-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 16px 16px;
+}
+
+.orders-card .orders-table::-webkit-scrollbar {
+  width: 6px;
+}
+
+.orders-card .orders-table::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.orders-card .orders-table::-webkit-scrollbar-thumb {
+  background: rgba(139, 94, 60, 0.25);
+  border-radius: 999px;
+}
+
+.orders-bar-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.3fr 0.75fr 0.85fr 0.9fr;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e6d7c5;
+  cursor: pointer;
+  contain: layout style;
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.orders-bar-row:hover {
+  transform: translateY(-1px);
+  border-color: #8b5e3c;
+  background: #fffaf2;
+}
+
+.orders-bar-row:focus-visible {
+  outline: 2px solid #8b5e3c;
+  outline-offset: 2px;
+}
+
+.orders-bar-cell {
+  min-width: 0;
+}
+
+.orders-bar-id strong {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f3e6d6;
+  color: #5c3a21;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.orders-bar-id span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #8a7c73;
+}
+
+.orders-bar-customer strong {
+  display: block;
+  font-size: 13px;
+  color: #261b15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-bar-customer small {
+  display: block;
+  font-size: 11.5px;
+  color: #8a7c73;
+}
+
+.orders-bar-items {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #5c493c;
+}
+
+.orders-bar-total strong {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #5c3a21;
+  font-variant-numeric: tabular-nums;
+}
+
+.orders-card .empty-orders-state {
+  margin: 8px 0;
+  padding: 28px 20px;
+  border: 1.5px dashed #d9c7b3;
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.stat-card {
+  flex: 1 1 0;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1.5px solid #e5d8cb;
+  background: linear-gradient(180deg, #ffffff 0%, #fdf9f5 100%);
+  contain: layout style;
+  box-shadow: 0 2px 8px rgba(45, 31, 26, 0.04);
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: #8b5e3c;
+  box-shadow: 0 2px 8px rgba(45, 31, 26, 0.04);
+}
+
+.stat-card-top {
+  margin-bottom: 2px;
+}
+
+.stat-status {
+  font-size: 10.5px;
+}
+
+.stat-info h3 {
+  font-size: 26px;
+}
+
+.stat-description {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.staff-dashboard.dark-mode .staff-topbar {
+  background: rgba(29, 24, 21, 0.98);
+  border-bottom-color: #352c25;
+}
+
+.staff-dashboard.dark-mode .dashboard-card.orders-card {
+  background: linear-gradient(180deg, #241c17 0%, #1d1612 100%);
+  border-color: #3f3127;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.staff-dashboard.dark-mode .dashboard-card.orders-card::before {
+  background-color: #2b211b;
+  background-image:
+    radial-gradient(circle at 14px 13px, #140f0c 3.5px, transparent 4px),
+    repeating-linear-gradient(90deg, transparent 0 11px, #c4935a 11px 15px, transparent 15px 28px);
+  border-bottom: 1.5px dashed #4a3a2e;
+}
+
+.staff-dashboard.dark-mode .orders-card .card-header {
+  border-bottom-color: #3a2d24;
+}
+
+.staff-dashboard.dark-mode .stat-card {
+  background: #241c17;
+  border-color: #3f3127;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.staff-dashboard.dark-mode .stat-card:hover {
+  border-color: #8b5e3c;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.staff-dashboard.dark-mode .orders-bar-head {
+  background: #2e231c;
+  border-color: #3f3127;
+  color: #f0bd78;
+}
+
+.staff-dashboard.dark-mode .orders-bar-row {
+  background: #261d18;
+  border-color: #3a2d24;
+}
+
+.staff-dashboard.dark-mode .orders-bar-row:hover {
+  background: #2e231c;
+  border-color: #8b5e3c;
+}
+
+.staff-dashboard.dark-mode .orders-bar-id strong {
+  background: #33261e;
+  color: #f0bd78;
+}
+
+.staff-dashboard.dark-mode .orders-bar-id span,
+.staff-dashboard.dark-mode .orders-bar-customer small {
+  color: #a69588;
+}
+
+.staff-dashboard.dark-mode .orders-bar-customer strong {
+  color: #f5ede6;
+}
+
+.staff-dashboard.dark-mode .orders-bar-items {
+  color: #cbb8a8;
+}
+
+.staff-dashboard.dark-mode .orders-bar-total strong {
+  color: #f0bd78;
+}
+
+.staff-dashboard.dark-mode .orders-card .empty-orders-state {
+  border-color: #4a3a2e;
+  background: rgba(36, 28, 23, 0.7);
+}
+
+@media (max-width: 1100px) {
+  .staff-dashboard > .staff-main {
+    height: auto;
+    overflow: visible;
+  }
+
+  .dashboard-content {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-y: visible;
+  }
+
+  .dashboard-card.orders-card {
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 650px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-bar-head {
+    display: none;
+  }
+
+  .orders-bar-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    padding: 12px 14px;
+  }
+
+  .orders-bar-total,
+  .orders-bar-status {
+    justify-self: end;
+    text-align: right;
+  }
+}
+
+/* ==========================================================================
    Android (Material 3) Staff Dashboard - rendered when <= 800px
    ========================================================================== */
 .staff-dashboard.is-mobile { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }

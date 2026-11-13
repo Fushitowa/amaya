@@ -47,7 +47,7 @@ function StaffOrder() {
   const { user } = useAuth() || {};
   const cashierName = user?.displayName || "Staff";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { orders = [], updateOrderStatus, confirmOrder, printReceipt } = useOrders() || {};
+  const { orders = [], updateOrderStatus, confirmOrder, revertOrderItem, printReceipt } = useOrders() || {};
   const { products = [] } = useMenu() || {};
   const { businessSettings } = useBusiness() || {};
   const business = businessSettings || defaultBusinessSettings;
@@ -215,7 +215,6 @@ function StaffOrder() {
             {visibleOrders.length ? visibleOrders.map((order) => {
               const items = order.items || [];
               const itemCount = items.reduce((n, i) => n + Number(i.quantity || 0), 0);
-              const next = getNextAllowedStatuses(order.status)[0];
               const status = String(order.status || "").toLowerCase();
               const isCancelled = order.status === "Cancelled";
               const stepIndex = ORDER_STATUS_FLOW.indexOf(order.status);
@@ -276,9 +275,9 @@ function StaffOrder() {
                     </div>
                     {isCancelled ? (
                       <span className="so-cancelled-pill"><XCircle size={17} aria-hidden="true" /> Cancelled</span>
-                    ) : next ? (
-                      <button type="button" className="so-advance" onClick={() => handleStatusChange(order.id, order.status, next)}>
-                        {next === "Preparing" ? "Start preparing" : next === "Completed" ? "Mark done" : next}
+                    ) : order.status !== "Completed" ? (
+                      <button type="button" className="so-advance" onClick={() => handleStatusChange(order.id, order.status, "Completed")}>
+                        Complete Order
                         <span aria-hidden="true">→</span>
                       </button>
                     ) : (
@@ -372,58 +371,11 @@ function StaffOrder() {
         </header>
 
         <div className="orders-content">
-          <section className="orders-page-header">
-            <div>
-              <span className="orders-eyebrow">ORDER MANAGEMENT</span>
-              <h2>Order Overview</h2>
-              <p>Track incoming orders and manage each step of service.</p>
-            </div>
-            <div className="orders-summary">
-              <div className="summary-number">{activeOrdersCount}</div>
-              <div className="summary-text">
-                <strong>Active Orders</strong>
-                <span>Currently in system</span>
-              </div>
-            </div>
-          </section>
-
-          {/* Top Summary Cards with dynamic metrics */}
-          <section className="order-stats">
-            <OrderStat
-              Icon={ClipboardList}
-              tone="total"
-              label="Total Orders"
-              value={totalOrdersCount}
-              note="All recorded orders"
-            />
-            <OrderStat
-              Icon={Clock}
-              tone="pending"
-              label="Pending"
-              value={pendingCount}
-              note="Awaiting preparation"
-            />
-            <OrderStat
-              Icon={Utensils}
-              tone="preparing"
-              label="Preparing"
-              value={preparingCount}
-              note="In progress"
-            />
-            <OrderStat
-              Icon={CheckCircle2}
-              tone="completed"
-              label="Completed"
-              value={completedCount}
-              note="Successfully fulfilled"
-            />
-          </section>
-
           <section className="orders-card">
             <div className="orders-toolbar">
               <div>
-                <h3>All Orders</h3>
-                <p>Manage and process current customer orders</p>
+                <h3>Order Queue</h3>
+                <p>{activeOrdersCount} active · Manage and process current customer orders</p>
               </div>
 
               {/* Quick Search */}
@@ -471,12 +423,10 @@ function StaffOrder() {
             <div className="order-card-grid">
               {visibleOrders.length ? (
                 visibleOrders.map((order) => {
-                  const itemCount = order.items
-                    ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-                    : 0;
-                  const itemsSummary = order.items
-                    ? order.items.map((i) => `${i.quantity}x ${i.title}`).join(", ")
-                    : "";
+                  const orderItems = order.items || [];
+                  const primaryItem = orderItems[0];
+                  const itemCount = orderItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+                  const itemsSummary = orderItems.map((i) => `${i.quantity}x ${i.title}`).join(", ");
                   const allowedNext = getNextAllowedStatuses(order.status);
                   const isLocked = allowedNext.length === 0;
 
@@ -496,93 +446,105 @@ function StaffOrder() {
                         aria-label={`View details for order ${order.id}`}
                         onClick={(event) => openOrderDetails(order, event)}
                       >
-                        <div className="order-card-head">
-                          <div className="order-card-header">
-                            <div>
-                              <h3 className="order-card-id">{order.id}</h3>
-                              <p className="order-card-time">
-                                {getOrderTime(order.createdAt)}
-                              </p>
-                            </div>
-                            <span
-                              className={`order-status order-card-badge ${order.status.toLowerCase()}`}
-                            >
-                              {order.status}
+                        <div className="order-card-hero">
+                          {primaryItem ? (
+                            <MenuProductImage
+                              src={productImageByName.get(primaryItem.title)}
+                              alt={primaryItem.title || ""}
+                              className="order-card-hero-img"
+                            />
+                          ) : (
+                            <div className="order-card-hero-fallback">No Image</div>
+                          )}
+                          <span className={`order-status order-card-badge ${order.status.toLowerCase()}`}>
+                            {order.status}
+                          </span>
+                          <div className="order-card-hero-bottom">
+                            {orderItems.length > 1 ? (
+                              <div className="order-card-hero-stack" aria-label={`${itemCount} ordered items`}>
+                                {orderItems.slice(0, 3).map((item, itemIndex) => (
+                                  <span className="order-card-hero-chip" key={`${item.title}-${itemIndex}`}>
+                                    <MenuProductImage
+                                      src={productImageByName.get(item.title)}
+                                      alt=""
+                                      className="order-card-item-thumb-image"
+                                    />
+                                    <b>{item.quantity || 1}×</b>
+                                  </span>
+                                ))}
+                                {orderItems.length > 3 && (
+                                  <span className="order-card-hero-more">+{orderItems.length - 3}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="order-card-hero-qty">
+                                {itemCount} {itemCount === 1 ? "item" : "items"}
+                              </span>
+                            )}
+                            <span className="order-card-hero-price">
+                              ₱{Number(order.total || 0).toFixed(2)}
                             </span>
                           </div>
+                        </div>
+
+                        <div className="order-card-body">
+                          <div className="order-card-header">
+                            <h3 className="order-card-id">{order.id}</h3>
+                            <span className="order-card-time">{getOrderTime(order.createdAt)}</span>
+                          </div>
+
+                          <ul className="order-card-item-lines" title={itemsSummary}>
+                            {orderItems.length ? orderItems.slice(0, 2).map((item, idx) => (
+                              <li key={`${item.title}-${idx}`}>
+                                <span className="order-card-line-qty">{item.quantity || 1}×</span>
+                                <span className="order-card-line-title">{item.title}</span>
+                                {item.size && item.size !== "Regular" && (
+                                  <span className="order-card-line-size">{item.size}</span>
+                                )}
+                              </li>
+                            )) : (
+                              <li className="order-card-line-empty">No item details</li>
+                            )}
+                            {orderItems.length > 2 && (
+                              <li className="order-card-line-more">+{orderItems.length - 2} more product{orderItems.length - 2 === 1 ? "" : "s"}</li>
+                            )}
+                          </ul>
 
                           <div className="order-card-customer">
                             <div className="order-card-avatar">{WALK_IN_INITIALS}</div>
                             <div className="order-card-customer-text">
-                              <p>
-                                <strong>{order.customer || order.customerName || WALK_IN_CUSTOMER_NAME}</strong>
-                                <span>{order.type || "Counter"}</span>
-                              </p>
+                              <strong>{order.customer || order.customerName || WALK_IN_CUSTOMER_NAME}</strong>
+                              <span>{order.type || "Counter"}</span>
                             </div>
                           </div>
-                        </div>
-
-                        <hr className="order-card-divider" />
-
-                        <div className="order-card-summary">
-                          <span className="order-card-count" title={itemsSummary}>
-                            {itemCount} item{itemCount === 1 ? "" : "s"}
-                          </span>
-                          <span className="order-card-total">
-                            ₱{Number(order.total || 0).toFixed(2)}
-                          </span>
-                        </div>
-
-                        <div className="order-card-items-preview" aria-label={`${itemCount} ordered items`}>
-                          {(order.items || []).slice(0, 3).map((item, itemIndex) => (
-                            <div className="order-card-item-preview" key={`${item.title}-${itemIndex}`} title={`${item.quantity || 1} × ${item.title}`}>
-                              <MenuProductImage
-                                src={productImageByName.get(item.title)}
-                                alt=""
-                                className="order-card-item-thumb-image"
-                              />
-                              <span>{item.quantity || 1}×</span>
-                            </div>
-                          ))}
-                          {itemCount > 3 && <span className="order-card-items-more">+{itemCount - 3}</span>}
-                          {!order.items?.length && <span className="order-card-items-empty">No item details</span>}
                         </div>
                       </button>
 
                       <hr className="order-card-divider" />
 
                       <div className="order-card-actions">
-                        <div className="order-status-select-wrap">
-                          <select
-                            value={order.status}
-                            onChange={(e) => handleStatusChange(order.id, order.status, e.target.value)}
-                            className={`order-status-select select-${order.status.toLowerCase()}`}
-                            aria-label={`Update status for ${order.id}`}
-                            title={
-                              isLocked
-                                ? (order.status === "Cancelled"
-                                    ? `Order ${order.id} is cancelled and locked`
-                                    : `Order ${order.id} is completed and locked`)
-                                : `Advance order ${order.id} to ${allowedNext[0]}`
-                            }
-                            disabled={isLocked}
+                        {order.status === "Cancelled" ? (
+                          <span className="order-status-pill-muted is-cancelled">
+                            <XCircle aria-hidden="true" size={14} strokeWidth={2.2} />
+                            Cancelled
+                          </span>
+                        ) : isLocked ? (
+                          <span className="order-status-pill-muted is-completed">
+                            <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2.2} />
+                            Completed
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="order-complete-btn"
+                            onClick={() => handleStatusChange(order.id, order.status, "Completed")}
+                            title={`Mark order ${order.id} as Completed`}
+                            aria-label={`Complete order ${order.id}`}
                           >
-                            {order.status === "Cancelled" && (
-                              <option value="Cancelled" disabled>
-                                Cancelled
-                              </option>
-                            )}
-                            {ORDER_STATUS_FLOW.map((status) => (
-                              <option
-                                key={status}
-                                value={status}
-                                disabled={!allowedNext.includes(status)}
-                              >
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                            <Check aria-hidden="true" size={14} strokeWidth={2.6} />
+                            <span>Complete Order</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -618,28 +580,7 @@ function StaffOrder() {
                 </div>
               )}
             </div>
-
-            <div className="orders-pagination">
-              <span>
-                Showing {visibleOrders.length} of {totalOrdersCount} order{totalOrdersCount === 1 ? "" : "s"}
-              </span>
-              <div className="pagination-buttons">
-                <button type="button" disabled>←</button>
-                <button type="button" className="pagination-active">1</button>
-                <button type="button" disabled>→</button>
-              </div>
-            </div>
           </section>
-
-          <div className="staff-order-notice">
-            <div className="notice-icon">i</div>
-            <div>
-              <strong>Staff Order Controls</strong>
-              <p>
-                Use the status selector to advance orders across Pending, Preparing, and Completed. Click any order card to inspect payment details or print receipts; order voids require Admin authorization.
-              </p>
-            </div>
-          </div>
         </div>
       </main>
       )}
@@ -660,6 +601,18 @@ function StaffOrder() {
             if (updated) {
               setSelectedOrder(updated);
               setToastMessage(`Order ${updated.id} confirmed`);
+            }
+            return updated;
+          }}
+          onRevertOrderItem={async (orderNumber, itemId, payload) => {
+            const updated = await revertOrderItem?.(orderNumber, itemId, payload);
+            if (updated) {
+              setSelectedOrder(updated);
+              setToastMessage(
+                updated.status === "Cancelled"
+                  ? `Order ${updated.id} cancelled after reverting last item`
+                  : `Item reverted from order ${updated.id}`,
+              );
             }
             return updated;
           }}
@@ -821,19 +774,6 @@ function StaffOrder() {
           <span>{toastMessage}</span>
         </div>
       )}
-    </div>
-  );
-}
-
-function OrderStat({ Icon, tone, label, value, note }) {
-  return (
-    <div className="order-stat-card">
-      <div className={`order-stat-icon ${tone}`}><Icon size={20} strokeWidth={1.8} aria-hidden="true" /></div>
-      <div className="order-stat-info">
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{note}</small>
-      </div>
     </div>
   );
 }
