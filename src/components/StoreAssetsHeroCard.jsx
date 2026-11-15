@@ -147,7 +147,15 @@ export default function StoreAssetsHeroCard() {
     reserve: 0,
     liveInventoryValue: 0,
     nonCurrentEquipment: 0,
+    baseCapitalMoney: 0,
+    netProfitAfterSale: 0,
   };
+
+  const netProfit = Number(summary.netProfitAfterSale || 0);
+  const baseMoney = summary.baseCapitalMoney !== undefined
+    ? Number(summary.baseCapitalMoney || 0)
+    : Number(summary.totalStoreAssets || 0) - netProfit;
+  const isNegativeProfit = netProfit < 0;
 
   return (
     <>
@@ -202,6 +210,26 @@ export default function StoreAssetsHeroCard() {
                 <CheckCircle2 size={13} />
                 Audited Ledger Parity
               </span>
+              {!loading && (
+                <div className="store-assets-equation-bar" aria-label="Store assets breakdown formula">
+                  <div className="store-assets-eq-item">
+                    <span className="store-assets-eq-label">Current Money (Base)</span>
+                    <strong className="store-assets-eq-val">{peso(baseMoney)}</strong>
+                  </div>
+                  <span className="store-assets-eq-op" aria-hidden="true">
+                    {isNegativeProfit ? "−" : "+"}
+                  </span>
+                  <div className={`store-assets-eq-item ${isNegativeProfit ? "is-loss" : "is-profit"}`}>
+                    <span className="store-assets-eq-label">Profit After Sale</span>
+                    <strong className="store-assets-eq-val">{peso(Math.abs(netProfit))}</strong>
+                  </div>
+                  <span className="store-assets-eq-op" aria-hidden="true">=</span>
+                  <div className="store-assets-eq-item is-total">
+                    <span className="store-assets-eq-label">Total All Assets</span>
+                    <strong className="store-assets-eq-val">{peso(summary.totalStoreAssets)}</strong>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="store-assets-chips-grid">

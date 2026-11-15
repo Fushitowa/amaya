@@ -59,7 +59,7 @@ const MOVEMENT_LABELS = {
   restock: "Restock",
   adjustment: "Adjustment",
   usage: "Order Usage",
-  spoilage: "Void Spoilage",
+  spoilage: "Waste / Spoilage",
   void_restore: "Void Restore",
 };
 
@@ -71,8 +71,12 @@ const MOVEMENT_TONES = {
   spoilage: "warning",
 };
 
-export function getMovementLabel(type) {
+export function getMovementLabel(type, context = null) {
   const key = String(type || "").toLowerCase().trim();
+  if (key === "spoilage") {
+    const hasOrderRef = Boolean(context && (context.orderId || context.orderNumber));
+    return hasOrderRef ? "Order Void Spoilage" : "Waste / Spoilage";
+  }
   return MOVEMENT_LABELS[key] || (key ? key.replace(/_/g, " ") : "Movement");
 }
 

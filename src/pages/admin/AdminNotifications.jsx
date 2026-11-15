@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import { STAFF_NOTIFICATION_TYPES, formatRelativeTime } from "../../utils/notifications.js";
+import { ADMIN_NOTIFICATION_TYPES, formatRelativeTime } from "../../utils/notifications.js";
 import { usePortalNotifications } from "../../hooks/usePortalNotifications.js";
 import "../../assets/css/admin/AdminNotifications.css";
 import "../../assets/css/sidebar.css";
@@ -37,6 +37,7 @@ const typeIcons = {
   inventory_stock: Package,
   inventory_low: Package,
   inventory_inactive: Package,
+  inventory_waste: Trash2,
 };
 
 const typeMeta = {
@@ -87,6 +88,12 @@ const typeMeta = {
     route: "/admin/inventory",
     routeLabel: "Review Inventory",
     summary: "An inventory item was marked inactive or requires stock verification.",
+  },
+  inventory_waste: {
+    module: "Waste & Spoilage",
+    route: "/admin/inventory",
+    routeLabel: "Review Inventory & Waste",
+    summary: "Staff or admin logged measured waste/spoilage that adjusted stock and spoilage expense.",
   },
 };
 
@@ -149,10 +156,10 @@ export default function AdminNotifications() {
 
   const SelectedIcon = selectedNotification ? (typeIcons[selectedNotification.type] || Bell) : Bell;
   const selectedTone = selectedNotification
-    ? (STAFF_NOTIFICATION_TYPES[selectedNotification.type]?.tone || "stone")
+    ? (ADMIN_NOTIFICATION_TYPES[selectedNotification.type]?.tone || "stone")
     : "stone";
   const selectedTypeLabel = selectedNotification
-    ? (STAFF_NOTIFICATION_TYPES[selectedNotification.type]?.label || "Notice")
+    ? (ADMIN_NOTIFICATION_TYPES[selectedNotification.type]?.label || "Notice")
     : "";
   const selectedMeta = selectedNotification
     ? (typeMeta[selectedNotification.type] || {
@@ -249,7 +256,7 @@ export default function AdminNotifications() {
               <div className="admin-notifications-list">
                 {filteredNotifications.length ? filteredNotifications.map((item, idx) => {
                   const Icon = typeIcons[item.type] || Bell;
-                  const type = STAFF_NOTIFICATION_TYPES[item.type]?.label || "Notice";
+                  const type = ADMIN_NOTIFICATION_TYPES[item.type]?.label || "Notice";
                   const isSelected = selectedNotification?.id === item.id;
                   const dispatchNum = String(idx + 1).padStart(2, "0");
                   return (
@@ -268,7 +275,7 @@ export default function AdminNotifications() {
                       style={{ "--item-i": Math.min(idx, 10) }}
                       className={`admin-notification-item${item.read ? " is-read" : " is-unread"}${isSelected ? " is-selected" : ""}`}
                     >
-                      <div className={`admin-notification-item-icon ${STAFF_NOTIFICATION_TYPES[item.type]?.tone || "stone"}`}>
+                      <div className={`admin-notification-item-icon ${ADMIN_NOTIFICATION_TYPES[item.type]?.tone || "stone"}`}>
                         <Icon size={18} strokeWidth={1.85} aria-hidden="true" />
                       </div>
                       <div className="admin-notification-item-copy">

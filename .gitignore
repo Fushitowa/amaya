@@ -35,6 +35,7 @@ __pycache__/
 
 # Local database dumps and backups (keep migrations tracked)
 database/*.sql
+database/backups/*.sql
 !database/migrations/*.sql
 *.backup.sql
 *_backup.sql

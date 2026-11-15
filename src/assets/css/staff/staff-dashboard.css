@@ -2341,3 +2341,430 @@
 @supports not selector(::-webkit-scrollbar) {
   .sd-recent { scrollbar-width: thin; scrollbar-color: rgba(90, 62, 43, 0.35) transparent; }
 }
+
+/* ==========================================================================
+   Staff Zero-Guesswork Waste & Spoilage Card (Desktop + Mobile + Dark Mode)
+   ========================================================================== */
+
+.staff-primary-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  height: 100%;
+}
+
+.staff-primary-column > .dashboard-card.orders-card {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 260px;
+}
+
+.dashboard-card.waste-log-card {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 255px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 1.5px solid #dfd0bf;
+  background: linear-gradient(180deg, #fffdf9 0%, #fcf6ef 100%);
+  color: #382518;
+}
+
+.waste-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.waste-card-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #382518;
+}
+
+.waste-card-header p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #68584e;
+}
+
+.staff-waste-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #991b1b;
+  background: #fef2f2;
+  color: #991b1b;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.staff-waste-cta-btn:hover {
+  background: #9b2c2c;
+  color: #ffffff;
+  border-color: #9b2c2c;
+}
+
+.staff-waste-cta-btn:focus-visible,
+.sd-action-waste:focus-visible,
+.sd-section-action-link:focus-visible {
+  outline: 2px solid #6c462f;
+  outline-offset: 2px;
+}
+
+.staff-waste-feedback,
+.sd-waste-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #166534;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sd-waste-feedback {
+  margin: 12px 0 0;
+}
+
+.staff-waste-error,
+.sd-waste-error {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #991b1b;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sd-waste-error {
+  margin: 10px 12px 0;
+}
+
+.waste-log-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 155px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.waste-log-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid #eadccf;
+  background: #ffffff;
+}
+
+.waste-log-row.is-reversed {
+  opacity: 0.68;
+}
+
+.waste-log-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.waste-log-main strong {
+  font-size: 13.5px;
+  color: #382518;
+}
+
+.waste-log-qty {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.waste-log-reason {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3ece4;
+  color: #5c4333;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.waste-log-reversed {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.waste-log-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #68584e;
+}
+
+.waste-log-sub span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waste-log-sub time {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.waste-log-empty {
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #68584e;
+}
+
+@media (max-height: 760px), (max-width: 1100px) {
+  .staff-dashboard > .staff-main {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .staff-primary-column {
+    height: auto;
+  }
+
+  .dashboard-card.waste-log-card {
+    max-height: none;
+  }
+}
+
+/* Mobile waste shortcut + waste card */
+.sd-action-waste {
+  width: 100%;
+  border: 1px solid rgba(153, 27, 27, 0.22);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sd-action-waste .sd-action-icon {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.sd-section-action-link {
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #991b1b;
+  cursor: pointer;
+}
+
+.sd-waste-card {
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 1px 6px rgba(45, 31, 26, 0.06);
+  overflow: hidden;
+}
+
+.sd-waste-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.sd-waste-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 16px;
+}
+
+.sd-waste-row + .sd-waste-row {
+  border-top: 1px solid #f0e8e0;
+}
+
+.sd-waste-row.is-reversed {
+  opacity: 0.68;
+}
+
+.sd-waste-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sd-waste-row-top strong {
+  font-size: 14.5px;
+  color: #382518;
+}
+
+.sd-waste-qty-badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sd-waste-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #68584e;
+}
+
+.sd-waste-reason-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3ece4;
+  color: #5c4333;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.sd-waste-reversed-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sd-waste-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: #68584e;
+}
+
+.sd-waste-empty {
+  padding: 24px 16px;
+}
+
+/* Dark mode overrides */
+.staff-dashboard.dark-mode .dashboard-card.waste-log-card {
+  background: #1f1916;
+  border-color: #3d302a;
+  color: #f4ebe3;
+}
+
+.staff-dashboard.dark-mode .waste-card-header h3,
+.staff-dashboard.dark-mode .waste-log-main strong {
+  color: #f4ebe3;
+}
+
+.staff-dashboard.dark-mode .waste-card-header p,
+.staff-dashboard.dark-mode .waste-log-sub,
+.staff-dashboard.dark-mode .waste-log-empty {
+  color: #ccbcb0;
+}
+
+.staff-dashboard.dark-mode .waste-log-row {
+  background: #28201c;
+  border-color: #3d302a;
+}
+
+.staff-dashboard.dark-mode .staff-waste-cta-btn {
+  background: rgba(153, 27, 27, 0.24);
+  border-color: rgba(252, 165, 165, 0.45);
+  color: #fca5a5;
+}
+
+.staff-dashboard.dark-mode .staff-waste-cta-btn:hover {
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.staff-dashboard.dark-mode .waste-log-qty,
+.staff-dashboard.dark-mode .sd-waste-qty-badge {
+  background: rgba(153, 27, 27, 0.28);
+  color: #fca5a5;
+}
+
+.staff-dashboard.dark-mode .waste-log-reason,
+.staff-dashboard.dark-mode .sd-waste-reason-chip {
+  background: #352a24;
+  color: #e4d4c8;
+}
+
+/* Mobile .sd-main & .sd-action tiles remain cream/white under .dark-mode; keep WCAG AA dark-red ink on those light surfaces. */
+.staff-dashboard.dark-mode .sd-action-waste {
+  border-color: rgba(153, 27, 27, 0.28);
+}
+
+.staff-dashboard.dark-mode .sd-action-waste .sd-action-icon {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.staff-dashboard.dark-mode .sd-section-action-link {
+  color: #991b1b;
+}
+
+.staff-dashboard.dark-mode .staff-waste-error,
+.staff-dashboard.dark-mode .sd-waste-error {
+  background: rgba(153, 27, 27, 0.24);
+  border-color: rgba(252, 165, 165, 0.45);
+  color: #fca5a5;
+}
+
+.staff-dashboard.dark-mode .sd-waste-card {
+  background: #1f1916;
+  border: 1px solid #3d302a;
+}
+
+.staff-dashboard.dark-mode .sd-waste-row + .sd-waste-row {
+  border-top-color: #342923;
+}
+
+.staff-dashboard.dark-mode .sd-waste-row-top strong {
+  color: #f4ebe3;
+}
+
+.staff-dashboard.dark-mode .sd-waste-row-meta,
+.staff-dashboard.dark-mode .sd-waste-note {
+  color: #ccbcb0;
+}

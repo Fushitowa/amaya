@@ -911,7 +911,7 @@ function StaffActivityModal({
                                     <div>
                                       <span className={`sam-feed-badge ${tone}`}>
                                         <Package size={11} style={{ marginRight: "3px", verticalAlign: "-1px" }} aria-hidden="true" />
-                                        {getMovementLabel(inv.type)}
+                                        {getMovementLabel(inv.type, inv)}
                                       </span>
                                       <strong>{inv.itemName}</strong>
                                       {" "}

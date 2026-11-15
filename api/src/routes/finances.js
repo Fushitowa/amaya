@@ -120,6 +120,22 @@ router.get("/accounts", requireAuth, requireRole("admin"), async (_request, resp
   const ownerCapital = accountMap.get("3010") || 0.00;
   const ownerDrawings = accountMap.get("3020") || 0.00;
 
+  let revNet = 0;
+  let expenseTotal = 0;
+  for (const acc of accounts) {
+    const code = acc.account_code;
+    const bal = Number(acc.current_balance || 0);
+    if (code === "4010") revNet += bal;
+    else if (code === "4020") revNet -= bal;
+    else if (code === "5010" || code.startsWith("60")) expenseTotal += bal;
+    else if (acc.account_category === "revenue" && code !== "4010" && code !== "4020") revNet += bal;
+    else if (acc.account_category === "expense" && code !== "5010" && !code.startsWith("60")) expenseTotal += bal;
+  }
+  const netSalesRevenue = round2(revNet);
+  const totalCogsAndExpenses = round2(expenseTotal);
+  const netProfitAfterSale = round2(revNet - expenseTotal);
+  const baseCapitalMoney = round2(totalStoreAssets - netProfitAfterSale);
+
   response.json({
     accounts: accounts.map((a) => ({
       id: Number(a.id),
@@ -141,6 +157,10 @@ router.get("/accounts", requireAuth, requireRole("admin"), async (_request, resp
       totalLiabilities,
       ownerCapital,
       ownerDrawings,
+      baseCapitalMoney,
+      netProfitAfterSale,
+      netSalesRevenue,
+      totalCogsAndExpenses,
     },
   });
 });

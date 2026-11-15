@@ -10,6 +10,7 @@ import {
   Menu,
   Settings,
   ShoppingBag,
+  Trash2,
   Utensils,
 } from "lucide-react";
 
@@ -17,11 +18,14 @@ import Sidebar from "../../components/Sidebar.jsx";
 import StaffNotificationBell from "../../components/StaffNotificationBell.jsx";
 import StaffOperationsBar from "../../components/StaffOperationsBar.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import LogWasteModal from "../../components/LogWasteModal.jsx";
 import staffAvatar from "../../assets/images/icon/staff1.svg";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useInventory } from "../../context/InventoryContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { getOrderTime, isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
+import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
 
 import "../../assets/css/staff/staff-dashboard.css";
 import "../../assets/css/portal-user.css";
@@ -36,9 +40,33 @@ function StaffDashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { orders = [], confirmOrder, revertOrderItem } = useOrders() || {};
   const { products = [] } = useMenu() || {};
+  const {
+    wasteLogs = [],
+    wasteSummary = {},
+    wasteLogsLoading = false,
+    wasteLogsError = "",
+    fetchWasteLogs,
+  } = useInventory() || {};
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  const [wasteSuccessBanner, setWasteSuccessBanner] = useState("");
   const modalTriggerRef = useRef(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const formatShortWasteTime = (ts) => {
+    if (!ts) return "";
+    const parsed = new Date(ts);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
+
+  const handleWasteSuccess = (saved) => {
+    if (saved) {
+      setWasteSuccessBanner(
+        `Logged -${formatWasteQty(saved.deductedQuantity, saved.unit)} on ${saved.itemName} (Remaining: ${formatWasteQty(saved.afterQuantity, saved.unit)})`,
+      );
+    }
+  };
 
   const productImageByName = useMemo(() => {
     const map = new Map();
@@ -62,6 +90,12 @@ function StaffDashboard() {
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
+
+  useEffect(() => {
+    fetchWasteLogs?.({ scope: "today", limit: 20 }).catch((err) => {
+      console.warn("Could not load staff waste logs:", err?.message || err);
+    });
+  }, [fetchWasteLogs]);
 
   // Formatted date and time-of-day greeting
   const liveDate = useMemo(() => {
@@ -161,7 +195,79 @@ function StaffDashboard() {
                 <ArrowRight size={20} aria-hidden="true" />
               </Link>
             ))}
+            <button
+              type="button"
+              className="sd-action sd-action-waste"
+              onClick={() => setShowWasteModal(true)}
+            >
+              <span className="sd-action-icon"><Trash2 size={22} aria-hidden="true" /></span>
+              <span className="sd-action-text">
+                <strong>Log waste / spoilage</strong>
+                <small>Weigh remaining stock or count discarded items</small>
+              </span>
+              <ArrowRight size={20} aria-hidden="true" />
+            </button>
           </nav>
+
+          {wasteSuccessBanner && (
+            <div className="sd-waste-feedback" role="status">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              <span>{wasteSuccessBanner}</span>
+            </div>
+          )}
+
+          <div className="sd-section-row">
+            <h2 className="sd-section">Today&apos;s waste log</h2>
+            <button
+              type="button"
+              className="sd-section-action-link"
+              onClick={() => setShowWasteModal(true)}
+            >
+              + Log waste
+            </button>
+          </div>
+          <section className="sd-waste-card" aria-label="Today's waste log">
+            {wasteLogsError && (
+              <p className="sd-waste-error" role="alert">
+                {wasteLogsError}
+              </p>
+            )}
+            {wasteLogs.length ? (
+              <ul className="sd-waste-list">
+                {wasteLogs.slice(0, 6).map((entry) => {
+                  const reasonMeta = getWasteReasonMeta(entry.wasteReason);
+                  return (
+                    <li key={entry.id} className={`sd-waste-row${entry.isReversed ? " is-reversed" : ""}`}>
+                      <div className="sd-waste-row-top">
+                        <strong>{entry.itemName}</strong>
+                        <span className="sd-waste-qty-badge">
+                          -{formatWasteQty(entry.deductedQuantity, entry.unit)}
+                        </span>
+                      </div>
+                      <div className="sd-waste-row-meta">
+                        <span className="sd-waste-reason-chip">{reasonMeta.shortLabel}</span>
+                        {entry.isReversed && <span className="sd-waste-reversed-chip">Reversed</span>}
+                        <small>{formatShortWasteTime(entry.timestamp)}</small>
+                      </div>
+                      {entry.note && <p className="sd-waste-note">{entry.note}</p>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="sd-empty sd-waste-empty">
+                <Trash2 size={24} aria-hidden="true" />
+                <strong>
+                  {wasteLogsLoading
+                    ? "Loading waste log..."
+                    : wasteLogsError
+                      ? "Unable to load waste log"
+                      : "No waste logged today"}
+                </strong>
+                <span>Use Log Waste whenever stock spills, expires, or fails QC.</span>
+              </div>
+            )}
+          </section>
 
           <div className="sd-section-row">
             <h2 className="sd-section">Recent orders</h2>
@@ -199,6 +305,13 @@ function StaffDashboard() {
           <Plus size={22} strokeWidth={2.6} aria-hidden="true" />
           New order
         </Link>
+
+        <LogWasteModal
+          isOpen={showWasteModal}
+          onClose={() => setShowWasteModal(false)}
+          darkMode={darkMode}
+          onSuccess={handleWasteSuccess}
+        />
       </div>
     );
   }
@@ -241,8 +354,9 @@ function StaffDashboard() {
         </header>
 
         <div className="dashboard-content">
-          {/* Recent Orders Card (Left Adjustable Panel) */}
-          <section className="dashboard-card orders-card" aria-label="Recent counter orders">
+          <div className="staff-primary-column">
+            {/* Recent Orders Card (Left Adjustable Panel) */}
+            <section className="dashboard-card orders-card" aria-label="Recent counter orders">
             <div className="card-header">
               <div>
                 <h3>Recent Counter Orders</h3>
@@ -317,6 +431,74 @@ function StaffDashboard() {
               )}
             </div>
           </section>
+
+            <section className="dashboard-card waste-log-card" aria-label="Today's waste and spoilage log">
+              <div className="waste-card-header">
+                <div>
+                  <h3>Today&apos;s Waste Log</h3>
+                  <p>
+                    {wasteSummary.totalWasteEventsToday || 0} logged event
+                    {(wasteSummary.totalWasteEventsToday || 0) === 1 ? "" : "s"} today · Shift inventory deductions
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="staff-waste-cta-btn"
+                  onClick={() => setShowWasteModal(true)}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  Log Waste / Spoilage
+                </button>
+              </div>
+
+              {wasteSuccessBanner && (
+                <div className="staff-waste-feedback" role="status">
+                  <CheckCircle2 size={15} aria-hidden="true" />
+                  <span>{wasteSuccessBanner}</span>
+                </div>
+              )}
+
+              {wasteLogsError && (
+                <div className="staff-waste-error" role="alert">
+                  <span>{wasteLogsError}</span>
+                </div>
+              )}
+
+              <div className="waste-log-list">
+                {wasteLogs.length ? (
+                  wasteLogs.slice(0, 8).map((entry) => {
+                    const reasonMeta = getWasteReasonMeta(entry.wasteReason);
+                    return (
+                      <div key={entry.id} className={`waste-log-row${entry.isReversed ? " is-reversed" : ""}`}>
+                        <div className="waste-log-main">
+                          <strong>{entry.itemName}</strong>
+                          <span className="waste-log-qty">
+                            -{formatWasteQty(entry.deductedQuantity, entry.unit)}
+                          </span>
+                          <span className="waste-log-reason">{reasonMeta.shortLabel}</span>
+                          {entry.isReversed && <span className="waste-log-reversed">Reversed</span>}
+                        </div>
+                        <div className="waste-log-sub">
+                          <span>{entry.note}</span>
+                          <time>{formatShortWasteTime(entry.timestamp)}</time>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="waste-log-empty">
+                    <span>
+                      {wasteLogsLoading
+                        ? "Loading today's waste records..."
+                        : wasteLogsError
+                          ? "Unable to load today's waste records."
+                          : "No waste or spoilage logged today. Click Log Waste / Spoilage if any stock is spilled or expired."}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
 
           {/* 4 KPI Metric Cards (Right Vertical Rail) */}
           <aside className="stats-grid" aria-label="Quick metrics">
@@ -417,6 +599,12 @@ function StaffDashboard() {
           onClosed={() => setSelectedOrder(null)}
         />
       )}
+      <LogWasteModal
+        isOpen={showWasteModal}
+        onClose={() => setShowWasteModal(false)}
+        darkMode={darkMode}
+        onSuccess={handleWasteSuccess}
+      />
     </div>
   );
 }

@@ -252,3 +252,63 @@ export function computeMenuItemCostSummary({
     suggestedPrice,
   };
 }
+
+export function resolveBaseRecipeQuantity(ingredient, sizes = []) {
+  const q = Number(ingredient?.quantityUsed);
+  if (typeof ingredient?.quantityUsed !== "boolean" && Number.isFinite(q) && q > 0) {
+    return String(ingredient.quantityUsed);
+  }
+  const cleanSizes = Array.isArray(sizes) ? sizes.filter((s) => s && s.label) : [];
+  const regularSize = cleanSizes.find((s) => safeLower(s.label) === "regular");
+  const orderedSizes = regularSize ? [regularSize, ...cleanSizes] : cleanSizes;
+  for (const size of orderedSizes) {
+    const val = readSizeQtyValue(ingredient?.quantityBySize, size?.label);
+    if (
+      val !== undefined &&
+      val !== null &&
+      val !== "" &&
+      typeof val !== "boolean" &&
+      Number.isFinite(Number(val)) &&
+      Number(val) > 0
+    ) {
+      return String(val);
+    }
+  }
+  return "";
+}
+
+export function formatRecipeBaseQtyBadge(ingredient, sizes = []) {
+  const unit = String(ingredient?.unit || "").trim();
+  const cleanSizes = Array.isArray(sizes) ? sizes.filter((s) => s && s.label) : [];
+  const fmt = (val) => String(Number(val.toFixed(6)));
+  if (cleanSizes.length === 0) {
+    const q = Number(ingredient?.quantityUsed);
+    return typeof ingredient?.quantityUsed !== "boolean" && Number.isFinite(q) && q > 0
+      ? `${fmt(q)}${unit ? ` ${unit}` : ""}`
+      : "—";
+  }
+
+  const amounts = [];
+  for (const s of cleanSizes) {
+    const raw = readSizeQtyValue(ingredient?.quantityBySize, s.label) ?? ingredient?.quantityUsed;
+    if (
+      raw !== "" &&
+      raw != null &&
+      typeof raw !== "boolean" &&
+      Number.isFinite(Number(raw)) &&
+      Number(raw) > 0
+    ) {
+      amounts.push(Number(raw));
+    }
+  }
+  if (amounts.length === 0) {
+    return "—";
+  }
+
+  const min = Math.min(...amounts);
+  const max = Math.max(...amounts);
+  if (min === max) {
+    return `${fmt(min)}${unit ? ` ${unit}` : ""}`;
+  }
+  return `${fmt(min)}–${fmt(max)}${unit ? ` ${unit}` : ""}`;
+}

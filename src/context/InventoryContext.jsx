@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../utils/api.js";
 import { useAuth } from "./AuthContext.jsx";
 
@@ -17,10 +17,23 @@ export function getInventoryStatus(quantity, maximumStock) {
 function InventoryProvider({ children }) {
   const [inventory, setInventory] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wasteLogs, setWasteLogs] = useState([]);
+  const [wasteSummary, setWasteSummary] = useState({
+    total: 0,
+    totalWasteEventsToday: 0,
+    totalWasteLossToday: null,
+    topWastedItems: [],
+  });
+  const [wasteLogsLoading, setWasteLogsLoading] = useState(false);
+  const [wasteOwnerId, setWasteOwnerId] = useState(null);
+  const [wasteLogsError, setWasteLogsError] = useState("");
   const [loadedUserId, setLoadedUserId] = useState(null);
   const [error, setError] = useState("");
+  const lastWasteQueryRef = useRef({ scope: "today", limit: 20 });
+  const wasteRequestSeqRef = useRef(0);
   const { user } = useAuth();
-  const userId = user?.id;
+  const userId = user?.id ?? null;
+  const activeUserIdRef = useRef(userId);
 
   const refreshCategories = useCallback(async () => {
     if (!user) return [];
@@ -49,7 +62,55 @@ function InventoryProvider({ children }) {
     }
   }, [user]);
 
+  const fetchWasteLogs = useCallback(async (params = {}) => {
+    const targetUserId = user?.id ?? null;
+    if (!targetUserId) {
+      return { items: [], total: 0, totalWasteEventsToday: 0 };
+    }
+    const reqSeq = ++wasteRequestSeqRef.current;
+    const merged = { ...lastWasteQueryRef.current, ...params };
+    lastWasteQueryRef.current = merged;
+    const query = new URLSearchParams();
+    if (merged.scope) query.set("scope", merged.scope);
+    if (merged.reason) query.set("reason", merged.reason);
+    if (merged.itemId) query.set("itemId", String(merged.itemId));
+    if (merged.from) query.set("from", merged.from);
+    if (merged.to) query.set("to", merged.to);
+    if (merged.page) query.set("page", String(merged.page));
+    if (merged.limit) query.set("limit", String(merged.limit));
+    setWasteLogsLoading(true);
+    try {
+      const data = await apiRequest(`/inventory/waste-logs?${query.toString()}`);
+      if (activeUserIdRef.current !== targetUserId || wasteRequestSeqRef.current !== reqSeq) {
+        return data;
+      }
+      setWasteLogs(Array.isArray(data?.items) ? data.items : []);
+      setWasteSummary({
+        total: Number(data?.total || 0),
+        totalWasteEventsToday: Number(data?.totalWasteEventsToday || 0),
+        totalWasteLossToday: data?.totalWasteLossToday !== undefined ? Number(data.totalWasteLossToday || 0) : null,
+        topWastedItems: Array.isArray(data?.topWastedItems) ? data.topWastedItems : [],
+      });
+      setWasteOwnerId(targetUserId);
+      setWasteLogsError("");
+      return data;
+    } catch (requestError) {
+      if (activeUserIdRef.current === targetUserId && wasteRequestSeqRef.current === reqSeq) {
+        setWasteOwnerId(targetUserId);
+        setWasteLogsError(requestError.message || "Could not load waste logs.");
+      }
+      throw requestError;
+    } finally {
+      if (activeUserIdRef.current === targetUserId && wasteRequestSeqRef.current === reqSeq) {
+        setWasteLogsLoading(false);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
+    activeUserIdRef.current = userId;
+    wasteRequestSeqRef.current += 1;
+    lastWasteQueryRef.current = { scope: "today", limit: 20 };
     if (!userId) return undefined;
     let active = true;
     const load = () => {
@@ -66,6 +127,11 @@ function InventoryProvider({ children }) {
           setError(requestError.message || "Could not load inventory.");
         });
       refreshCategories();
+      fetchWasteLogs(lastWasteQueryRef.current).catch((requestError) => {
+        if (active) {
+          console.warn("Could not load waste logs:", requestError.message);
+        }
+      });
     };
     load();
     const interval = window.setInterval(load, 30000);
@@ -77,16 +143,61 @@ function InventoryProvider({ children }) {
       window.removeEventListener("amaya:stock-mutated", load);
       window.removeEventListener("amaya:session-changed", load);
     };
-  }, [refreshCategories, userId]);
+  }, [fetchWasteLogs, refreshCategories, userId]);
 
-  const value = useMemo(() => ({
-    inventory: user ? inventory : [],
-    categories: user ? categories : [],
-    categoryNames: ["All", ...(categories.filter((c) => c.isActive !== false).map((c) => c.name))],
-    loading: Boolean(user && loadedUserId !== user.id),
-    error: user ? error : "",
+  const recordInventoryWaste = useCallback(async (id, payload) => {
+    const saved = await apiRequest(`/inventory/${id}/waste`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setInventory((current) =>
+      current.map((item) =>
+        item.id === Number(id) && saved?.afterQuantity !== undefined
+          ? { ...item, quantity: Number(saved.afterQuantity) }
+          : item,
+      ),
+    );
+    window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+    window.dispatchEvent(new Event("amaya:notifications-updated"));
+    return saved;
+  }, []);
+
+  const reverseWasteLog = useCallback(async (movementId, reason) => {
+    const result = await apiRequest(`/inventory/waste-logs/${movementId}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+    await refreshInventory().catch((requestError) => {
+      console.warn("Could not refresh inventory after waste reversal:", requestError.message);
+    });
+    window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+    window.dispatchEvent(new Event("amaya:notifications-updated"));
+    return result;
+  }, [refreshInventory]);
+
+  const value = useMemo(() => {
+    const isInventoryCurrent = Boolean(user && loadedUserId === user.id);
+    const isWasteCurrent = Boolean(user && wasteOwnerId === user.id);
+    const visibleInventory = isInventoryCurrent ? inventory : [];
+    const visibleCategories = isInventoryCurrent ? categories : [];
+
+    return {
+    inventory: visibleInventory,
+    categories: visibleCategories,
+    wasteLogs: isWasteCurrent ? wasteLogs : [],
+    wasteSummary: isWasteCurrent
+      ? wasteSummary
+      : { total: 0, totalWasteEventsToday: 0, totalWasteLossToday: null, topWastedItems: [] },
+    wasteLogsLoading: user ? (wasteLogsLoading || !isWasteCurrent) : false,
+    wasteLogsError: isWasteCurrent ? wasteLogsError : "",
+    categoryNames: ["All", ...(visibleCategories.filter((c) => c.isActive !== false).map((c) => c.name))],
+    loading: Boolean(user && !isInventoryCurrent),
+    error: isInventoryCurrent ? error : "",
     refreshInventory,
     refreshCategories,
+    fetchWasteLogs,
+    recordInventoryWaste,
+    reverseWasteLog,
     addCategory: async (categoryData) => {
       const saved = await apiRequest("/inventory/categories", {
         method: "POST",
@@ -117,7 +228,7 @@ function InventoryProvider({ children }) {
       await refreshInventory();
       return result;
     },
-    totalInventoryValue: inventory.reduce(
+    totalInventoryValue: visibleInventory.reduce(
       (sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)),
       0,
     ),
@@ -162,7 +273,24 @@ function InventoryProvider({ children }) {
       setInventory((current) => current.filter((item) => item.id !== id));
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
     },
-  }), [categories, error, inventory, loadedUserId, refreshCategories, refreshInventory, user]);
+    };
+  }, [
+    categories,
+    error,
+    fetchWasteLogs,
+    inventory,
+    loadedUserId,
+    recordInventoryWaste,
+    refreshCategories,
+    refreshInventory,
+    reverseWasteLog,
+    user,
+    wasteLogs,
+    wasteLogsError,
+    wasteLogsLoading,
+    wasteOwnerId,
+    wasteSummary,
+  ]);
 
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }

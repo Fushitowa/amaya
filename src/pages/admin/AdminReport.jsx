@@ -72,7 +72,7 @@ const MOVEMENT_FILTERS = [
   { key: "restock", label: "Restock" },
   { key: "usage", label: "Order Usage" },
   { key: "adjustment", label: "Adjustment" },
-  { key: "spoilage", label: "Void Spoilage" },
+  { key: "spoilage", label: "Waste / Spoilage" },
   { key: "void_restore", label: "Void Restore" },
 ];
 
@@ -2140,7 +2140,7 @@ function AdminReport() {
                             <td>
                               <span className={`report-mov-badge ${tone}`}>
                                 <Package size={11} aria-hidden="true" />
-                                {getMovementLabel(mov.type)}
+                                {getMovementLabel(mov.type, mov)}
                               </span>
                             </td>
                             <td className="report-num">

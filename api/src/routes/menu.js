@@ -21,9 +21,9 @@ const explainPackedUnit = (name, value, fieldName) => {
 	const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
 	if (!match) return null;
 	if (fieldName === "stock") {
-		return `For â€œ${name}â€, the Inventory stock unit is â€œ${value}â€. Edit the inventory item and enter ${match[1]} as its stock quantity and â€œ${match[2]}â€ as its unit.`;
+		return `For “${name}”, the Inventory stock unit is “${value}”. Edit the inventory item and enter ${match[1]} as its stock quantity and “${match[2]}” as its unit.`;
 	}
-	return `For â€œ${name}â€, put ${match[1]} in Amount per serving and â€œ${match[2]}â€ in Recipe unit. Keep the amount and unit in separate fields.`;
+	return `For “${name}”, put ${match[1]} in Amount per serving and “${match[2]}” in Recipe unit. Keep the amount and unit in separate fields.`;
 };
 
 export function toProduct(
@@ -130,6 +130,7 @@ export function toProduct(
     }
   }
   const activeCostSummary = primarySize || baseCostSummary;
+  const effectiveBaseIngredients = productIngredients.length > 0 ? productIngredients : (primarySize?.ingredients || []);
   return {
     id: Number(row.id),
     name: row.name,
@@ -176,7 +177,7 @@ export function toProduct(
         } : {}),
       };
     }),
-    ingredients: showInventory ? productIngredients : [],
+    ingredients: showInventory ? effectiveBaseIngredients : [],
   };
 }
 
@@ -338,12 +339,17 @@ export async function saveProduct(connection, body, id = null) {
   const sizeRecipeInputs = sizes.map((size) => {
     const entries = size.ingredients === undefined ? recipeInputs : normalizeRecipeEntries(size.ingredients, `The ${String(size.label).trim()} recipe`);
     assertNoDuplicateRecipeNames(entries, `The ${String(size.label).trim()} recipe`);
-    // A size may use its own ingredients (e.g. its own cup), but must not end up with none, or it would silently fall back to the base recipe.
-    if (recipeInputs.length && !entries.length) {
-      throw httpError(400, `The ${String(size.label).trim()} size needs at least one ingredient.`);
-    }
     return entries;
   });
+  const hasEffectiveBaseRecipe = recipeInputs.length > 0 || sizeRecipeInputs.some((entries) => entries.length > 0);
+  if (hasEffectiveBaseRecipe) {
+    for (const [index, size] of sizes.entries()) {
+      // A size may use its own ingredients (e.g. its own cup), but must not end up with none, or it would silently fall back to the base recipe.
+      if (!sizeRecipeInputs[index]?.length) {
+        throw httpError(400, `The ${String(size.label).trim()} size needs at least one ingredient.`);
+      }
+    }
+  }
   const addonInputs = addons.map((addon) => {
     const rawInventoryItemId = addon?.inventoryItemId;
     const parsedInventoryItemId = rawInventoryItemId != null && rawInventoryItemId !== "" ? Number(rawInventoryItemId) : null;
@@ -353,7 +359,7 @@ export async function saveProduct(connection, body, id = null) {
     const stockUnit = String(addon?.stockUnit || unit).trim();
     const rawQuantity = String(addon?.quantityUsed ?? "").trim();
     const attachedAmount = rawQuantity.match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
-    if (attachedAmount) throw httpError(400, `For â€œ${label || "this add-on"}â€, enter only ${attachedAmount[1]} in Amount per serving and â€œ${attachedAmount[2]}â€ in Recipe unit.`);
+    if (attachedAmount) throw httpError(400, `For “${label || "this add-on"}”, enter only ${attachedAmount[1]} in Amount per serving and “${attachedAmount[2]}” in Recipe unit.`);
     const quantityUsed = Number(addon?.quantityUsed);
     const packedUnitError = explainPackedUnit(label || "this add-on", unit, "recipe")
       || explainPackedUnit(label || "this add-on", stockUnit, "stock");
@@ -404,10 +410,11 @@ export async function saveProduct(connection, body, id = null) {
       itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup });
     }
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, itemByName.get(key).stockUnit)) {
-      throw httpError(400, `â€œ${entry.unit}â€ for ${entry.name} cannot be converted to inventory unit â€œ${itemByName.get(key).stockUnit}â€. Choose units from the same group (weight, volume, or count).`);
+      throw httpError(400, `“${entry.unit}” for ${entry.name} cannot be converted to inventory unit “${itemByName.get(key).stockUnit}”. Choose units from the same group (weight, volume, or count).`);
     }
   }
-  const recipeItems = recipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
+  const effectiveRecipeInputs = recipeInputs.length > 0 ? recipeInputs : (sizeRecipeInputs[0] || []);
+  const recipeItems = effectiveRecipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
   const addonInventoryItems = [];
   for (const entry of addonInputs) {
     let item = null;
@@ -465,7 +472,7 @@ export async function saveProduct(connection, body, id = null) {
     for (const entry of sizeIngredients) {
       const base = itemByName.get(entry.name.toLocaleLowerCase());
       const quantityUsed = toInventoryQuantity(entry.quantityUsed, entry.unit, base.stockUnit);
-      if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit â€œ${base.stockUnit}â€.`);
+      if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit “${base.stockUnit}”.`);
       await connection.execute(
         "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
         [createdSize.insertId, base.inventoryItemId, entry.quantityUsed, entry.unit],

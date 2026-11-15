@@ -45,7 +45,11 @@ describe("Double-Entry Ledger Reconciliation, Reversals & Export Limit", () => {
       }
       await tracker.cleanup();
     } finally {
-      if (server) await server.close();
+      try {
+        if (server) await server.close();
+      } finally {
+        await pool.end();
+      }
     }
   });
 

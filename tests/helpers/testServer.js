@@ -273,6 +273,57 @@ export function createCleanupTracker() {
 
     const oIds = [...orderIds];
 
+    const notifConds = [];
+    const notifParams = [];
+    if (uIds.length > 0) {
+      notifConds.push(`user_id IN (${uIds.map(() => "?").join(",")})`);
+      notifParams.push(...uIds);
+    }
+    if (oIds.length > 0) {
+      const [orderRows] = await pool.execute(
+        `SELECT order_number FROM orders WHERE id IN (${oIds.map(() => "?").join(",")})`,
+        oIds,
+      );
+      for (const oid of oIds) {
+        notifConds.push(`(type = 'order_revert' AND event_key LIKE ?)`);
+        notifParams.push(`order-revert-${oid}-%`);
+      }
+      for (const row of orderRows) {
+        if (row.order_number) {
+          notifConds.push(`(type = 'order_revert' AND title LIKE ?)`);
+          notifParams.push(`%#${row.order_number}%`);
+        }
+      }
+    }
+    if (notifConds.length > 0) {
+      await pool.execute(`DELETE FROM notifications WHERE ${notifConds.join(" OR ")}`, notifParams);
+    }
+
+    const jeConds = [];
+    const jeParams = [];
+    if (oIds.length > 0) {
+      jeConds.push(`order_id IN (${oIds.map(() => "?").join(",")})`);
+      jeParams.push(...oIds);
+    }
+    if (uIds.length > 0) {
+      jeConds.push(`created_by IN (${uIds.map(() => "?").join(",")})`);
+      jeParams.push(...uIds);
+    }
+    if (jeConds.length > 0) {
+      const jeWhere = jeConds.join(" OR ");
+      await pool.execute(
+        `DELETE jel FROM journal_entry_lines jel
+           JOIN journal_entries je ON je.id = jel.journal_entry_id
+          WHERE ${jeWhere}`,
+        jeParams,
+      );
+      await pool.execute(
+        `UPDATE journal_entries SET reverses_entry_id = NULL WHERE (${jeWhere}) AND reverses_entry_id IS NOT NULL`,
+        jeParams,
+      );
+      await pool.execute(`DELETE FROM journal_entries WHERE ${jeWhere}`, jeParams);
+    }
+
     const consConds = [];
     const consParams = [];
     if (oIds.length > 0) {
@@ -374,17 +425,6 @@ export function createCleanupTracker() {
     }
       if (uIds.length > 0) {
         const uMarks = uIds.map(() => "?").join(",");
-        await pool.execute(
-          `DELETE jel FROM journal_entry_lines jel
-             JOIN journal_entries je ON je.id = jel.journal_entry_id
-            WHERE je.created_by IN (${uMarks})`,
-          uIds
-        );
-        await pool.execute(
-          `UPDATE journal_entries SET reverses_entry_id = NULL WHERE created_by IN (${uMarks}) AND reverses_entry_id IS NOT NULL`,
-          uIds
-        );
-        await pool.execute(`DELETE FROM journal_entries WHERE created_by IN (${uMarks})`, uIds);
         await pool.execute(
           `DELETE FROM store_daily_asset_snapshots WHERE opened_by IN (${uMarks}) OR closed_by IN (${uMarks})`,
           [...uIds, ...uIds]

@@ -361,6 +361,15 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
     const baselineTotalAssets = Number(baselineAccRes.data.summary.totalStoreAssets);
     const baselineGcash = Number(baselineAccRes.data.summary.gcash);
     const baselineCapital = Number(baselineAccRes.data.summary.ownerCapital);
+    const baselineBaseMoney = Number(baselineAccRes.data.summary.baseCapitalMoney);
+    const baselineProfitAfterSale = Number(baselineAccRes.data.summary.netProfitAfterSale);
+    assert.ok(Number.isFinite(baselineBaseMoney), "Baseline baseCapitalMoney must be a finite number");
+    assert.ok(Number.isFinite(baselineProfitAfterSale), "Baseline netProfitAfterSale must be a finite number");
+    assert.equal(
+      Number((baselineBaseMoney + baselineProfitAfterSale).toFixed(2)),
+      Number(baselineTotalAssets.toFixed(2)),
+      "Baseline Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold"
+    );
 
     const baselinePnlRes = await server.requestJson("/api/finances/reports/profit-and-loss", {
       token: adminUser.token,
@@ -392,6 +401,25 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
     const afterTotalAssets = Number(afterAccRes.data.summary.totalStoreAssets);
     const afterGcash = Number(afterAccRes.data.summary.gcash);
     const afterCapital = Number(afterAccRes.data.summary.ownerCapital);
+    const afterBaseMoney = Number(afterAccRes.data.summary.baseCapitalMoney);
+    const afterProfitAfterSale = Number(afterAccRes.data.summary.netProfitAfterSale);
+    assert.ok(Number.isFinite(afterBaseMoney), "Post-injection baseCapitalMoney must be a finite number");
+    assert.ok(Number.isFinite(afterProfitAfterSale), "Post-injection netProfitAfterSale must be a finite number");
+    assert.equal(
+      Number((afterBaseMoney + afterProfitAfterSale).toFixed(2)),
+      Number(afterTotalAssets.toFixed(2)),
+      "Post-injection Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold"
+    );
+    assert.equal(
+      Number((afterProfitAfterSale - baselineProfitAfterSale).toFixed(2)),
+      0,
+      "netProfitAfterSale must NOT change on capital injection"
+    );
+    assert.equal(
+      Number((afterBaseMoney - baselineBaseMoney).toFixed(2)),
+      50000.00,
+      "Capital injection (+50000) must flow entirely into baseCapitalMoney"
+    );
 
     const assetDelta = Number((afterTotalAssets - baselineTotalAssets).toFixed(2));
     const gcashDelta = Number((afterGcash - baselineGcash).toFixed(2));
@@ -462,6 +490,15 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
     const baselineTotalAssets = Number(baselineAccRes.data.summary.totalStoreAssets);
     const baselineCashDrawer = Number(baselineAccRes.data.summary.cashDrawer);
     const baselineDrawings = Number(baselineAccRes.data.summary.ownerDrawings);
+    const baselineBaseMoney = Number(baselineAccRes.data.summary.baseCapitalMoney);
+    const baselineProfitAfterSale = Number(baselineAccRes.data.summary.netProfitAfterSale);
+    assert.ok(Number.isFinite(baselineBaseMoney), "Baseline baseCapitalMoney must be a finite number");
+    assert.ok(Number.isFinite(baselineProfitAfterSale), "Baseline netProfitAfterSale must be a finite number");
+    assert.equal(
+      Number((baselineBaseMoney + baselineProfitAfterSale).toFixed(2)),
+      Number(baselineTotalAssets.toFixed(2)),
+      "Baseline Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold"
+    );
 
     const baselinePnlRes = await server.requestJson("/api/finances/reports/profit-and-loss", {
       token: adminUser.token,
@@ -493,6 +530,25 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
     const afterTotalAssets = Number(afterAccRes.data.summary.totalStoreAssets);
     const afterCashDrawer = Number(afterAccRes.data.summary.cashDrawer);
     const afterDrawings = Number(afterAccRes.data.summary.ownerDrawings);
+    const afterBaseMoney = Number(afterAccRes.data.summary.baseCapitalMoney);
+    const afterProfitAfterSale = Number(afterAccRes.data.summary.netProfitAfterSale);
+    assert.ok(Number.isFinite(afterBaseMoney), "Post-drawing baseCapitalMoney must be a finite number");
+    assert.ok(Number.isFinite(afterProfitAfterSale), "Post-drawing netProfitAfterSale must be a finite number");
+    assert.equal(
+      Number((afterBaseMoney + afterProfitAfterSale).toFixed(2)),
+      Number(afterTotalAssets.toFixed(2)),
+      "Post-drawing Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold"
+    );
+    assert.equal(
+      Number((afterProfitAfterSale - baselineProfitAfterSale).toFixed(2)),
+      0,
+      "netProfitAfterSale must NOT change on owner drawing"
+    );
+    assert.equal(
+      Number((baselineBaseMoney - afterBaseMoney).toFixed(2)),
+      5000.00,
+      "Owner drawing (-5000) must come entirely from baseCapitalMoney"
+    );
 
     const assetReduction = Number((baselineTotalAssets - afterTotalAssets).toFixed(2));
     const cashReduction = Number((baselineCashDrawer - afterCashDrawer).toFixed(2));
@@ -754,6 +810,63 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
       recordedDelta,
       expectedDelta,
       `net_asset_delta mismatch: expected ${expectedDelta} (closing ${closingTotal} - opening ${openingTotal}), got ${recordedDelta}`
+    );
+  });
+
+  // --------------------------------------------------------------------------
+  // INVARIANT 9: STORE ASSETS BREAKDOWN EQUATION (BASE MONEY + PROFIT AFTER SALE)
+  // --------------------------------------------------------------------------
+  it("INVARIANT 9 (STORE ASSETS BREAKDOWN EQUATION): compound Sale + COGS entry shifts netProfitAfterSale by +140.00 while preserving baseCapitalMoney + netProfitAfterSale === totalStoreAssets", async () => {
+    const baselineRes = await server.requestJson("/api/finances/accounts", {
+      token: adminUser.token,
+    });
+    assert.equal(baselineRes.status, 200);
+    const beforeSummary = baselineRes.data.summary;
+    assert.ok(Number.isFinite(beforeSummary.baseCapitalMoney), "Baseline baseCapitalMoney must be finite");
+    assert.ok(Number.isFinite(beforeSummary.netProfitAfterSale), "Baseline netProfitAfterSale must be finite");
+    assert.equal(
+      Number((beforeSummary.baseCapitalMoney + beforeSummary.netProfitAfterSale).toFixed(2)),
+      Number(beforeSummary.totalStoreAssets.toFixed(2)),
+      "Baseline Store Assets equation must hold before Sale + COGS"
+    );
+
+    const saleEntryRes = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "adjustment",
+        memo: "Tala compound Sale + COGS equation test",
+        lines: [
+          { accountCode: "1010", debit: 200.00, credit: 0, lineMemo: "Cash sale proceeds" },
+          { accountCode: "4010", debit: 0, credit: 200.00, lineMemo: "Sales revenue" },
+          { accountCode: "5010", debit: 60.00, credit: 0, lineMemo: "COGS expense" },
+          { accountCode: "1050", debit: 0, credit: 60.00, lineMemo: "Inventory relieved" },
+        ],
+      },
+    });
+    assert.equal(
+      saleEntryRes.status,
+      201,
+      `Compound Sale + COGS journal entry must succeed with 201, got ${saleEntryRes.status}: ${saleEntryRes.text}`
+    );
+    createdJournalEntryIds.add(Number(saleEntryRes.data.entryId));
+
+    const afterRes = await server.requestJson("/api/finances/accounts", {
+      token: adminUser.token,
+    });
+    assert.equal(afterRes.status, 200);
+    const afterSummary = afterRes.data.summary;
+    assert.ok(Number.isFinite(afterSummary.baseCapitalMoney), "After baseCapitalMoney must be finite");
+    assert.ok(Number.isFinite(afterSummary.netProfitAfterSale), "After netProfitAfterSale must be finite");
+    assert.equal(
+      Number((afterSummary.netProfitAfterSale - beforeSummary.netProfitAfterSale).toFixed(2)),
+      140.00,
+      "netProfitAfterSale must increase by exactly +140.00 (200 sale - 60 COGS)"
+    );
+    assert.equal(
+      Number((afterSummary.baseCapitalMoney + afterSummary.netProfitAfterSale).toFixed(2)),
+      Number(afterSummary.totalStoreAssets.toFixed(2)),
+      "Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold to exact centavo after Sale + COGS"
     );
   });
 });

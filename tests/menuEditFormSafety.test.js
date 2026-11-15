@@ -15,6 +15,8 @@ import {
   convertRecipeAmount,
   defaultSizeFactor,
   scaleIngredientAmount,
+  resolveBaseRecipeQuantity,
+  formatRecipeBaseQtyBadge,
 } from "../src/utils/menuCosting.js";
 
 /**
@@ -855,6 +857,288 @@ describe("Tala Test Suite: Menu Edit Form Safety & Zero-Crash Verification", () 
         menuPageSource.includes("/ 0.3 / 5"),
         false,
         "AdminMenuManagement.jsx must not retain hardcoded / 0.3 / 5 pricing formula",
+      );
+    });
+  });
+
+  describe("TEST SUITE 6: .recipe-item-base-qty Zero-Bug & Size Hydration Sync", () => {
+    it("TEST 6.1: resolveBaseRecipeQuantity resolves positive base/size quantities without falling back to '0'", () => {
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          { quantityUsed: "0", quantityBySize: buildSafeSizeQtyMap([["Regular", "4"]]) },
+          [{ label: "Regular" }],
+        ),
+        "4",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          { quantityUsed: "", quantityBySize: buildSafeSizeQtyMap([["Regular", "4"]]) },
+          [{ label: "Regular" }],
+        ),
+        "4",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          {
+            quantityUsed: "0",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "0"],
+              ["16 oz", "1"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "1",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity({ quantityUsed: "15", quantityBySize: buildSafeSizeQtyMap() }, []),
+        "15",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          {
+            quantityUsed: "0",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "0"],
+              ["16 oz", ""],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity({ quantityUsed: "", quantityBySize: buildSafeSizeQtyMap() }, []),
+        "",
+      );
+
+      // Case A: Non-index-0 primary size update & clear/remove + boolean rejection
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          {
+            quantityUsed: "",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "0"],
+              ["16 oz", "1"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "1",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          {
+            quantityUsed: "",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "0"],
+              ["16 oz", "0"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "",
+      );
+      assert.equal(
+        resolveBaseRecipeQuantity(
+          { quantityUsed: true, quantityBySize: buildSafeSizeQtyMap([["Regular", true]]) },
+          [{ label: "Regular" }],
+        ),
+        "",
+        "resolveBaseRecipeQuantity must reject boolean true",
+      );
+    });
+
+    it("TEST 6.2: formatRecipeBaseQtyBadge formats single, equal, varying, size-exclusive, and all-zero quantities accurately", () => {
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          { unit: "pcs", quantityUsed: "0", quantityBySize: buildSafeSizeQtyMap([["Regular", "4"]]) },
+          [{ label: "Regular" }],
+        ),
+        "4 pcs",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          {
+            unit: "ml",
+            quantityUsed: "0",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "10"],
+              ["16 oz", "10"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "10 ml",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          {
+            unit: "g",
+            quantityUsed: "7",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "7"],
+              ["16 oz", "12"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "7–12 g",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          {
+            unit: "pcs",
+            quantityUsed: "0",
+            quantityBySize: buildSafeSizeQtyMap([
+              ["12 oz", "0"],
+              ["16 oz", "1"],
+            ]),
+          },
+          [{ label: "12 oz" }, { label: "16 oz" }],
+        ),
+        "1 pcs",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge({ unit: "pcs", quantityUsed: "0", quantityBySize: buildSafeSizeQtyMap() }, []),
+        "—",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          { unit: "pcs", quantityUsed: true, quantityBySize: buildSafeSizeQtyMap([["Regular", true]]) },
+          [{ label: "Regular" }],
+        ),
+        "—",
+        "formatRecipeBaseQtyBadge must reject boolean true",
+      );
+      assert.equal(
+        formatRecipeBaseQtyBadge(
+          { unit: "pcs", quantityUsed: "4.00", quantityBySize: buildSafeSizeQtyMap([["Regular", "4.00"]]) },
+          [{ label: "Regular" }],
+        ),
+        "4 pcs",
+        "formatRecipeBaseQtyBadge must format '4.00' cleanly as '4 pcs'",
+      );
+    });
+
+    it("TEST 6.3: AdminMenuManagement.jsx & api/src/routes/menu.js regression guards prevent zero-qty hydration and sync regressions", async () => {
+      const menuPagePath = path.resolve("src/pages/admin/AdminMenuManagement.jsx");
+      const menuPageSource = await fs.readFile(menuPagePath, "utf-8");
+
+      assert.equal(
+        menuPageSource.includes('.map((entry) => ({ ...entry, quantityUsed: "0" }))'),
+        false,
+        "AdminMenuManagement.jsx must not overwrite merged size ingredients with quantityUsed: '0'",
+      );
+      assert.equal(
+        menuPageSource.includes("resolveBaseRecipeQuantity("),
+        true,
+        "AdminMenuManagement.jsx must call resolveBaseRecipeQuantity",
+      );
+      assert.equal(
+        menuPageSource.includes("formatRecipeBaseQtyBadge("),
+        true,
+        "AdminMenuManagement.jsx must call formatRecipeBaseQtyBadge",
+      );
+
+      const clearVariationsStart = menuPageSource.indexOf("const handleClearVariations =");
+      const clearVariationsEnd = menuPageSource.indexOf("const handleAutoSetStandardSizes =");
+      assert.ok(clearVariationsStart !== -1 && clearVariationsEnd > clearVariationsStart);
+      const clearVariationsBlock = menuPageSource.slice(clearVariationsStart, clearVariationsEnd);
+      assert.equal(
+        clearVariationsBlock.includes("resolveBaseRecipeQuantity("),
+        true,
+        "handleClearVariations must promote resolveBaseRecipeQuantity to quantityUsed",
+      );
+
+      const updateSizeLabelStart = menuPageSource.indexOf("const updateSizeLabel =");
+      const updateSizeLabelEnd = menuPageSource.indexOf("const updateSizePrice =");
+      assert.ok(updateSizeLabelStart !== -1 && updateSizeLabelEnd > updateSizeLabelStart);
+      const updateSizeLabelBlock = menuPageSource.slice(updateSizeLabelStart, updateSizeLabelEnd);
+      assert.equal(
+        updateSizeLabelBlock.includes("existingQty"),
+        true,
+        "updateSizeLabel must preserve existingQty when renaming a size label",
+      );
+
+      const updateSizeQtyStart = menuPageSource.indexOf("const updateSizeRecipeQuantity =");
+      const updateSizeQtyEnd = menuPageSource.indexOf("const updateRecipeUnit =");
+      assert.ok(updateSizeQtyStart !== -1 && updateSizeQtyEnd > updateSizeQtyStart);
+      const updateSizeQtyBlock = menuPageSource.slice(updateSizeQtyStart, updateSizeQtyEnd);
+      assert.equal(
+        updateSizeQtyBlock.includes("resolveBaseRecipeQuantity("),
+        true,
+        "updateSizeRecipeQuantity must promote resolveBaseRecipeQuantity to quantityUsed",
+      );
+
+      const menuRoutePath = path.resolve("api/src/routes/menu.js");
+      const menuRouteSource = await fs.readFile(menuRoutePath, "utf-8");
+      assert.equal(
+        menuRouteSource.includes("effectiveBaseIngredients"),
+        true,
+        "api/src/routes/menu.js must compute effectiveBaseIngredients",
+      );
+      assert.equal(
+        menuRouteSource.includes("primarySize?.ingredients || []"),
+        true,
+        "api/src/routes/menu.js must fall back effectiveBaseIngredients to primarySize?.ingredients || [] when productIngredients is empty",
+      );
+      assert.equal(
+        menuRouteSource.includes("ingredients: showInventory ? effectiveBaseIngredients : []"),
+        true,
+        "api/src/routes/menu.js must keep effectiveBaseIngredients gated by showInventory",
+      );
+
+      // Case B: saveProduct empty-size guard checks hasEffectiveBaseRecipe (not just recipeInputs.length)
+      const saveProductStart = menuRouteSource.indexOf("async function saveProduct(");
+      const saveProductEnd = menuRouteSource.indexOf("function parseOptionalId(");
+      const saveProductBlock =
+        saveProductStart !== -1
+          ? menuRouteSource.slice(saveProductStart, saveProductEnd > saveProductStart ? saveProductEnd : undefined)
+          : menuRouteSource;
+      assert.equal(
+        saveProductBlock.includes("hasEffectiveBaseRecipe"),
+        true,
+        "saveProduct in api/src/routes/menu.js must check hasEffectiveBaseRecipe before permitting an empty size recipe when another size has ingredients",
+      );
+      assert.equal(
+        /if\s*\(\s*recipeInputs\.length\s*&&\s*!entries\.length\s*\)/.test(saveProductBlock),
+        false,
+        "saveProduct must not rely solely on recipeInputs.length when guarding empty size ingredients",
+      );
+    });
+  });
+
+  describe("TEST SUITE 7: Test Database Isolation Guard (amaya_test)", () => {
+    it("TEST 7.1: every .test.js file importing ../api/ must import ./helpers/loadEnv.js before any ../api/ import", async () => {
+      const testsDir = path.resolve("tests");
+      const entries = await fs.readdir(testsDir, { withFileTypes: true });
+      const testFiles = entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".test.js"))
+        .map((entry) => entry.name)
+        .sort();
+
+      const violations = [];
+      const loadEnvRe = /^\s*import\s+["']\.\/helpers\/loadEnv\.js["']\s*;?/m;
+      const apiImportRe = /(?:from\s+["']\.\.\/api\/|import\s*\(\s*["']\.\.\/api\/|import\s+["']\.\.\/api\/)/m;
+
+      for (const fileName of testFiles) {
+        const source = await fs.readFile(path.join(testsDir, fileName), "utf-8");
+        const apiMatch = apiImportRe.exec(source);
+        if (!apiMatch) continue;
+
+        const loadEnvMatch = loadEnvRe.exec(source);
+        if (!loadEnvMatch) {
+          violations.push(`${fileName}: imports ../api/ without importing ./helpers/loadEnv.js`);
+        } else if (loadEnvMatch.index > apiMatch.index) {
+          violations.push(`${fileName}: imports ./helpers/loadEnv.js AFTER ../api/`);
+        }
+      }
+
+      assert.deepStrictEqual(
+        violations,
+        [],
+        `All test files importing ../api/ must import ./helpers/loadEnv.js first:\n${violations.join("\n")}`,
       );
     });
   });

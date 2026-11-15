@@ -1,3 +1,4 @@
+import "./helpers/loadEnv.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "../api/node_modules/bcryptjs/index.js";

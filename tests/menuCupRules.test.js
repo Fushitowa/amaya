@@ -1,3 +1,4 @@
+import "./helpers/loadEnv.js";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as menuModule from "../api/src/routes/menu.js";

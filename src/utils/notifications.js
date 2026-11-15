@@ -30,6 +30,11 @@ export const STAFF_NOTIFICATION_TYPES = {
   info: { label: "Notice", tone: "stone" },
 };
 
+export const ADMIN_NOTIFICATION_TYPES = {
+  ...STAFF_NOTIFICATION_TYPES,
+  inventory_waste: { label: "Waste logged", tone: "red" },
+};
+
 export function readStaffNotifications() {
   try {
     const raw = localStorage.getItem(STAFF_NOTIFICATIONS_KEY);

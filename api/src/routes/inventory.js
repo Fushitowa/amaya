@@ -4,7 +4,21 @@ import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordArchiveAudit } from "./archive.js";
 import { retargetRecipeUnits } from "../utils/recipeUnitSync.js";
 import { getUnitDimension } from "../utils/inventoryUnits.js";
-import { postBalancedEntry, postInventoryValuationDelta } from "../utils/ledgerService.js";
+import {
+  generateEntryNumber,
+  getManilaDateString,
+  postBalancedEntry,
+  postInventoryValuationDelta,
+} from "../utils/ledgerService.js";
+import {
+  computeWasteDeduction,
+  normalizeWasteUnit,
+  parseStrictFiniteNumber,
+  round2,
+  round6,
+  WASTE_REASON_MAP,
+  WASTE_REASON_VALUES,
+} from "../utils/wasteMeasurement.js";
 
 const router = Router();
 const mapItem = (row, includeCost = true) => {
@@ -22,11 +36,11 @@ const mapItem = (row, includeCost = true) => {
     unit: row.unit,
     maximumStock: row.maximum_stock == null ? null : Number(row.maximum_stock),
     addedFromMenu: Boolean(row.added_from_menu),
+    packageUnit: row.package_unit || "pack",
+    contentsPerPackage,
     ...(includeCost ? {
       purchasePrice,
       packageQuantity,
-      packageUnit: row.package_unit || "pack",
-      contentsPerPackage,
       unitCost,
       inventoryValue: Number((quantity * unitCost).toFixed(2)),
     } : {}),
@@ -363,6 +377,15 @@ async function fetchMappedItemById(id, includeCost = true) {
   return row ? mapItem(row, includeCost) : null;
 }
 
+function stripCostFromNote(noteText) {
+  if (!noteText) return "";
+  return String(noteText)
+    .replace(/ for ₱[0-9.,]+ · new avg ₱[0-9.,]+\/[^)]+/gi, "")
+    .replace(/\s*\([^)]*₱[^)]*\)/g, "")
+    .replace(/₱\s*[0-9.,]+/g, "")
+    .trim();
+}
+
 function mapMovementRow(row, includeCost = true) {
   return {
     id: Number(row.id),
@@ -383,10 +406,59 @@ function mapMovementRow(row, includeCost = true) {
     orderId: row.order_id == null ? null : Number(row.order_id),
     orderNumber: row.order_number || null,
     sessionId: row.session_id == null ? null : Number(row.session_id),
-    note: includeCost ? (row.note || "") : (row.note ? String(row.note).replace(/ for ₱[0-9.,]+ · new avg ₱[0-9.,]+\/[^)]+/gi, "") : ""),
+    wasteReason: row.waste_reason || null,
+    measurementMethod: row.measurement_method || null,
+    measuredInputQty: row.measured_input_qty == null ? null : Number(row.measured_input_qty),
+    measuredInputUnit: row.measured_input_unit || null,
+    tareWeight: row.tare_weight == null ? null : Number(row.tare_weight),
+    clientRequestId: row.client_request_id || null,
+    reversedByMovementId: row.reversed_by_movement_id == null ? null : Number(row.reversed_by_movement_id),
+    isReversed: Boolean(row.reversed_by_movement_id),
+    note: includeCost ? (row.note || "") : stripCostFromNote(row.note || ""),
     actorId: row.user_id == null ? null : Number(row.user_id),
     actor: row.actor_name || "System",
     timestamp: new Date(row.created_at).toISOString(),
+  };
+}
+
+function formatWasteResponseRow(row, includeCost = true, journalEntryId = null) {
+  const deductedQuantity = round6(Math.abs(Number(row.quantity_change || 0)));
+  const resolvedJeId = journalEntryId !== null && journalEntryId !== undefined
+    ? Number(journalEntryId)
+    : (row.journal_entry_id == null ? null : Number(row.journal_entry_id));
+  return {
+    id: Number(row.id),
+    movementId: Number(row.id),
+    itemId: Number(row.inventory_item_id),
+    itemName: row.item_name || row.item_name_snapshot || "Unknown Item",
+    type: row.movement_type,
+    quantityChange: Number(row.quantity_change),
+    deductedQuantity,
+    beforeQuantity: row.before_quantity == null ? null : Number(row.before_quantity),
+    afterQuantity: row.after_quantity == null ? null : Number(row.after_quantity),
+    unit: row.unit || row.current_item_unit || null,
+    wasteReason: row.waste_reason || null,
+    measurementMethod: row.measurement_method || null,
+    measuredInputQty: row.measured_input_qty == null ? null : Number(row.measured_input_qty),
+    measuredInputUnit: row.measured_input_unit || null,
+    tareWeight: row.tare_weight == null ? null : Number(row.tare_weight),
+    clientRequestId: row.client_request_id || null,
+    reversedByMovementId: row.reversed_by_movement_id == null ? null : Number(row.reversed_by_movement_id),
+    isReversed: Boolean(row.reversed_by_movement_id),
+    orderId: row.order_id == null ? null : Number(row.order_id),
+    orderNumber: row.order_number || null,
+    sessionId: row.session_id == null ? null : Number(row.session_id),
+    note: includeCost ? (row.note || "") : stripCostFromNote(row.note || ""),
+    actorId: row.user_id == null ? null : Number(row.user_id),
+    actor: row.actor_name || "System",
+    timestamp: new Date(row.created_at).toISOString(),
+    ...(includeCost ? {
+      wasteValue: row.batch_cost == null ? 0 : round2(row.batch_cost),
+      batchCost: row.batch_cost == null ? null : round2(row.batch_cost),
+      unitCostBefore: row.unit_cost_before == null ? null : Number(row.unit_cost_before),
+      unitCostAfter: row.unit_cost_after == null ? null : Number(row.unit_cost_after),
+      journalEntryId: resolvedJeId,
+    } : {}),
   };
 }
 
@@ -505,6 +577,614 @@ router.get("/", requireAuth, requireRole("admin", "staff"), async (request, resp
      ORDER BY ii.category, ii.name
   `);
   response.json(rows.map((row) => mapItem(row, includeCost)));
+});
+
+router.get("/waste-logs", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const includeCost = request.authUser.role === "admin";
+  const { from, to, itemId, reason, scope, includeOrderSpoilage } = request.query || {};
+  const conditions = ["m.movement_type = 'spoilage'"];
+  const params = [];
+
+  if (String(includeOrderSpoilage || "").toLowerCase() !== "true") {
+    conditions.push("m.order_id IS NULL");
+    conditions.push("m.waste_reason IS NOT NULL");
+  }
+
+  if (from !== undefined && from !== "") {
+    if (!isValidIsoDateOnly(from)) throw httpError(400, "Invalid 'from' date. Expected YYYY-MM-DD.");
+    conditions.push("m.created_at >= ?");
+    params.push(`${from} 00:00:00`);
+  }
+  if (to !== undefined && to !== "") {
+    if (!isValidIsoDateOnly(to)) throw httpError(400, "Invalid 'to' date. Expected YYYY-MM-DD.");
+    conditions.push("m.created_at <= ?");
+    params.push(`${to} 23:59:59`);
+  }
+  if (from && to && String(from) > String(to)) {
+    throw httpError(400, "Start date must be on or before end date.");
+  }
+
+  if (itemId !== undefined && itemId !== "") {
+    const parsedItemId = Number(itemId);
+    if (!Number.isSafeInteger(parsedItemId) || parsedItemId <= 0) {
+      throw httpError(400, "Invalid itemId filter.");
+    }
+    conditions.push("m.inventory_item_id = ?");
+    params.push(parsedItemId);
+  }
+
+  if (reason !== undefined && reason !== "") {
+    const cleanReason = String(reason).trim().toLowerCase();
+    if (!WASTE_REASON_VALUES.includes(cleanReason)) {
+      throw httpError(400, "Invalid waste reason filter.");
+    }
+    conditions.push("m.waste_reason = ?");
+    params.push(cleanReason);
+  }
+
+  const todayManila = getManilaDateString();
+  const cleanScope = scope !== undefined && scope !== "" ? String(scope).trim().toLowerCase() : "";
+  if (cleanScope && !["today", "shift", "all"].includes(cleanScope)) {
+    throw httpError(400, "Invalid scope filter. Expected 'today', 'shift', or 'all'.");
+  }
+
+  if (cleanScope === "today") {
+    conditions.push("m.created_at >= ? AND m.created_at <= ?");
+    params.push(`${todayManila} 00:00:00`, `${todayManila} 23:59:59`);
+  } else if (cleanScope === "shift") {
+    const [[openShift]] = await pool.execute(
+      "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+    );
+    if (openShift) {
+      conditions.push("m.session_id = ?");
+      params.push(Number(openShift.id));
+    } else {
+      conditions.push("1 = 0");
+    }
+  }
+
+  const page = Math.max(1, Number.parseInt(request.query?.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(request.query?.limit, 10) || 30));
+  const offset = (page - 1) * limit;
+  const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+  const [[countRow]] = await pool.query(
+    `SELECT COUNT(*) AS total
+       FROM inventory_movements m
+       LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+      ${whereClause}`,
+    params,
+  );
+
+  const [rows] = await pool.query(
+    `SELECT m.*,
+            COALESCE(ii.name, m.item_name_snapshot) AS item_name,
+            ii.unit AS current_item_unit,
+            COALESCE(NULLIF(u.display_name, ''), NULLIF(m.actor_name_snapshot, ''), u.username, 'System') AS actor_name,
+            o.order_number,
+            je.id AS journal_entry_id
+       FROM inventory_movements m
+       LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+       LEFT JOIN users u ON u.id = m.user_id
+       LEFT JOIN orders o ON o.id = m.order_id
+       LEFT JOIN journal_entries je ON je.inventory_movement_id = m.id AND je.is_reversal = FALSE
+      ${whereClause}
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+
+  const [[todaySummary]] = await pool.query(
+    `SELECT COUNT(*) AS today_events,
+            COALESCE(SUM(COALESCE(m.batch_cost, 0)), 0) AS today_loss
+       FROM inventory_movements m
+      WHERE m.movement_type = 'spoilage'
+        AND m.order_id IS NULL
+        AND m.waste_reason IS NOT NULL
+        AND m.reversed_by_movement_id IS NULL
+        AND m.created_at >= ?
+        AND m.created_at <= ?`,
+    [`${todayManila} 00:00:00`, `${todayManila} 23:59:59`],
+  );
+
+  let topWastedItems = [];
+  if (includeCost) {
+    const [topRows] = await pool.query(
+      `SELECT m.inventory_item_id AS item_id,
+              COALESCE(ii.name, m.item_name_snapshot) AS item_name,
+              COALESCE(m.unit, ii.unit) AS unit,
+              COALESCE(SUM(ABS(m.quantity_change)), 0) AS total_qty,
+              COALESCE(SUM(COALESCE(m.batch_cost, 0)), 0) AS total_value,
+              COUNT(*) AS event_count
+         FROM inventory_movements m
+         LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+        WHERE m.movement_type = 'spoilage'
+          AND m.order_id IS NULL
+          AND m.waste_reason IS NOT NULL
+          AND m.reversed_by_movement_id IS NULL
+          AND m.created_at >= ?
+          AND m.created_at <= ?
+        GROUP BY m.inventory_item_id, item_name, COALESCE(m.unit, ii.unit)
+        ORDER BY total_value DESC, total_qty DESC
+        LIMIT 5`,
+      [`${todayManila} 00:00:00`, `${todayManila} 23:59:59`],
+    );
+    topWastedItems = topRows.map((row) => ({
+      itemId: Number(row.item_id),
+      itemName: row.item_name || "Unknown Item",
+      unit: row.unit || null,
+      totalDeductedQuantity: round6(row.total_qty),
+      totalWasteValue: round2(row.total_value),
+      eventCount: Number(row.event_count || 0),
+    }));
+  }
+
+  response.json({
+    items: rows.map((row) => formatWasteResponseRow(row, includeCost)),
+    total: Number(countRow?.total || 0),
+    page,
+    limit,
+    totalWasteEventsToday: Number(todaySummary?.today_events || 0),
+    ...(includeCost ? {
+      totalWasteLossToday: round2(todaySummary?.today_loss || 0),
+      topWastedItems,
+    } : {}),
+  });
+});
+
+const CLIENT_REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{16,100}$/;
+
+async function findExistingWasteByClientRequest(executor, userId, clientRequestId) {
+  const [[row]] = await executor.execute(
+    `SELECT m.*,
+            COALESCE(ii.name, m.item_name_snapshot) AS item_name,
+            ii.unit AS current_item_unit,
+            COALESCE(NULLIF(u.display_name, ''), NULLIF(m.actor_name_snapshot, ''), u.username, 'System') AS actor_name,
+            je.id AS journal_entry_id
+       FROM inventory_movements m
+       LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+       LEFT JOIN users u ON u.id = m.user_id
+       LEFT JOIN journal_entries je ON je.inventory_movement_id = m.id AND je.is_reversal = FALSE
+      WHERE m.user_id = ? AND m.client_request_id = ?
+      LIMIT 1`,
+    [userId, clientRequestId],
+  );
+  return row || null;
+}
+
+function assertWasteReplayMatches(existingMove, itemId, body = {}) {
+  if (Number(existingMove.inventory_item_id) !== itemId) {
+    throw httpError(409, "Client request ID was already used for a different inventory item.");
+  }
+
+  const incomingMethod = typeof body.measurementMethod === "string" ? body.measurementMethod.trim() : "";
+  const incomingReason = typeof body.wasteReason === "string" ? body.wasteReason.trim() : "";
+  const incomingNote = typeof body.note === "string" ? body.note.trim() : "";
+  const incomingQty = parseStrictFiniteNumber(body.measuredQuantity);
+  const incomingRoundedQty = incomingQty === null ? null : round6(incomingQty);
+  const storedQty = existingMove.measured_input_qty == null ? null : round6(Number(existingMove.measured_input_qty));
+
+  const fallbackUnit = existingMove.current_item_unit || existingMove.unit || "";
+  const incomingUnit = normalizeWasteUnit(String(body.measuredUnit || fallbackUnit).trim());
+  const storedUnit = normalizeWasteUnit(String(existingMove.measured_input_unit || fallbackUnit).trim());
+
+  const hasIncomingTare =
+    body.tareWeight !== null &&
+    body.tareWeight !== undefined &&
+    !(typeof body.tareWeight === "string" && body.tareWeight.trim() === "");
+  const incomingTareNum = hasIncomingTare ? parseStrictFiniteNumber(body.tareWeight) : null;
+  const incomingRoundedTare = hasIncomingTare
+    ? (incomingTareNum === null ? NaN : round6(incomingTareNum))
+    : null;
+  const storedTare = existingMove.tare_weight == null ? null : round6(Number(existingMove.tare_weight));
+
+  const payloadMatches =
+    existingMove.measurement_method === incomingMethod &&
+    existingMove.waste_reason === incomingReason &&
+    String(existingMove.note || "").trim() === incomingNote &&
+    incomingRoundedQty !== null &&
+    storedQty === incomingRoundedQty &&
+    storedUnit === incomingUnit &&
+    ((storedTare === null && incomingRoundedTare === null) ||
+      (storedTare !== null && Number.isFinite(incomingRoundedTare) && storedTare === incomingRoundedTare));
+
+  if (!payloadMatches) {
+    throw httpError(409, "Client request ID was already used with a different waste payload.");
+  }
+}
+
+router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin"), async (request, response) => {
+  const movementId = Number(request.params.movementId);
+  if (!Number.isSafeInteger(movementId) || movementId <= 0) {
+    throw httpError(400, "Invalid waste movement ID.");
+  }
+
+  const cleanReason = String(request.body?.reason || "").trim().slice(0, 255);
+  if (cleanReason.length < 3) {
+    throw httpError(400, "Please enter a clear reversal reason (at least 3 characters).");
+  }
+
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
+  const connection = await pool.getConnection();
+  let responsePayload;
+
+  try {
+    await connection.beginTransaction();
+
+    const [[orig]] = await connection.execute(
+      "SELECT * FROM inventory_movements WHERE id = ? FOR UPDATE",
+      [movementId],
+    );
+    if (!orig) {
+      throw httpError(404, "Waste movement entry not found.");
+    }
+    if (orig.movement_type !== "spoilage") {
+      throw httpError(400, "Only spoilage / waste log entries can be reversed here.");
+    }
+    if (orig.order_id != null || !orig.waste_reason) {
+      throw httpError(400, "Only standalone zero-guesswork waste logs can be reversed here.");
+    }
+    if (orig.reversed_by_movement_id != null) {
+      throw httpError(409, "This waste entry has already been reversed.");
+    }
+
+    const [[itemRow]] = await connection.execute(
+      "SELECT * FROM inventory_items WHERE id = ? FOR UPDATE",
+      [orig.inventory_item_id],
+    );
+    if (!itemRow) {
+      throw httpError(404, "Associated inventory item not found.");
+    }
+    if (itemRow.is_archived) {
+      throw httpError(409, "Cannot reverse waste on an archived inventory item. Restore the inventory item first.");
+    }
+
+    const restoredQuantity = round6(Math.abs(Number(orig.quantity_change || 0)));
+    if (!Number.isFinite(restoredQuantity) || restoredQuantity <= 0) {
+      throw httpError(400, "Waste movement has no quantity available to restore.");
+    }
+
+    const beforeQuantity = round6(Number(itemRow.quantity || 0));
+    const afterQuantity = round6(beforeQuantity + restoredQuantity);
+    const currentUnitCost = Number(itemRow.unit_cost || 0);
+    const restoredBatchCost = orig.batch_cost == null ? null : round2(Math.abs(Number(orig.batch_cost)));
+    const oldQtyPositive = Math.max(0, beforeQuantity);
+    const oldCostPositive = Math.max(0, currentUnitCost);
+    const restoredValue = restoredBatchCost !== null
+      ? restoredBatchCost
+      : round2(restoredQuantity * Math.max(0, Number(orig.unit_cost_before ?? oldCostPositive)));
+    const newUnitCost = afterQuantity > 0
+      ? round6(((oldQtyPositive * oldCostPositive) + restoredValue) / afterQuantity)
+      : oldCostPositive;
+
+    let [[activeSession]] = await connection.execute(
+      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+      [request.authUser.sub],
+    );
+    if (!activeSession) {
+      [[activeSession]] = await connection.execute(
+        "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+      );
+    }
+    const sessionId = activeSession ? Number(activeSession.id) : (orig.session_id ? Number(orig.session_id) : null);
+
+    await connection.execute(
+      "UPDATE inventory_items SET quantity = ?, unit_cost = ? WHERE id = ?",
+      [afterQuantity, newUnitCost, itemRow.id],
+    );
+
+    const reversalNote = `Reversal of waste log #${orig.id}: ${cleanReason}`.slice(0, 500);
+    const [revMoveRes] = await connection.execute(
+      `INSERT INTO inventory_movements (
+         inventory_item_id, user_id, movement_type, quantity_change, note,
+         item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
+         batch_cost, unit_cost_before, unit_cost_after, session_id
+       ) VALUES (?, ?, 'adjustment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        itemRow.id,
+        request.authUser.sub,
+        restoredQuantity,
+        reversalNote,
+        itemRow.name,
+        actorName,
+        beforeQuantity,
+        afterQuantity,
+        orig.unit || itemRow.unit,
+        restoredBatchCost,
+        currentUnitCost,
+        newUnitCost,
+        sessionId,
+      ],
+    );
+    const reversalMovementId = Number(revMoveRes.insertId);
+
+    const [linkRes] = await connection.execute(
+      "UPDATE inventory_movements SET reversed_by_movement_id = ? WHERE id = ? AND reversed_by_movement_id IS NULL",
+      [reversalMovementId, orig.id],
+    );
+    if (linkRes.affectedRows !== 1) {
+      throw httpError(409, "This waste entry has already been reversed.");
+    }
+
+    let reversalJournalEntryId = null;
+    const [[origJe]] = await connection.execute(
+      "SELECT * FROM journal_entries WHERE inventory_movement_id = ? AND is_reversal = FALSE ORDER BY id ASC LIMIT 1 FOR UPDATE",
+      [orig.id],
+    );
+
+    if (origJe) {
+      const [[existingRevJe]] = await connection.execute(
+        "SELECT id FROM journal_entries WHERE reverses_entry_id = ? LIMIT 1 FOR UPDATE",
+        [origJe.id],
+      );
+      if (existingRevJe) {
+        // GL entry was already reversed directly in Finances; link its id without deadlocking stock restoration
+        reversalJournalEntryId = Number(existingRevJe.id);
+      } else {
+        const [origLines] = await connection.execute(
+          "SELECT * FROM journal_entry_lines WHERE journal_entry_id = ?",
+          [origJe.id],
+        );
+
+        if (origLines && origLines.length > 0) {
+          const reversalEntryNumber = generateEntryNumber("REV");
+          const [revJeRes] = await connection.execute(
+            `INSERT INTO journal_entries (
+               entry_number, entry_type, memo, reference_number,
+               inventory_movement_id, session_id, is_reversal, reverses_entry_id,
+               idempotency_key, created_by
+             ) VALUES (?, 'void_reversal', ?, ?, ?, ?, TRUE, ?, ?, ?)`,
+            [
+              reversalEntryNumber,
+              `Reversal of waste movement #${orig.id} (${origJe.entry_number}): ${cleanReason}`.slice(0, 500),
+              `REV-WASTE-${orig.id}`,
+              reversalMovementId,
+              sessionId,
+              origJe.id,
+              `inv_move:${reversalMovementId}:waste_reversal`,
+              request.authUser.sub,
+            ],
+          );
+          reversalJournalEntryId = Number(revJeRes.insertId);
+
+          for (const line of origLines) {
+            await connection.execute(
+              `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
+               VALUES (?, ?, ?, ?, ?)`,
+              [
+                reversalJournalEntryId,
+                line.account_id,
+                round2(line.credit),
+                round2(line.debit),
+                `Reversal of line #${line.id} (waste log #${orig.id})`,
+              ],
+            );
+          }
+        }
+      }
+    }
+
+    await connection.commit();
+    responsePayload = {
+      originalMovementId: Number(orig.id),
+      reversalMovementId,
+      itemId: Number(itemRow.id),
+      itemName: itemRow.name,
+      restoredQuantity,
+      beforeQuantity,
+      afterQuantity,
+      unit: orig.unit || itemRow.unit,
+      journalEntryId: reversalJournalEntryId,
+      reason: cleanReason,
+      reversedBy: actorName,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  response.json(responsePayload);
+});
+
+router.post("/:id/waste", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw httpError(400, "Invalid inventory ID.");
+  }
+
+  const includeCost = request.authUser.role === "admin";
+  const {
+    measurementMethod,
+    measuredQuantity,
+    measuredUnit,
+    tareWeight = null,
+    wasteReason,
+    note,
+    clientRequestId,
+  } = request.body || {};
+
+  const hasClientRequestIdField =
+    clientRequestId !== undefined && clientRequestId !== null && String(clientRequestId) !== "";
+  const rawClientReqId =
+    clientRequestId !== undefined && clientRequestId !== null ? String(clientRequestId).trim() : "";
+  if (hasClientRequestIdField && !CLIENT_REQUEST_ID_REGEX.test(rawClientReqId)) {
+    throw httpError(400, "Invalid clientRequestId format.");
+  }
+  const cleanClientRequestId = rawClientReqId || null;
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Staff";
+
+  const connection = await pool.getConnection();
+  let txOpen = false;
+  try {
+    await connection.beginTransaction();
+    txOpen = true;
+
+    if (cleanClientRequestId) {
+      const existingMove = await findExistingWasteByClientRequest(
+        connection,
+        request.authUser.sub,
+        cleanClientRequestId,
+      );
+      if (existingMove) {
+        assertWasteReplayMatches(existingMove, id, request.body || {});
+        await connection.rollback();
+        txOpen = false;
+        return response.status(200).json(formatWasteResponseRow(existingMove, includeCost));
+      }
+    }
+
+    const [[current]] = await connection.execute(
+      "SELECT * FROM inventory_items WHERE id = ? AND is_archived = FALSE FOR UPDATE",
+      [id],
+    );
+    if (!current) {
+      throw httpError(404, "Inventory item not found.");
+    }
+
+    const calc = computeWasteDeduction({
+      item: {
+        id: Number(current.id),
+        name: current.name,
+        unit: current.unit,
+        quantity: Number(current.quantity || 0),
+        packageUnit: current.package_unit,
+        contentsPerPackage: Number(current.contents_per_package || 1),
+      },
+      measurementMethod,
+      measuredQuantity,
+      measuredUnit,
+      tareWeight,
+      wasteReason,
+      note,
+      beforeQuantity: Number(current.quantity || 0),
+    });
+
+    if (!calc.ok) {
+      throw httpError(400, calc.error);
+    }
+
+    let [[activeSession]] = await connection.execute(
+      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+      [request.authUser.sub],
+    );
+    if (!activeSession) {
+      [[activeSession]] = await connection.execute(
+        "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+      );
+    }
+    const sessionId = activeSession ? Number(activeSession.id) : null;
+
+    await connection.execute(
+      "UPDATE inventory_items SET quantity = ? WHERE id = ? AND is_archived = FALSE",
+      [calc.afterQuantity, id],
+    );
+
+    const unitCost = Number(current.unit_cost || 0);
+    const wasteValue = round2(calc.deductedQuantity * unitCost);
+    let movementId = null;
+
+    try {
+      const [moveRes] = await connection.execute(
+        `INSERT INTO inventory_movements (
+           inventory_item_id, user_id, movement_type, quantity_change, note,
+           item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
+           batch_cost, unit_cost_before, unit_cost_after, session_id,
+           waste_reason, measurement_method, measured_input_qty, measured_input_unit, tare_weight, client_request_id
+         ) VALUES (?, ?, 'spoilage', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          request.authUser.sub,
+          -calc.deductedQuantity,
+          calc.note,
+          current.name,
+          actorName,
+          calc.beforeQuantity,
+          calc.afterQuantity,
+          current.unit,
+          wasteValue,
+          unitCost,
+          unitCost,
+          sessionId,
+          calc.wasteReason,
+          calc.measurementMethod,
+          calc.measuredInputQty,
+          calc.measuredInputUnit,
+          calc.tareWeight,
+          cleanClientRequestId,
+        ],
+      );
+      movementId = Number(moveRes.insertId);
+    } catch (insertError) {
+      if (cleanClientRequestId && insertError?.code === "ER_DUP_ENTRY") {
+        await connection.rollback();
+        txOpen = false;
+        const raceExisting = await findExistingWasteByClientRequest(
+          pool,
+          request.authUser.sub,
+          cleanClientRequestId,
+        );
+        if (raceExisting) {
+          assertWasteReplayMatches(raceExisting, id, request.body || {});
+          return response.status(200).json(formatWasteResponseRow(raceExisting, includeCost));
+        }
+      }
+      throw insertError;
+    }
+
+    const ledgerRes = await postInventoryValuationDelta(connection, {
+      inventoryMovementId: movementId,
+      itemName: current.name,
+      deltaValue: -wasteValue,
+      entryType: "adjustment",
+      offsetAccountCode: "6030",
+      memo: `Waste / spoilage (${calc.wasteReason}): ${current.name} (-${calc.deductedQuantity} ${current.unit})`,
+      referenceNumber: `WASTE-${movementId}`,
+      sessionId,
+      userId: request.authUser.sub,
+    });
+
+    const reasonLabel = WASTE_REASON_MAP[calc.wasteReason]?.label || calc.wasteReason;
+    const notifTitle = `Waste Logged: ${current.name}`.slice(0, 180);
+    const notifMessage = `${actorName} logged -${calc.deductedQuantity} ${current.unit} (${reasonLabel})${wasteValue > 0 ? ` · ₱${wasteValue.toFixed(2)} loss` : ""} · ${calc.note}`.slice(0, 1000);
+    const notifEventKey = `inventory-waste-${movementId}`.slice(0, 120);
+    await connection.execute(
+      `INSERT INTO notifications (user_id, event_key, type, title, message)
+       SELECT id, ?, 'inventory_waste', ?, ?
+         FROM users
+        WHERE is_active = TRUE AND role = 'admin'
+       ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
+      [notifEventKey, notifTitle, notifMessage],
+    );
+
+    await connection.commit();
+    txOpen = false;
+
+    const [[createdRow]] = await pool.execute(
+      `SELECT m.*,
+              COALESCE(ii.name, m.item_name_snapshot) AS item_name,
+              ii.unit AS current_item_unit,
+              COALESCE(NULLIF(u.display_name, ''), NULLIF(m.actor_name_snapshot, ''), u.username, 'System') AS actor_name
+         FROM inventory_movements m
+         LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+         LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.id = ?
+        LIMIT 1`,
+      [movementId],
+    );
+
+    return response.status(201).json(
+      formatWasteResponseRow(createdRow, includeCost, ledgerRes?.entryId ?? null),
+    );
+  } catch (error) {
+    if (txOpen) {
+      await connection.rollback();
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 router.get("/:id/movements", requireAuth, requireRole("admin", "staff"), async (request, response) => {

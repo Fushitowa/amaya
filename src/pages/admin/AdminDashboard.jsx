@@ -8,14 +8,18 @@ import {
   CircleDollarSign,
   Coins,
   Plus,
+  RotateCcw,
   ShoppingBag,
+  Trash2,
   TrendingUp,
   Warehouse,
   UserRound,
+  X,
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import LogWasteModal from "../../components/LogWasteModal.jsx";
 import StoreAssetsHeroCard from "../../components/StoreAssetsHeroCard.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
@@ -24,6 +28,7 @@ import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
+import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
 import "../../assets/css/admin/AdminDashboard.css";
 import "../../assets/css/order-details-modal.css";
 import "../../assets/css/portal-hero.css";
@@ -34,7 +39,17 @@ import "../../assets/css/sidebar-collapse.css";
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders, confirmOrder, voidOrder, revertOrderItem } = useOrders();
-  const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
+  const {
+    inventory = [],
+    loading: inventoryLoading,
+    error: inventoryError,
+    wasteLogs = [],
+    wasteSummary = {},
+    wasteLogsLoading = false,
+    wasteLogsError = "",
+    fetchWasteLogs,
+    reverseWasteLog,
+  } = useInventory() || {};
   const { products = [] } = useMenu() || {};
   const { businessSettings } = useBusiness() || {};
   const lowThreshold = businessSettings?.lowStockThresholdPercent ?? 40;
@@ -43,9 +58,20 @@ function AdminDashboard() {
   const [serverTrendState, setServerTrendState] = useState({ range: null, series: null, error: false });
   const [serverAllProducts, setServerAllProducts] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  const [wasteScope, setWasteScope] = useState("today");
+  const [reverseTarget, setReverseTarget] = useState(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reverseError, setReverseError] = useState("");
+  const [reversingWaste, setReversingWaste] = useState(false);
+  const [wasteStatusNote, setWasteStatusNote] = useState("");
   const [serverSummary, setServerSummary] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const modalTriggerRef = useRef(null);
+  const reverseDialogRef = useRef(null);
+  const reverseTextareaRef = useRef(null);
+  const reverseTriggerRef = useRef(null);
+  const reversingWasteRef = useRef(false);
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches
   );
@@ -56,6 +82,12 @@ function AdminDashboard() {
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
+
+  useEffect(() => {
+    fetchWasteLogs?.({ scope: "today", limit: 25 }).catch((err) => {
+      console.warn("Could not load admin waste logs:", err?.message || err);
+    });
+  }, [fetchWasteLogs]);
 
   const loadServerSummary = useCallback(() => {
     return apiRequest("/orders/summary")
@@ -190,13 +222,6 @@ function AdminDashboard() {
   const effectiveTodaysCashCollected = serverSummary?.todayCashCollected ?? todaysCashCollected;
   const effectiveTodaysMarginPercent = effectiveTodaysSales > 0 ? (effectiveTodaysProfit / effectiveTodaysSales) * 100 : 0;
 
-  const todaysCashOrders = useMemo(() => {
-    return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() === "cash");
-  }, [todaysPaidOrders]);
-  const todaysNonCashOrders = useMemo(() => {
-    return todaysPaidOrders.filter((order) => (order.paymentMethod || "Cash").toLowerCase() !== "cash");
-  }, [todaysPaidOrders]);
-
   const productImageByName = useMemo(() => {
     const map = {};
     for (const product of products || []) {
@@ -275,6 +300,12 @@ function AdminDashboard() {
   }, [lowStockReport, stockFilter]);
 
   const [topProductsTab, setTopProductsTab] = useState("all");
+  const allTimeRankedUnits = useMemo(() => {
+    if (Array.isArray(serverAllProducts)) {
+      return serverAllProducts.reduce((sum, row) => sum + Number(row.unitsSold || 0), 0);
+    }
+    return effectiveAllTimeUnits;
+  }, [serverAllProducts, effectiveAllTimeUnits]);
   const rankedProducts = useMemo(() => {
     if (topProductsTab === "all" && Array.isArray(serverAllProducts)) {
       const byKey = new Map();
@@ -625,6 +656,184 @@ function AdminDashboard() {
     />
   ) : null;
 
+  const handleWasteScopeSwitch = (nextScope) => {
+    setWasteScope(nextScope);
+    fetchWasteLogs?.({ scope: nextScope, limit: 25 }).catch((err) => {
+      console.warn("Could not switch waste log scope:", err?.message || err);
+    });
+  };
+
+  const closeReverseDialog = useCallback(() => {
+    if (reversingWasteRef.current) return;
+    setReverseTarget(null);
+    const trigger = reverseTriggerRef.current;
+    if (trigger && typeof trigger.focus === "function" && trigger.isConnected) {
+      window.requestAnimationFrame(() => trigger.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!reverseTarget) return undefined;
+    window.requestAnimationFrame(() => {
+      reverseTextareaRef.current?.focus();
+    });
+    const focusableSelector =
+      "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReverseDialog();
+        return;
+      }
+      if (event.key === "Tab" && reverseDialogRef.current) {
+        const focusable = Array.from(reverseDialogRef.current.querySelectorAll(focusableSelector));
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeReverseDialog, reverseTarget]);
+
+  const openReverseDialog = (entry, event) => {
+    reverseTriggerRef.current = event?.currentTarget || null;
+    setReverseTarget(entry);
+    setReverseReason("");
+    setReverseError("");
+  };
+
+  const handleConfirmReverse = async (event) => {
+    event.preventDefault();
+    if (reversingWasteRef.current || !reverseTarget) return;
+    const clean = reverseReason.trim();
+    if (clean.length < 3) {
+      setReverseError("Enter a brief audit reason (at least 3 characters).");
+      return;
+    }
+    reversingWasteRef.current = true;
+    setReversingWaste(true);
+    setReverseError("");
+    try {
+      const res = await reverseWasteLog(reverseTarget.id, clean);
+      setWasteStatusNote(
+        `Reversed waste #${reverseTarget.id} on ${reverseTarget.itemName} (+${formatWasteQty(res?.restoredQuantity, res?.unit)} restored).`,
+      );
+      setReverseTarget(null);
+      setReverseReason("");
+      loadServerSummary();
+    } catch (err) {
+      setReverseError(err?.message || "Could not reverse waste entry.");
+    } finally {
+      reversingWasteRef.current = false;
+      setReversingWaste(false);
+    }
+  };
+
+  const topWastedItem = Array.isArray(wasteSummary.topWastedItems) && wasteSummary.topWastedItems.length
+    ? wasteSummary.topWastedItems[0]
+    : null;
+
+  const wasteModalNode = (
+    <LogWasteModal
+      isOpen={showWasteModal}
+      onClose={() => setShowWasteModal(false)}
+      onSuccess={(saved) => {
+        if (saved) {
+          setWasteStatusNote(
+            `Logged -${formatWasteQty(saved.deductedQuantity, saved.unit)} on ${saved.itemName}.`,
+          );
+        }
+        loadServerSummary();
+      }}
+    />
+  );
+
+  const reverseModalNode = reverseTarget ? (
+    <div
+      className="admin-waste-reverse-backdrop"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closeReverseDialog();
+      }}
+    >
+      <div
+        ref={reverseDialogRef}
+        className="admin-waste-reverse-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reverse-waste-title"
+      >
+        <div className="admin-waste-reverse-head">
+          <div>
+            <h3 id="reverse-waste-title">Reverse Waste Entry #{reverseTarget.id}</h3>
+            <p>
+              Restores <strong>+{formatWasteQty(reverseTarget.deductedQuantity, reverseTarget.unit)}</strong> of{" "}
+              <strong>{reverseTarget.itemName}</strong> and posts a reversing ledger journal entry.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="admin-waste-reverse-close"
+            onClick={closeReverseDialog}
+            aria-label="Close reversal dialog"
+            disabled={reversingWaste}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleConfirmReverse} className="admin-waste-reverse-form">
+          <label htmlFor="admin-waste-reverse-reason">
+            Audit Reversal Reason (required)
+          </label>
+          <textarea
+            ref={reverseTextareaRef}
+            id="admin-waste-reverse-reason"
+            rows={3}
+            maxLength={255}
+            value={reverseReason}
+            onChange={(e) => {
+              setReverseReason(e.target.value);
+              setReverseError("");
+            }}
+            placeholder="e.g., Duplicate accidental waste entry or verified shelf count correction"
+            required
+          />
+          {reverseError && (
+            <p className="admin-waste-reverse-error" role="alert">
+              {reverseError}
+            </p>
+          )}
+          <div className="admin-waste-reverse-actions">
+            <button
+              type="button"
+              className="admin-waste-btn-secondary"
+              onClick={closeReverseDialog}
+              disabled={reversingWaste}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="admin-waste-btn-danger"
+              disabled={reversingWaste}
+            >
+              <RotateCcw size={15} aria-hidden="true" />
+              {reversingWaste ? "Restoring stock..." : "Confirm Reversal"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  ) : null;
+
   if (isMobile) {
     const ranges = [["today", "Today"], ["week", "7 days"], ["month", "30 days"], ["year", "Year"]];
     const metrics = [
@@ -755,10 +964,78 @@ function AdminDashboard() {
               </ul>
             ) : <p className="ad-empty">All inventory items are well stocked.</p>}
           </section>
+
+          <section className="ad-card ad-waste-card" aria-label="Waste and spoilage tracker">
+            <div className="ad-card-head">
+              <h2>Waste &amp; spoilage</h2>
+              <button
+                type="button"
+                className="ad-waste-log-btn"
+                onClick={() => setShowWasteModal(true)}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                Log waste
+              </button>
+            </div>
+            <div className="ad-waste-summary-strip">
+              <div>
+                <small>Loss today</small>
+                <strong>₱{Number(wasteSummary.totalWasteLossToday || 0).toFixed(2)}</strong>
+              </div>
+              <div>
+                <small>Events today</small>
+                <strong>{wasteSummary.totalWasteEventsToday || 0}</strong>
+              </div>
+            </div>
+            {wasteStatusNote && <p className="ad-waste-toast" role="status">{wasteStatusNote}</p>}
+            {wasteLogsError && <p className="admin-waste-error-banner" role="alert">{wasteLogsError}</p>}
+            {wasteLogs.length ? (
+              <ul className="ad-orders ad-waste-list">
+                {wasteLogs.slice(0, 10).map((entry) => {
+                  const reasonMeta = getWasteReasonMeta(entry.wasteReason);
+                  return (
+                    <li key={entry.id} className={entry.isReversed ? "is-reversed" : ""}>
+                      <span className="ad-dot critical" aria-hidden="true" />
+                      <span className="ad-order-text">
+                        <strong>{entry.itemName}</strong>
+                        <small>
+                          -{formatWasteQty(entry.deductedQuantity, entry.unit)} · {reasonMeta.shortLabel} · {entry.actor}
+                        </small>
+                      </span>
+                      <span className="ad-order-end">
+                        <b>₱{Number(entry.wasteValue || 0).toFixed(2)}</b>
+                        {entry.isReversed ? (
+                          <em className="neutral">Reversed</em>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ad-waste-rev-btn"
+                            onClick={(e) => openReverseDialog(entry, e)}
+                          >
+                            Reverse
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="ad-empty">
+                {wasteLogsLoading
+                  ? "Loading waste logs..."
+                  : wasteLogsError
+                    ? "Unable to load waste records right now."
+                    : "No waste events recorded for this scope."}
+              </p>
+            )}
+          </section>
         </main>
 
         <Link to="/admin/menu" className="ad-fab"><Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add item</Link>
         {orderModalNode}
+        {wasteModalNode}
+        {reverseModalNode}
       </div>
     );
   }
@@ -831,21 +1108,6 @@ function AdminDashboard() {
                     : "0 units sold yet today"}
                   {" • "}
                   <span title="All-time units sold across all sessions">All-time: {effectiveAllTimeUnits} units</span>
-                </small>
-              </div>
-            </div>
-
-            <div className="admin-stat-card stat-card-products">
-              <div className="stat-icon"><Coins size={21} strokeWidth={1.8} /></div>
-
-              <div className="stat-info">
-                <span>Today's Cash in Drawer</span>
-                <h3>₱{effectiveTodaysCashCollected.toFixed(2)}</h3>
-                <small className="metric-note">
-                  {todaysCashOrders.length
-                    ? `${todaysCashOrders.length} cash transaction${todaysCashOrders.length === 1 ? "" : "s"} today`
-                    : "No cash payments today"}
-                  {todaysNonCashOrders.length > 0 ? ` (+${todaysNonCashOrders.length} non-cash)` : ""}
                 </small>
               </div>
             </div>
@@ -1099,7 +1361,7 @@ function AdminDashboard() {
                     <p>
                       {topProductsTab === "today"
                         ? `Ranked by paid units sold today (${todaysUnitsSold} units across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items)`
-                        : `All-time paid product rankings (${allTimeUnitsSold} units across ${rankedProducts.length} menu items)`}
+                        : `All-time paid product rankings (${allTimeRankedUnits} units across ${rankedProducts.length} menu items)`}
                     </p>
                   </div>
                   <div className="top-products-tabs showcase-tabs" role="tablist" aria-label="Product ranking period">
@@ -1110,7 +1372,7 @@ function AdminDashboard() {
                       className={topProductsTab === "all" ? "active" : ""}
                       onClick={() => setTopProductsTab("all")}
                     >
-                      All-Time ({allTimeUnitsSold})
+                      All-Time ({allTimeRankedUnits})
                     </button>
                     <button
                       type="button"
@@ -1339,10 +1601,162 @@ function AdminDashboard() {
 
           </section>
 
+          <section className="admin-panel admin-waste-tracker" aria-label="Zero-Guesswork Waste and Spoilage Tracker">
+            <div className="admin-waste-header">
+              <div>
+                <h2>Waste &amp; Spoilage Tracker</h2>
+                <p>Verified stock shrinkage, standardized reasons, and GL spoilage ledger reconciliation</p>
+              </div>
+              <div className="admin-waste-toolbar">
+                <div className="admin-waste-scopes" role="group" aria-label="Waste log time filter">
+                  {[
+                    ["today", "Today"],
+                    ["shift", "Active Shift"],
+                    ["all", "All History"],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={wasteScope === key}
+                      className={`admin-waste-scope-btn${wasteScope === key ? " is-active" : ""}`}
+                      onClick={() => handleWasteScopeSwitch(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="admin-waste-cta-btn"
+                  onClick={() => setShowWasteModal(true)}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  Log Waste / Spoilage
+                </button>
+              </div>
+            </div>
+
+            {wasteStatusNote && (
+              <div className="admin-waste-status-banner" role="status">
+                <span>{wasteStatusNote}</span>
+              </div>
+            )}
+
+            {wasteLogsError && (
+              <div className="admin-waste-error-banner" role="alert">
+                <span>{wasteLogsError}</span>
+              </div>
+            )}
+
+            <div className="admin-waste-kpis">
+              <article className="admin-waste-kpi-card is-danger">
+                <span>Waste Loss Today</span>
+                <strong>₱{Number(wasteSummary.totalWasteLossToday || 0).toFixed(2)}</strong>
+                <small>Credited from 1050 Inventory Asset → DR 6030 Spoilage</small>
+              </article>
+              <article className="admin-waste-kpi-card">
+                <span>Waste Events Today</span>
+                <strong>{wasteSummary.totalWasteEventsToday || 0}</strong>
+                <small>Unreversed verified waste entries logged today</small>
+              </article>
+              <article className="admin-waste-kpi-card">
+                <span>Top Wasted Item Today</span>
+                <strong>{topWastedItem ? topWastedItem.itemName : "None today"}</strong>
+                <small>
+                  {topWastedItem
+                    ? `${formatWasteQty(topWastedItem.totalDeductedQuantity, topWastedItem.unit)} · ₱${Number(topWastedItem.totalWasteValue || 0).toFixed(2)} loss`
+                    : "Zero waste deductions recorded today"}
+                </small>
+              </article>
+            </div>
+
+            {wasteLogs.length ? (
+              <div className="admin-waste-table-wrap">
+                <table className="admin-waste-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Deducted</th>
+                      <th>Reason</th>
+                      <th>Measured Input</th>
+                      <th>Staff &amp; Note</th>
+                      <th>Loss Value</th>
+                      <th>Audit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wasteLogs.slice(0, 15).map((entry) => {
+                      const reasonMeta = getWasteReasonMeta(entry.wasteReason);
+                      return (
+                        <tr key={entry.id} className={entry.isReversed ? "is-reversed" : ""}>
+                          <td>
+                            <strong>{entry.itemName}</strong>
+                            <small className="admin-waste-cell-sub">
+                              {formatWasteQty(entry.beforeQuantity, entry.unit)} → {formatWasteQty(entry.afterQuantity, entry.unit)}
+                            </small>
+                          </td>
+                          <td>
+                            <span className="admin-waste-qty-pill">
+                              -{formatWasteQty(entry.deductedQuantity, entry.unit)}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="admin-waste-reason-pill">{reasonMeta.label}</span>
+                          </td>
+                          <td className="admin-waste-cell-muted">
+                            {entry.measurementMethod === "remaining_count"
+                              ? `Left: ${formatWasteQty(entry.measuredInputQty, entry.measuredInputUnit)}${entry.tareWeight > 0 ? ` (tare ${formatWasteQty(entry.tareWeight, entry.measuredInputUnit || entry.unit)})` : ""}`
+                              : `Direct: ${formatWasteQty(entry.measuredInputQty, entry.measuredInputUnit)}`}
+                          </td>
+                          <td>
+                            <div className="admin-waste-note-col">
+                              <strong>{entry.actor}</strong>
+                              <span>{entry.note}</span>
+                            </div>
+                          </td>
+                          <td className="admin-waste-value-cell">
+                            ₱{Number(entry.wasteValue || 0).toFixed(2)}
+                          </td>
+                          <td>
+                            {entry.isReversed ? (
+                              <span className="admin-waste-reversed-tag">Reversed</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="admin-waste-rev-action"
+                                onClick={(e) => openReverseDialog(entry, e)}
+                              >
+                                <RotateCcw size={13} aria-hidden="true" />
+                                Reverse
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="admin-waste-empty">
+                <strong>
+                  {wasteLogsLoading
+                    ? "Loading waste logs..."
+                    : wasteLogsError
+                      ? "Unable to load waste logs"
+                      : "No waste entries in this scope"}
+                </strong>
+                <p>Use Log Waste / Spoilage to record weighed remaining counts or measured spills.</p>
+              </div>
+            )}
+          </section>
+
         </div>
 
       </main>
       {orderModalNode}
+      {wasteModalNode}
+      {reverseModalNode}
     </div>
   );
 }

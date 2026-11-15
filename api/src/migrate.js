@@ -39,6 +39,8 @@ const migrations = [
   "031_financial_ledger_integrity.sql",
   "032_expand_business_settings.sql",
   "033_allow_partial_reversals.sql",
+  "034_inventory_waste_logging_metadata.sql",
+  "035_waste_measurement_precision_and_scoping.sql",
 ];
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST || "127.0.0.1",

@@ -69,7 +69,7 @@ export function usePortalNotifications() {
     if (!preferences.notifications) return [];
     return notifications.filter((item) =>
       (preferences.orderAlerts || item.type !== "order_new")
-      && (preferences.inventoryAlerts !== false || !["inventory_stock", "inventory_low", "inventory_inactive"].includes(item.type)),
+      && (preferences.inventoryAlerts !== false || !["inventory_stock", "inventory_low", "inventory_inactive", "inventory_waste"].includes(item.type)),
     );
   }, [notifications, preferences]);
   const unreadCount = useMemo(

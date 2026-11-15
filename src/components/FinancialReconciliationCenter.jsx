@@ -381,30 +381,34 @@ export default function FinancialReconciliationCenter() {
 
       <div className="financial-tab-content">
         {notice && (
-          <div style={{ padding: "0.75rem 1rem", color: "#1e7047", background: "#eef8f2", borderRadius: "8px", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="fin-banner is-success">
             <span>
               <CheckCircle2 size={15} style={{ display: "inline", verticalAlign: "middle", marginRight: "6px" }} />
               {notice}
             </span>
-            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notice" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#1e7047" }}>
+            <button type="button" className="fin-banner-dismiss" onClick={() => setNotice(null)} aria-label="Dismiss notice">
               <X size={14} />
             </button>
           </div>
         )}
 
         {dateInvalid && (
-          <div style={{ padding: "0.75rem 1rem", color: "#c53030", background: "#fff5f5", borderRadius: "8px", marginBottom: "1rem" }}>
-            <AlertCircle size={15} style={{ display: "inline", verticalAlign: "middle", marginRight: "6px" }} />
-            The start date cannot be later than the end date.
+          <div className="fin-banner is-error">
+            <span>
+              <AlertCircle size={15} style={{ display: "inline", verticalAlign: "middle", marginRight: "6px" }} />
+              The start date cannot be later than the end date.
+            </span>
           </div>
         )}
 
-        {loading && <div style={{ padding: "1.5rem", textAlign: "center", color: "#8b5e3c" }}>Loading financial records...</div>}
+        {loading && <div className="fin-loading-state">Loading financial records...</div>}
 
         {error && (
-          <div style={{ padding: "1rem", color: "#c53030", background: "#fff5f5", borderRadius: "8px", marginBottom: "1rem" }}>
-            <AlertCircle size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: "6px" }} />
-            {error}
+          <div className="fin-banner is-error">
+            <span>
+              <AlertCircle size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: "6px" }} />
+              {error}
+            </span>
           </div>
         )}
 
@@ -464,10 +468,10 @@ export default function FinancialReconciliationCenter() {
               </table>
             </div>
             {reconMaxPage > 1 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.5rem", marginTop: "0.75rem", fontSize: "0.8rem" }}>
-                <button type="button" disabled={reconPage <= 1} onClick={() => setReconPage((p) => Math.max(1, p - 1))} style={{ padding: "0.3rem 0.6rem", borderRadius: "6px", border: "1px solid #dfd3c5", background: "#fff", cursor: "pointer" }}>Previous</button>
+              <div className="fin-pagination">
+                <button type="button" disabled={reconPage <= 1} onClick={() => setReconPage((p) => Math.max(1, p - 1))}>Previous</button>
                 <span>Page {reconPage} of {reconMaxPage}</span>
-                <button type="button" disabled={reconPage >= reconMaxPage} onClick={() => setReconPage((p) => Math.min(reconMaxPage, p + 1))} style={{ padding: "0.3rem 0.6rem", borderRadius: "6px", border: "1px solid #dfd3c5", background: "#fff", cursor: "pointer" }}>Next</button>
+                <button type="button" disabled={reconPage >= reconMaxPage} onClick={() => setReconPage((p) => Math.min(reconMaxPage, p + 1))}>Next</button>
               </div>
             )}
           </>
@@ -475,34 +479,34 @@ export default function FinancialReconciliationCenter() {
 
         {/* TAB 2: PROFIT & LOSS WATERFALL */}
         {!loading && activeTab === "pnl" && pnlData && (
-          <div style={{ maxWidth: "700px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#fbf8f5", borderRadius: "8px" }}>
-              <span>Gross Sales (Counter & Online)</span>
+          <div className="fin-statement-stack">
+            <div className="fin-statement-row">
+              <span>Gross Sales (Counter &amp; Online)</span>
               <strong>{peso(pnlData.grossSales)}</strong>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#fbf8f5", borderRadius: "8px", color: "#c53030" }}>
-              <span>Less: Sales Discounts & Promos</span>
+            <div className="fin-statement-row is-deduction">
+              <span>Less: Sales Discounts &amp; Promos</span>
               <span>- {peso(pnlData.discounts)}</span>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.85rem 1rem", background: "#f4ede4", borderRadius: "8px", fontWeight: 700 }}>
+            <div className="fin-statement-row is-subtotal">
               <span>Net Revenue / Sales</span>
               <span>{peso(pnlData.netSales)}</span>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#fbf8f5", borderRadius: "8px", color: "#c53030" }}>
+            <div className="fin-statement-row is-deduction">
               <span>Less: Cost of Goods Sold (COGS - Ingredients Consumed)</span>
               <span>- {peso(pnlData.cogs)}</span>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.85rem 1rem", background: "#eef8f2", borderRadius: "8px", color: "#1e7047", fontWeight: 700 }}>
+            <div className="fin-statement-row is-profit-band">
               <span>Gross Operating Profit (Margin: {pnlData.grossMarginPercent}%)</span>
               <span>{peso(pnlData.grossProfit)}</span>
             </div>
 
-            <div style={{ padding: "0.75rem 1rem", background: "#fbf8f5", borderRadius: "8px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, marginBottom: "0.5rem" }}>
+            <div className="fin-statement-card">
+              <div className="fin-statement-card-total" style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}>
                 <span>Operating Expenses (OPEX)</span>
                 <span>{pnlData.totalOperatingExpenses >= 0 ? `- ${peso(pnlData.totalOperatingExpenses)}` : `+ ${peso(Math.abs(pnlData.totalOperatingExpenses))}`}</span>
               </div>
@@ -510,7 +514,7 @@ export default function FinancialReconciliationCenter() {
                 <div style={{ fontSize: "0.8rem", color: "#8b5e3c" }}>Zero operating expenses posted for period.</div>
               ) : (
                 pnlData.operatingExpenses.map((exp, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", color: "#6b5847", padding: "0.2rem 0" }}>
+                  <div key={idx} className="fin-statement-line" style={{ fontSize: "0.82rem", color: "#6b5847" }}>
                     <span>{exp.accountCode} - {exp.accountName}</span>
                     <span>{peso(exp.amount)}</span>
                   </div>
@@ -518,7 +522,7 @@ export default function FinancialReconciliationCenter() {
               )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "1.1rem 1.25rem", background: "#3d230e", color: "#ffffff", borderRadius: "10px", fontWeight: 800, fontSize: "1.15rem" }}>
+            <div className="fin-summary-hero">
               <span>Net Operating Profit</span>
               <span style={{ color: pnlData.netOperatingProfit >= 0 ? "#92e0be" : "#ffb0b0" }}>
                 {peso(pnlData.netOperatingProfit)}
@@ -529,63 +533,63 @@ export default function FinancialReconciliationCenter() {
 
         {/* TAB 3: CASH FLOW STATEMENT */}
         {!loading && activeTab === "cashflow" && cfData && (
-          <div style={{ maxWidth: "700px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-            <div style={{ padding: "0.9rem 1rem", background: "#fbf8f5", borderRadius: "8px" }}>
-              <h4 style={{ margin: "0 0 0.5rem 0", color: "#3d230e" }}>Operating Activities (Liquid Accounts 1010–1040)</h4>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem" }}>
+          <div className="fin-statement-stack">
+            <div className="fin-statement-card">
+              <h4 className="fin-statement-card-title">Operating Activities (Liquid Accounts 1010–1040)</h4>
+              <div className="fin-statement-line">
                 <span>Cash / Wallet Sales Inflows</span>
                 <strong>{peso(cfData.operatingActivities?.cashSalesInflow)}</strong>
               </div>
               {Number(cfData.operatingActivities?.otherOperatingCashNet || 0) !== 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem" }}>
-                  <span>Void Reversals & Adjustments (Net)</span>
+                <div className="fin-statement-line">
+                  <span>Void Reversals &amp; Adjustments (Net)</span>
                   <strong>{peso(cfData.operatingActivities?.otherOperatingCashNet)}</strong>
                 </div>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem", color: "#c53030" }}>
+              <div className="fin-statement-line is-negative">
                 <span>Less: Cash Inventory Restocks Paid</span>
                 <span>- {peso(cfData.operatingActivities?.restockCashOutflow)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem", color: "#c53030" }}>
+              <div className="fin-statement-line is-negative">
                 <span>Less: Operating Expenses (OPEX) Paid</span>
                 <span>- {peso(cfData.operatingActivities?.opexCashOutflow)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.4rem", paddingTop: "0.4rem", borderTop: "1px solid #e5d8c8", fontWeight: 700 }}>
+              <div className="fin-statement-card-total">
                 <span>Net Operating Cash Flow</span>
                 <span>{peso(cfData.operatingActivities?.netOperatingCashFlow)}</span>
               </div>
             </div>
 
-            <div style={{ padding: "0.9rem 1rem", background: "#fbf8f5", borderRadius: "8px" }}>
-              <h4 style={{ margin: "0 0 0.5rem 0", color: "#3d230e" }}>Investing Activities</h4>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem", color: "#c53030" }}>
-                <span>Cash Equipment & Fixtures Purchases</span>
+            <div className="fin-statement-card">
+              <h4 className="fin-statement-card-title">Investing Activities</h4>
+              <div className="fin-statement-line is-negative">
+                <span>Cash Equipment &amp; Fixtures Purchases</span>
                 <span>- {peso(cfData.investingActivities?.equipmentPurchased)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.4rem", paddingTop: "0.4rem", borderTop: "1px solid #e5d8c8", fontWeight: 700 }}>
+              <div className="fin-statement-card-total">
                 <span>Net Investing Cash Flow</span>
                 <span>{peso(cfData.investingActivities?.netInvestingCashFlow)}</span>
               </div>
             </div>
 
-            <div style={{ padding: "0.9rem 1rem", background: "#fbf8f5", borderRadius: "8px" }}>
-              <h4 style={{ margin: "0 0 0.5rem 0", color: "#3d230e" }}>Financing Activities</h4>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem", color: "#1e7047" }}>
-                <span>Owner Opening & Capital Injections</span>
+            <div className="fin-statement-card">
+              <h4 className="fin-statement-card-title">Financing Activities</h4>
+              <div className="fin-statement-line is-positive">
+                <span>Owner Opening &amp; Capital Injections</span>
                 <span>+ {peso(cfData.financingActivities?.capitalInjected)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", fontSize: "0.88rem", color: "#c53030" }}>
+              <div className="fin-statement-line is-negative">
                 <span>Less: Owner Drawings / Withdrawals</span>
                 <span>- {peso(cfData.financingActivities?.drawingsWithdrawn)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.4rem", paddingTop: "0.4rem", borderTop: "1px solid #e5d8c8", fontWeight: 700 }}>
+              <div className="fin-statement-card-total">
                 <span>Net Financing Cash Flow</span>
                 <span>{peso(cfData.financingActivities?.netFinancingCashFlow)}</span>
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "1.1rem 1.25rem", background: "#3d230e", color: "#ffffff", borderRadius: "10px", fontWeight: 800, fontSize: "1.15rem" }}>
-              <span>Net Change in Cash & Liquid Balances</span>
+            <div className="fin-summary-hero">
+              <span>Net Change in Cash &amp; Liquid Balances</span>
               <span style={{ color: Number(cfData.netCashFlow || 0) >= 0 ? "#92e0be" : "#ffb0b0" }}>
                 {peso(cfData.netCashFlow)}
               </span>
@@ -595,99 +599,86 @@ export default function FinancialReconciliationCenter() {
 
         {/* TAB 4: BALANCE SHEET */}
         {!loading && activeTab === "balancesheet" && bsData && (
-          <div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {bsData.asOfDate && (
-              <div style={{ fontSize: "0.8rem", color: "#6b5847", marginBottom: "0.75rem" }}>
+              <div className="fin-bs-meta">
                 As of <strong>{bsData.asOfDate}</strong> (Asia/Manila)
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+            <div className="fin-bs-grid">
               {/* ASSETS */}
-              <div style={{ border: "1px solid #e8dfd5", borderRadius: "10px", padding: "1.25rem" }}>
-                <h4 style={{ margin: "0 0 1rem 0", color: "#3d230e", borderBottom: "2px solid #3d230e", paddingBottom: "0.5rem" }}>
-                  ASSETS
-                </h4>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.86rem" }}>
-                  {bsData.assets?.current?.map((a) => (
-                    <div key={a.accountCode} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0" }}>
-                      <span>{a.accountName}</span>
-                      <strong>{peso(a.amount)}</strong>
-                    </div>
-                  ))}
-                  {bsData.assets?.nonCurrent?.map((a) => (
-                    <div key={a.accountCode} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0" }}>
-                      <span>{a.accountName}</span>
-                      <strong>{peso(a.amount)}</strong>
-                    </div>
-                  ))}
-                  <div style={{ borderTop: "2px solid #3d230e", marginTop: "0.75rem", paddingTop: "0.75rem", display: "flex", justifyContent: "space-between", fontSize: "1.05rem", fontWeight: 800 }}>
-                    <span>TOTAL ASSETS</span>
-                    <span>{peso(bsData.totalAssets)}</span>
+              <div className="fin-bs-card">
+                <h4>ASSETS</h4>
+                {bsData.assets?.current?.map((a) => (
+                  <div key={a.accountCode} className="fin-statement-line">
+                    <span>{a.accountName}</span>
+                    <strong>{peso(a.amount)}</strong>
                   </div>
-                  {bsData.liveInventoryValue != null && (
-                    <div style={{
-                      marginTop: "0.75rem",
-                      padding: "0.5rem 0.75rem",
-                      background: Math.abs(Number(bsData.inventoryValuationVariance || 0)) >= 0.01 ? "#fff8eb" : "#f8f4ef",
-                      border: "1px solid #e8dfd5",
-                      borderRadius: "8px",
-                      fontSize: "0.78rem",
-                      color: "#5a4029",
-                    }}>
-                      <div>Live Subledger Stock Value: <strong>{peso(bsData.liveInventoryValue)}</strong></div>
-                      <div>GL Account 1050 Value: <strong>{peso(bsData.ledgerInventoryValue)}</strong></div>
-                      <div>
-                        Subledger Variance:{" "}
-                        <strong style={{ color: Math.abs(Number(bsData.inventoryValuationVariance || 0)) >= 0.01 ? "#b7791f" : "#1e7047" }}>
-                          {peso(bsData.inventoryValuationVariance)}
-                        </strong>
-                      </div>
-                    </div>
-                  )}
+                ))}
+                {bsData.assets?.nonCurrent?.map((a) => (
+                  <div key={a.accountCode} className="fin-statement-line">
+                    <span>{a.accountName}</span>
+                    <strong>{peso(a.amount)}</strong>
+                  </div>
+                ))}
+                <div className="fin-bs-total-row">
+                  <span>TOTAL ASSETS</span>
+                  <span>{peso(bsData.totalAssets)}</span>
                 </div>
+                {bsData.liveInventoryValue != null && (
+                  <div
+                    className="fin-subledger-box"
+                    style={{ background: Math.abs(Number(bsData.inventoryValuationVariance || 0)) >= 0.01 ? "#fff8eb" : "#f8f4ef" }}
+                  >
+                    <div>Live Subledger Stock Value: <strong>{peso(bsData.liveInventoryValue)}</strong></div>
+                    <div>GL Account 1050 Value: <strong>{peso(bsData.ledgerInventoryValue)}</strong></div>
+                    <div>
+                      Subledger Variance:{" "}
+                      <strong style={{ color: Math.abs(Number(bsData.inventoryValuationVariance || 0)) >= 0.01 ? "#b7791f" : "#1e7047" }}>
+                        {peso(bsData.inventoryValuationVariance)}
+                      </strong>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* LIABILITIES & EQUITY */}
-              <div style={{ border: "1px solid #e8dfd5", borderRadius: "10px", padding: "1.25rem" }}>
-                <h4 style={{ margin: "0 0 1rem 0", color: "#3d230e", borderBottom: "2px solid #3d230e", paddingBottom: "0.5rem" }}>
-                  LIABILITIES & OWNER EQUITY
-                </h4>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.86rem" }}>
-                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#8b5e3c", textTransform: "uppercase" }}>Current Liabilities</span>
-                  {bsData.liabilities?.current?.map((l) => (
-                    <div key={l.accountCode} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0" }}>
-                      <span>{l.accountName}</span>
-                      <strong>{peso(l.amount)}</strong>
-                    </div>
-                  ))}
+              <div className="fin-bs-card">
+                <h4>LIABILITIES &amp; OWNER EQUITY</h4>
+                <span className="fin-bs-section-label">Current Liabilities</span>
+                {bsData.liabilities?.current?.map((l) => (
+                  <div key={l.accountCode} className="fin-statement-line">
+                    <span>{l.accountName}</span>
+                    <strong>{peso(l.amount)}</strong>
+                  </div>
+                ))}
 
-                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#8b5e3c", textTransform: "uppercase", marginTop: "0.5rem" }}>Owner's Equity</span>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0" }}>
-                    <span>3010 Owner's Capital</span>
-                    <strong>{peso(bsData.equity?.capital)}</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#c53030" }}>
-                    <span>Less: 3020 Owner Drawings</span>
-                    <span>- {peso(bsData.equity?.drawings)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0" }}>
-                    <span>Retained Earnings (Operating Profit)</span>
-                    <strong>{peso(bsData.equity?.retainedEarnings)}</strong>
-                  </div>
+                <span className="fin-bs-section-label">Owner's Equity</span>
+                <div className="fin-statement-line">
+                  <span>3010 Owner's Capital</span>
+                  <strong>{peso(bsData.equity?.capital)}</strong>
+                </div>
+                <div className="fin-statement-line is-negative">
+                  <span>Less: 3020 Owner Drawings</span>
+                  <span>- {peso(bsData.equity?.drawings)}</span>
+                </div>
+                <div className="fin-statement-line">
+                  <span>Retained Earnings (Operating Profit)</span>
+                  <strong>{peso(bsData.equity?.retainedEarnings)}</strong>
+                </div>
 
-                  <div style={{ borderTop: "2px solid #3d230e", marginTop: "0.75rem", paddingTop: "0.75rem", display: "flex", justifyContent: "space-between", fontSize: "1.05rem", fontWeight: 800 }}>
-                    <span>TOTAL LIABILITIES & EQUITY</span>
-                    <span>{peso(Number(bsData.totalLiabilities) + Number(bsData.totalEquity))}</span>
-                  </div>
+                <div className="fin-bs-total-row">
+                  <span>TOTAL LIABILITIES &amp; EQUITY</span>
+                  <span>{peso(Number(bsData.totalLiabilities) + Number(bsData.totalEquity))}</span>
+                </div>
 
-                  <div style={{ marginTop: "1rem", padding: "0.5rem 0.75rem", background: bsData.isBalanced ? "#eef8f2" : "#fdf2f2", color: bsData.isBalanced ? "#1e7047" : "#c53030", borderRadius: "8px", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <CheckCircle2 size={14} />
-                    <span>
-                      {bsData.isBalanced
-                        ? "Fundamental Accounting Equation Satisfied: Assets === Liabilities + Equity"
-                        : `Ledger imbalance detected (${peso(bsData.balanceDifference)}). Run reconciliation backfill.`}
-                    </span>
-                  </div>
+                <div className={`fin-bs-status-pill ${bsData.isBalanced ? "is-balanced" : "is-imbalanced"}`}>
+                  <CheckCircle2 size={14} />
+                  <span>
+                    {bsData.isBalanced
+                      ? "Fundamental Accounting Equation Satisfied: Assets === Liabilities + Equity"
+                      : `Ledger imbalance detected (${peso(bsData.balanceDifference)}). Run reconciliation backfill.`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -795,10 +786,10 @@ export default function FinancialReconciliationCenter() {
               </table>
             </div>
             {journalMaxPage > 1 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.5rem", marginTop: "0.75rem", fontSize: "0.8rem" }}>
-                <button type="button" disabled={journalPage <= 1} onClick={() => setJournalPage((p) => Math.max(1, p - 1))} style={{ padding: "0.3rem 0.6rem", borderRadius: "6px", border: "1px solid #dfd3c5", background: "#fff", cursor: "pointer" }}>Previous</button>
+              <div className="fin-pagination">
+                <button type="button" disabled={journalPage <= 1} onClick={() => setJournalPage((p) => Math.max(1, p - 1))}>Previous</button>
                 <span>Page {journalPage} of {journalMaxPage}</span>
-                <button type="button" disabled={journalPage >= journalMaxPage} onClick={() => setJournalPage((p) => Math.min(journalMaxPage, p + 1))} style={{ padding: "0.3rem 0.6rem", borderRadius: "6px", border: "1px solid #dfd3c5", background: "#fff", cursor: "pointer" }}>Next</button>
+                <button type="button" disabled={journalPage >= journalMaxPage} onClick={() => setJournalPage((p) => Math.min(journalMaxPage, p + 1))}>Next</button>
               </div>
             )}
           </>
