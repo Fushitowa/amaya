@@ -948,6 +948,11 @@
   font-size: 28px;
   color: var(--inventory-muted);
   cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .admin-inventory-form-grid {
@@ -2547,12 +2552,29 @@
   font: 14px "DM Sans", sans-serif;
 }
 
+.inventory-restock-field select {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #8b5e3c;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #382518;
+  font: 14px "DM Sans", sans-serif;
+}
+
 .inventory-restock-field input:focus,
+.inventory-restock-field select:focus,
 .admin-inventory-form-grid input:focus,
 .admin-inventory-form-grid select:focus {
   outline: 0;
   border-color: var(--inventory-accent);
   box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.12);
+}
+
+.inventory-restock-field select:focus-visible {
+  border-color: #603b26;
+  outline: 2px solid #603b26;
+  outline-offset: 2px;
 }
 
 .inventory-restock-field small {
@@ -5073,7 +5095,7 @@
 
 .admin-inventory-card.inventory-pinned-card .admin-inventory-card-actions.is-two-row .ai-actions-row-primary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -5081,6 +5103,26 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
   gap: 6px;
+}
+
+.admin-inventory-card.inventory-pinned-card .admin-inventory-card-actions.is-two-row button.internal-use,
+.admin-inventory-bar-actions button.internal-use {
+  border-color: rgba(139, 94, 60, 0.35);
+  background: #fff9f2;
+  color: #5a381c;
+}
+
+.admin-inventory-card.inventory-pinned-card .admin-inventory-card-actions.is-two-row button.internal-use:hover:not(:disabled),
+.admin-inventory-bar-actions button.internal-use:hover:not(:disabled) {
+  background: #8b5e3c;
+  border-color: #8b5e3c;
+  color: #ffffff;
+}
+
+.admin-inventory-card.inventory-pinned-card .admin-inventory-card-actions.is-two-row button.internal-use:disabled,
+.admin-inventory-bar-actions button.internal-use:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .admin-inventory-card.inventory-pinned-card .admin-inventory-card-actions.is-two-row button.waste,
@@ -5117,7 +5159,7 @@
   color: #991b1b;
 }
 
-.ai-sheet button.waste:disabled {
+.ai-sheet button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

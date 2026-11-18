@@ -79,4 +79,84 @@ On 2026-11-11, an end-to-end audit of `.admin-settings-card` (Admin Settings) an
 ### 5.3 Automated Verification Evidence
 * **Integration Tests:** `tests/settingsFlow.test.js` (15 tests), `tests/menuEditFormSafety.test.js` (24 tests), `tests/reportingAnalytics.test.js` (5 tests).
 * **Suite Benchmark:** **82 / 82 tests pass across 19 suites in 20.45s** (`node --test`).
-* **Lint & Build:** ESLint exited with **0 errors, 0 warnings**; dual Vite builds for customer and portal completed cleanly in under 2 seconds. Zero `/refund/i` matches confirmed.
+* **Lint & Build:** ESLint exited with **0 errors, 0 warnings**; dual Vite builds for customer and portal completed cleanly in under 2 seconds. Strict non-destructive void-only order lifecycle confirmed.
+
+---
+
+## 6. Phase 1 Income Statement Remediation & Classification Alignment (2026-11-18)
+
+### 6.1 Investigation & Misclassification Root Causes
+Following the double-entry ledger rollout (Migrations `030`–`035`), an income statement alignment audit uncovered 13 partial or misplaced accounting items caused by five structural gaps:
+
+1. **Prefix-Based Account Guessing (`code.startsWith("60")`):** Both `api/src/routes/finances.js` and `api/src/routes/sessions.js` inferred P&L sections from account code prefixes, mixing `6030 Inventory Wastage & Spoilage` into OPEX instead of COGS.
+2. **4-Account `60xx` OPEX Bottleneck:** Migration `030` only seeded `6010`–`6040`, trapping Rent and Utilities together in `6020` and leaving no expense accounts for Operating Supplies, Sanitation Supplies, or Permits (`Taxes & Licenses`).
+3. **Silent `6040` Shift Variances:** `POST /api/sessions/:id/close` saved `cashier_sessions.variance` but never posted balanced entries to `6040 Cash Drawer Discrepancy`.
+4. **Missing Internal Store-Use Deduction Path:** Consuming cleaning chemicals, store supplies, or LPG from `1050` Inventory Asset had no non-spoilage OPEX deduction route (`internal_use`).
+5. **Cross-Report Revenue & COGS Drift:** `GET /api/reports/financial-summary` reported VAT-inclusive `o.total` (`grossCollectedSales`) and recipe-only `cogs`, diverging from the P&L statement's ex-VAT `netSales` (`4010 - 4020`) and spoilage-inclusive COGS (`5010 + 6030`).
+
+### 6.2 Remediations Applied (13 Items Across DB, API & UI)
+
+```js
+// Single source of truth in api/src/utils/ledgerService.js
+const pnl = summarizeIncomeStatementLines(rows);
+// -> { netSales, customerSalesCogs, foodSpoilageCogs, cogs,
+//      grossProfit, operatingExpenses, totalOperatingExpenses,
+//      ebitdaOperatingIncome, netOperatingProfit }
+```
+
+| Remediation Area | Target Files | Key Technical Change |
+| :--- | :--- | :--- |
+| **Migration `036` Schema & 22-Account COA** | `database/migrations/036_income_statement_classification_and_accounts.sql`<br>`api/src/migrate.js` | Added `report_section` and `expense_group` on `chart_of_accounts`; reclassified `6030` to `cogs`; marked `6020` `Utilities & Rent (Legacy)`; seeded `6120`, `6130`, `6140`, `6144`, `6172` (bringing COA from 17 to 22 active accounts); widened `inventory_movements.movement_type` ENUM with `'internal_use'`. |
+| **Shared Classifier & P&L / BS Sync** | `api/src/utils/ledgerService.js`<br>`api/src/routes/finances.js` | Implemented `summarizeIncomeStatementLines(rows)`; exposed `reportSection` and `expenseGroup` in `/accounts` and `/trial-balance`; split P&L COGS into `customerSalesCogs` + `foodSpoilageCogs`; aligned Balance Sheet `retainedEarnings`; exposed `ebitdaOperatingIncome`. |
+| **Shift-Close `6040` & Daily Snapshot Purity** | `api/src/routes/sessions.js` | Auto-posted `DR 6040 / CR 1010` (shortage) or `DR 1010 / CR 6040` (overage) when `|variance| >= 0.01`, guarded by `idempotencyKey = session:<id>:cash_variance`; routed `dailyJeLines` through `summarizeIncomeStatementLines` so `6030` never pollutes `operating_expenses`. |
+| **Internal Store Use (`internal_use`)** | `api/src/routes/inventory.js`<br>`src/context/InventoryContext.jsx`<br>`src/pages/admin/AdminInventory.jsx` | Added admin-only `POST /api/inventory/:id/internal-use` (whitelisted to `6144`, `6140`, `6130`; `clientRequestId` idempotency; `DR OPEX / CR 1050`), movement filter support, and `"Use"` button + modal in Inventory. |
+| **Ex-VAT & Spoilage Report Parity** | `api/src/routes/reports.js`<br>`src/pages/admin/AdminReport.jsx`<br>`src/utils/staffActivityFormatters.js` | Preserved `grossCollectedSales` while adding `grossSales`, `discountTotal`, `taxCollected`, `netSales`, `spoilageCost`, `totalCogs`, and `reconciledGrossProfit`; surfaced breakdowns and `"Internal Store Use"` filter pill in `AdminReport.jsx`. |
+| **Grouped OPEX Modal & P&L Labels** | `src/components/FinancialReconciliationCenter.jsx` | Grouped OPEX `<optgroup>` selector dynamically by `expenseGroup`, grouped P&L OPEX lines, split `5010` + `6030` COGS rows, renamed P&L hero to **`EBITDA / Operating Income`**, and clarified `2020 - Sales Tax / VAT Payable (Collected on Orders)`. |
+
+### 6.3 Automated Verification Evidence
+* **New Integration Suite (`tests/incomeStatementRemediation.test.js`):** 5 end-to-end tests covering `6030` COGS reclassification, separated `61xx` OPEX + Balance Sheet equilibrium, shift-close `6040` shortage/overage/zero-variance idempotency, `internal-use` RBAC/whitelist/replay/zero-cost behavior, and `/api/reports/financial-summary` vs P&L ex-VAT & spoilage parity.
+* **Full Test Suite (`npm test`):** **`119 / 119` tests passing across `15` test files (`27` subsuites)**.
+* **Lint & Production Builds:** `npm run lint` exited with **`0` errors**; `npm run build:portal` and `npm run build:customer` completed cleanly. Strict non-destructive void-only order lifecycle confirmed across the codebase.
+
+---
+
+## 7. Phase 2 Income Statement Waterfall, Payables Subledger, Concurrency & WCAG 2.2 AA Remediation (v2.4.0 — 2026-11-18)
+
+### 7.1 Investigation & Discovered Logical / Concurrency / Accessibility Risks
+During the Phase 2 rollout of the remaining **22 `❌ MISSING` Income Statement & Balance Sheet items**, multi-agent audits (Levi, Pixel, Lucy, Rossie, Charlotte, and Hazel) identified and remediated nine critical accounting, concurrency, and accessibility hazards:
+
+1. **Missing Below-EBITDA Waterfall & Sub-Account Granularity:** P&L terminated at `EBITDA / Operating Income` without non-cash `6210 Depreciation Expense` (`1520 Accumulated Depreciation`), `Net Income Before Tax`, or `6310 Income Tax Expense` (`2030 Income Tax Payable`), and lacked granular COA accounts across `Labor & Payroll` (`6111–6113`), `Utilities` (`6131–6134`), `Operating Supplies` (`6141–6143`), `Advertising & Marketing` (`6150`), `Repairs & Maintenance` (`6160`), and `G&A` (`6171, 6173, 6174, 6179`).
+2. **Untracked `2010` AP & `2030` Tax Settlements:** Accruing unpaid bills (`CR 2010` or `CR 2030`) had no subledger (`financial_payables`) to track partial/full settlements (`ap_settlement`), prevent over-settlement (`409`), or re-open payable statuses upon journal reversal.
+3. **Cash Flow `-2X` Equipment Purchase Bug & Transfer Distortion:** `GET /api/finances/reports/cash-flow` previously misclassified cash equipment purchases (`DR 1510 / CR 1010`), causing a `-2X` distortion, and lacked counterpart-aware routing for `account_transfer` (cash-neutral), `ap_settlement` by `bill_category` (`opexCashOutflow`, `restockCashOutflow`, `taxCashOutflow`), and `void_reversal`.
+4. **Shift `expectedCash` Blindness to Non-Order `1010` Drawer Flows:** `SESSION_AGGREGATE_SQL` and `POST /api/sessions/:id/close` did not subtract/add non-order `1010 Cash Drawer` movements (`operating_expense`, `ap_settlement`, `income_tax`, `inventory_restock`, `owner_withdrawal`, `capital_injection`, `account_transfer`, and non-order `void_reversal`s) from `expectedCash`.
+5. **`REPEATABLE READ` Stale Snapshots & Gap-Lock Deadlocks (`F-01`–`F-04`):**
+   * `SELECT ... WHERE idempotency_key = ? FOR UPDATE` on a non-existent key inside `postBalancedEntry()` acquired overlapping InnoDB supremum gap locks before `INSERT`, deadlocking concurrent requests (`ER_LOCK_DEADLOCK`).
+   * Calling `connection.beginTransaction()` and running a plain `SELECT` froze the transaction's `REPEATABLE READ` snapshot before `FOR UPDATE` locks or `ER_DUP_ENTRY` catch handlers ran, causing `SUM(...)` aggregates (`depreciation` NBV check, manual `ap_settlement` check) and duplicate-key replay lookups to read stale pre-commit state.
+6. **Single-Connection Pool-Exhaustion Self-Deadlock (`F-05`):** Calling `pool.execute(...)` or `assertJournalReplayMatches(pool, ...)` while `connection` was still checked out inside a route caused 10 concurrent requests (`connectionLimit: 10, queueLimit: 0`) to hold all 10 pool connections while waiting forever for an 11th connection.
+7. **Store Use (`internal_use`) Pool Deadlock, `6113` Staff Meals & `1050` Reversal Parity:** `POST /api/inventory/:id/internal-use` needed `findExistingWasteByClientRequest(connection, ...)` before `SELECT ... FOR UPDATE`, `expenseAccountCode` parity checking on replay, expansion to 8 OPEX accounts (including `6113 Employee Benefits (Staff Meals)`), and a dedicated `POST /api/inventory/internal-use/:movementId/reverse` endpoint preserving `1050` weighted-average inventory valuation.
+8. **Reversal Memo `> 255`-Char Overflow & `DECIMAL(14,2)` Overflow:** Long reversal reasons risked `500 ER_DATA_TOO_LONG` on `journal_entries.memo` (`VARCHAR(255)`), and oversized numeric inputs (`1e20`, booleans) required strict `parseExactMoney` / `parseStrictFiniteNumber` guards (`<= 999_999_999_999.99`).
+9. **WCAG 2.2 AA Contrast & Modal Accessibility Deficits:** `.admin-menu-modal label` overrode `.menu-builder-change-btn` text color (`1.89:1` contrast failure); `.fin-preset-chip:hover` overrode `.fin-preset-chip.is-active` background (`1.44:1` contrast failure); `.inventory-restock-field select:focus` suppressed keyboard focus rings (`outline: 0`); and financial modals required an accessible `FinDialog` wrapper with focus trapping, `Escape` dismissal, and roving `radiogroup` keyboard navigation.
+
+### 7.2 Remediations Applied (`v2.4.0`)
+
+```js
+// Complete Phase 2 P&L Waterfall in api/src/utils/ledgerService.js
+const pnl = summarizeIncomeStatementLines(rows);
+// -> { grossSales, discounts, netSales, customerSalesCogs, foodSpoilageCogs, cogs,
+//      grossProfit, operatingExpenses, totalOperatingExpenses,
+//      ebitdaOperatingIncome, depreciation, netIncomeBeforeTax, tax, netIncome }
+```
+
+| Remediation Area | Target Files | Key Technical Change |
+| :--- | :--- | :--- |
+| **Migration `037` & 42-Account COA + `financial_payables`** | `database/migrations/037_income_statement_phase2_missing_items.sql`<br>`api/src/migrate.js` | Seeded 20 Phase 2 accounts (`42` active COA total); widened `journal_entries.entry_type` ENUM to 13 values (`ap_settlement`, `depreciation`, `income_tax`); created `financial_payables` with `CHECK` constraints (`2010`, `2030`) and `journal_entries.payable_id`. |
+| **P&L Waterfall, `1520` Contra Netting & `2020`/`2030` Isolation** | `api/src/utils/ledgerService.js`<br>`api/src/routes/finances.js` | Added `netIncomeBeforeTax` and `netIncome`; shared `summarizeBalanceSheetAccounts()` nets `1520` (`isContra: true`) against `1510`; blocked `2020` on manual entries (`400`); enforced `is_active = TRUE` on COA lookups and `<= 999_999_999_999.99` on `parseExactMoney()`. |
+| **Counterpart Cash Flow & Shift `expectedCash` Sync** | `api/src/routes/finances.js`<br>`api/src/routes/sessions.js` | Rebuilt Cash Flow around per-entry counterpart lines (`netCashFlow === SUM(debit - credit)` across `1010..1040`), fixing `-2X` `1510` bug, routing `ap_settlement` (and reversals via `COALESCE(je.payable_id, parent_je.payable_id)`) to `opexCashOutflow` / `restockCashOutflow` / `taxCashOutflow`; included all `1010` session flows in `expectedCash`. |
+| **`REPEATABLE READ` & `F-01`–`F-05` Pool-Safety Hardening** | `api/src/utils/ledgerService.js`<br>`api/src/routes/finances.js`<br>`api/src/routes/inventory.js` | Removed `pool` from `ledgerService.js` (`0` nested pool checkouts while `connection` is held); moved pre-checks before `beginTransaction()`; used non-locking `SELECT` pre-insert + `LOCK IN SHARE MODE` in `ER_DUP_ENTRY` recovery; locked `journal_entry_lines` / `financial_payables` rows `FOR UPDATE` and summed in JS; rolled back before `assertJournalReplayMatches(connection, ...)`. |
+| **8-Account `internal_use` (`6113 Staff Meals`) & Reversal** | `api/src/routes/inventory.js`<br>`src/context/InventoryContext.jsx`<br>`src/pages/admin/AdminInventory.jsx` | Whitelisted `6113, 6130, 6133, 6140, 6141, 6142, 6143, 6144`; added `POST /api/inventory/internal-use/:movementId/reverse` (restoring stock & `1050` valuation); added `2x2` quick-pick tiles, CSPRNG `crypto.getRandomValues` IDs, and Stock History `"Reverse"` flow; truncated reversal memos to `255` chars. |
+| **WCAG 2.2 AA `FinDialog`, Contrast & Focus Rings** | `src/components/FinancialReconciliationCenter.jsx`<br>`FinancialManagement.css`<br>`AdminMenuManagement.css`<br>`AdminInventory.css` | Implemented `FinDialog` modal shell (`Escape`, focus trap, roving `radiogroup` chips); added `.admin-menu-modal.menu-builder .menu-builder-change-btn` light/dark contrast overrides (`8.59:1` / `7.64:1`), `.fin-preset-chip.is-active:hover:not(:disabled)` (`14.1:1`), and `.inventory-restock-field select:focus-visible` (`2px solid #603b26`). |
+
+### 7.3 Automated Verification Evidence (`v2.4.0`)
+* **Phase 2 End-to-End Test Suite (`tests/incomeStatementPhase2.test.js`):** **`8 / 8` suites passing (`P2-1` to `P2-8`)**, including **`12x` concurrent `Promise.all` pool-stress tests** (`Array.from({ length: 12 }, ...)` exceeding `database.js` `connectionLimit: 10`) on both `POST /api/finances/payables/:id/settle` (`P2-2`) and `POST /api/finances/journal-entries` (`P2-7`) with `0` deadlocks and `0` HTTP `500`s.
+* **Full Sequential Test Suite (`npm test`):** **`127 / 127` tests passing across `28` suites (`16` test files)** on `amaya_test` (`0` failed, `0` skipped, `0` leaked test rows across `amaya` and `amaya_test`, `42` active COA accounts).
+* **Lint & Production Builds:** `npm run lint` exited with **`0` errors, `0` warnings**; `npm run build:portal` (`1.48s`) and `npm run build:customer` (`1.30s`) compiled cleanly. Strict non-destructive void-only order lifecycle verified across all codebase layers.

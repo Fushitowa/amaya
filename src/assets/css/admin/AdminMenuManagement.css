@@ -7708,3 +7708,51 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Phase 2 WCAG 2.2 AA Contrast & Target Fix for Change Image Button */
+.admin-menu-modal.menu-builder .menu-builder-change-btn {
+  background: #603b26;
+  border-color: #603b26;
+  color: #ffffff;
+  font-size: 12px;
+  min-height: 36px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-menu-modal.menu-builder .menu-builder-change-btn:hover {
+    background: #4a2c1b;
+    border-color: #4a2c1b;
+    color: #ffffff;
+  }
+}
+
+.admin-menu-modal.menu-builder .menu-builder-change-btn:focus-within {
+  outline: 2px solid #603b26;
+  outline-offset: 2px;
+}
+
+.admin-menu-page.dark-mode .admin-menu-modal.menu-builder .menu-builder-change-btn {
+  background: #d4a373;
+  border-color: #d4a373;
+  color: #211812;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-menu-page.dark-mode .admin-menu-modal.menu-builder .menu-builder-change-btn:hover {
+    background: #e2b88d;
+    border-color: #e2b88d;
+    color: #211812;
+  }
+}
+
+.admin-menu-page.dark-mode .admin-menu-modal.menu-builder .menu-builder-change-btn:focus-within {
+  outline: 2px solid #f5e6d3;
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .admin-menu-modal.menu-builder .menu-builder-change-btn,
+  .admin-menu-modal.menu-builder .menu-builder-remove-btn {
+    min-height: 44px;
+  }
+}

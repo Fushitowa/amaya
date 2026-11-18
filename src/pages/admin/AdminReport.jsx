@@ -71,6 +71,7 @@ const MOVEMENT_FILTERS = [
   { key: "", label: "All Movements" },
   { key: "restock", label: "Restock" },
   { key: "usage", label: "Order Usage" },
+  { key: "internal_use", label: "Internal Store Use" },
   { key: "adjustment", label: "Adjustment" },
   { key: "spoilage", label: "Waste / Spoilage" },
   { key: "void_restore", label: "Void Restore" },
@@ -521,8 +522,15 @@ function AdminReport() {
 
   const summary = coreState.financial?.summary || {
     grossCollectedSales: 0,
+    grossSales: 0,
+    discountTotal: 0,
+    taxCollected: 0,
+    netSales: 0,
     cogs: 0,
+    spoilageCost: 0,
+    totalCogs: 0,
     grossProfit: 0,
+    reconciledGrossProfit: 0,
     marginPercent: 0,
     paidOrdersCount: 0,
     unpaidOrdersCount: 0,
@@ -986,6 +994,7 @@ function AdminReport() {
     totalUsageCount: 0,
     totalSpoilageCount: 0,
     totalVoidRestoreCount: 0,
+    totalInternalUseCount: 0,
   };
   const movItems = Array.isArray(movState.data?.items) ? movState.data.items : [];
   const movTotal = Number(movState.data?.total || 0);
@@ -1334,11 +1343,21 @@ function AdminReport() {
 
                 <div className="sales-metrics">
                   <div>
-                    <span>Gross collected sales</span>
+                    <span>
+                      Gross collected sales
+                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                        Net Sales (ex-VAT): {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
+                      </small>
+                    </span>
                     <strong>{peso(summary.grossCollectedSales)}</strong>
                   </div>
                   <div>
-                    <span>Estimated COGS</span>
+                    <span>
+                      Estimated COGS
+                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                        Total COGS incl. Spoilage: {peso(summary.totalCogs)}
+                      </small>
+                    </span>
                     <strong>{peso(summary.cogs)}</strong>
                   </div>
                   <div>
@@ -1377,6 +1396,7 @@ function AdminReport() {
                       {" "}
                       <small className="sales-margin-tag">({Number(summary.marginPercent || 0).toFixed(1)}%)</small>
                     </strong>
+                    <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>Reconciled (ex-VAT, incl. Spoilage): {peso(summary.reconciledGrossProfit)}</small>
                   </div>
                   <div>
                     <span>Average order value</span>
@@ -1421,6 +1441,9 @@ function AdminReport() {
                   <small>Gross collected sales</small>
                   <strong>{peso(summary.grossCollectedSales)}</strong>
                   <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text}</span>
+                  <span className="report-stat-note flat">
+                    Net Sales (ex-VAT): {peso(summary.netSales)} · Cash Collected (incl. VAT): {peso(summary.grossCollectedSales)}
+                  </span>
                 </div>
               </div>
               <div className="report-kpi-slip tone-amber">
@@ -2062,6 +2085,10 @@ function AdminReport() {
               <div className="report-mov-kpi warning">
                 <span>Spoilage</span>
                 <strong>{movSummary.totalSpoilageCount}</strong>
+              </div>
+              <div className="report-mov-kpi neutral">
+                <span>Store Use</span>
+                <strong>{movSummary.totalInternalUseCount ?? 0}</strong>
               </div>
               <div className="report-mov-kpi positive">
                 <span>Void Restored</span>

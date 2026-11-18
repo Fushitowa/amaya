@@ -1,7 +1,15 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
-import { getManilaDateString, isValidIsoDateOnly, round2 } from "../utils/ledgerService.js";
+import {
+  getManilaDateString,
+  isValidIsoDateOnly,
+  postBalancedEntry,
+  round2,
+  stripCostFromNote,
+  summarizeIncomeStatementLines,
+} from "../utils/ledgerService.js";
+import { parseStrictFiniteNumber } from "../utils/wasteMeasurement.js";
 
 const router = Router();
 
@@ -79,8 +87,19 @@ const SESSION_AGGREGATE_SQL = `
         JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
         JOIN chart_of_accounts coa ON coa.id = jel.account_id
        WHERE je.session_id IS NOT NULL
-         AND je.entry_type = 'inventory_restock'
          AND coa.account_code = '1010'
+         AND (
+           je.entry_type IN (
+             'inventory_restock',
+             'operating_expense',
+             'ap_settlement',
+             'income_tax',
+             'owner_withdrawal',
+             'capital_injection',
+             'account_transfer'
+           )
+           OR (je.entry_type = 'void_reversal' AND je.order_id IS NULL)
+         )
        GROUP BY je.session_id
     ) rs ON rs.session_id = cs.id
 `;
@@ -204,7 +223,7 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
       );
       const accMap = new Map(coaRows.map((r) => [r.account_code, Number(r.balance || 0)]));
       const liquid = Number(((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0)).toFixed(2));
-      const equipment = Number((accMap.get("1510") || 0).toFixed(2));
+      const equipment = round2((accMap.get("1510") || 0) - (accMap.get("1520") || 0));
 
       const [[invRow]] = await connection.query(
         "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS inv_val FROM inventory_items WHERE is_archived = FALSE"
@@ -245,8 +264,8 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
   if (rawCounted === undefined || rawCounted === null || String(rawCounted).trim() === "") {
     throw httpError(400, "Counted drawer cash is required to close a shift.");
   }
-  const countedCash = Number(rawCounted);
-  if (!Number.isFinite(countedCash) || countedCash < 0 || countedCash > 10_000_000) {
+  const countedCash = parseStrictFiniteNumber(rawCounted);
+  if (countedCash === null || countedCash < 0 || countedCash > 10_000_000) {
     throw httpError(400, "Counted cash must be a non-negative amount.");
   }
   const closingNotes = String(request.body?.closingNotes || "").trim().slice(0, 500) || null;
@@ -278,8 +297,19 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
          JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
          JOIN chart_of_accounts coa ON coa.id = jel.account_id
         WHERE je.session_id = ?
-          AND je.entry_type = 'inventory_restock'
-          AND coa.account_code = '1010'`,
+          AND coa.account_code = '1010'
+          AND (
+            je.entry_type IN (
+              'inventory_restock',
+              'operating_expense',
+              'ap_settlement',
+              'income_tax',
+              'owner_withdrawal',
+              'capital_injection',
+              'account_transfer'
+            )
+            OR (je.entry_type = 'void_reversal' AND je.order_id IS NULL)
+          )`,
       [sessionId],
     );
     const expectedCash = Number((Number(session.opening_float || 0) + Number(cashRow?.cash_sales || 0) - Number(restockRow?.cash_restocks || 0)).toFixed(2));
@@ -298,6 +328,30 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
         WHERE id = ?`,
       [expectedCash, roundedCounted, variance, closingNotes, request.authUser.sub, sessionId],
     );
+
+    if (Math.abs(variance) >= 0.01) {
+      const absVariance = round2(Math.abs(variance));
+      const isShortage = variance < 0;
+      await postBalancedEntry(connection, {
+        entryType: "adjustment",
+        memo: isShortage
+          ? `Cash drawer shortage on Shift #${sessionId}: -₱${absVariance.toFixed(2)}`
+          : `Cash drawer overage on Shift #${sessionId}: +₱${absVariance.toFixed(2)}`,
+        referenceNumber: `SHIFT-${sessionId}`,
+        sessionId,
+        idempotencyKey: `session:${sessionId}:cash_variance`,
+        createdBy: request.authUser.sub,
+        lines: isShortage
+          ? [
+              { accountCode: "6040", debit: absVariance, credit: 0, lineMemo: `Cash shortage on shift #${sessionId}` },
+              { accountCode: "1010", debit: 0, credit: absVariance, lineMemo: `Cash drawer reconciled on shift #${sessionId}` },
+            ]
+          : [
+              { accountCode: "1010", debit: absVariance, credit: 0, lineMemo: `Cash overage on shift #${sessionId}` },
+              { accountCode: "6040", debit: 0, credit: absVariance, lineMemo: `Cash drawer variance credit on shift #${sessionId}` },
+            ],
+      });
+    }
 
     // Update store daily asset snapshot tied to the session's Manila open date
     const sessionBusinessDate = getManilaDateString(new Date(session.opened_at));
@@ -321,8 +375,9 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
            FROM cashier_sessions
           WHERE status = 'open'
             AND id <> ?
-            AND DATE(CONVERT_TZ(opened_at, '+00:00', '+08:00')) = ?`,
-        [sessionId, sessionBusinessDate]
+            AND opened_at >= CONCAT(?, ' 00:00:00')
+            AND opened_at <= CONCAT(?, ' 23:59:59')`,
+        [sessionId, sessionBusinessDate, sessionBusinessDate]
       );
       const nextSnapStatus = Number(openSiblings?.open_count || 0) === 0 ? "closed" : "open";
 
@@ -334,7 +389,7 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
       );
       const accMap = new Map(coaRows.map((r) => [r.account_code, Number(r.balance || 0)]));
       const liquid = round2((accMap.get("1010") || 0) + (accMap.get("1020") || 0) + (accMap.get("1030") || 0) + (accMap.get("1040") || 0));
-      const equipment = round2(accMap.get("1510") || 0);
+      const equipment = round2((accMap.get("1510") || 0) - (accMap.get("1520") || 0));
 
       const [[invRow]] = await connection.query(
         "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS inv_val FROM inventory_items WHERE is_archived = FALSE"
@@ -344,37 +399,34 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
       const openingTotal = Number(existingSnapshot.opening_total_assets || 0);
       const delta = round2(totalClosingAssets - openingTotal);
 
-      // Compute full daily performance & ledger metrics for this businessDate
+      // Compute full daily performance & ledger metrics for this businessDate (entry_date is already +08:00 Manila)
       const [dailyJeLines] = await connection.execute(
         `SELECT coa.account_code,
+                coa.account_name,
+                coa.account_category,
+                coa.normal_balance,
+                coa.report_section,
+                coa.expense_group,
                 je.entry_type,
                 COALESCE(SUM(jel.debit), 0.00) AS total_debit,
                 COALESCE(SUM(jel.credit), 0.00) AS total_credit
            FROM journal_entries je
            JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
            JOIN chart_of_accounts coa ON coa.id = jel.account_id
-          WHERE DATE(CONVERT_TZ(je.entry_date, '+00:00', '+08:00')) = ?
-          GROUP BY coa.account_code, je.entry_type`,
-        [targetDate]
+          WHERE je.entry_date >= CONCAT(?, ' 00:00:00')
+            AND je.entry_date <= CONCAT(?, ' 23:59:59')
+          GROUP BY coa.account_code, coa.account_name, coa.account_category, coa.normal_balance, coa.report_section, coa.expense_group, je.entry_type`,
+        [targetDate, targetDate]
       );
 
-      let grossSales = 0;
-      let discountsGranted = 0;
-      let cogsConsumed = 0;
-      let operatingExpenses = 0;
+      const pnl = summarizeIncomeStatementLines(dailyJeLines);
       let capitalInjections = 0;
       let ownerWithdrawals = 0;
-      let spoilageShrinkage = 0;
 
       for (const l of dailyJeLines) {
         const debit = Number(l.total_debit || 0);
         const credit = Number(l.total_credit || 0);
-        if (l.account_code === "4010") grossSales += (credit - debit);
-        else if (l.account_code === "4020") discountsGranted += (debit - credit);
-        else if (l.account_code === "5010") cogsConsumed += (debit - credit);
-        else if (l.account_code === "6030") spoilageShrinkage += (debit - credit);
-        else if (l.account_code.startsWith("60")) operatingExpenses += (debit - credit);
-        else if (l.account_code === "3010" && l.entry_type === "capital_injection") capitalInjections += (credit - debit);
+        if (l.account_code === "3010" && l.entry_type === "capital_injection") capitalInjections += (credit - debit);
         else if (l.account_code === "3020") ownerWithdrawals += (debit - credit);
       }
 
@@ -382,17 +434,10 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
         `SELECT COALESCE(SUM(variance), 0.00) AS day_variance
            FROM cashier_sessions
           WHERE status = 'closed'
-            AND DATE(CONVERT_TZ(opened_at, '+00:00', '+08:00')) = ?`,
-        [sessionBusinessDate]
+            AND opened_at >= CONCAT(?, ' 00:00:00')
+            AND opened_at <= CONCAT(?, ' 23:59:59')`,
+        [sessionBusinessDate, sessionBusinessDate]
       );
-
-      const cleanGrossSales = round2(Math.max(0, grossSales));
-      const cleanDiscounts = round2(Math.max(0, discountsGranted));
-      const cleanNetSales = round2(Math.max(0, cleanGrossSales - cleanDiscounts));
-      const cleanCogs = round2(Math.max(0, cogsConsumed));
-      const cleanGrossProfit = round2(cleanNetSales - cleanCogs);
-      const cleanOpex = round2(operatingExpenses + Math.max(0, spoilageShrinkage));
-      const cleanNetProfit = round2(cleanGrossProfit - cleanOpex);
 
       await connection.execute(
         `UPDATE store_daily_asset_snapshots
@@ -422,17 +467,17 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
           inventoryVal,
           equipment,
           totalClosingAssets,
-          cleanGrossSales,
-          cleanDiscounts,
-          cleanNetSales,
-          cleanCogs,
-          cleanGrossProfit,
-          cleanOpex,
-          cleanNetProfit,
+          pnl.grossSales,
+          pnl.discounts,
+          pnl.netSales,
+          pnl.cogs,
+          pnl.grossProfit,
+          pnl.totalOperatingExpenses,
+          pnl.netOperatingProfit,
           round2(Math.max(0, capitalInjections)),
           round2(Math.max(0, ownerWithdrawals)),
           round2(varianceSum?.day_variance || 0),
-          round2(Math.max(0, spoilageShrinkage)),
+          pnl.foodSpoilageCogs,
           delta,
           request.authUser.sub,
           existingSnapshot.id,
@@ -630,7 +675,7 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
     orderNumber: row.order_number || null,
     note: isAdmin
       ? (row.note || "")
-      : String(row.note || "").replace(/\s+for\s+₱[\d,.]+(?:\s*·\s*new avg\s+₱[\d,.]+\/[^\s)]+)?/gi, ""),
+      : stripCostFromNote(row.note || ""),
     actor: row.actor_name || "System",
     timestamp: new Date(row.created_at).toISOString(),
   }));

@@ -61,6 +61,7 @@ const MOVEMENT_LABELS = {
   usage: "Order Usage",
   spoilage: "Waste / Spoilage",
   void_restore: "Void Restore",
+  internal_use: "Internal Store Use",
 };
 
 const MOVEMENT_TONES = {
@@ -69,6 +70,7 @@ const MOVEMENT_TONES = {
   adjustment: "neutral",
   usage: "usage",
   spoilage: "warning",
+  internal_use: "neutral",
 };
 
 export function getMovementLabel(type, context = null) {

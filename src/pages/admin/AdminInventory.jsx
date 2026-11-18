@@ -13,6 +13,7 @@ import {
   List,
   Menu,
   Package,
+  PackageMinus,
   Pencil,
   Plus,
   RefreshCw,
@@ -41,6 +42,24 @@ const inventoryUnitGroups = [
   { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
   { label: "Count", options: [["pcs", "Pieces (pcs)"], ["can", "Cans (can)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
 ];
+const INTERNAL_USE_QUICK_PICKS = [
+  { code: "6113", title: "Staff Meals", subtitle: "Crew food & drinks" },
+  { code: "6144", title: "Sanitation (6144)", subtitle: "Cleaners, disinfectants" },
+  { code: "6140", title: "Operating Supplies", subtitle: "Cups, straws, paper (6140)" },
+  { code: "6133", title: "LPG / Gas (6133)", subtitle: "Kitchen gas, stove fuel" },
+];
+
+const INTERNAL_USE_OPTIONS = [
+  { code: "6113", label: "6113 - Employee Benefits (Staff Meals)", hint: "Logs under Labor & Payroll OPEX. Keeps Customer COGS (5010) and Food Spoilage (6030) clean." },
+  { code: "6144", label: "6144 - Sanitation Supplies (Cleaners, Disinfectants)", hint: "Logs under Operating Supplies OPEX (Sanitation)." },
+  { code: "6140", label: "6140 - Operating Supplies (Paper Goods, Store Supplies)", hint: "Logs under Operating Supplies OPEX." },
+  { code: "6141", label: "6141 - Linen & Uniforms (Towels, Aprons)", hint: "Logs under Operating Supplies OPEX (Linen & Uniforms)." },
+  { code: "6142", label: "6142 - Dining Supplies (Utensils, Trays, Glasses)", hint: "Logs under Operating Supplies OPEX (Dining Supplies)." },
+  { code: "6143", label: "6143 - Kitchen Supplies (Tools, Containers)", hint: "Logs under Operating Supplies OPEX (Kitchen Supplies)." },
+  { code: "6133", label: "6133 - LPG / Cooking Gas", hint: "Logs under Utilities OPEX (LPG / Cooking Gas)." },
+  { code: "6130", label: "6130 - Utilities (General Store Fuel / Utilities)", hint: "Logs under Utilities OPEX." },
+];
+
 const packageUnitOptions = ["pack", "box", "bag", "bottle", "can", "sack", "set", "tub", "jar", "carton"];
 
 const INVENTORY_ADD_DRAFT_KEY = "amaya_admin_inventory_add_draft";
@@ -186,6 +205,7 @@ const InventoryGridCard = memo(function InventoryGridCard({
   onHistory,
   onEdit,
   onRestock,
+  onInternalUse,
   onWaste,
   onArchive,
 }) {
@@ -286,6 +306,16 @@ const InventoryGridCard = memo(function InventoryGridCard({
           </button>
           <button
             type="button"
+            className="internal-use"
+            onClick={() => onInternalUse(row)}
+            disabled={Number(row.quantity || 0) <= 0}
+            title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Record internal store use for ${row.item}`}
+          >
+            <PackageMinus aria-hidden="true" size={14} strokeWidth={2.1} />
+            <span>Use</span>
+          </button>
+          <button
+            type="button"
             className="waste"
             onClick={() => onWaste(row)}
             disabled={Number(row.quantity || 0) <= 0}
@@ -319,6 +349,7 @@ const InventoryListRow = memo(function InventoryListRow({
   onHistory,
   onEdit,
   onRestock,
+  onInternalUse,
   onWaste,
   onArchive,
 }) {
@@ -407,6 +438,16 @@ const InventoryListRow = memo(function InventoryListRow({
         </button>
         <button
           type="button"
+          className="internal-use"
+          onClick={() => onInternalUse(row)}
+          disabled={Number(row.quantity || 0) <= 0}
+          title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Record internal store use for ${row.item}`}
+        >
+          <PackageMinus aria-hidden="true" size={14} strokeWidth={2.1} />
+          <span>Use</span>
+        </button>
+        <button
+          type="button"
           className="waste"
           onClick={() => onWaste(row)}
           disabled={Number(row.quantity || 0) <= 0}
@@ -435,6 +476,8 @@ function AdminInventory() {
     updateInventoryItem,
     removeInventoryItem,
     restockInventoryItem,
+    recordInternalUse,
+    reverseInternalUse,
   } = useInventory() || {};
   const categories = (categoryNames && categoryNames.length) ? categoryNames : ["All"];
   const { businessSettings } = useBusiness() || {};
@@ -456,7 +499,16 @@ function AdminInventory() {
   const [restockDiluteZeroCost, setRestockDiluteZeroCost] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [wasteItem, setWasteItem] = useState(null);
+  const [internalUseItem, setInternalUseItem] = useState(null);
+  const [internalUseQty, setInternalUseQty] = useState("");
+  const [internalUseAccount, setInternalUseAccount] = useState("6144");
+  const [internalUseNote, setInternalUseNote] = useState("");
+  const [internalUseRequestId, setInternalUseRequestId] = useState("");
   const [movementHistory, setMovementHistory] = useState({ item: null, rows: [], loading: false, error: "" });
+  const [reverseInternalTarget, setReverseInternalTarget] = useState(null);
+  const [reverseInternalReason, setReverseInternalReason] = useState("");
+  const [reverseInternalError, setReverseInternalError] = useState("");
+  const reverseInternalInputRef = useRef(null);
   const [actionError, setActionError] = useState("");
   const [confirmedAdjKey, setConfirmedAdjKey] = useState("");
   const [notice, setNotice] = useState("");
@@ -591,8 +643,29 @@ function AdminInventory() {
   const inStockCount = inventory.filter((item) => getInventoryStatus(item.quantity, item.maximumStock) === "In Stock").length;
   const totalInventoryAssetValue = inventory.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitCost || item.unit_cost || 0)), 0);
 
+  const createInternalUseRequestId = useCallback(() => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      throw new Error("Cryptographic random generator unavailable.");
+    }
+    return `use-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+  }, []);
+
+  const closeInternalUseModal = useCallback(() => {
+    setInternalUseItem(null);
+    setInternalUseQty("");
+    setInternalUseNote("");
+    setInternalUseRequestId("");
+    setActionError("");
+  }, []);
+
   useEffect(() => {
-    if (!showForm && !restockItem && !itemToDelete && !movementHistory.item) return undefined;
+    if (!showForm && !restockItem && !internalUseItem && !itemToDelete && !movementHistory.item) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape" || isSaving) return;
       if (showForm) {
@@ -608,13 +681,17 @@ function AdminInventory() {
       setRestockReferenceNo("");
       setRestockCreditAccountCode("1010");
       setRestockDiluteZeroCost(false);
+      closeInternalUseModal();
       setItemToDelete(null);
+      setReverseInternalTarget(null);
+      setReverseInternalReason("");
+      setReverseInternalError("");
       setMovementHistory({ item: null, rows: [], loading: false, error: "" });
       setActionError("");
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showForm, editingItem, restockItem, itemToDelete, movementHistory.item, isSaving]);
+  }, [showForm, editingItem, restockItem, internalUseItem, itemToDelete, movementHistory.item, isSaving, closeInternalUseModal]);
 
   const resetForm = () => {
     setShowForm(false);
@@ -694,7 +771,67 @@ function AdminInventory() {
     setActionError("");
   }, []);
 
+  const openInternalUse = useCallback((item) => {
+    setInternalUseItem(item);
+    setInternalUseQty("");
+    setInternalUseAccount("6113");
+    setInternalUseNote("");
+    setInternalUseRequestId(createInternalUseRequestId());
+    setActionError("");
+  }, [createInternalUseRequestId]);
+
+  const handleInternalUseSubmit = async (event) => {
+    event.preventDefault();
+    if (!internalUseItem || isSaving) return;
+    const qty = Number(internalUseQty);
+    const available = Number(internalUseItem.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setActionError("Enter a valid store use quantity greater than zero.");
+      return;
+    }
+    if (qty > available) {
+      setActionError(`Only ${available} ${internalUseItem.unit} available on hand.`);
+      return;
+    }
+    const reqId = internalUseRequestId || createInternalUseRequestId();
+    if (!internalUseRequestId) setInternalUseRequestId(reqId);
+    setIsSaving(true);
+    setActionError("");
+    try {
+      const saved = await recordInternalUse(internalUseItem.id, {
+        quantity: qty,
+        expenseAccountCode: internalUseAccount,
+        note: internalUseNote.trim(),
+        clientRequestId: reqId,
+      });
+      setNotice(`Recorded internal store use: -${qty} ${internalUseItem.unit} of ${internalUseItem.item} (${internalUseAccount}${saved?.usageValue ? ` · ₱${Number(saved.usageValue).toFixed(2)}` : ""}).`);
+      closeInternalUseModal();
+    } catch (error) {
+      setActionError(error.message || "Could not record internal store use.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const closeMovementHistory = useCallback(() => {
+    setMovementHistory({ item: null, rows: [], loading: false, error: "" });
+    setReverseInternalTarget(null);
+    setReverseInternalReason("");
+    setReverseInternalError("");
+  }, []);
+
+  useEffect(() => {
+    if (reverseInternalTarget) {
+      window.requestAnimationFrame(() => {
+        reverseInternalInputRef.current?.focus();
+      });
+    }
+  }, [reverseInternalTarget]);
+
   const openMovementHistory = useCallback(async (item) => {
+    setReverseInternalTarget(null);
+    setReverseInternalReason("");
+    setReverseInternalError("");
     setMovementHistory({ item, rows: [], loading: true, error: "" });
     try {
       const rows = await apiRequest(`/inventory/${item.id}/movements?limit=50`);
@@ -703,6 +840,41 @@ function AdminInventory() {
       setMovementHistory({ item, rows: [], loading: false, error: error.message || "Could not load stock history." });
     }
   }, []);
+
+  const handleConfirmReverseInternalUse = async (event) => {
+    event.preventDefault();
+    if (!reverseInternalTarget || !reverseInternalUse || isSaving) return;
+    const cleanReason = reverseInternalReason.trim();
+    if (cleanReason.length < 3) {
+      setReverseInternalError("Enter a clear reversal reason (at least 3 characters).");
+      return;
+    }
+    setIsSaving(true);
+    setReverseInternalError("");
+    try {
+      const res = await reverseInternalUse(reverseInternalTarget.id, cleanReason);
+      setNotice(`Reversed internal store use #${reverseInternalTarget.id} (+${res?.restoredQuantity} ${res?.unit || ""} restored).`);
+      const targetItem = movementHistory.item;
+      setReverseInternalTarget(null);
+      setReverseInternalReason("");
+      if (targetItem) {
+        try {
+          const rows = await apiRequest(`/inventory/${targetItem.id}/movements?limit=50`);
+          setMovementHistory({ item: targetItem, rows, loading: false, error: "" });
+        } catch (refreshError) {
+          setMovementHistory((prev) => ({
+            ...prev,
+            loading: false,
+            error: refreshError?.message || "Reversal saved, but could not refresh stock history.",
+          }));
+        }
+      }
+    } catch (error) {
+      setReverseInternalError(error?.message || "Could not reverse internal store use entry.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleRestock = async (event) => {
     event.preventDefault();
@@ -1070,6 +1242,17 @@ function AdminInventory() {
                 <button type="button" onClick={() => { openMovementHistory(actionRow); setActionRow(null); }}><History size={22} aria-hidden="true" />Stock history</button>
                 <button
                   type="button"
+                  className="internal-use"
+                  disabled={Number(actionRow.quantity || 0) <= 0}
+                  onClick={() => { openInternalUse(actionRow); setActionRow(null); }}
+                >
+                  <PackageMinus size={22} aria-hidden="true" />
+                  <span>
+                    Record store use{Number(actionRow.quantity || 0) <= 0 ? " (Out of stock)" : ""}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   className="waste"
                   disabled={Number(actionRow.quantity || 0) <= 0}
                   onClick={() => { openWaste(actionRow); setActionRow(null); }}
@@ -1154,7 +1337,7 @@ function AdminInventory() {
                     type="text"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search inventory items..."
+                    placeholder="Search inventory items…"
                     aria-label="Search inventory"
                   />
                 </label>
@@ -1318,6 +1501,7 @@ function AdminInventory() {
                           onHistory={openMovementHistory}
                           onEdit={handleEdit}
                           onRestock={openRestock}
+                          onInternalUse={openInternalUse}
                           onWaste={openWaste}
                           onArchive={requestDelete}
                         />
@@ -1374,6 +1558,7 @@ function AdminInventory() {
                           onHistory={openMovementHistory}
                           onEdit={handleEdit}
                           onRestock={openRestock}
+                          onInternalUse={openInternalUse}
                           onWaste={openWaste}
                           onArchive={requestDelete}
                         />
@@ -1989,7 +2174,7 @@ function AdminInventory() {
       )}
 
       {movementHistory.item && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => setMovementHistory({ item: null, rows: [], loading: false, error: "" })}>
+        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={closeMovementHistory}>
           <section className="admin-inventory-modal inventory-history-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-history-title" onClick={(event) => event.stopPropagation()}>
             <div className="admin-inventory-modal-header">
               <div>
@@ -1997,8 +2182,60 @@ function AdminInventory() {
                 <h3 id="inventory-history-title">{movementHistory.item.item} history</h3>
                 <p>Stock changes, quantities, and the account that recorded them.</p>
               </div>
-              <button type="button" onClick={() => setMovementHistory({ item: null, rows: [], loading: false, error: "" })} aria-label="Close stock history">×</button>
+              <button type="button" onClick={closeMovementHistory} aria-label="Close stock history">×</button>
             </div>
+            {reverseInternalTarget && (
+              <form
+                onSubmit={handleConfirmReverseInternalUse}
+                style={{
+                  marginBottom: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #8b5e3c",
+                  background: "#fffaf3",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <strong style={{ fontSize: "12px", color: "#382518" }}>
+                  Reverse Internal Store Use #{reverseInternalTarget.id} ({Math.abs(Number(reverseInternalTarget.quantityChange || 0))} {reverseInternalTarget.unit || movementHistory.item.unit})
+                </strong>
+                <label htmlFor="reverse-internal-reason" style={{ fontSize: "11.5px", fontWeight: 600, color: "#4a2c11", display: "grid", gap: "4px" }}>
+                  Audit Reversal Reason (min 3 characters)
+                  <input
+                    ref={reverseInternalInputRef}
+                    id="reverse-internal-reason"
+                    type="text"
+                    maxLength={255}
+                    value={reverseInternalReason}
+                    onChange={(e) => setReverseInternalReason(e.target.value)}
+                    placeholder="e.g. Logged twice by mistake"
+                    required
+                    style={{ padding: "8px 10px", borderRadius: "6px", border: "1px solid #8b5e3c", fontSize: "12px" }}
+                  />
+                </label>
+                {reverseInternalError && (
+                  <p className="inventory-form-error" role="alert" style={{ margin: 0, color: "#b91c1c" }}>{reverseInternalError}</p>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <button
+                    type="button"
+                    className="modal-cancel"
+                    disabled={isSaving}
+                    onClick={() => {
+                      setReverseInternalTarget(null);
+                      setReverseInternalReason("");
+                      setReverseInternalError("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="modal-save" disabled={isSaving}>
+                    {isSaving ? "Reversing…" : "Confirm Reversal"}
+                  </button>
+                </div>
+              </form>
+            )}
             {movementHistory.loading ? <p className="inventory-history-empty">Loading stock history…</p>
               : movementHistory.error ? <p className="inventory-history-error" role="alert">{movementHistory.error}</p>
                 : movementHistory.rows.length ? (
@@ -2015,9 +2252,11 @@ function AdminInventory() {
                                   ? (row.orderId || row.orderNumber ? "Order void spoilage" : "Waste / Spoilage")
                                   : row.type === "void_restore"
                                     ? "Void stock restore"
-                                    : row.type === "opening_balance"
-                                      ? "Opening stock"
-                                      : "Stock adjustment"}
+                                    : row.type === "internal_use"
+                                      ? "Internal store use"
+                                      : row.type === "opening_balance"
+                                        ? "Opening stock"
+                                        : "Stock adjustment"}
                             {row.wasteReason && (
                               <em className="inventory-history-waste-badge">
                                 {getWasteReasonMeta(row.wasteReason).shortLabel}
@@ -2030,7 +2269,33 @@ function AdminInventory() {
                           <span>{row.note || "Inventory updated"}</span>
                           <small>{row.actor} · {new Date(row.timestamp).toLocaleString()}</small>
                         </div>
-                        <b className={row.quantityChange > 0 ? "is-increase" : "is-decrease"}>{row.quantityChange > 0 ? "+" : ""}{row.quantityChange} {row.unit || movementHistory.item.unit}</b>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" }}>
+                          <b className={row.quantityChange > 0 ? "is-increase" : "is-decrease"}>{row.quantityChange > 0 ? "+" : ""}{row.quantityChange} {row.unit || movementHistory.item.unit}</b>
+                          {row.type === "internal_use" && !row.isReversed && reverseInternalUse && (
+                            <button
+                              type="button"
+                              aria-label={`Reverse internal store use #${row.id}`}
+                              onClick={() => {
+                                setReverseInternalTarget(row);
+                                setReverseInternalReason("");
+                                setReverseInternalError("");
+                              }}
+                              style={{
+                                border: "1px solid #8b5e3c",
+                                background: "#fff7ed",
+                                color: "#3d230e",
+                                borderRadius: "6px",
+                                padding: "4px 9px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                minHeight: "30px",
+                              }}
+                            >
+                              Reverse
+                            </button>
+                          )}
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -2169,6 +2434,133 @@ function AdminInventory() {
               </button>
             </div>
           </section>
+        </div>
+      )}
+
+      {internalUseItem && (
+        <div
+          className="admin-inventory-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!isSaving) closeInternalUseModal();
+          }}
+        >
+          <form
+            className="admin-inventory-modal inventory-action-modal"
+            onSubmit={handleInternalUseSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="internal-use-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="admin-inventory-modal-header">
+              <div>
+                <span className="admin-inventory-eyebrow">INTERNAL STORE USE</span>
+                <h3 id="internal-use-dialog-title">Use {internalUseItem.item}</h3>
+                <p>Available on hand: {internalUseItem.quantity} {internalUseItem.unit} · Moves cost from Inventory Asset (1050) to OPEX.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeInternalUseModal}
+                disabled={isSaving}
+                aria-label="Close store use form"
+              >
+                ×
+              </button>
+            </div>
+            <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.75rem 0" }}>
+              <legend style={{ fontSize: "12px", fontWeight: 700, color: "#4a2c11", marginBottom: "6px" }}>
+                1. Quick-Pick Reason *
+              </legend>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
+                {INTERNAL_USE_QUICK_PICKS.map((pick) => {
+                  const selected = internalUseAccount === pick.code;
+                  return (
+                    <button
+                      key={pick.code}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setInternalUseAccount(pick.code)}
+                      style={{
+                        textAlign: "left",
+                        padding: "10px 11px",
+                        minHeight: "52px",
+                        borderRadius: "9px",
+                        border: selected ? "2px solid #603b26" : "1px solid #8b5e3c",
+                        background: selected ? "#fff7ed" : "#ffffff",
+                        color: "#382518",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                      }}
+                    >
+                      <strong style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span aria-hidden="true">{selected ? "●" : "○"}</span>
+                        {pick.title}
+                      </strong>
+                      <span style={{ fontSize: "11px", color: "#6b5847" }}>{pick.subtitle}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <label htmlFor="internal-use-account" className="inventory-restock-field" style={{ marginBottom: "0.75rem" }}>
+              Expense Account (All OPEX Targets)
+              <select
+                id="internal-use-account"
+                value={internalUseAccount}
+                onChange={(event) => setInternalUseAccount(event.target.value)}
+              >
+                {INTERNAL_USE_OPTIONS.map((opt) => (
+                  <option key={opt.code} value={opt.code}>{opt.label}</option>
+                ))}
+              </select>
+              <small style={{ color: "#6b5847" }}>
+                {(INTERNAL_USE_OPTIONS.find((opt) => opt.code === internalUseAccount) || INTERNAL_USE_OPTIONS[0]).hint}
+              </small>
+            </label>
+            <label htmlFor="internal-use-qty" className="inventory-restock-field">
+              Quantity ({internalUseItem.unit})
+              <input
+                id="internal-use-qty"
+                type="number"
+                inputMode="decimal"
+                min="0.000001"
+                max={Number(internalUseItem.quantity || 0) || undefined}
+                step="any"
+                value={internalUseQty}
+                onChange={(event) => setInternalUseQty(event.target.value)}
+                placeholder={`Max ${internalUseItem.quantity}`}
+                required
+              />
+            </label>
+            <label htmlFor="internal-use-note" className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
+              Note / Crew / Shift — Optional
+              <input
+                id="internal-use-note"
+                type="text"
+                maxLength={420}
+                value={internalUseNote}
+                onChange={(event) => setInternalUseNote(event.target.value)}
+                placeholder="e.g. Afternoon crew meal, kitchen sanitation refill, LPG tank opened"
+              />
+            </label>
+            {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
+            <div className="admin-inventory-modal-actions">
+              <button
+                type="button"
+                className="modal-cancel"
+                onClick={closeInternalUseModal}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="modal-save" disabled={isSaving}>
+                {isSaving ? "Recording…" : "Record Store Use"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

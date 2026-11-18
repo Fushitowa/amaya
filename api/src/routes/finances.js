@@ -7,9 +7,181 @@ import {
   getManilaDateString,
   assertValidDateRange,
   parseBoundedPositiveInt,
+  summarizeIncomeStatementLines,
+  postBalancedEntry,
+  parseExactMoney,
+  resolveActiveSessionId,
+  isValidIsoDateOnly,
 } from "../utils/ledgerService.js";
 
 const router = Router();
+const CLIENT_REQUEST_ID_REGEX = /^[A-Za-z0-9:_-]{16,96}$/;
+const LIQUID_ACCOUNT_CODES = new Set(["1010", "1020", "1030", "1040"]);
+
+function parseOptionalClientRequestId(rawValue) {
+  const hasField = rawValue !== undefined && rawValue !== null && String(rawValue) !== "";
+  if (!hasField) return null;
+  if (typeof rawValue !== "string") {
+    throw httpError(400, "Invalid clientRequestId format.");
+  }
+  const trimmed = rawValue.trim();
+  if (!CLIENT_REQUEST_ID_REGEX.test(trimmed)) {
+    throw httpError(400, "Invalid clientRequestId format.");
+  }
+  return trimmed;
+}
+
+function parseOptionalOpeningAmount(rawValue, label) {
+  if (rawValue === undefined || rawValue === null) return 0;
+  if (typeof rawValue === "string" && rawValue.trim() === "") return 0;
+  return parseExactMoney(rawValue, label, { allowZero: true });
+}
+
+function formatDbDateOnly(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return value.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+  }
+  return String(value).slice(0, 10);
+}
+
+const BS_LABELS = {
+  "1010": "Cash Drawer (Counter 1)",
+  "1020": "GCash Official Wallet",
+  "1030": "Store Bank Account",
+  "1040": "Owner Capital Reserve",
+  "1050": "Merchandise Inventory (Ledger)",
+  "1510": "Kitchen & Espresso Equipment",
+  "1520": "Less: Accumulated Depreciation",
+  "2010": "Accounts Payable (Suppliers)",
+  "2020": "2020 - Sales Tax / VAT Payable (Collected on Orders)",
+  "2030": "Income Tax Payable",
+};
+
+function summarizeBalanceSheetAccounts(accounts = []) {
+  const accountMap = new Map();
+  const currentAssets = [];
+  const nonCurrentAssets = [];
+  const currentLiabilities = [];
+
+  let totalCurrentAssets = 0;
+  let grossEquipment = 0;
+  let accumulatedDepreciation = 0;
+  let netEquipment = 0;
+  let totalLiabilities = 0;
+
+  for (const acc of accounts) {
+    const code = String(acc.account_code);
+    const bal = round2(acc.current_balance);
+    accountMap.set(code, bal);
+    if (acc.report_section !== "balance_sheet") continue;
+
+    if (acc.account_category === "asset") {
+      const isContra = String(acc.normal_balance).toLowerCase() === "credit";
+      const signed = isContra ? -bal : bal;
+      if (LIQUID_ACCOUNT_CODES.has(code) || code === "1050") {
+        currentAssets.push({
+          accountCode: code,
+          accountName: BS_LABELS[code] || acc.account_name,
+          amount: bal,
+        });
+        totalCurrentAssets += signed;
+      } else {
+        nonCurrentAssets.push({
+          accountCode: code,
+          accountName: BS_LABELS[code] || acc.account_name,
+          amount: bal,
+          ...(isContra ? { isContra: true } : {}),
+        });
+        if (isContra) accumulatedDepreciation += bal;
+        else grossEquipment += bal;
+        netEquipment += signed;
+      }
+    } else if (acc.account_category === "liability") {
+      const isCreditNormal = String(acc.normal_balance).toLowerCase() === "credit";
+      const signed = isCreditNormal ? bal : -bal;
+      currentLiabilities.push({
+        accountCode: code,
+        accountName: BS_LABELS[code] || acc.account_name,
+        amount: signed,
+      });
+      totalLiabilities += signed;
+    }
+  }
+
+  const roundedGrossEquip = round2(grossEquipment);
+  const roundedAccumDepr = round2(accumulatedDepreciation);
+  const roundedNetEquip = round2(netEquipment);
+  const roundedTotalCurrent = round2(totalCurrentAssets);
+
+  return {
+    accountMap,
+    currentAssets,
+    nonCurrentAssets,
+    grossEquipment: roundedGrossEquip,
+    accumulatedDepreciation: roundedAccumDepr,
+    netEquipment: roundedNetEquip,
+    totalAssets: round2(roundedTotalCurrent + roundedNetEquip),
+    currentLiabilities,
+    totalLiabilities: round2(totalLiabilities),
+    ownerCapital: accountMap.get("3010") || 0.00,
+    ownerDrawings: accountMap.get("3020") || 0.00,
+  };
+}
+
+async function assertJournalReplayMatches(executor, existingEntryId, expectedEntryType, expectedLines) {
+  const [[header]] = await executor.execute(
+    "SELECT id, entry_type FROM journal_entries WHERE id = ? LIMIT 1",
+    [existingEntryId],
+  );
+  if (!header) {
+    throw httpError(409, "Client request ID conflict with an existing journal transaction.");
+  }
+  if (header.entry_type !== expectedEntryType) {
+    throw httpError(409, "Client request ID was already used for a different journal entry type.");
+  }
+
+  const [storedRows] = await executor.execute(
+    `SELECT coa.account_code,
+            COALESCE(SUM(jel.debit), 0.00) AS total_debit,
+            COALESCE(SUM(jel.credit), 0.00) AS total_credit
+       FROM journal_entry_lines jel
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+      WHERE jel.journal_entry_id = ?
+      GROUP BY coa.account_code`,
+    [existingEntryId],
+  );
+
+  const storedMap = new Map();
+  let storedTotal = 0;
+  for (const r of storedRows) {
+    const d = round2(r.total_debit);
+    const c = round2(r.total_credit);
+    storedMap.set(String(r.account_code), { debit: d, credit: c });
+    storedTotal += d;
+  }
+
+  const expectedMap = new Map();
+  for (const l of expectedLines) {
+    const code = String(l.accountCode);
+    const prev = expectedMap.get(code) || { debit: 0, credit: 0 };
+    expectedMap.set(code, {
+      debit: round2(prev.debit + round2(l.debit)),
+      credit: round2(prev.credit + round2(l.credit)),
+    });
+  }
+
+  if (storedMap.size !== expectedMap.size) {
+    throw httpError(409, "Client request ID was already used with a different journal payload.");
+  }
+  for (const [code, exp] of expectedMap.entries()) {
+    const got = storedMap.get(code);
+    if (!got || Math.abs(got.debit - exp.debit) >= 0.005 || Math.abs(got.credit - exp.credit) >= 0.005) {
+      throw httpError(409, "Client request ID was already used with a different journal payload.");
+    }
+  }
+  return round2(storedTotal);
+}
 
 // -------------------------------------------------------------
 // 1. TRIAL BALANCE & RECONCILIATION SUMMARY (Admin Only)
@@ -39,6 +211,8 @@ router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request,
             coa.account_name,
             coa.account_category,
             coa.normal_balance,
+            coa.report_section,
+            coa.expense_group,
             COALESCE(v.total_debits, 0.00) AS total_debits,
             COALESCE(v.total_credits, 0.00) AS total_credits,
             COALESCE(v.current_balance, 0.00) AS current_balance
@@ -66,6 +240,8 @@ router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request,
       accountName: r.account_name,
       category: r.account_category,
       normalBalance: r.normal_balance,
+      reportSection: r.report_section,
+      expenseGroup: r.expense_group || null,
       totalDebits: round2(r.total_debits),
       totalCredits: round2(r.total_credits),
       currentBalance: round2(r.current_balance),
@@ -86,6 +262,10 @@ router.get("/accounts", requireAuth, requireRole("admin"), async (_request, resp
             coa.account_name,
             coa.account_category,
             coa.normal_balance,
+            coa.report_section,
+            coa.expense_group,
+            COALESCE(v.total_debits, 0.00) AS total_debits,
+            COALESCE(v.total_credits, 0.00) AS total_credits,
             COALESCE(v.current_balance, 0.00) AS current_balance
        FROM chart_of_accounts coa
        LEFT JOIN view_account_balances v ON v.id = coa.id
@@ -99,41 +279,23 @@ router.get("/accounts", requireAuth, requireRole("admin"), async (_request, resp
   );
   const liveInventoryValue = round2(invRow?.live_inventory_value);
 
-  const accountMap = new Map();
-  for (const acc of accounts) {
-    accountMap.set(acc.account_code, round2(acc.current_balance));
-  }
-
-  const cashDrawer = accountMap.get("1010") || 0.00;
-  const gcash = accountMap.get("1020") || 0.00;
-  const bank = accountMap.get("1030") || 0.00;
-  const reserve = accountMap.get("1040") || 0.00;
-  const nonCurrentEquipment = accountMap.get("1510") || 0.00;
+  const bs = summarizeBalanceSheetAccounts(accounts);
+  const cashDrawer = bs.accountMap.get("1010") || 0.00;
+  const gcash = bs.accountMap.get("1020") || 0.00;
+  const bank = bs.accountMap.get("1030") || 0.00;
+  const reserve = bs.accountMap.get("1040") || 0.00;
+  const nonCurrentEquipment = bs.netEquipment;
 
   const totalLiquidAssets = round2(cashDrawer + gcash + bank + reserve);
   const totalStoreAssets = round2(totalLiquidAssets + liveInventoryValue + nonCurrentEquipment);
+  const totalLiabilities = bs.totalLiabilities;
+  const ownerCapital = bs.ownerCapital;
+  const ownerDrawings = bs.ownerDrawings;
 
-  const payables = accountMap.get("2010") || 0.00;
-  const taxesPayable = accountMap.get("2020") || 0.00;
-  const totalLiabilities = round2(payables + taxesPayable);
-
-  const ownerCapital = accountMap.get("3010") || 0.00;
-  const ownerDrawings = accountMap.get("3020") || 0.00;
-
-  let revNet = 0;
-  let expenseTotal = 0;
-  for (const acc of accounts) {
-    const code = acc.account_code;
-    const bal = Number(acc.current_balance || 0);
-    if (code === "4010") revNet += bal;
-    else if (code === "4020") revNet -= bal;
-    else if (code === "5010" || code.startsWith("60")) expenseTotal += bal;
-    else if (acc.account_category === "revenue" && code !== "4010" && code !== "4020") revNet += bal;
-    else if (acc.account_category === "expense" && code !== "5010" && !code.startsWith("60")) expenseTotal += bal;
-  }
-  const netSalesRevenue = round2(revNet);
-  const totalCogsAndExpenses = round2(expenseTotal);
-  const netProfitAfterSale = round2(revNet - expenseTotal);
+  const pnl = summarizeIncomeStatementLines(accounts, { clampSections: false });
+  const netSalesRevenue = pnl.netSales;
+  const totalCogsAndExpenses = round2(pnl.cogs + pnl.totalOperatingExpenses + pnl.depreciation + pnl.tax);
+  const netProfitAfterSale = pnl.netIncome;
   const baseCapitalMoney = round2(totalStoreAssets - netProfitAfterSale);
 
   response.json({
@@ -143,6 +305,8 @@ router.get("/accounts", requireAuth, requireRole("admin"), async (_request, resp
       accountName: a.account_name,
       category: a.account_category,
       normalBalance: a.normal_balance,
+      reportSection: a.report_section,
+      expenseGroup: a.expense_group || null,
       balance: round2(a.current_balance),
     })),
     summary: {
@@ -176,79 +340,82 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
     capitalReserve = 0,
     equipment = 0,
     notes = "Initial business capital registration",
+    clientRequestId,
   } = request.body || {};
 
-  const rawAmounts = [cashDrawer, gcash, bank, capitalReserve, equipment];
-  for (const val of rawAmounts) {
-    const parsed = val === "" || val === null || val === undefined ? 0 : Number(val);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      throw httpError(400, "Opening capital amounts must be finite non-negative numbers.");
-    }
+  if (notes !== undefined && typeof notes !== "string") {
+    throw httpError(400, "Opening balance notes must be a string.");
   }
+  const cleanNotes = String(notes || "Initial business capital registration").trim().slice(0, 255) || "Initial business capital registration";
+  const cleanClientRequestId = parseOptionalClientRequestId(clientRequestId);
 
-  const numCash = Number(cashDrawer || 0);
-  const numGcash = Number(gcash || 0);
-  const numBank = Number(bank || 0);
-  const numReserve = Number(capitalReserve || 0);
-  const numEquip = Number(equipment || 0);
+  const numCash = parseOptionalOpeningAmount(cashDrawer, "Cash drawer amount");
+  const numGcash = parseOptionalOpeningAmount(gcash, "GCash amount");
+  const numBank = parseOptionalOpeningAmount(bank, "Bank amount");
+  const numReserve = parseOptionalOpeningAmount(capitalReserve, "Capital reserve amount");
+  const numEquip = parseOptionalOpeningAmount(equipment, "Equipment amount");
 
   const totalOpeningDebits = round2(numCash + numGcash + numBank + numReserve + numEquip);
   if (totalOpeningDebits <= 0) {
     throw httpError(400, "Initial capital must be greater than zero across registered accounts.");
   }
 
+  const lines = [];
+  if (numCash > 0) lines.push({ accountCode: "1010", debit: numCash, credit: 0, lineMemo: "Opening Cash Drawer" });
+  if (numGcash > 0) lines.push({ accountCode: "1020", debit: numGcash, credit: 0, lineMemo: "Opening GCash Wallet" });
+  if (numBank > 0) lines.push({ accountCode: "1030", debit: numBank, credit: 0, lineMemo: "Opening Bank Account" });
+  if (numReserve > 0) lines.push({ accountCode: "1040", debit: numReserve, credit: 0, lineMemo: "Opening Capital Reserve" });
+  if (numEquip > 0) lines.push({ accountCode: "1510", debit: numEquip, credit: 0, lineMemo: "Opening Store Equipment" });
+  lines.push({ accountCode: "3010", debit: 0, credit: totalOpeningDebits, lineMemo: "Owner Capital Contribution" });
+
+  if (cleanClientRequestId) {
+    const [[existing]] = await pool.execute(
+      "SELECT id FROM journal_entries WHERE idempotency_key = ? LIMIT 1",
+      [cleanClientRequestId],
+    );
+    if (existing) {
+      const storedAmount = await assertJournalReplayMatches(pool, Number(existing.id), "opening_balance", lines);
+      return response.status(200).json({
+        message: "Initial business capital already recorded (idempotent replay).",
+        entryId: Number(existing.id),
+        totalInitialCapital: storedAmount,
+      });
+    }
+  }
+
   const connection = await pool.getConnection();
-  let entryId;
+  let txOpen = false;
+  let ledgerResult;
   try {
     await connection.beginTransaction();
+    txOpen = true;
 
-    const [accRows] = await connection.query(
-      "SELECT id, account_code FROM chart_of_accounts WHERE account_code IN ('1010', '1020', '1030', '1040', '1510', '3010')"
-    );
-    const codeToId = new Map(accRows.map((r) => [r.account_code, Number(r.id)]));
-
-    const capitalAccId = codeToId.get("3010");
-    if (!capitalAccId) throw httpError(500, "Owner Capital account (3010) is not found in chart of accounts.");
-
-    const entryNumber = generateEntryNumber("OPENING");
-    const [headerResult] = await connection.execute(
-      `INSERT INTO journal_entries (entry_number, entry_type, memo, created_by)
-       VALUES (?, 'opening_balance', ?, ?)`,
-      [entryNumber, String(notes).slice(0, 255), request.authUser.sub]
-    );
-    entryId = headerResult.insertId;
-
-    const lines = [];
-    if (numCash > 0 && codeToId.has("1010")) {
-      lines.push([entryId, codeToId.get("1010"), round2(numCash), 0.00, "Opening Cash Drawer"]);
-    }
-    if (numGcash > 0 && codeToId.has("1020")) {
-      lines.push([entryId, codeToId.get("1020"), round2(numGcash), 0.00, "Opening GCash Wallet"]);
-    }
-    if (numBank > 0 && codeToId.has("1030")) {
-      lines.push([entryId, codeToId.get("1030"), round2(numBank), 0.00, "Opening Bank Account"]);
-    }
-    if (numReserve > 0 && codeToId.has("1040")) {
-      lines.push([entryId, codeToId.get("1040"), round2(numReserve), 0.00, "Opening Capital Reserve"]);
-    }
-    if (numEquip > 0 && codeToId.has("1510")) {
-      lines.push([entryId, codeToId.get("1510"), round2(numEquip), 0.00, "Opening Store Equipment"]);
-    }
-
-    // Balanced Credit Line: 3010 Owner's Capital
-    lines.push([entryId, capitalAccId, 0.00, totalOpeningDebits, "Owner Capital Contribution"]);
-
-    for (const line of lines) {
-      await connection.execute(
-        `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-         VALUES (?, ?, ?, ?, ?)`,
-        line
-      );
+    ledgerResult = await postBalancedEntry(connection, {
+      entryType: "opening_balance",
+      memo: cleanNotes,
+      idempotencyKey: cleanClientRequestId,
+      createdBy: request.authUser.sub,
+      lines,
+    });
+    if (ledgerResult.skipped) {
+      await connection.rollback();
+      txOpen = false;
+      const storedAmount = ledgerResult.entryId
+        ? await assertJournalReplayMatches(connection, Number(ledgerResult.entryId), "opening_balance", lines)
+        : totalOpeningDebits;
+      return response.status(200).json({
+        message: "Initial business capital already recorded (idempotent replay).",
+        entryId: ledgerResult.entryId,
+        totalInitialCapital: storedAmount,
+      });
     }
 
     await connection.commit();
+    txOpen = false;
   } catch (error) {
-    await connection.rollback();
+    if (txOpen) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
     connection.release();
@@ -256,7 +423,7 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
 
   response.status(201).json({
     message: "Initial business capital recorded successfully with balanced double entries.",
-    entryId,
+    entryId: ledgerResult.entryId,
     totalInitialCapital: totalOpeningDebits,
   });
 });
@@ -352,6 +519,7 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
       referenceNumber: e.reference_number || null,
       orderId: e.order_id ? Number(e.order_id) : null,
       sessionId: e.session_id ? Number(e.session_id) : null,
+      payableId: e.payable_id ? Number(e.payable_id) : null,
       isReversal: Boolean(e.is_reversal),
       isAlreadyReversed: Boolean(e.is_already_reversed),
       reversesEntryId: e.reverses_entry_id ? Number(e.reverses_entry_id) : null,
@@ -386,11 +554,30 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     lines: rawLines,
     memo,
     referenceNumber = null,
+    clientRequestId,
+    vendorName = null,
+    dueDate = null,
   } = request.body || {};
 
-  if (!memo || String(memo).trim().length === 0) {
+  if (typeof memo !== "string" || memo.trim().length === 0) {
     throw httpError(400, "A descriptive memo is required for audit trails.");
   }
+  const cleanMemo = memo.trim().slice(0, 255);
+
+  if (vendorName !== null && vendorName !== undefined && typeof vendorName !== "string") {
+    throw httpError(400, "Vendor name must be a string.");
+  }
+  const cleanVendorName = vendorName ? String(vendorName).trim().slice(0, 120) || null : null;
+
+  let cleanDueDate = null;
+  if (dueDate !== null && dueDate !== undefined && String(dueDate).trim() !== "") {
+    cleanDueDate = String(dueDate).trim();
+    if (!isValidIsoDateOnly(cleanDueDate)) {
+      throw httpError(400, "Invalid dueDate. Expected YYYY-MM-DD.");
+    }
+  }
+
+  const cleanClientRequestId = parseOptionalClientRequestId(clientRequestId);
 
   const validTypes = [
     "operating_expense",
@@ -400,6 +587,9 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     "adjustment",
     "inventory_restock",
     "opening_balance",
+    "ap_settlement",
+    "depreciation",
+    "income_tax",
   ];
   if (!validTypes.includes(entryType)) {
     throw httpError(400, `Invalid entryType. Allowed types: ${validTypes.join(", ")}`);
@@ -413,23 +603,44 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     }
     let totalD = 0;
     let totalC = 0;
+    const accountSides = new Map();
+
     for (const l of rawLines) {
+      if (!l || typeof l !== "object") {
+        throw httpError(400, "Each journal line must be a valid object.");
+      }
       const accCode = String(l.accountCode || "").trim();
       if (!accCode) throw httpError(400, "Every journal entry line requires a valid accountCode.");
-      const rawDebit = l.debit === undefined || l.debit === null || l.debit === "" ? 0 : Number(l.debit);
-      const rawCredit = l.credit === undefined || l.credit === null || l.credit === "" ? 0 : Number(l.credit);
-      if (!Number.isFinite(rawDebit) || !Number.isFinite(rawCredit) || rawDebit < 0 || rawCredit < 0) {
-        throw httpError(400, "Journal entry line debit and credit amounts must be finite non-negative numbers.");
+
+      const d = (l.debit === undefined || l.debit === null || (typeof l.debit === "string" && l.debit.trim() === ""))
+        ? 0
+        : parseExactMoney(l.debit, "Journal line debit", { allowZero: true });
+      const c = (l.credit === undefined || l.credit === null || (typeof l.credit === "string" && l.credit.trim() === ""))
+        ? 0
+        : parseExactMoney(l.credit, "Journal line credit", { allowZero: true });
+
+      if (d > 0 && c > 0) {
+        throw httpError(400, `Line for account '${accCode}' cannot have both positive debit and positive credit.`);
       }
-      const d = round2(rawDebit);
-      const c = round2(rawCredit);
+      if (d === 0 && c === 0) {
+        throw httpError(400, `Line for account '${accCode}' must specify a positive debit or credit amount.`);
+      }
+
+      const side = accountSides.get(accCode) || { hasDebit: false, hasCredit: false };
+      if ((d > 0 && side.hasCredit) || (c > 0 && side.hasDebit)) {
+        throw httpError(400, `Self-offsetting debit and credit on account '${accCode}' is not allowed in one entry.`);
+      }
+      side.hasDebit = side.hasDebit || d > 0;
+      side.hasCredit = side.hasCredit || c > 0;
+      accountSides.set(accCode, side);
+
       totalD += d;
       totalC += c;
       finalLines.push({
         accountCode: accCode,
         debit: d,
         credit: c,
-        lineMemo: String(l.lineMemo || l.memo || memo).slice(0, 255),
+        lineMemo: String(l.lineMemo || l.memo || cleanMemo).slice(0, 255),
       });
     }
     totalD = round2(totalD);
@@ -444,22 +655,18 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       );
     }
   } else {
-    // 2-legged entry
-    if (!debitAccountCode || !creditAccountCode) {
+    const cleanDebitCode = String(debitAccountCode || "").trim();
+    const cleanCreditCode = String(creditAccountCode || "").trim();
+    if (!cleanDebitCode || !cleanCreditCode) {
       throw httpError(400, "Both debitAccountCode and creditAccountCode are required.");
     }
-    if (debitAccountCode === creditAccountCode) {
+    if (cleanDebitCode === cleanCreditCode) {
       throw httpError(400, "Debit and Credit accounts must be different.");
     }
 
     if (debitAmount !== undefined && creditAmount !== undefined) {
-      const parsedDebit = Number(debitAmount);
-      const parsedCredit = Number(creditAmount);
-      if (!Number.isFinite(parsedDebit) || !Number.isFinite(parsedCredit)) {
-        throw httpError(400, "Debit and credit amounts must be finite numbers.");
-      }
-      const dAmt = round2(parsedDebit);
-      const cAmt = round2(parsedCredit);
+      const dAmt = parseExactMoney(debitAmount, "Debit amount");
+      const cAmt = parseExactMoney(creditAmount, "Credit amount");
       if (Math.abs(dAmt - cAmt) >= 0.005) {
         throw httpError(
           400,
@@ -468,70 +675,513 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       }
     }
 
-    const rawAmount = amount !== undefined ? Number(amount) : Number(debitAmount);
-    if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
-      throw httpError(400, "Transaction amount must be a finite positive number.");
-    }
-    const cleanAmount = round2(rawAmount);
-    if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
-      throw httpError(400, "Transaction amount must be a positive number.");
-    }
+    const rawTarget = amount !== undefined ? amount : (debitAmount !== undefined ? debitAmount : creditAmount);
+    const cleanAmount = parseExactMoney(rawTarget, "Transaction amount");
 
     finalLines = [
-      { accountCode: debitAccountCode, debit: cleanAmount, credit: 0.00, lineMemo: `Debit ${debitAccountCode}` },
-      { accountCode: creditAccountCode, debit: 0.00, credit: cleanAmount, lineMemo: `Credit ${creditAccountCode}` },
+      { accountCode: cleanDebitCode, debit: cleanAmount, credit: 0.00, lineMemo: `Debit ${cleanDebitCode}` },
+      { accountCode: cleanCreditCode, debit: 0.00, credit: cleanAmount, lineMemo: `Credit ${cleanCreditCode}` },
     ];
   }
 
+  if (finalLines.some((l) => l.accountCode === "2020")) {
+    throw httpError(400, "Account 2020 (Sales Tax / VAT Payable) is reserved strictly for automated POS order transactions.");
+  }
+
+  const totalAmount = round2(finalLines.reduce((s, l) => s + l.debit, 0));
   const accountCodes = [...new Set(finalLines.map((l) => l.accountCode))];
+  const debitLines = finalLines.filter((l) => l.debit > 0);
+  const creditLines = finalLines.filter((l) => l.credit > 0);
+
+  if (cleanClientRequestId) {
+    const [[existing]] = await pool.execute(
+      "SELECT id FROM journal_entries WHERE idempotency_key = ? LIMIT 1",
+      [cleanClientRequestId],
+    );
+    if (existing) {
+      const storedAmount = await assertJournalReplayMatches(pool, Number(existing.id), entryType, finalLines);
+      return response.status(200).json({
+        message: "Journal entry already recorded (idempotent replay).",
+        entryId: Number(existing.id),
+        amount: storedAmount,
+      });
+    }
+  }
+
+  const [accRows] = await pool.query(
+    `SELECT id, account_code, account_category, report_section, is_active
+       FROM chart_of_accounts
+      WHERE is_active = TRUE
+        AND account_code IN (${accountCodes.map(() => "?").join(",")})`,
+    accountCodes,
+  );
+  const coaMap = new Map(accRows.map((r) => [r.account_code, r]));
+
+  for (const l of finalLines) {
+    if (!coaMap.has(l.accountCode)) {
+      throw httpError(400, `Account code '${l.accountCode}' is inactive or not found in Chart of Accounts.`);
+    }
+  }
+
   const connection = await pool.getConnection();
-  let entryId;
+  let txOpen = false;
+  let postedEntryId;
+
   try {
     await connection.beginTransaction();
+    txOpen = true;
 
-    const [accRows] = await connection.query(
-      `SELECT id, account_code FROM chart_of_accounts WHERE account_code IN (${accountCodes.map(() => "?").join(",")})`,
-      accountCodes
-    );
-    const codeMap = new Map(accRows.map((r) => [r.account_code, Number(r.id)]));
+    const touchesDepreciationAccounts = finalLines.some((l) => l.accountCode === "6210" || l.accountCode === "1520");
+    if (entryType === "depreciation" || touchesDepreciationAccounts) {
+      if (entryType !== "depreciation") {
+        throw httpError(400, "Depreciation accounts (6210 / 1520) may only be posted with entryType 'depreciation'.");
+      }
+      if (finalLines.some((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
+        throw httpError(400, "Depreciation is strictly non-cash and cannot touch liquid accounts (1010–1040).");
+      }
+      if (!debitLines.every((l) => l.accountCode === "6210") || !creditLines.every((l) => l.accountCode === "1520")) {
+        throw httpError(400, "Depreciation entries must strictly debit 6210 and credit 1520.");
+      }
 
-    for (const l of finalLines) {
-      if (!codeMap.has(l.accountCode)) {
-        throw httpError(400, `Account code '${l.accountCode}' not found in Chart of Accounts.`);
+      await connection.execute(
+        "SELECT id FROM chart_of_accounts WHERE account_code IN ('1510', '1520') FOR UPDATE",
+      );
+      const [equipLines] = await connection.execute(
+        `SELECT coa.account_code, jel.debit, jel.credit
+           FROM journal_entry_lines jel
+           JOIN chart_of_accounts coa ON coa.id = jel.account_id
+          WHERE coa.account_code IN ('1510', '1520')
+          FOR UPDATE`,
+      );
+      let bal1510 = 0;
+      let bal1520 = 0;
+      for (const row of equipLines) {
+        const d = Number(row.debit || 0);
+        const c = Number(row.credit || 0);
+        if (row.account_code === "1510") bal1510 += d - c;
+        else if (row.account_code === "1520") bal1520 += c - d;
+      }
+      bal1510 = round2(bal1510);
+      bal1520 = round2(bal1520);
+      const netBookValue = round2(bal1510 - bal1520);
+      if (totalAmount > netBookValue + 0.001) {
+        throw httpError(
+          409,
+          `Depreciation amount (₱${totalAmount.toFixed(2)}) exceeds remaining Equipment Net Book Value (₱${netBookValue.toFixed(2)}).`,
+        );
+      }
+    } else if (entryType === "operating_expense") {
+      if (!debitLines.every((l) => coaMap.get(l.accountCode)?.report_section === "opex")) {
+        throw httpError(400, "Operating expense debits must target active OPEX accounts.");
+      }
+      if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode) || l.accountCode === "2010")) {
+        throw httpError(400, "Operating expenses must be paid via 1010–1040 or accrued to 2010 Accounts Payable.");
+      }
+    } else if (entryType === "income_tax") {
+      if (!debitLines.every((l) => l.accountCode === "6310")) {
+        throw httpError(400, "Income tax entries must debit 6310 Income Tax Expense.");
+      }
+      if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode) || l.accountCode === "2030")) {
+        throw httpError(400, "Income tax must be paid via 1010–1040 or accrued to 2030 Income Tax Payable.");
+      }
+    } else if (entryType === "ap_settlement") {
+      const liabCodes = [...new Set(debitLines.map((l) => l.accountCode))];
+      if (liabCodes.length !== 1 || !["2010", "2030"].includes(liabCodes[0])) {
+        throw httpError(400, "Manual ap_settlement must debit a single payable account (2010 or 2030).");
+      }
+      if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
+        throw httpError(400, "Payable settlements must credit a liquid account (1010–1040).");
+      }
+      const targetLiability = liabCodes[0];
+      await connection.execute(
+        "SELECT id FROM chart_of_accounts WHERE account_code = ? AND is_active = TRUE FOR UPDATE",
+        [targetLiability],
+      );
+      const [glLines] = await connection.execute(
+        `SELECT jel.credit, jel.debit
+           FROM journal_entry_lines jel
+           JOIN chart_of_accounts coa ON coa.id = jel.account_id
+          WHERE coa.account_code = ?
+          FOR UPDATE`,
+        [targetLiability],
+      );
+      const glBalance = round2(glLines.reduce((s, r) => s + Number(r.credit || 0) - Number(r.debit || 0), 0));
+      const [trackedRows] = await connection.execute(
+        `SELECT original_amount, paid_amount
+           FROM financial_payables
+          WHERE liability_account_code = ?
+            AND status IN ('unpaid', 'partial')
+          FOR UPDATE`,
+        [targetLiability],
+      );
+      const trackedOpen = round2(
+        trackedRows.reduce((s, r) => s + Number(r.original_amount || 0) - Number(r.paid_amount || 0), 0),
+      );
+      const untrackedBalance = round2(Math.max(0, glBalance - trackedOpen));
+      if (totalAmount > untrackedBalance + 0.001) {
+        throw httpError(409, "Tracked unpaid bills must be settled via POST /api/finances/payables/:id/settle.");
+      }
+    } else if (entryType === "owner_withdrawal") {
+      if (!debitLines.every((l) => l.accountCode === "3020") || !creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
+        throw httpError(400, "Owner withdrawals must debit 3020 and credit a liquid account (1010–1040).");
+      }
+    } else if (entryType === "capital_injection") {
+      if (!debitLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode)) || !creditLines.every((l) => l.accountCode === "3010")) {
+        throw httpError(400, "Capital injections must debit a liquid account (1010–1040) and credit 3010.");
+      }
+    } else if (entryType === "account_transfer") {
+      if (!finalLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
+        throw httpError(400, "Liquid account transfers must strictly use accounts 1010–1040.");
       }
     }
 
-    const entryNumber = generateEntryNumber(entryType);
-    const [headerResult] = await connection.execute(
-      `INSERT INTO journal_entries (entry_number, entry_type, memo, reference_number, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [entryNumber, entryType, String(memo).slice(0, 255), referenceNumber ? String(referenceNumber).slice(0, 100) : null, request.authUser.sub]
-    );
-    entryId = headerResult.insertId;
+    const touchesDrawer = entryType !== "opening_balance" && finalLines.some((l) => l.accountCode === "1010");
+    const sessionId = touchesDrawer ? await resolveActiveSessionId(connection, request.authUser.sub) : null;
 
-    for (const line of finalLines) {
-      const accId = codeMap.get(line.accountCode);
-      await connection.execute(
-        `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-         VALUES (?, ?, ?, ?, ?)`,
-        [entryId, accId, line.debit, line.credit, line.lineMemo]
-      );
+    const ledgerRes = await postBalancedEntry(connection, {
+      entryType,
+      memo: cleanMemo,
+      referenceNumber: referenceNumber ? String(referenceNumber).slice(0, 100) : null,
+      sessionId,
+      idempotencyKey: cleanClientRequestId,
+      createdBy: request.authUser.sub,
+      lines: finalLines,
+    });
+    if (ledgerRes.skipped) {
+      await connection.rollback();
+      txOpen = false;
+      const storedAmount = ledgerRes.entryId
+        ? await assertJournalReplayMatches(connection, Number(ledgerRes.entryId), entryType, finalLines)
+        : totalAmount;
+      return response.status(200).json({
+        message: "Journal entry already recorded (idempotent replay).",
+        entryId: ledgerRes.entryId,
+        amount: storedAmount,
+      });
+    }
+    postedEntryId = ledgerRes.entryId;
+
+    if (postedEntryId) {
+      if (entryType === "operating_expense") {
+        const apCredit = round2(creditLines.filter((l) => l.accountCode === "2010").reduce((s, l) => s + l.credit, 0));
+        if (apCredit > 0) {
+          await connection.execute(
+            `INSERT INTO financial_payables (
+               bill_number, bill_category, vendor_name, expense_account_code, liability_account_code,
+               bill_date, due_date, original_amount, paid_amount, status, incurred_journal_entry_id,
+               session_id, notes, created_by
+             ) VALUES (?, 'opex', ?, ?, '2010', ?, ?, ?, 0.00, 'unpaid', ?, ?, ?, ?)`,
+            [
+              `BILL-${postedEntryId}`,
+              cleanVendorName,
+              debitLines[0].accountCode,
+              getManilaDateString(),
+              cleanDueDate,
+              apCredit,
+              postedEntryId,
+              sessionId,
+              cleanMemo,
+              request.authUser.sub,
+            ],
+          );
+        }
+      } else if (entryType === "income_tax") {
+        const taxCredit = round2(creditLines.filter((l) => l.accountCode === "2030").reduce((s, l) => s + l.credit, 0));
+        if (taxCredit > 0) {
+          await connection.execute(
+            `INSERT INTO financial_payables (
+               bill_number, bill_category, vendor_name, expense_account_code, liability_account_code,
+               bill_date, due_date, original_amount, paid_amount, status, incurred_journal_entry_id,
+               session_id, notes, created_by
+             ) VALUES (?, 'income_tax', ?, '6310', '2030', ?, ?, ?, 0.00, 'unpaid', ?, ?, ?, ?)`,
+            [
+              `TAX-${postedEntryId}`,
+              cleanVendorName || "BIR / Tax Authority",
+              getManilaDateString(),
+              cleanDueDate,
+              taxCredit,
+              postedEntryId,
+              sessionId,
+              cleanMemo,
+              request.authUser.sub,
+            ],
+          );
+        }
+      }
     }
 
     await connection.commit();
+    txOpen = false;
   } catch (error) {
-    await connection.rollback();
+    if (txOpen) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
     connection.release();
   }
 
-  const totalAmount = round2(finalLines.reduce((s, l) => s + l.debit, 0));
   response.status(201).json({
     message: "Journal entry posted successfully with balanced debit and credit.",
-    entryId,
+    entryId: postedEntryId,
     amount: totalAmount,
   });
+});
+
+// -------------------------------------------------------------
+// 5B. PAYABLES SUBLEDGER & SETTLEMENT (2010 AP & 2030 TAX PAYABLE)
+// -------------------------------------------------------------
+router.get("/payables", requireAuth, requireRole("admin"), async (request, response) => {
+  const rawStatus = request.query?.status !== undefined ? String(request.query.status).trim().toLowerCase() : "open";
+  const rawCategory = request.query?.category !== undefined ? String(request.query.category).trim().toLowerCase() : "";
+
+  const validStatuses = new Set(["open", "all", "unpaid", "partial", "paid", "voided"]);
+  if (!validStatuses.has(rawStatus)) {
+    throw httpError(400, "Invalid status filter. Allowed: open, all, unpaid, partial, paid, voided.");
+  }
+  const validCategories = new Set(["", "opex", "inventory_restock", "income_tax"]);
+  if (!validCategories.has(rawCategory)) {
+    throw httpError(400, "Invalid category filter. Allowed: opex, inventory_restock, income_tax.");
+  }
+
+  const conditions = [];
+  const params = [];
+  if (rawStatus === "open") {
+    conditions.push("fp.status IN ('unpaid', 'partial')");
+  } else if (rawStatus !== "all") {
+    conditions.push("fp.status = ?");
+    params.push(rawStatus);
+  }
+  if (rawCategory) {
+    conditions.push("fp.bill_category = ?");
+    params.push(rawCategory);
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const [rows] = await pool.query(
+    `SELECT fp.*
+       FROM financial_payables fp
+       ${whereClause}
+      ORDER BY FIELD(fp.status, 'unpaid', 'partial', 'paid', 'voided'), COALESCE(fp.due_date, fp.bill_date) ASC, fp.id DESC`,
+    params,
+  );
+
+  const [[totalsRow]] = await pool.query(
+    `SELECT COALESCE(SUM(CASE WHEN liability_account_code = '2010' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_ap_2010,
+            COALESCE(SUM(CASE WHEN liability_account_code = '2030' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_tax_2030
+       FROM financial_payables`,
+  );
+
+  const [glRows] = await pool.query(
+    `SELECT account_code, COALESCE(current_balance, 0.00) AS balance
+       FROM view_account_balances
+      WHERE account_code IN ('2010', '2030')`,
+  );
+  const glMap = new Map(glRows.map((r) => [r.account_code, round2(r.balance)]));
+
+  response.json({
+    items: rows.map((r) => ({
+      id: Number(r.id),
+      billNumber: r.bill_number,
+      billCategory: r.bill_category,
+      vendorName: r.vendor_name || null,
+      expenseAccountCode: r.expense_account_code,
+      liabilityAccountCode: r.liability_account_code,
+      billDate: formatDbDateOnly(r.bill_date),
+      dueDate: formatDbDateOnly(r.due_date),
+      originalAmount: round2(r.original_amount),
+      paidAmount: round2(r.paid_amount),
+      remainingAmount: round2(Number(r.original_amount) - Number(r.paid_amount)),
+      status: r.status,
+      incurredJournalEntryId: Number(r.incurred_journal_entry_id),
+      sessionId: r.session_id ? Number(r.session_id) : null,
+      notes: r.notes || "",
+    })),
+    totals: {
+      unpaidAp2010: round2(totalsRow?.unpaid_ap_2010 || 0),
+      unpaidTax2030: round2(totalsRow?.unpaid_tax_2030 || 0),
+      glAp2010Balance: glMap.get("2010") || 0.00,
+      glTax2030Balance: glMap.get("2030") || 0.00,
+    },
+  });
+});
+
+router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (request, response) => {
+  const payableId = Number(request.params.id);
+  if (!Number.isSafeInteger(payableId) || payableId <= 0) {
+    throw httpError(400, "Invalid payable ID.");
+  }
+
+  const paymentAccountCode = String(request.body?.paymentAccountCode || "").trim();
+  if (!LIQUID_ACCOUNT_CODES.has(paymentAccountCode)) {
+    throw httpError(400, "Invalid paymentAccountCode. Must be a liquid account (1010–1040).");
+  }
+  const amount = parseExactMoney(request.body?.amount, "Settlement amount");
+  if (request.body?.notes !== undefined && request.body?.notes !== null && typeof request.body.notes !== "string") {
+    throw httpError(400, "Settlement notes must be a string.");
+  }
+  const cleanNotes = request.body?.notes ? String(request.body.notes).trim().slice(0, 255) : "";
+  const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId);
+
+  const connection = await pool.getConnection();
+  let txOpen = false;
+  let resultPayload;
+
+  try {
+    await connection.beginTransaction();
+    txOpen = true;
+
+    const [[payable]] = await connection.execute(
+      "SELECT * FROM financial_payables WHERE id = ? FOR UPDATE",
+      [payableId],
+    );
+    if (!payable) {
+      throw httpError(404, "Payable record not found.");
+    }
+
+    const expectedSettleLines = [
+      {
+        accountCode: payable.liability_account_code,
+        debit: amount,
+        credit: 0,
+        lineMemo: `Settle ${payable.bill_number}`,
+      },
+      {
+        accountCode: paymentAccountCode,
+        debit: 0,
+        credit: amount,
+        lineMemo: `Paid ${payable.bill_number} from ${paymentAccountCode}`,
+      },
+    ];
+
+    if (cleanClientRequestId) {
+      const [[existingJe]] = await connection.execute(
+        "SELECT id, payable_id FROM journal_entries WHERE idempotency_key = ? LIMIT 1",
+        [cleanClientRequestId],
+      );
+      if (existingJe) {
+        if (Number(existingJe.payable_id) !== payableId) {
+          throw httpError(409, "Client request ID was already used for a different payable settlement.");
+        }
+        await connection.rollback();
+        txOpen = false;
+        await assertJournalReplayMatches(connection, Number(existingJe.id), "ap_settlement", expectedSettleLines);
+        return response.status(200).json({
+          message: "Payable settlement already recorded (idempotent replay).",
+          entryId: Number(existingJe.id),
+          payableId: Number(payable.id),
+          billNumber: payable.bill_number,
+          paidAmount: Number(payable.paid_amount),
+          remainingAmount: round2(Math.max(0, Number(payable.original_amount) - Number(payable.paid_amount))),
+          status: payable.status,
+        });
+      }
+    }
+
+    if (payable.status === "paid" || payable.status === "voided") {
+      throw httpError(409, `Payable ${payable.bill_number} is already '${payable.status}' and cannot be settled.`);
+    }
+
+    const remaining = round2(Number(payable.original_amount) - Number(payable.paid_amount));
+    if (amount > remaining + 0.001) {
+      throw httpError(
+        409,
+        `Settlement amount (₱${amount.toFixed(2)}) exceeds remaining payable balance (₱${remaining.toFixed(2)}).`,
+      );
+    }
+
+    const [[liabCoa]] = await connection.execute(
+      "SELECT id FROM chart_of_accounts WHERE account_code = ? AND is_active = TRUE FOR UPDATE",
+      [payable.liability_account_code],
+    );
+    if (!liabCoa) {
+      throw httpError(400, `Liability account '${payable.liability_account_code}' is inactive or missing.`);
+    }
+
+    const [glLines] = await connection.execute(
+      `SELECT credit, debit
+         FROM journal_entry_lines
+        WHERE account_id = ?
+        FOR UPDATE`,
+      [liabCoa.id],
+    );
+    const liveGlBalance = round2(glLines.reduce((s, r) => s + Number(r.credit || 0) - Number(r.debit || 0), 0));
+    if (amount > liveGlBalance + 0.001) {
+      throw httpError(
+        409,
+        `Settlement amount (₱${amount.toFixed(2)}) exceeds live GL liability balance (₱${liveGlBalance.toFixed(2)}).`,
+      );
+    }
+
+    const sessionId = paymentAccountCode === "1010"
+      ? await resolveActiveSessionId(connection, request.authUser.sub)
+      : null;
+
+    const jeRes = await postBalancedEntry(connection, {
+      entryType: "ap_settlement",
+      memo: cleanNotes || `Settlement of ${payable.bill_number}${payable.vendor_name ? ` (${payable.vendor_name})` : ""}`,
+      referenceNumber: payable.bill_number,
+      sessionId,
+      payableId: payable.id,
+      idempotencyKey: cleanClientRequestId,
+      createdBy: request.authUser.sub,
+      lines: expectedSettleLines,
+    });
+
+    if (jeRes.skipped) {
+      await connection.rollback();
+      txOpen = false;
+      if (jeRes.entryId) {
+        const [[dupHeader]] = await connection.execute(
+          "SELECT payable_id FROM journal_entries WHERE id = ? LIMIT 1",
+          [jeRes.entryId],
+        );
+        if (Number(dupHeader?.payable_id) !== payableId) {
+          throw httpError(409, "Client request ID was already used for a different payable settlement.");
+        }
+        await assertJournalReplayMatches(connection, Number(jeRes.entryId), "ap_settlement", expectedSettleLines);
+      }
+      return response.status(200).json({
+        message: "Payable settlement already recorded (idempotent replay).",
+        entryId: jeRes.entryId,
+        payableId: Number(payable.id),
+        billNumber: payable.bill_number,
+        paidAmount: Number(payable.paid_amount),
+        remainingAmount: round2(Math.max(0, Number(payable.original_amount) - Number(payable.paid_amount))),
+        status: payable.status,
+      });
+    }
+
+    const newPaid = round2(Number(payable.paid_amount) + amount);
+    const newRemaining = round2(Math.max(0, Number(payable.original_amount) - newPaid));
+    const newStatus = newRemaining < 0.005 ? "paid" : "partial";
+
+    await connection.execute(
+      "UPDATE financial_payables SET paid_amount = ?, status = ? WHERE id = ?",
+      [newPaid, newStatus, payable.id],
+    );
+
+    await connection.commit();
+    txOpen = false;
+    resultPayload = {
+      message: "Payable settled successfully.",
+      entryId: jeRes.entryId,
+      payableId: Number(payable.id),
+      billNumber: payable.bill_number,
+      paidAmount: newPaid,
+      remainingAmount: newRemaining,
+      status: newStatus,
+    };
+  } catch (error) {
+    if (txOpen) {
+      await connection.rollback();
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  response.status(201).json(resultPayload);
 });
 
 // -------------------------------------------------------------
@@ -557,6 +1207,10 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
     if (originalEntry.is_reversal) {
       throw httpError(400, "Cannot reverse an entry that is already a reversal.");
     }
+    if (originalEntry.inventory_movement_id != null) {
+      throw httpError(409, "Reverse inventory-backed entries via Inventory endpoints so stock quantities stay synchronized.");
+    }
+
     const [[existingReversal]] = await connection.execute(
       "SELECT id FROM journal_entries WHERE reverses_entry_id = ? LIMIT 1 FOR UPDATE",
       [targetId]
@@ -566,20 +1220,60 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
     }
 
     const [lines] = await connection.execute(
-      "SELECT * FROM journal_entry_lines WHERE journal_entry_id = ?",
+      `SELECT jel.*, coa.account_code
+         FROM journal_entry_lines jel
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+        WHERE jel.journal_entry_id = ?`,
       [targetId]
     );
     if (!lines || lines.length === 0) {
       throw httpError(400, "Original journal entry contains no lines to reverse.");
     }
 
+    const [[incurredPayable]] = await connection.execute(
+      "SELECT * FROM financial_payables WHERE incurred_journal_entry_id = ? LIMIT 1 FOR UPDATE",
+      [targetId],
+    );
+    if (incurredPayable && incurredPayable.status !== "voided") {
+      if (Number(incurredPayable.paid_amount || 0) > 0) {
+        throw httpError(409, "Cannot reverse bill/payable with active settlements. Reverse its settlements first.");
+      }
+      await connection.execute(
+        "UPDATE financial_payables SET status = 'voided' WHERE id = ?",
+        [incurredPayable.id],
+      );
+    }
+
+    if (originalEntry.entry_type === "ap_settlement" && originalEntry.payable_id != null) {
+      const [[settledPayable]] = await connection.execute(
+        "SELECT * FROM financial_payables WHERE id = ? LIMIT 1 FOR UPDATE",
+        [originalEntry.payable_id],
+      );
+      if (settledPayable) {
+        const settledAmount = round2(
+          lines
+            .filter((l) => l.account_code === settledPayable.liability_account_code)
+            .reduce((sum, l) => sum + Number(l.debit || 0), 0),
+        );
+        const newPaid = round2(Math.max(0, Number(settledPayable.paid_amount || 0) - settledAmount));
+        const newStatus = newPaid <= 0
+          ? "unpaid"
+          : (Math.abs(Number(settledPayable.original_amount) - newPaid) < 0.005 ? "paid" : "partial");
+        await connection.execute(
+          "UPDATE financial_payables SET paid_amount = ?, status = ? WHERE id = ?",
+          [newPaid, newStatus, settledPayable.id],
+        );
+      }
+    }
+
     const reversalNumber = generateEntryNumber("REV");
+    const reversalMemo = `Reversal of ${originalEntry.entry_number}: ${reason}`.slice(0, 255);
     let revHeader;
     try {
       [revHeader] = await connection.execute(
-        `INSERT INTO journal_entries (entry_number, entry_type, memo, is_reversal, reverses_entry_id, created_by)
-         VALUES (?, 'void_reversal', ?, TRUE, ?, ?)`,
-        [reversalNumber, `Reversal of ${originalEntry.entry_number}: ${reason}`, targetId, request.authUser.sub]
+        `INSERT INTO journal_entries (entry_number, entry_type, memo, session_id, is_reversal, reverses_entry_id, created_by)
+         VALUES (?, 'void_reversal', ?, ?, TRUE, ?, ?)`,
+        [reversalNumber, reversalMemo, originalEntry.session_id ?? null, targetId, request.authUser.sub]
       );
     } catch (insertError) {
       if (insertError?.code === "ER_DUP_ENTRY") {
@@ -638,65 +1332,38 @@ router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async 
     `SELECT coa.account_code,
             coa.account_name,
             coa.account_category,
+            coa.normal_balance,
+            coa.report_section,
+            coa.expense_group,
             COALESCE(SUM(jel.debit), 0.00) AS total_debit,
             COALESCE(SUM(jel.credit), 0.00) AS total_credit
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN chart_of_accounts coa ON coa.id = jel.account_id
        ${whereClause}
-      GROUP BY coa.account_code, coa.account_name, coa.account_category`,
+      GROUP BY coa.account_code, coa.account_name, coa.account_category, coa.normal_balance, coa.report_section, coa.expense_group`,
     params
   );
 
-  let grossSales = 0;
-  let discounts = 0;
-  let cogs = 0;
-  const opexItems = [];
-  let totalOpex = 0;
-
-  for (const l of lines) {
-    const code = l.account_code;
-    const debit = Number(l.total_debit || 0);
-    const credit = Number(l.total_credit || 0);
-
-    if (code === "4010") {
-      grossSales += (credit - debit);
-    } else if (code === "4020") {
-      discounts += (debit - credit);
-    } else if (code === "5010") {
-      cogs += (debit - credit);
-    } else if (code.startsWith("60")) {
-      const expenseAmount = round2(debit - credit);
-      if (expenseAmount !== 0) {
-        opexItems.push({
-          accountCode: code,
-          accountName: l.account_name,
-          amount: expenseAmount,
-        });
-        totalOpex += expenseAmount;
-      }
-    }
-  }
-
-  const roundedGrossSales = round2(Math.max(0, grossSales));
-  const roundedDiscounts = round2(Math.max(0, discounts));
-  const netSales = round2(Math.max(0, roundedGrossSales - roundedDiscounts));
-  const roundedCogs = round2(Math.max(0, cogs));
-  const grossProfit = round2(netSales - roundedCogs);
-  const grossMarginPercent = netSales > 0 ? round2((grossProfit / netSales) * 100) : 0.0;
-  const roundedTotalOpex = round2(totalOpex);
-  const netOperatingProfit = round2(grossProfit - roundedTotalOpex);
+  const pnl = summarizeIncomeStatementLines(lines);
 
   response.json({
-    grossSales: roundedGrossSales,
-    discounts: roundedDiscounts,
-    netSales,
-    cogs: roundedCogs,
-    grossProfit,
-    grossMarginPercent,
-    operatingExpenses: opexItems,
-    totalOperatingExpenses: roundedTotalOpex,
-    netOperatingProfit,
+    grossSales: pnl.grossSales,
+    discounts: pnl.discounts,
+    netSales: pnl.netSales,
+    customerSalesCogs: pnl.customerSalesCogs,
+    foodSpoilageCogs: pnl.foodSpoilageCogs,
+    cogs: pnl.cogs,
+    grossProfit: pnl.grossProfit,
+    grossMarginPercent: pnl.grossMarginPercent,
+    operatingExpenses: pnl.operatingExpenses,
+    totalOperatingExpenses: pnl.totalOperatingExpenses,
+    depreciation: pnl.depreciation,
+    tax: pnl.tax,
+    ebitdaOperatingIncome: pnl.ebitdaOperatingIncome,
+    netIncomeBeforeTax: pnl.netIncomeBeforeTax,
+    netIncome: pnl.netIncome,
+    netOperatingProfit: pnl.netOperatingProfit,
   });
 });
 
@@ -706,7 +1373,15 @@ router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async 
 router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (request, response) => {
   const { from: rawFrom, to: rawTo } = request.query || {};
   const { from, to } = assertValidDateRange(rawFrom, rawTo);
-  const conditions = [];
+  const conditions = [
+    `EXISTS (
+      SELECT 1
+        FROM journal_entry_lines jel_liq
+        JOIN chart_of_accounts coa_liq ON coa_liq.id = jel_liq.account_id
+       WHERE jel_liq.journal_entry_id = je.id
+         AND coa_liq.account_code IN ('1010', '1020', '1030', '1040')
+    )`,
+  ];
   const params = [];
 
   if (from) {
@@ -717,58 +1392,126 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
     conditions.push("je.entry_date <= ?");
     params.push(`${to} 23:59:59`);
   }
-  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
-  const [lines] = await pool.query(
-    `SELECT coa.account_code,
+  const [rows] = await pool.query(
+    `SELECT je.id AS entry_id,
             je.entry_type,
-            EXISTS (
-              SELECT 1
-                FROM journal_entry_lines jel_liq
-                JOIN chart_of_accounts coa_liq ON coa_liq.id = jel_liq.account_id
-               WHERE jel_liq.journal_entry_id = je.id
-                 AND coa_liq.account_code IN ('1010', '1020', '1030', '1040')
-            ) AS touches_liquid,
-            COALESCE(SUM(jel.debit), 0.00) AS total_debit,
-            COALESCE(SUM(jel.credit), 0.00) AS total_credit
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
+            parent_je.entry_type AS parent_entry_type,
+            fp.bill_category AS payable_bill_category,
+            coa.account_code,
+            jel.debit,
+            jel.credit
+       FROM journal_entries je
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
        JOIN chart_of_accounts coa ON coa.id = jel.account_id
+       LEFT JOIN journal_entries parent_je ON parent_je.id = je.reverses_entry_id
+       LEFT JOIN financial_payables fp ON fp.id = COALESCE(je.payable_id, parent_je.payable_id)
        ${whereClause}
-      GROUP BY coa.account_code, je.entry_type, touches_liquid`,
-    params
+      ORDER BY je.id ASC, jel.id ASC`,
+    params,
   );
+
+  const byEntry = new Map();
+  for (const r of rows) {
+    const entryId = Number(r.entry_id);
+    let bucket = byEntry.get(entryId);
+    if (!bucket) {
+      bucket = {
+        entryType: r.entry_type,
+        parentEntryType: r.parent_entry_type || null,
+        payableBillCategory: r.payable_bill_category || null,
+        liquidNet: 0,
+        counterpartCodes: new Set(),
+      };
+      byEntry.set(entryId, bucket);
+    }
+    const code = String(r.account_code);
+    const debit = Number(r.debit || 0);
+    const credit = Number(r.credit || 0);
+    if (LIQUID_ACCOUNT_CODES.has(code)) {
+      bucket.liquidNet += (debit - credit);
+    } else {
+      bucket.counterpartCodes.add(code);
+    }
+  }
 
   let cashSalesInflow = 0;
   let opexCashOutflow = 0;
   let restockCashOutflow = 0;
+  let taxCashOutflow = 0;
   let otherOperatingCashNet = 0;
-  let equipmentInvestingOutflow = 0;
+  let investingNet = 0;
   let capitalInflow = 0;
   let drawingOutflow = 0;
 
-  for (const l of lines) {
-    const code = l.account_code;
-    const type = l.entry_type;
-    const debit = Number(l.total_debit || 0);
-    const credit = Number(l.total_credit || 0);
+  for (const entry of byEntry.values()) {
+    const liquidNet = round2(entry.liquidNet);
+    if (Math.abs(liquidNet) < 0.005) continue;
 
-    // Liquid accounts: 1010, 1020, 1030, 1040
-    if (["1010", "1020", "1030", "1040"].includes(code)) {
-      if (type === "sales_revenue") cashSalesInflow += (debit - credit);
-      else if (type === "operating_expense") opexCashOutflow += (credit - debit);
-      else if (type === "inventory_restock") restockCashOutflow += (credit - debit);
-      else if (type === "capital_injection" || type === "opening_balance") capitalInflow += (debit - credit);
-      else if (type === "owner_withdrawal") drawingOutflow += (credit - debit);
-      else if (type === "void_reversal" || type === "adjustment") otherOperatingCashNet += (debit - credit);
-    }
-    if (code === "1510" && Boolean(l.touches_liquid) && type !== "opening_balance") {
-      equipmentInvestingOutflow += (debit - credit);
+    const effectiveType = entry.entryType === "void_reversal" && entry.parentEntryType
+      ? entry.parentEntryType
+      : entry.entryType;
+    const counterparts = entry.counterpartCodes;
+
+    if (
+      effectiveType !== "opening_balance" &&
+      counterparts.has("1510") &&
+      !counterparts.has("1050") &&
+      !counterparts.has("3010") &&
+      !counterparts.has("3020")
+    ) {
+      investingNet += liquidNet;
+    } else if (effectiveType === "capital_injection" || effectiveType === "opening_balance") {
+      capitalInflow += liquidNet;
+    } else if (effectiveType === "owner_withdrawal") {
+      drawingOutflow += (-liquidNet);
+    } else if (effectiveType === "sales_revenue") {
+      cashSalesInflow += liquidNet;
+    } else if (effectiveType === "operating_expense") {
+      opexCashOutflow += (-liquidNet);
+    } else if (effectiveType === "inventory_restock") {
+      restockCashOutflow += (-liquidNet);
+    } else if (effectiveType === "income_tax") {
+      taxCashOutflow += (-liquidNet);
+    } else if (effectiveType === "ap_settlement") {
+      if (entry.payableBillCategory === "inventory_restock") {
+        restockCashOutflow += (-liquidNet);
+      } else if (entry.payableBillCategory === "income_tax" || (!entry.payableBillCategory && counterparts.has("2030"))) {
+        taxCashOutflow += (-liquidNet);
+      } else {
+        opexCashOutflow += (-liquidNet);
+      }
+    } else if (
+      counterparts.has("3010") &&
+      !counterparts.has("1050") &&
+      !counterparts.has("4010") &&
+      !counterparts.has("5010")
+    ) {
+      capitalInflow += liquidNet;
+    } else if (
+      counterparts.has("3020") &&
+      !counterparts.has("1050") &&
+      !counterparts.has("4010") &&
+      !counterparts.has("5010")
+    ) {
+      drawingOutflow += (-liquidNet);
+    } else if (
+      (counterparts.has("2030") || counterparts.has("6310")) &&
+      !counterparts.has("4010") &&
+      !counterparts.has("5010")
+    ) {
+      taxCashOutflow += (-liquidNet);
+    } else {
+      otherOperatingCashNet += liquidNet;
     }
   }
 
-  const operatingCashFlow = round2(cashSalesInflow + otherOperatingCashNet - (opexCashOutflow + restockCashOutflow));
-  const investingCashFlow = round2(-Math.max(0, equipmentInvestingOutflow));
+  const operatingCashFlow = round2(
+    cashSalesInflow + otherOperatingCashNet - (opexCashOutflow + restockCashOutflow + taxCashOutflow),
+  );
+  const equipmentPurchased = round2(-investingNet);
+  const investingCashFlow = round2(investingNet);
   const financingCashFlow = round2(capitalInflow - drawingOutflow);
   const netCashFlow = round2(operatingCashFlow + investingCashFlow + financingCashFlow);
 
@@ -778,10 +1521,11 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
       otherOperatingCashNet: round2(otherOperatingCashNet),
       opexCashOutflow: round2(opexCashOutflow),
       restockCashOutflow: round2(restockCashOutflow),
+      taxCashOutflow: round2(taxCashOutflow),
       netOperatingCashFlow: operatingCashFlow,
     },
     investingActivities: {
-      equipmentPurchased: round2(equipmentInvestingOutflow),
+      equipmentPurchased,
       netInvestingCashFlow: investingCashFlow,
     },
     financingActivities: {
@@ -879,6 +1623,10 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
             coa.account_name,
             coa.account_category,
             coa.normal_balance,
+            coa.report_section,
+            coa.expense_group,
+            COALESCE(v.total_debits, 0.00) AS total_debits,
+            COALESCE(v.total_credits, 0.00) AS total_credits,
             COALESCE(v.current_balance, 0.00) AS current_balance
        FROM chart_of_accounts coa
        LEFT JOIN view_account_balances v ON v.id = coa.id
@@ -891,81 +1639,44 @@ router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_
   );
   const liveInventoryValue = round2(invRow?.live_inventory_value);
 
-  const accountMap = new Map();
-  for (const acc of accounts) {
-    accountMap.set(acc.account_code, round2(acc.current_balance));
-  }
-
-  const cashDrawer = accountMap.get("1010") || 0.00;
-  const gcash = accountMap.get("1020") || 0.00;
-  const bank = accountMap.get("1030") || 0.00;
-  const reserve = accountMap.get("1040") || 0.00;
-  const ledgerInventoryValue = accountMap.get("1050") || 0.00;
-  const equipment = accountMap.get("1510") || 0.00;
-
-  const currentAssets = [
-    { accountCode: "1010", accountName: "Cash Drawer (Counter 1)", amount: cashDrawer },
-    { accountCode: "1020", accountName: "GCash Official Wallet", amount: gcash },
-    { accountCode: "1030", accountName: "Store Bank Account", amount: bank },
-    { accountCode: "1040", accountName: "Owner Capital Reserve", amount: reserve },
-    { accountCode: "1050", accountName: "Merchandise Inventory (Ledger)", amount: ledgerInventoryValue },
-  ];
-  const nonCurrentAssets = [
-    { accountCode: "1510", accountName: "Kitchen & Espresso Equipment", amount: equipment },
-  ];
-  const totalAssets = round2(cashDrawer + gcash + bank + reserve + ledgerInventoryValue + equipment);
+  const bs = summarizeBalanceSheetAccounts(accounts);
+  const ledgerInventoryValue = bs.accountMap.get("1050") || 0.00;
   const inventoryValuationVariance = round2(liveInventoryValue - ledgerInventoryValue);
 
-  const payables = accountMap.get("2010") || 0.00;
-  const taxesPayable = accountMap.get("2020") || 0.00;
-  const currentLiabilities = [
-    { accountCode: "2010", accountName: "Accounts Payable (Suppliers)", amount: payables },
-    { accountCode: "2020", accountName: "Local Business Taxes Payable", amount: taxesPayable },
-  ];
-  const totalLiabilities = round2(payables + taxesPayable);
+  // Compute true Retained Earnings directly from database-classified Income Statement accounts
+  const retainedEarnings = summarizeIncomeStatementLines(accounts, { clampSections: false }).netIncome;
+  const totalEquity = round2(bs.ownerCapital - bs.ownerDrawings + retainedEarnings);
 
-  const ownerCapital = accountMap.get("3010") || 0.00;
-  const ownerDrawings = accountMap.get("3020") || 0.00;
-
-  // Compute true Retained Earnings directly from Revenue & Expense accounts in COA
-  let revNet = 0;
-  let expenseTotal = 0;
-  for (const acc of accounts) {
-    const code = acc.account_code;
-    const bal = Number(acc.current_balance || 0);
-    if (code === "4010") revNet += bal;
-    else if (code === "4020") revNet -= bal;
-    else if (code === "5010" || code.startsWith("60")) expenseTotal += bal;
-    else if (acc.account_category === "revenue" && code !== "4010" && code !== "4020") revNet += bal;
-    else if (acc.account_category === "expense" && code !== "5010" && !code.startsWith("60")) expenseTotal += bal;
-  }
-  const retainedEarnings = round2(revNet - expenseTotal);
-  const totalEquity = round2(ownerCapital - ownerDrawings + retainedEarnings);
-
-  const balanceDifference = round2(totalAssets - (totalLiabilities + totalEquity));
+  const balanceDifference = round2(bs.totalAssets - (bs.totalLiabilities + totalEquity));
   const isBalanced = Math.abs(balanceDifference) < 0.005;
 
   response.json({
     asOfDate: getManilaDateString(),
     assets: {
-      current: currentAssets,
-      nonCurrent: nonCurrentAssets,
-      totalAssets,
+      current: bs.currentAssets,
+      nonCurrent: bs.nonCurrentAssets,
+      grossEquipment: bs.grossEquipment,
+      accumulatedDepreciation: bs.accumulatedDepreciation,
+      netEquipment: bs.netEquipment,
+      totalAssets: bs.totalAssets,
     },
-    totalAssets,
+    grossEquipment: bs.grossEquipment,
+    accumulatedDepreciation: bs.accumulatedDepreciation,
+    netEquipment: bs.netEquipment,
+    totalAssets: bs.totalAssets,
     ledgerInventoryValue,
     liveInventoryValue,
     inventoryValuationVariance,
     liabilities: {
-      current: currentLiabilities,
-      totalLiabilities,
+      current: bs.currentLiabilities,
+      totalLiabilities: bs.totalLiabilities,
     },
-    totalLiabilities,
+    totalLiabilities: bs.totalLiabilities,
     equity: {
-      capital: ownerCapital,
-      ownerCapital,
-      drawings: ownerDrawings,
-      ownerDrawings,
+      capital: bs.ownerCapital,
+      ownerCapital: bs.ownerCapital,
+      drawings: bs.ownerDrawings,
+      ownerDrawings: bs.ownerDrawings,
       retainedEarnings,
       totalEquity,
     },

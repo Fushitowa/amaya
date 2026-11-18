@@ -9,6 +9,8 @@ import {
   getManilaDateString,
   postBalancedEntry,
   postInventoryValuationDelta,
+  resolveActiveSessionId,
+  stripCostFromNote,
 } from "../utils/ledgerService.js";
 import {
   computeWasteDeduction,
@@ -353,7 +355,8 @@ router.put("/categories/:id/reassign-and-delete", requireAuth, requireRole("admi
   }
 });
 
-const VALID_MOVEMENT_TYPES = new Set(["restock", "adjustment", "usage", "spoilage", "void_restore"]);
+const VALID_MOVEMENT_TYPES = new Set(["restock", "adjustment", "usage", "spoilage", "void_restore", "internal_use"]);
+const ALLOWED_INTERNAL_USE_ACCOUNTS = new Set(["6113", "6130", "6133", "6140", "6141", "6142", "6143", "6144"]);
 
 function isValidIsoDateOnly(value) {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -375,15 +378,6 @@ async function fetchMappedItemById(id, includeCost = true) {
     [id],
   );
   return row ? mapItem(row, includeCost) : null;
-}
-
-function stripCostFromNote(noteText) {
-  if (!noteText) return "";
-  return String(noteText)
-    .replace(/ for ₱[0-9.,]+ · new avg ₱[0-9.,]+\/[^)]+/gi, "")
-    .replace(/\s*\([^)]*₱[^)]*\)/g, "")
-    .replace(/₱\s*[0-9.,]+/g, "")
-    .trim();
 }
 
 function mapMovementRow(row, includeCost = true) {
@@ -734,6 +728,42 @@ router.get("/waste-logs", requireAuth, requireRole("admin", "staff"), async (req
 
 const CLIENT_REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{16,100}$/;
 
+function parseOptionalClientRequestId(rawValue, maxLength = 100) {
+  const hasField = rawValue !== undefined && rawValue !== null && String(rawValue) !== "";
+  const trimmed = rawValue !== undefined && rawValue !== null ? String(rawValue).trim() : "";
+  if (hasField && (!CLIENT_REQUEST_ID_REGEX.test(trimmed) || trimmed.length > maxLength)) {
+    throw httpError(400, "Invalid clientRequestId format.");
+  }
+  return trimmed || null;
+}
+
+function formatInternalUseResponseRow(row, fallbackExpenseCode = null) {
+  const matchedCode = String(row.note || "").match(/^Internal store use \((\d+)\)/)?.[1] || fallbackExpenseCode;
+  return {
+    ...mapMovementRow(row, true),
+    movementId: Number(row.id),
+    usageValue: row.batch_cost == null ? 0 : round2(row.batch_cost),
+    expenseAccountCode: matchedCode,
+    journalEntryId: row.journal_entry_id ? Number(row.journal_entry_id) : null,
+  };
+}
+
+function assertInternalUseReplayMatches(existingMove, itemId, deductQty, expenseAccountCode, expectedNote) {
+  if (Number(existingMove.inventory_item_id) !== itemId) {
+    throw httpError(409, "Client request ID was already used for a different inventory item.");
+  }
+  const storedQty = round6(Math.abs(Number(existingMove.quantity_change || 0)));
+  const storedCode = String(existingMove.note || "").match(/^Internal store use \((\d+)\)/)?.[1] || null;
+  if (
+    existingMove.movement_type !== "internal_use" ||
+    storedQty !== deductQty ||
+    storedCode !== expenseAccountCode ||
+    String(existingMove.note || "") !== expectedNote
+  ) {
+    throw httpError(409, "Client request ID was already used with a different internal store use payload.");
+  }
+}
+
 async function findExistingWasteByClientRequest(executor, userId, clientRequestId) {
   const [[row]] = await executor.execute(
     `SELECT m.*,
@@ -793,10 +823,12 @@ function assertWasteReplayMatches(existingMove, itemId, body = {}) {
   }
 }
 
-router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin"), async (request, response) => {
+async function reverseDeductionMovement(request, targetMode) {
+  const isWaste = targetMode === "spoilage";
+  const label = isWaste ? "waste" : "internal store use";
   const movementId = Number(request.params.movementId);
   if (!Number.isSafeInteger(movementId) || movementId <= 0) {
-    throw httpError(400, "Invalid waste movement ID.");
+    throw httpError(400, `Invalid ${label} movement ID.`);
   }
 
   const cleanReason = String(request.body?.reason || "").trim().slice(0, 255);
@@ -816,16 +848,24 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
       [movementId],
     );
     if (!orig) {
-      throw httpError(404, "Waste movement entry not found.");
+      throw httpError(404, isWaste ? "Waste movement entry not found." : "Internal store use movement entry not found.");
     }
-    if (orig.movement_type !== "spoilage") {
-      throw httpError(400, "Only spoilage / waste log entries can be reversed here.");
+    if (orig.movement_type !== targetMode) {
+      throw httpError(
+        400,
+        isWaste ? "Only spoilage / waste log entries can be reversed here." : "Only internal store use entries can be reversed here.",
+      );
     }
-    if (orig.order_id != null || !orig.waste_reason) {
-      throw httpError(400, "Only standalone zero-guesswork waste logs can be reversed here.");
+    if (orig.order_id != null || (isWaste && !orig.waste_reason)) {
+      throw httpError(
+        400,
+        isWaste
+          ? "Only standalone zero-guesswork waste logs can be reversed here."
+          : "Only standalone internal store use entries can be reversed here.",
+      );
     }
     if (orig.reversed_by_movement_id != null) {
-      throw httpError(409, "This waste entry has already been reversed.");
+      throw httpError(409, `This ${label} entry has already been reversed.`);
     }
 
     const [[itemRow]] = await connection.execute(
@@ -836,12 +876,12 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
       throw httpError(404, "Associated inventory item not found.");
     }
     if (itemRow.is_archived) {
-      throw httpError(409, "Cannot reverse waste on an archived inventory item. Restore the inventory item first.");
+      throw httpError(409, `Cannot reverse ${label} on an archived inventory item. Restore the inventory item first.`);
     }
 
     const restoredQuantity = round6(Math.abs(Number(orig.quantity_change || 0)));
     if (!Number.isFinite(restoredQuantity) || restoredQuantity <= 0) {
-      throw httpError(400, "Waste movement has no quantity available to restore.");
+      throw httpError(400, `This ${label} movement has no quantity available to restore.`);
     }
 
     const beforeQuantity = round6(Number(itemRow.quantity || 0));
@@ -857,23 +897,14 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
       ? round6(((oldQtyPositive * oldCostPositive) + restoredValue) / afterQuantity)
       : oldCostPositive;
 
-    let [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      [request.authUser.sub],
-    );
-    if (!activeSession) {
-      [[activeSession]] = await connection.execute(
-        "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      );
-    }
-    const sessionId = activeSession ? Number(activeSession.id) : (orig.session_id ? Number(orig.session_id) : null);
+    const sessionId = await resolveActiveSessionId(connection, request.authUser.sub, orig.session_id);
 
     await connection.execute(
       "UPDATE inventory_items SET quantity = ?, unit_cost = ? WHERE id = ?",
       [afterQuantity, newUnitCost, itemRow.id],
     );
 
-    const reversalNote = `Reversal of waste log #${orig.id}: ${cleanReason}`.slice(0, 500);
+    const reversalNote = `Reversal of ${isWaste ? "waste log" : "internal store use"} #${orig.id}: ${cleanReason}`.slice(0, 500);
     const [revMoveRes] = await connection.execute(
       `INSERT INTO inventory_movements (
          inventory_item_id, user_id, movement_type, quantity_change, note,
@@ -903,7 +934,7 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
       [reversalMovementId, orig.id],
     );
     if (linkRes.affectedRows !== 1) {
-      throw httpError(409, "This waste entry has already been reversed.");
+      throw httpError(409, `This ${label} entry has already been reversed.`);
     }
 
     let reversalJournalEntryId = null;
@@ -918,7 +949,6 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
         [origJe.id],
       );
       if (existingRevJe) {
-        // GL entry was already reversed directly in Finances; link its id without deadlocking stock restoration
         reversalJournalEntryId = Number(existingRevJe.id);
       } else {
         const [origLines] = await connection.execute(
@@ -928,6 +958,9 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
 
         if (origLines && origLines.length > 0) {
           const reversalEntryNumber = generateEntryNumber("REV");
+          const memoPrefix = isWaste ? "waste" : "internal-use";
+          const refPrefix = isWaste ? "REV-WASTE" : "REV-USE";
+          const idemSuffix = isWaste ? "waste_reversal" : "internal_use_reversal";
           const [revJeRes] = await connection.execute(
             `INSERT INTO journal_entries (
                entry_number, entry_type, memo, reference_number,
@@ -936,12 +969,12 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
              ) VALUES (?, 'void_reversal', ?, ?, ?, ?, TRUE, ?, ?, ?)`,
             [
               reversalEntryNumber,
-              `Reversal of waste movement #${orig.id} (${origJe.entry_number}): ${cleanReason}`.slice(0, 500),
-              `REV-WASTE-${orig.id}`,
+              `Reversal of ${memoPrefix} movement #${orig.id} (${origJe.entry_number}): ${cleanReason}`.slice(0, 255),
+              `${refPrefix}-${orig.id}`,
               reversalMovementId,
               sessionId,
               origJe.id,
-              `inv_move:${reversalMovementId}:waste_reversal`,
+              `inv_move:${reversalMovementId}:${idemSuffix}`,
               request.authUser.sub,
             ],
           );
@@ -956,7 +989,7 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
                 line.account_id,
                 round2(line.credit),
                 round2(line.debit),
-                `Reversal of line #${line.id} (waste log #${orig.id})`,
+                `Reversal of line #${line.id} (${label} #${orig.id})`,
               ],
             );
           }
@@ -985,7 +1018,15 @@ router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin")
     connection.release();
   }
 
-  response.json(responsePayload);
+  return responsePayload;
+}
+
+router.post("/waste-logs/:movementId/reverse", requireAuth, requireRole("admin"), async (request, response) => {
+  response.json(await reverseDeductionMovement(request, "spoilage"));
+});
+
+router.post("/internal-use/:movementId/reverse", requireAuth, requireRole("admin"), async (request, response) => {
+  response.json(await reverseDeductionMovement(request, "internal_use"));
 });
 
 router.post("/:id/waste", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -1005,14 +1046,7 @@ router.post("/:id/waste", requireAuth, requireRole("admin", "staff"), async (req
     clientRequestId,
   } = request.body || {};
 
-  const hasClientRequestIdField =
-    clientRequestId !== undefined && clientRequestId !== null && String(clientRequestId) !== "";
-  const rawClientReqId =
-    clientRequestId !== undefined && clientRequestId !== null ? String(clientRequestId).trim() : "";
-  if (hasClientRequestIdField && !CLIENT_REQUEST_ID_REGEX.test(rawClientReqId)) {
-    throw httpError(400, "Invalid clientRequestId format.");
-  }
-  const cleanClientRequestId = rawClientReqId || null;
+  const cleanClientRequestId = parseOptionalClientRequestId(clientRequestId, 100);
   const actorName = request.authUser?.displayName || request.authUser?.username || "Staff";
 
   const connection = await pool.getConnection();
@@ -1065,16 +1099,7 @@ router.post("/:id/waste", requireAuth, requireRole("admin", "staff"), async (req
       throw httpError(400, calc.error);
     }
 
-    let [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      [request.authUser.sub],
-    );
-    if (!activeSession) {
-      [[activeSession]] = await connection.execute(
-        "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      );
-    }
-    const sessionId = activeSession ? Number(activeSession.id) : null;
+    const sessionId = await resolveActiveSessionId(connection, request.authUser.sub);
 
     await connection.execute(
       "UPDATE inventory_items SET quantity = ? WHERE id = ? AND is_archived = FALSE",
@@ -1121,7 +1146,7 @@ router.post("/:id/waste", requireAuth, requireRole("admin", "staff"), async (req
         await connection.rollback();
         txOpen = false;
         const raceExisting = await findExistingWasteByClientRequest(
-          pool,
+          connection,
           request.authUser.sub,
           cleanClientRequestId,
         );
@@ -1516,7 +1541,7 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
     // Automated double-entry posting for inventory restock
     if (hasBatchCost && parsedBatchCost > 0) {
       const cleanCost = Number(parsedBatchCost.toFixed(2));
-      await postBalancedEntry(connection, {
+      const restockLedgerRes = await postBalancedEntry(connection, {
         entryType: "inventory_restock",
         memo: `Restock ${current.name}: +${quantity} ${current.unit} (batch cost ₱${cleanCost.toFixed(2)} via ${rawCreditAccount})`,
         referenceNumber: referenceNo ? String(referenceNo).slice(0, 100) : null,
@@ -1529,6 +1554,26 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
           { accountCode: rawCreditAccount, debit: 0, credit: cleanCost, lineMemo: `Credit ${rawCreditAccount} for ${current.name}` },
         ],
       });
+      if (rawCreditAccount === "2010" && restockLedgerRes?.entryId && !restockLedgerRes.skipped) {
+        const billNumber = `RST-${restockLedgerRes.entryId}`;
+        await connection.execute(
+          `INSERT INTO financial_payables (
+             bill_number, bill_category, vendor_name, expense_account_code, liability_account_code,
+             bill_date, due_date, original_amount, paid_amount, status, incurred_journal_entry_id,
+             session_id, notes, created_by
+           ) VALUES (?, 'inventory_restock', ?, '1050', '2010', ?, NULL, ?, 0.00, 'unpaid', ?, ?, ?, ?)`,
+          [
+            billNumber,
+            supplierName,
+            getManilaDateString(),
+            cleanCost,
+            restockLedgerRes.entryId,
+            sessionId,
+            `Restock ${current.name} (+${quantity} ${current.unit})${referenceNo ? ` · Ref: ${referenceNo}` : ""}`.slice(0, 500),
+            request.authUser.sub,
+          ],
+        );
+      }
     }
 
     // First restock of an item that has no maximum and no stock (e.g. auto-created from a menu
@@ -1545,6 +1590,197 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
   }
   const payload = await fetchMappedItemById(id, true);
   response.json(payload);
+});
+
+router.post("/:id/internal-use", requireAuth, requireRole("admin"), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw httpError(400, "Invalid inventory ID.");
+  }
+
+  const parsedQty = parseStrictFiniteNumber(request.body?.quantity);
+  if (parsedQty === null || parsedQty <= 0) {
+    throw httpError(400, "Internal store use quantity must be a finite number greater than zero.");
+  }
+  const deductQty = round6(parsedQty);
+  if (deductQty <= 0) {
+    throw httpError(400, "Internal store use quantity must be greater than zero.");
+  }
+
+  const expenseAccountCode = String(request.body?.expenseAccountCode || "").trim();
+  if (!ALLOWED_INTERNAL_USE_ACCOUNTS.has(expenseAccountCode)) {
+    throw httpError(
+      400,
+      "Invalid expenseAccountCode. Allowed OPEX accounts: 6113, 6130, 6133, 6140, 6141, 6142, 6143, 6144.",
+    );
+  }
+
+  const cleanNote = String(request.body?.note || "").trim().slice(0, 420);
+  const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId, 80);
+  const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
+  const movementNote = (
+    cleanNote
+      ? `Internal store use (${expenseAccountCode}): ${cleanNote}`
+      : `Internal store use (${expenseAccountCode})`
+  ).slice(0, 500);
+
+  const [[expenseCoa]] = await pool.execute(
+    "SELECT id, report_section, is_active FROM chart_of_accounts WHERE account_code = ? LIMIT 1",
+    [expenseAccountCode],
+  );
+  if (!expenseCoa || !expenseCoa.is_active || expenseCoa.report_section !== "opex") {
+    throw httpError(400, `Expense account '${expenseAccountCode}' is inactive or not classified under OPEX.`);
+  }
+
+  const connection = await pool.getConnection();
+  let movementId;
+  let ledgerRes;
+  let usageValue;
+  let txOpen = false;
+
+  try {
+    await connection.beginTransaction();
+    txOpen = true;
+
+    if (cleanClientRequestId) {
+      const existingMove = await findExistingWasteByClientRequest(
+        connection,
+        request.authUser.sub,
+        cleanClientRequestId,
+      );
+      if (existingMove) {
+        assertInternalUseReplayMatches(existingMove, id, deductQty, expenseAccountCode, movementNote);
+        await connection.rollback();
+        txOpen = false;
+        return response.status(200).json(formatInternalUseResponseRow(existingMove, expenseAccountCode));
+      }
+    }
+
+    const [[current]] = await connection.execute(
+      "SELECT * FROM inventory_items WHERE id = ? AND is_archived = FALSE FOR UPDATE",
+      [id],
+    );
+    if (!current) {
+      throw httpError(404, "Inventory item not found.");
+    }
+
+    const beforeQuantity = round6(Number(current.quantity || 0));
+    if (deductQty > beforeQuantity) {
+      if (cleanClientRequestId) {
+        const raceExisting = await findExistingWasteByClientRequest(
+          connection,
+          request.authUser.sub,
+          cleanClientRequestId,
+        );
+        if (raceExisting) {
+          assertInternalUseReplayMatches(raceExisting, id, deductQty, expenseAccountCode, movementNote);
+          await connection.rollback();
+          txOpen = false;
+          return response.status(200).json(formatInternalUseResponseRow(raceExisting, expenseAccountCode));
+        }
+      }
+      throw httpError(
+        409,
+        `Cannot use ${deductQty} ${current.unit} of ${current.name}; only ${beforeQuantity} ${current.unit} in stock.`,
+      );
+    }
+    const afterQuantity = round6(beforeQuantity - deductQty);
+
+    const sessionId = await resolveActiveSessionId(connection, request.authUser.sub);
+
+    await connection.execute(
+      "UPDATE inventory_items SET quantity = ? WHERE id = ? AND is_archived = FALSE",
+      [afterQuantity, id],
+    );
+
+    const unitCost = Number(current.unit_cost || 0);
+    usageValue = round2(deductQty * unitCost);
+
+    try {
+      const [moveRes] = await connection.execute(
+        `INSERT INTO inventory_movements (
+           inventory_item_id, user_id, movement_type, quantity_change, note,
+           item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
+           batch_cost, unit_cost_before, unit_cost_after, session_id, client_request_id
+         ) VALUES (?, ?, 'internal_use', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          request.authUser.sub,
+          -deductQty,
+          movementNote,
+          current.name,
+          actorName,
+          beforeQuantity,
+          afterQuantity,
+          current.unit,
+          usageValue,
+          unitCost,
+          unitCost,
+          sessionId,
+          cleanClientRequestId,
+        ],
+      );
+      movementId = Number(moveRes.insertId);
+    } catch (insertError) {
+      if (cleanClientRequestId && insertError?.code === "ER_DUP_ENTRY") {
+        await connection.rollback();
+        txOpen = false;
+        const raceExisting = await findExistingWasteByClientRequest(
+          connection,
+          request.authUser.sub,
+          cleanClientRequestId,
+        );
+        if (raceExisting) {
+          assertInternalUseReplayMatches(raceExisting, id, deductQty, expenseAccountCode, movementNote);
+          return response.status(200).json(formatInternalUseResponseRow(raceExisting, expenseAccountCode));
+        }
+      }
+      throw insertError;
+    }
+
+    ledgerRes = await postInventoryValuationDelta(connection, {
+      inventoryMovementId: movementId,
+      itemName: current.name,
+      deltaValue: -usageValue,
+      entryType: "operating_expense",
+      offsetAccountCode: expenseAccountCode,
+      memo: `Internal store use (${expenseAccountCode}): ${current.name} (-${deductQty} ${current.unit})${cleanNote ? ` · ${cleanNote}` : ""}`,
+      referenceNumber: `USE-${movementId}`,
+      sessionId,
+      userId: request.authUser.sub,
+    });
+
+    await connection.commit();
+    txOpen = false;
+  } catch (error) {
+    if (txOpen) {
+      await connection.rollback();
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  const [[createdRow]] = await pool.execute(
+    `SELECT m.*,
+            COALESCE(ii.name, m.item_name_snapshot) AS item_name,
+            ii.unit AS current_item_unit,
+            COALESCE(NULLIF(u.display_name, ''), NULLIF(m.actor_name_snapshot, ''), u.username, 'System') AS actor_name
+       FROM inventory_movements m
+       LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+       LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.id = ?
+      LIMIT 1`,
+    [movementId],
+  );
+
+  response.status(201).json({
+    ...mapMovementRow(createdRow, true),
+    movementId,
+    usageValue,
+    expenseAccountCode,
+    journalEntryId: ledgerRes?.entryId ?? null,
+  });
 });
 
 router.delete("/:id", requireAuth, requireRole("admin"), async (request, response) => {

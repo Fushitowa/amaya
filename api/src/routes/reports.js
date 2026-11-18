@@ -10,7 +10,7 @@ const VALID_RANGE_KEYS = new Set(["today", "7d", "30d", "all", "custom"]);
 const VALID_PAYMENT_METHODS = new Set(["Cash", "GCash", "Card"]);
 const VALID_ORDER_TYPES = new Set(["Counter", "Takeout", "Dine-in"]);
 const VALID_ORDER_STATUSES = new Set(["Pending", "Preparing", "Ready", "Completed", "Cancelled"]);
-const VALID_MOVEMENT_TYPES = new Set(["restock", "adjustment", "usage", "spoilage", "void_restore"]);
+const VALID_MOVEMENT_TYPES = new Set(["restock", "adjustment", "usage", "spoilage", "void_restore", "internal_use"]);
 const VALID_EXPORT_TYPES = new Set(["orders", "staff", "products", "inventory"]);
 
 function round2(value) {
@@ -257,6 +257,9 @@ async function queryPeriodFinancialMetrics(bounds, filters) {
   const [[orderAgg]] = await pool.execute(
     `SELECT
        COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' THEN o.total ELSE 0 END), 0) AS gross_collected_sales,
+       COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' THEN (o.total + COALESCE(o.discount_amount, 0) - COALESCE(o.tax_amount, 0)) ELSE 0 END), 0) AS gross_sales,
+       COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' THEN COALESCE(o.discount_amount, 0) ELSE 0 END), 0) AS discount_total,
+       COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' THEN COALESCE(o.tax_amount, 0) ELSE 0 END), 0) AS tax_collected,
        COALESCE(SUM(CASE WHEN o.payment_status = 'Paid' AND o.order_status <> 'Cancelled' THEN 1 ELSE 0 END), 0) AS paid_orders_count,
        COALESCE(SUM(CASE WHEN o.payment_status = 'Unpaid' AND o.order_status <> 'Cancelled' THEN 1 ELSE 0 END), 0) AS unpaid_orders_count,
        COALESCE(SUM(CASE WHEN o.order_status = 'Cancelled' THEN 1 ELSE 0 END), 0) AS voided_orders_count,
@@ -346,15 +349,61 @@ async function queryPeriodFinancialMetrics(bounds, filters) {
     movParams,
   );
 
+  const hasOrderSliceFilter = Boolean(
+    filters.paymentMethod || filters.orderType || filters.status || filters.search,
+  );
+  const spoilConditions = ["coa.account_code = '6030'"];
+  const spoilParams = [];
+  let spoilOrderJoin = "";
+  if (bounds?.start && bounds?.end) {
+    spoilConditions.push("je.entry_date BETWEEN ? AND ?");
+    spoilParams.push(bounds.start, bounds.end);
+  }
+  if (hasOrderSliceFilter) {
+    spoilOrderJoin = "JOIN orders o ON o.id = je.order_id";
+    const orderSliceWhere = buildOrderWhereClause({ filters, alias: "o" });
+    if (orderSliceWhere.whereSql) {
+      spoilConditions.push(orderSliceWhere.whereSql.replace(/^WHERE\s+/i, ""));
+      spoilParams.push(...orderSliceWhere.params);
+    }
+  } else if (filters.staffId) {
+    spoilOrderJoin = "LEFT JOIN orders o ON o.id = je.order_id";
+    spoilConditions.push("COALESCE(o.created_by, je.created_by) = ?");
+    spoilParams.push(filters.staffId);
+  }
+  const [[spoilAgg]] = await pool.execute(
+    `SELECT COALESCE(SUM(jel.debit - jel.credit), 0) AS spoilage_cost
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+       ${spoilOrderJoin}
+      WHERE ${spoilConditions.join(" AND ")}`,
+    spoilParams,
+  );
+
   const grossCollectedSales = round2(orderAgg?.gross_collected_sales);
+  const grossSales = round2(orderAgg?.gross_sales);
+  const discountTotal = round2(orderAgg?.discount_total);
+  const taxCollected = round2(orderAgg?.tax_collected);
+  const netSales = round2(grossSales - discountTotal);
   const cogs = round2(itemAgg?.cogs);
+  const spoilageCost = round2(Math.max(0, spoilAgg?.spoilage_cost));
+  const totalCogs = round2(cogs + spoilageCost);
   const grossProfit = round2(grossCollectedSales - cogs);
+  const reconciledGrossProfit = round2(netSales - totalCogs);
   const paidOrdersCount = Number(orderAgg?.paid_orders_count || 0);
 
   return {
     grossCollectedSales,
+    grossSales,
+    discountTotal,
+    taxCollected,
+    netSales,
     cogs,
+    spoilageCost,
+    totalCogs,
     grossProfit,
+    reconciledGrossProfit,
     marginPercent: grossCollectedSales > 0 ? round2((grossProfit / grossCollectedSales) * 100) : 0,
     paidOrdersCount,
     unpaidOrdersCount: Number(orderAgg?.unpaid_orders_count || 0),
@@ -1556,7 +1605,8 @@ async function queryInventoryActivityData(range, query = {}, { paginate = true, 
               COALESCE(SUM(CASE WHEN m.movement_type = 'adjustment' THEN 1 ELSE 0 END), 0) AS total_adjustment_count,
               COALESCE(SUM(CASE WHEN m.movement_type = 'usage' THEN 1 ELSE 0 END), 0) AS total_usage_count,
               COALESCE(SUM(CASE WHEN m.movement_type = 'spoilage' THEN 1 ELSE 0 END), 0) AS total_spoilage_count,
-              COALESCE(SUM(CASE WHEN m.movement_type = 'void_restore' THEN 1 ELSE 0 END), 0) AS total_void_restore_count
+              COALESCE(SUM(CASE WHEN m.movement_type = 'void_restore' THEN 1 ELSE 0 END), 0) AS total_void_restore_count,
+              COALESCE(SUM(CASE WHEN m.movement_type = 'internal_use' THEN 1 ELSE 0 END), 0) AS total_internal_use_count
          FROM inventory_movements m
          LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
         ${whereClause}`,
@@ -1614,6 +1664,7 @@ async function queryInventoryActivityData(range, query = {}, { paginate = true, 
       totalUsageCount: Number(summaryHeader.total_usage_count || 0),
       totalSpoilageCount: Number(summaryHeader.total_spoilage_count || 0),
       totalVoidRestoreCount: Number(summaryHeader.total_void_restore_count || 0),
+      totalInternalUseCount: Number(summaryHeader.total_internal_use_count || 0),
       byType: byTypeRows.map((row) => ({
         type: row.movement_type,
         count: Number(row.count || 0),

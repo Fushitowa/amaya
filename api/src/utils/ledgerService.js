@@ -1,8 +1,52 @@
 import { httpError } from "../middleware/auth.js";
+import { parseStrictFiniteNumber } from "./wasteMeasurement.js";
 
 export function round2(val) {
   const num = Number(val ?? 0);
   return Number.isFinite(num) ? Number(num.toFixed(2)) : 0.0;
+}
+
+export function parseExactMoney(raw, label = "Amount", { allowZero = false } = {}) {
+  const num = parseStrictFiniteNumber(raw);
+  if (num === null) {
+    throw httpError(400, `${label} must be a finite number.`);
+  }
+  if (allowZero ? num < 0 : num <= 0) {
+    throw httpError(
+      400,
+      allowZero ? `${label} must be a finite non-negative number.` : `${label} must be a finite positive number.`,
+    );
+  }
+  if (num > 999_999_999_999.99) {
+    throw httpError(400, `${label} exceeds the maximum allowed ledger precision (₱999,999,999,999.99).`);
+  }
+  const rounded = round2(num);
+  if (Math.abs(num - rounded) >= 1e-6) {
+    throw httpError(400, `${label} cannot exceed 2 decimal places (sub-centavo precision rejected).`);
+  }
+  return rounded;
+}
+
+export async function resolveActiveSessionId(connection, userId, fallbackSessionId = null) {
+  let [[activeSession]] = await connection.execute(
+    "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+    [userId],
+  );
+  if (!activeSession) {
+    [[activeSession]] = await connection.execute(
+      "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+    );
+  }
+  return activeSession ? Number(activeSession.id) : (fallbackSessionId ? Number(fallbackSessionId) : null);
+}
+
+export function stripCostFromNote(noteText) {
+  if (!noteText) return "";
+  return String(noteText)
+    .replace(/ for ₱[0-9.,]+ · new avg ₱[0-9.,]+\/[^)]+/gi, "")
+    .replace(/\s*\([^)]*₱[^)]*\)/g, "")
+    .replace(/₱\s*[0-9.,]+/g, "")
+    .trim();
 }
 
 export function generateEntryNumber(type) {
@@ -79,6 +123,7 @@ export async function postBalancedEntry(connection, {
   orderId = null,
   inventoryMovementId = null,
   sessionId = null,
+  payableId = null,
   reversesEntryId = null,
   isReversal = false,
   idempotencyKey = null,
@@ -140,13 +185,13 @@ export async function postBalancedEntry(connection, {
 
   const codes = [...new Set(normalizedLines.map((l) => l.accountCode))];
   const [accRows] = await connection.query(
-    `SELECT id, account_code FROM chart_of_accounts WHERE account_code IN (${codes.map(() => "?").join(",")})`,
+    `SELECT id, account_code FROM chart_of_accounts WHERE is_active = TRUE AND account_code IN (${codes.map(() => "?").join(",")})`,
     codes
   );
   const codeMap = new Map(accRows.map((r) => [r.account_code, Number(r.id)]));
   for (const l of normalizedLines) {
     if (!codeMap.has(l.accountCode)) {
-      throw httpError(400, `Account code '${l.accountCode}' not found in Chart of Accounts.`);
+      throw httpError(400, `Account code '${l.accountCode}' is inactive or not found in Chart of Accounts.`);
     }
   }
 
@@ -161,6 +206,7 @@ export async function postBalancedEntry(connection, {
       "order_id",
       "inventory_movement_id",
       "session_id",
+      "payable_id",
       "is_reversal",
       "reverses_entry_id",
       "idempotency_key",
@@ -174,6 +220,7 @@ export async function postBalancedEntry(connection, {
       orderId ?? null,
       inventoryMovementId ?? null,
       sessionId ?? null,
+      payableId ?? null,
       isReversal ? 1 : 0,
       reversesEntryId ?? null,
       idempotencyKey || null,
@@ -191,7 +238,7 @@ export async function postBalancedEntry(connection, {
   } catch (err) {
     if (err?.code === "ER_DUP_ENTRY" && idempotencyKey) {
       const [[dup]] = await connection.execute(
-        "SELECT id FROM journal_entries WHERE idempotency_key = ? LIMIT 1",
+        "SELECT id FROM journal_entries WHERE idempotency_key = ? LIMIT 1 LOCK IN SHARE MODE",
         [idempotencyKey]
       );
       return { skipped: true, entryId: dup ? Number(dup.id) : null };
@@ -636,4 +683,121 @@ export async function postInventoryValuationDelta(connection, {
     createdBy: userId,
     lines,
   });
+}
+
+/**
+ * Summarize journal or account-balance rows into Income Statement sections using
+ * database-driven `report_section` and `expense_group` metadata.
+ */
+export function summarizeIncomeStatementLines(rows = [], { clampSections = true } = {}) {
+  let grossSales = 0;
+  let discounts = 0;
+  let customerSalesCogs = 0;
+  let foodSpoilageCogs = 0;
+  let depreciation = 0;
+  let tax = 0;
+  const opexMap = new Map();
+
+  for (const row of rows) {
+    const section = String(row.report_section || row.reportSection || "").trim();
+    if (!section || section === "balance_sheet") continue;
+
+    const code = String(row.account_code || row.accountCode || "").trim();
+    const hasDebitCredit =
+      row.total_debit !== undefined ||
+      row.total_credit !== undefined ||
+      row.total_debits !== undefined ||
+      row.total_credits !== undefined;
+
+    let amount;
+    if (hasDebitCredit) {
+      const debit = Number(row.total_debit ?? row.total_debits ?? 0);
+      const credit = Number(row.total_credit ?? row.total_credits ?? 0);
+      amount = section === "revenue" ? (credit - debit) : (debit - credit);
+    } else {
+      const bal = Number(row.current_balance ?? row.balance ?? 0);
+      const normal = String(row.normal_balance || row.normalBalance || "").toLowerCase();
+      amount = section === "revenue"
+        ? (normal === "debit" ? -bal : bal)
+        : (normal === "credit" ? -bal : bal);
+    }
+
+    if (section === "revenue") {
+      grossSales += amount;
+    } else if (section === "contra_revenue") {
+      discounts += amount;
+    } else if (section === "cogs") {
+      if (code === "6030") {
+        foodSpoilageCogs += amount;
+      } else {
+        customerSalesCogs += amount;
+      }
+    } else if (section === "opex") {
+      const existing = opexMap.get(code) || {
+        accountCode: code,
+        accountName: row.account_name || row.accountName || code,
+        expenseGroup: row.expense_group || row.expenseGroup || "Others",
+        amount: 0,
+      };
+      existing.amount += amount;
+      opexMap.set(code, existing);
+    } else if (section === "depreciation") {
+      depreciation += amount;
+    } else if (section === "tax") {
+      tax += amount;
+    }
+  }
+
+  const roundedGrossSales = round2(clampSections ? Math.max(0, grossSales) : grossSales);
+  const roundedDiscounts = round2(clampSections ? Math.max(0, discounts) : discounts);
+  const netSales = round2(
+    clampSections ? Math.max(0, roundedGrossSales - roundedDiscounts) : (roundedGrossSales - roundedDiscounts)
+  );
+  const roundedCustomerSalesCogs = round2(clampSections ? Math.max(0, customerSalesCogs) : customerSalesCogs);
+  const roundedFoodSpoilageCogs = round2(clampSections ? Math.max(0, foodSpoilageCogs) : foodSpoilageCogs);
+  const cogs = round2(roundedCustomerSalesCogs + roundedFoodSpoilageCogs);
+  const grossProfit = round2(netSales - cogs);
+  const grossMarginPercent = netSales > 0 ? round2((grossProfit / netSales) * 100) : 0.0;
+
+  const operatingExpenses = [];
+  let totalOpexRaw = 0;
+  for (const item of [...opexMap.values()].sort((a, b) => a.accountCode.localeCompare(b.accountCode))) {
+    const cleanAmount = round2(item.amount);
+    if (cleanAmount !== 0) {
+      operatingExpenses.push({
+        accountCode: item.accountCode,
+        accountName: item.accountName,
+        expenseGroup: item.expenseGroup,
+        amount: cleanAmount,
+      });
+      totalOpexRaw += cleanAmount;
+    }
+  }
+
+  const totalOperatingExpenses = round2(totalOpexRaw);
+  const roundedDepreciation = round2(depreciation);
+  const roundedTax = round2(tax);
+  const ebitdaOperatingIncome = round2(grossProfit - totalOperatingExpenses);
+  const netIncomeBeforeTax = round2(ebitdaOperatingIncome - roundedDepreciation);
+  const netIncome = round2(netIncomeBeforeTax - roundedTax);
+  const netOperatingProfit = netIncome;
+
+  return {
+    grossSales: roundedGrossSales,
+    discounts: roundedDiscounts,
+    netSales,
+    customerSalesCogs: roundedCustomerSalesCogs,
+    foodSpoilageCogs: roundedFoodSpoilageCogs,
+    cogs,
+    grossProfit,
+    grossMarginPercent,
+    operatingExpenses,
+    totalOperatingExpenses,
+    depreciation: roundedDepreciation,
+    tax: roundedTax,
+    ebitdaOperatingIncome,
+    netIncomeBeforeTax,
+    netIncome,
+    netOperatingProfit,
+  };
 }

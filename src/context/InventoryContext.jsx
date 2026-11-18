@@ -162,6 +162,22 @@ function InventoryProvider({ children }) {
     return saved;
   }, []);
 
+  const recordInternalUse = useCallback(async (id, payload) => {
+    const saved = await apiRequest(`/inventory/${id}/internal-use`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setInventory((current) =>
+      current.map((item) =>
+        item.id === Number(id) && saved?.afterQuantity !== undefined
+          ? { ...item, quantity: Number(saved.afterQuantity) }
+          : item,
+      ),
+    );
+    window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+    return saved;
+  }, []);
+
   const reverseWasteLog = useCallback(async (movementId, reason) => {
     const result = await apiRequest(`/inventory/waste-logs/${movementId}/reverse`, {
       method: "POST",
@@ -172,6 +188,18 @@ function InventoryProvider({ children }) {
     });
     window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
     window.dispatchEvent(new Event("amaya:notifications-updated"));
+    return result;
+  }, [refreshInventory]);
+
+  const reverseInternalUse = useCallback(async (movementId, reason) => {
+    const result = await apiRequest(`/inventory/internal-use/${movementId}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+    await refreshInventory().catch((requestError) => {
+      console.warn("Could not refresh inventory after internal store use reversal:", requestError.message);
+    });
+    window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
     return result;
   }, [refreshInventory]);
 
@@ -197,7 +225,9 @@ function InventoryProvider({ children }) {
     refreshCategories,
     fetchWasteLogs,
     recordInventoryWaste,
+    recordInternalUse,
     reverseWasteLog,
+    reverseInternalUse,
     addCategory: async (categoryData) => {
       const saved = await apiRequest("/inventory/categories", {
         method: "POST",
@@ -280,9 +310,11 @@ function InventoryProvider({ children }) {
     fetchWasteLogs,
     inventory,
     loadedUserId,
+    recordInternalUse,
     recordInventoryWaste,
     refreshCategories,
     refreshInventory,
+    reverseInternalUse,
     reverseWasteLog,
     user,
     wasteLogs,

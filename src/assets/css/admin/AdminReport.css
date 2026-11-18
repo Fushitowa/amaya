@@ -2586,45 +2586,149 @@
 }
 
 /* ==========================================================================
-   Period Inventory Activity & Order Audit Folios
+   Period Inventory Activity & Order Audit Folios (Compact Sketchbook Ledger)
    ========================================================================== */
 
-.report-ledger-panel {
-  margin-bottom: 22px;
+.admin-report-panel.report-folio-sheet.report-ledger-panel {
+  position: relative;
+  margin-bottom: 18px;
+  padding: 18px 20px 18px 34px;
+  border: 1px solid #d7c0a4;
+  border-radius: 10px 16px 14px 10px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 19px,
+      rgba(190, 77, 58, 0.24) 19px,
+      rgba(190, 77, 58, 0.24) 20.5px,
+      transparent 20.5px,
+      transparent 23.5px,
+      rgba(190, 77, 58, 0.12) 23.5px,
+      rgba(190, 77, 58, 0.12) 24.5px,
+      transparent 24.5px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 27px,
+      rgba(155, 101, 60, 0.055) 27px,
+      rgba(155, 101, 60, 0.055) 28px
+    ),
+    linear-gradient(180deg, var(--report-panel) 0%, #fbf3e6 100%);
+  box-shadow:
+    2px 2px 0 #efe4d3,
+    3px 3px 0 #d9c7b1,
+    5px 5px 0 #f4eadb,
+    6px 6px 0 #cfbda6,
+    0 10px 22px -16px rgba(56, 37, 24, 0.18);
+  overflow: visible;
+}
+
+/* Corner masking-tape accent */
+.admin-report-panel.report-folio-sheet.report-ledger-panel::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 16px;
+  z-index: 6;
+  width: 46px;
+  height: 15px;
+  border-radius: 2px 4px 2px 3px;
+  border: 1px dashed rgba(125, 78, 42, 0.28);
+  background: linear-gradient(
+    135deg,
+    rgba(235, 211, 173, 0.78) 0%,
+    rgba(207, 161, 101, 0.48) 100%
+  );
+  transform: rotate(-10deg);
+  pointer-events: none;
+}
+
+/* Notched crimson-terracotta ledger bookmark ribbon */
+.admin-report-panel.report-folio-sheet.report-ledger-panel::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 18px;
+  z-index: 6;
+  width: 20px;
+  height: 26px;
+  background: linear-gradient(
+    180deg,
+    var(--report-bookmark) 0%,
+    var(--report-bookmark-deep) 100%
+  );
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  box-shadow: 0 4px 8px rgba(150, 51, 34, 0.22);
+  transform-origin: top center;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.report-ledger-panel .panel-heading {
+  align-items: center;
+  gap: 12px;
+  padding: 0 28px 10px 0;
+  border-bottom: 1px dashed var(--report-line-strong);
+}
+
+.report-ledger-panel .panel-heading h2 {
+  margin-top: 3px;
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.report-ledger-panel .inventory-count {
+  padding: 5px 10px;
+  border: 1px solid #d9be9c;
+  border-radius: 10px 4px 10px 5px;
+  background: #fcf4e7;
+  color: var(--report-accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 1px 1px 0 #ead8c0;
 }
 
 .report-mov-kpis {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .report-mov-kpi {
-  padding: 10px 13px;
-  border: 1px solid #e4d4bf;
-  border-radius: 10px;
-  background: #fffaf2;
+  padding: 8px 11px;
+  border: 1px solid #e2cfb6;
+  border-left: 3px solid var(--report-brass);
+  border-radius: 11px 4px 10px 6px;
+  background: linear-gradient(180deg, var(--report-panel) 0%, #faf1e3 100%);
+  box-shadow: 1.5px 1.5px 0 #efe4d3;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .report-mov-kpi span {
   display: block;
   color: var(--report-muted);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .report-mov-kpi strong {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--report-ink);
-  font-size: 17px;
+  font-size: 15.5px;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
 .report-mov-kpi.positive {
-  border-color: #d6e7d8;
-  background: #f3faf4;
+  border-color: #cfe2d1;
+  border-left-color: var(--report-positive);
+  background: linear-gradient(180deg, #fafefb 0%, #f1f8f2 100%);
 }
 
 .report-mov-kpi.positive strong {
@@ -2632,8 +2736,9 @@
 }
 
 .report-mov-kpi.warning {
-  border-color: #eed6d1;
-  background: #fbf1ef;
+  border-color: #ebd0cb;
+  border-left-color: var(--report-critical);
+  background: linear-gradient(180deg, #fffaf9 0%, #fbf0ee 100%);
 }
 
 .report-mov-kpi.warning strong {
@@ -2645,8 +2750,8 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .report-filter-pills {
@@ -2656,11 +2761,11 @@
 }
 
 .report-filter-pill {
-  min-height: 30px;
-  padding: 0 11px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid #dec9b0;
-  border-radius: 999px;
-  background: #fffdf9;
+  border-radius: 9px 4px 9px 5px;
+  background: var(--report-panel);
   color: var(--report-muted);
   font: 700 11px "DM Sans", sans-serif;
   cursor: pointer;
@@ -2672,33 +2777,42 @@
   transform: scale(0.97);
 }
 
+.report-filter-pill:focus-visible,
+.report-inline-select select:focus-visible,
+.report-inline-action-btn:focus-visible,
+.report-pagination button:focus-visible {
+  outline: 2px solid var(--report-accent);
+  outline-offset: 2px;
+}
+
 .report-filter-pill.is-active {
   border-color: var(--report-accent-dark);
-  background: #86522c;
+  background: var(--report-accent-dark);
   color: #fffaf2;
+  box-shadow: 1px 1px 0 #d9c2a6;
 }
 
 .report-ledger-selects {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .report-inline-select {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   color: var(--report-muted);
   font-size: 11px;
   font-weight: 700;
 }
 
 .report-inline-select select {
-  min-height: 34px;
-  padding: 0 26px 0 10px;
+  min-height: 31px;
+  padding: 0 24px 0 9px;
   border: 1px solid #dcc7ad;
-  border-radius: 8px;
-  background: #fffdf9;
+  border-radius: 9px 4px 8px 5px;
+  background: var(--report-panel);
   color: var(--report-ink);
   font: 700 11.5px "DM Sans", sans-serif;
   cursor: pointer;
@@ -2708,13 +2822,18 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-width: min(100%, 250px);
-  min-height: 34px;
-  padding: 0 11px;
+  min-width: min(100%, 240px);
+  min-height: 31px;
+  padding: 0 10px;
   border: 1px solid #dcc7ad;
-  border-radius: 9px;
-  background: #fffdf9;
+  border-radius: 9px 4px 8px 5px;
+  background: var(--report-panel);
   color: var(--report-muted);
+}
+
+.report-search-input-wrap:focus-within {
+  border-color: var(--report-accent);
+  box-shadow: 0 0 0 2px rgba(155, 101, 60, 0.14);
 }
 
 .report-search-input-wrap input {
@@ -2726,17 +2845,102 @@
   outline: none;
 }
 
+/* Bounded 4-5 row scrollable ledger viewport with pinned sticky header */
+.report-ledger-panel .inventory-table-wrap {
+  margin-top: 12px;
+  max-height: 256px;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #dfd0be;
+  border-radius: 10px 6px 10px 8px;
+  background: var(--report-panel);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -10px 14px -12px rgba(56, 37, 24, 0.12);
+  scrollbar-width: thin;
+  scrollbar-color: #cbb091 #f7ede0;
+}
+
+.report-ledger-panel .inventory-table-wrap::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.report-ledger-panel .inventory-table-wrap::-webkit-scrollbar-track {
+  background: #f7ede0;
+  border-radius: 99px;
+}
+
+.report-ledger-panel .inventory-table-wrap::-webkit-scrollbar-thumb {
+  background: #cbb091;
+  border-radius: 99px;
+}
+
+.report-ledger-panel .inventory-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.report-ledger-panel .inventory-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 9px 10px;
+  background: linear-gradient(180deg, #f9f0e2 0%, #f3e5d0 100%);
+  border-bottom: 1.5px solid #dec7ab;
+  box-shadow: 0 2px 0 rgba(139, 94, 60, 0.06);
+  font-size: 9.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.report-ledger-panel .inventory-table thead th:first-child {
+  border-top-left-radius: 0;
+  padding-left: 12px;
+}
+
+.report-ledger-panel .inventory-table thead th:last-child {
+  border-top-right-radius: 0;
+  padding-right: 12px;
+}
+
+.report-ledger-panel .inventory-table td {
+  padding: 8px 10px;
+  border-top: 0;
+  border-bottom: 1px dashed rgba(155, 101, 60, 0.16);
+  font-size: 12px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-ledger-panel .inventory-table td:first-child {
+  padding-left: 12px;
+}
+
+.report-ledger-panel .inventory-table td:last-child {
+  padding-right: 12px;
+}
+
+.report-ledger-panel .inventory-table tbody tr:nth-child(even) {
+  background: rgba(250, 244, 234, 0.45);
+}
+
+.report-ledger-panel .inventory-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .report-movements-table,
 .report-orders-table {
-  min-width: 760px;
+  min-width: 740px;
 }
 
 .report-mov-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
+  padding: 3px 8px;
+  border-radius: 8px 3px 8px 4px;
   border: 1px solid transparent;
   font-size: 10.5px;
   font-weight: 700;
@@ -2746,13 +2950,13 @@
 .report-mov-badge.positive {
   border-color: #d4e8d7;
   background: #eef8f0;
-  color: #366f42;
+  color: var(--report-positive);
 }
 
 .report-mov-badge.warning {
   border-color: #f0d7d2;
   background: #fcf0ee;
-  color: #a93f31;
+  color: var(--report-critical);
 }
 
 .report-mov-badge.usage {
@@ -2781,9 +2985,9 @@
 
 .report-order-status-pill {
   display: inline-block;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 8px 3px 8px 4px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2791,7 +2995,7 @@
 
 .report-order-status-pill.pending {
   background: #fff5e0;
-  color: #9e6514;
+  color: var(--report-warning-ink);
 }
 
 .report-order-status-pill.preparing {
@@ -2801,25 +3005,25 @@
 
 .report-order-status-pill.completed {
   background: #eaf6ec;
-  color: #387143;
+  color: var(--report-positive);
 }
 
 .report-order-status-pill.cancelled {
   background: #fbeeed;
-  color: #a33a2d;
+  color: var(--report-critical);
 }
 
 .report-inline-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 27px;
+  padding: 0 9px;
   border: 1px solid #dcc4a7;
-  border-radius: 8px;
+  border-radius: 7px 3px 7px 4px;
   background: #fffaf2;
   color: var(--report-accent-dark);
-  font: 700 11.5px "DM Sans", sans-serif;
+  font: 700 11px "DM Sans", sans-serif;
   cursor: pointer;
   touch-action: manipulation;
   white-space: nowrap;
@@ -2834,23 +3038,27 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 14px;
-  font-size: 12px;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--report-line-strong);
+  font-size: 11.5px;
   color: var(--report-muted);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .report-pagination button {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 29px;
+  padding: 0 11px;
   border: 1px solid #dcc4a7;
-  border-radius: 8px;
+  border-radius: 8px 3px 8px 4px;
   background: #fffaf2;
   color: var(--report-accent-dark);
-  font: 700 11.5px "DM Sans", sans-serif;
+  font: 700 11px "DM Sans", sans-serif;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color 140ms ease, border-color 140ms ease;
 }
 
 .report-pagination button:disabled {
@@ -3760,6 +3968,10 @@
     transform: translateY(2px) rotate(-1.5deg);
   }
 
+  .admin-report-panel.report-folio-sheet.report-ledger-panel:hover::after {
+    transform: translateY(2px) rotate(-1.5deg);
+  }
+
   .sales-summary.report-pinned-paper:hover .report-paper-pin,
   .report-folio-sheet:hover .report-paper-pin,
   .report-pinned-note:hover .report-paper-pin {
@@ -3815,6 +4027,10 @@
     background: #fcf4e7;
   }
 
+  .report-ledger-panel .inventory-table tbody tr:hover {
+    background: #f9eedc;
+  }
+
   .restock-open-button:hover {
     transform: translateY(-1px);
     border-color: var(--report-accent);
@@ -3826,7 +4042,8 @@
     color: var(--report-accent-dark);
   }
 
-  .inventory-table-wrap::-webkit-scrollbar-thumb:hover {
+  .inventory-table-wrap::-webkit-scrollbar-thumb:hover,
+  .report-ledger-panel .inventory-table-wrap::-webkit-scrollbar-thumb:hover {
     background: #b18f6c;
   }
 }
@@ -4492,6 +4709,20 @@
   .admin-report-content {
     padding: 22px;
   }
+
+  .admin-report-panel.report-folio-sheet.report-ledger-panel {
+    padding: 16px 16px 16px 28px;
+  }
+
+  .report-ledger-panel .inventory-table-wrap {
+    max-height: 244px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .report-mov-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -4661,6 +4892,29 @@
     padding: 18px;
   }
 
+  .admin-report-panel.report-folio-sheet.report-ledger-panel {
+    padding: 14px 14px 14px 24px;
+  }
+
+  .report-ledger-panel .panel-heading {
+    flex-wrap: wrap;
+    padding-right: 24px;
+  }
+
+  .report-ledger-panel .report-search-input-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .report-ledger-panel .inventory-table-wrap {
+    max-height: 232px;
+  }
+
+  .report-ledger-panel .report-pagination {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
   .trend-heading {
     flex-direction: column;
     align-items: flex-start;
@@ -4718,6 +4972,11 @@
     break-inside: avoid;
     box-shadow: none;
   }
+
+  .report-ledger-panel .inventory-table-wrap {
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4736,6 +4995,12 @@
     transform: none !important;
   }
 
+  .admin-report-panel.report-folio-sheet.report-ledger-panel::after,
+  .admin-report-panel.report-folio-sheet.report-ledger-panel:hover::after {
+    transform: none !important;
+    transition: none !important;
+  }
+
   .admin-report-range button,
   .admin-report-export,
   .restock-open-button,
@@ -4747,8 +5012,10 @@
   .cashier-avatar,
   .cashier-bar-pip,
   .cashier-bar-pip-carrier,
+  .report-mov-kpi,
   .report-filter-pill,
   .report-inline-action-btn,
+  .report-pagination button,
   .report-notebook-bookmark,
   .report-paper-bookmark,
   .report-folio-bookmark {
