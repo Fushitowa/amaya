@@ -32,20 +32,49 @@ function askHidden(prompt) {
   });
 }
 
-const [role, ...usernameParts] = process.argv.slice(2);
+function readPasswordFromStdin() {
+  return new Promise((resolve, reject) => {
+    let chunks = "";
+    stdin.setEncoding("utf8");
+    stdin.on("data", (chunk) => {
+      chunks += chunk;
+    });
+    stdin.on("end", () => {
+      resolve(chunks.replace(/\r?\n$/, ""));
+    });
+    stdin.on("error", reject);
+  });
+}
+
+const rawArgs = process.argv.slice(2);
+const usePasswordStdin = rawArgs.includes("--password-stdin");
+const positionalArgs = rawArgs.filter((arg) => arg !== "--password-stdin");
+const [role, ...usernameParts] = positionalArgs;
 const username = usernameParts.join(" ").trim();
 if (!['admin', 'staff'].includes(role) || !username || username.length > 80) {
-  console.error("Usage: npm run user:create -- <admin|staff> <username>");
+  console.error("Usage: npm run user:create -- <admin|staff> <username> [--password-stdin]");
   process.exitCode = 1;
 } else {
   try {
-    const password = await askHidden("Choose a password (input hidden): ");
+    const [existingUsers] = await pool.execute(
+      "SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(display_name) = LOWER(?) LIMIT 1",
+      [username, username],
+    );
+    if (existingUsers.length > 0) {
+      throw new Error("That username or display name already exists.");
+    }
+
+    const password = usePasswordStdin
+      ? await readPasswordFromStdin()
+      : await askHidden("Choose a password (input hidden): ");
     const minLength = role === "staff" ? 6 : 8;
     if (password.length < minLength || Buffer.byteLength(password, "utf8") > 72) {
       throw new Error(`Use a password with at least ${minLength} characters and at most 72 bytes.`);
     }
-    const confirmation = await askHidden("Confirm password (input hidden): ");
-    if (password !== confirmation) throw new Error("Passwords did not match.");
+    if (!usePasswordStdin) {
+      const confirmation = await askHidden("Confirm password (input hidden): ");
+      if (password !== confirmation) throw new Error("Passwords did not match.");
+    }
     const passwordHash = await bcrypt.hash(password, 12);
     await pool.execute(
       "INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)",

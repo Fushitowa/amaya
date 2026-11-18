@@ -194,8 +194,10 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
   let sessionId;
   try {
     await connection.beginTransaction();
+    // Plain read avoids InnoDB gap-lock deadlocks when two concurrent requests race to insert;
+    // uq_cashier_sessions_open_user enforces single-open-shift uniqueness atomically at INSERT time.
     const [[existingOpen]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' LIMIT 1 FOR UPDATE",
+      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' LIMIT 1",
       [request.authUser.sub],
     );
     if (existingOpen) {
@@ -248,6 +250,9 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
     await connection.commit();
   } catch (error) {
     await connection.rollback();
+    if (error?.code === "ER_DUP_ENTRY") {
+      throw httpError(409, "You already have an open register session. Close it before opening a new one.");
+    }
     throw error;
   } finally {
     connection.release();
@@ -353,23 +358,15 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
       });
     }
 
-    // Update store daily asset snapshot tied to the session's Manila open date
+    // Update store daily asset snapshot strictly tied to the session's Manila open date
+    // (never fall back to todayManila so overnight shifts never contaminate the next day's snapshot).
     const sessionBusinessDate = getManilaDateString(new Date(session.opened_at));
-    let [[existingSnapshot]] = await connection.execute(
+    const [[existingSnapshot]] = await connection.execute(
       "SELECT * FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
       [sessionBusinessDate]
     );
-    if (!existingSnapshot) {
-      const todayManila = getManilaDateString();
-      [[existingSnapshot]] = await connection.execute(
-        "SELECT * FROM store_daily_asset_snapshots WHERE business_date = ? LIMIT 1 FOR UPDATE",
-        [todayManila]
-      );
-    }
     if (existingSnapshot) {
-      const targetDate = existingSnapshot.business_date
-        ? getManilaDateString(existingSnapshot.business_date)
-        : sessionBusinessDate;
+      const targetDate = sessionBusinessDate;
       const [[openSiblings]] = await connection.execute(
         `SELECT COUNT(*) AS open_count
            FROM cashier_sessions
@@ -399,7 +396,9 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
       const openingTotal = Number(existingSnapshot.opening_total_assets || 0);
       const delta = round2(totalClosingAssets - openingTotal);
 
-      // Compute full daily performance & ledger metrics for this businessDate (entry_date is already +08:00 Manila)
+      // Compute full daily performance & ledger metrics for this businessDate:
+      // je.entry_date is the GL accounting date (+08:00 Manila), whereas cashier_sessions.opened_at /
+      // orders.created_at track operational event timestamps. Unclamped totals match P&L and GET /accounts.
       const [dailyJeLines] = await connection.execute(
         `SELECT coa.account_code,
                 coa.account_name,
@@ -419,7 +418,7 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
         [targetDate, targetDate]
       );
 
-      const pnl = summarizeIncomeStatementLines(dailyJeLines);
+      const pnl = summarizeIncomeStatementLines(dailyJeLines, { clampSections: false });
       let capitalInjections = 0;
       let ownerWithdrawals = 0;
 
@@ -507,14 +506,22 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
   }
 
   const isAdmin = request.authUser.role === "admin";
-  const [orders] = await pool.execute(
-    `SELECT o.*, NULLIF(u.display_name, '') AS creator_display_name
-       FROM orders o
-       LEFT JOIN users u ON u.id = o.created_by
-      WHERE o.session_id = ?
-      ORDER BY o.created_at DESC, o.id DESC`,
-    [sessionId],
-  );
+  const page = Math.max(1, Number.parseInt(request.query?.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, Number.parseInt(request.query?.limit, 10) || 100));
+  const offset = (page - 1) * limit;
+
+  const [[orderCountRow], [orders]] = await Promise.all([
+    pool.execute("SELECT COUNT(*) AS total FROM orders WHERE session_id = ?", [sessionId]),
+    pool.query(
+      `SELECT o.*, NULLIF(u.display_name, '') AS creator_display_name
+         FROM orders o
+         LEFT JOIN users u ON u.id = o.created_by
+        WHERE o.session_id = ?
+        ORDER BY o.created_at DESC, o.id DESC
+        LIMIT ? OFFSET ?`,
+      [sessionId, limit, offset],
+    ),
+  ]);
 
   let orderItems = [];
   let orderAddons = [];
@@ -543,6 +550,27 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
     orderAddons = addonRes[0];
   }
 
+  const itemsByOrderId = new Map();
+  for (const item of orderItems) {
+    const key = Number(item.order_id);
+    let list = itemsByOrderId.get(key);
+    if (!list) {
+      list = [];
+      itemsByOrderId.set(key, list);
+    }
+    list.push(item);
+  }
+  const addonsByItemId = new Map();
+  for (const addon of orderAddons) {
+    const key = Number(addon.order_item_id);
+    let list = addonsByItemId.get(key);
+    if (!list) {
+      list = [];
+      addonsByItemId.set(key, list);
+    }
+    list.push(addon);
+  }
+
   const mappedOrders = orders.map((order) => ({
     id: order.order_number,
     customer: order.customer_name,
@@ -560,23 +588,19 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
     voidedAt: order.voided_at ? new Date(order.voided_at).toISOString() : null,
     notes: order.notes || null,
     createdAt: new Date(order.created_at).toISOString(),
-    items: orderItems
-      .filter((item) => Number(item.order_id) === Number(order.id))
-      .map((item) => ({
-        id: Number(item.id),
-        productId: item.product_id == null ? null : Number(item.product_id),
-        title: item.product_name_snapshot || item.current_product_name,
-        quantity: Number(item.quantity),
-        price: Number(item.unit_price),
-        ...(isAdmin ? { unitCost: item.unit_cost_snapshot == null ? null : Number(item.unit_cost_snapshot) } : {}),
-        size: item.size_label,
-        category: item.category_name_snapshot || "Menu item",
-        sugarLevel: item.sugar_level,
-        addons: orderAddons
-          .filter((addon) => Number(addon.order_item_id) === Number(item.id))
-          .map((addon) => addon.addon_name_snapshot),
-        instructions: item.instructions,
-      })),
+    items: (itemsByOrderId.get(Number(order.id)) || []).map((item) => ({
+      id: Number(item.id),
+      productId: item.product_id == null ? null : Number(item.product_id),
+      title: item.product_name_snapshot || item.current_product_name,
+      quantity: Number(item.quantity),
+      price: Number(item.unit_price),
+      ...(isAdmin ? { unitCost: item.unit_cost_snapshot == null ? null : Number(item.unit_cost_snapshot) } : {}),
+      size: item.size_label,
+      category: item.category_name_snapshot || "Menu item",
+      sugarLevel: item.sugar_level,
+      addons: (addonsByItemId.get(Number(item.id)) || []).map((addon) => addon.addon_name_snapshot),
+      instructions: item.instructions,
+    })),
   }));
 
   const [productRows] = await pool.execute(
@@ -683,6 +707,9 @@ router.get("/:id", requireAuth, requireRole("admin", "staff"), async (request, r
   response.json({
     session,
     orders: mappedOrders,
+    ordersTotal: Number(orderCountRow?.[0]?.total ?? mappedOrders.length),
+    ordersPage: page,
+    ordersLimit: limit,
     productBreakdown,
     paymentBreakdown,
     movements,

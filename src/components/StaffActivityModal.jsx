@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart2,
+  CheckCircle2,
   ClipboardList,
   Clock,
   Download,
@@ -108,6 +109,8 @@ function StaffActivityModal({
   const [activeOrder, setActiveOrder] = useState(null);
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvError, setCsvError] = useState("");
+  const [confirmingSales, setConfirmingSales] = useState(false);
+  const [confirmFeedback, setConfirmFeedback] = useState(null);
 
   const staffId = staffMember?.userId ?? staffMember?.id ?? null;
 
@@ -271,6 +274,13 @@ function StaffActivityModal({
       averageOrderValue: base.averageOrderValue ?? staffMember?.averageTicket ?? 0,
       unitsSold: base.unitsSold ?? staffMember?.unitsSold ?? 0,
       uncostedItemsCount: base.uncostedItemsCount ?? staffMember?.uncostedItemsCount ?? 0,
+      unconfirmedOrdersCount: base.unconfirmedOrdersCount ?? staffMember?.unconfirmedOrdersCount ?? 0,
+      unconfirmedSales: base.unconfirmedSales ?? staffMember?.unconfirmedSales ?? 0,
+      unconfirmedCashSales: base.unconfirmedCashSales ?? staffMember?.unconfirmedCashSales ?? 0,
+      confirmedOrdersCount: base.confirmedOrdersCount ?? staffMember?.confirmedOrdersCount ?? 0,
+      confirmedSales: base.confirmedSales ?? staffMember?.confirmedSales ?? 0,
+      confirmedCashSales: base.confirmedCashSales ?? staffMember?.confirmedCashSales ?? 0,
+      lastOwnerConfirmedAt: base.lastOwnerConfirmedAt ?? staffMember?.lastOwnerConfirmedAt ?? null,
     };
   }, [activity?.summary, staffMember]);
 
@@ -278,6 +288,56 @@ function StaffActivityModal({
   const firstName = displayName.split(/\s+/)[0] || displayName;
   const role = activity?.user?.role || staffMember?.role || "staff";
   const isActive = activity?.user ? activity.user.isActive : (staffMember?.isActive !== false);
+
+  const handleConfirmCashierSales = useCallback(async () => {
+    if (!staffId || confirmingSales || !activity) return;
+    const orderIds = Array.isArray(activity?.summary?.unconfirmedOrderIds)
+      ? activity.summary.unconfirmedOrderIds
+      : [];
+    const inspectedBefore = activity?.summary?.inspectedBefore || null;
+    if (!orderIds.length && !inspectedBefore) {
+      setConfirmFeedback({
+        type: "error",
+        text: "Inspected sales snapshot is still loading. Please retry in a moment.",
+      });
+      return;
+    }
+    setConfirmingSales(true);
+    setConfirmFeedback(null);
+    try {
+      const res = await apiRequest(`/reports/staff/${staffId}/confirm-sales`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...(orderIds.length > 0 ? { orderIds } : {}),
+          ...(inspectedBefore ? { inspectedBefore } : {}),
+          note: `Owner confirmed cashier sales & counter cash for ${displayName}`,
+        }),
+      });
+      const count = Number(res?.confirmedOrdersCount || 0);
+      const total = Number(res?.confirmedSalesTotal || 0);
+      if (res?.alreadyConfirmed || count === 0) {
+        setConfirmFeedback({
+          type: "success",
+          text: `All paid sales for ${displayName} are already confirmed by the Owner.`,
+        });
+      } else {
+        setConfirmFeedback({
+          type: "success",
+          text: `Confirmed ${count} order${count === 1 ? "" : "s"} (${peso(total)}) for ${displayName}. Counter cash added to Store Total Asset Value!`,
+        });
+      }
+      await fetchActivity();
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+      window.dispatchEvent(new CustomEvent("amaya:session-changed"));
+    } catch (err) {
+      setConfirmFeedback({
+        type: "error",
+        text: err?.message || "Failed to confirm cashier sales.",
+      });
+    } finally {
+      setConfirmingSales(false);
+    }
+  }, [activity, confirmingSales, displayName, fetchActivity, staffId]);
 
   const selectTab = (nextKey) => {
     if (nextKey === activeTab) return;
@@ -499,6 +559,62 @@ function StaffActivityModal({
                 )}
               </div>
 
+              <section
+                className={`sam-owner-confirm-banner ${summary.unconfirmedOrdersCount > 0 ? "is-pending" : "is-confirmed"}`}
+                aria-label="Owner sales remittance confirmation"
+              >
+                <div className="sam-owner-confirm-info">
+                  <div className="sam-owner-confirm-title">
+                    <CheckCircle2 size={16} aria-hidden="true" />
+                    <strong>Owner Sales Remittance &amp; Counter Cash Confirmation</strong>
+                  </div>
+                  <div className="sam-owner-confirm-metrics">
+                    <span>
+                      Pending Confirmation:{" "}
+                      <strong>
+                        {summary.unconfirmedOrdersCount} order{summary.unconfirmedOrdersCount === 1 ? "" : "s"} · {peso(summary.unconfirmedSales)}
+                      </strong>{" "}
+                      ({peso(summary.unconfirmedCashSales)} Cash in Counter)
+                    </span>
+                    <span className="sam-owner-confirm-sep" aria-hidden="true">·</span>
+                    <span>
+                      Confirmed by Owner:{" "}
+                      <strong>
+                        {summary.confirmedOrdersCount} order{summary.confirmedOrdersCount === 1 ? "" : "s"} · {peso(summary.confirmedSales)}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="sam-owner-confirm-actions">
+                  {summary.unconfirmedOrdersCount > 0 ? (
+                    <button
+                      type="button"
+                      className="sam-confirm-sales-btn"
+                      onClick={handleConfirmCashierSales}
+                      disabled={confirmingSales || !activity}
+                    >
+                      {confirmingSales
+                        ? "Confirming..."
+                        : `✓ Confirm & Accept ${firstName}'s Sales (${peso(summary.unconfirmedSales)})`}
+                    </button>
+                  ) : (
+                    <span className="sam-confirmed-all-pill">
+                      ✓ All Paid Sales Confirmed by Owner
+                    </span>
+                  )}
+                </div>
+              </section>
+
+              {confirmFeedback && (
+                <div
+                  className={`sam-confirm-feedback ${confirmFeedback.type === "error" ? "is-error" : "is-success"}`}
+                  role="status"
+                >
+                  <span>{confirmFeedback.text}</span>
+                </div>
+              )}
+
               <section className="sam-kpi-grid" aria-label="Staff activity KPIs">
                 <div className="sam-kpi-card">
                   <span>Orders Handled</span>
@@ -626,6 +742,7 @@ function StaffActivityModal({
                                   <th>Items</th>
                                   <th>Payment</th>
                                   <th>Status</th>
+                                  <th>Owner Confirm</th>
                                   <th style={{ textAlign: "right" }}>Total</th>
                                 </tr>
                               </thead>
@@ -654,6 +771,15 @@ function StaffActivityModal({
                                       <span className={`sam-status-tag ${String(order.status || "").toLowerCase()}`}>
                                         {order.status}
                                       </span>
+                                    </td>
+                                    <td>
+                                      {order.status === "Cancelled" ? (
+                                        <span className="sam-owner-badge is-void">Voided</span>
+                                      ) : order.ownerConfirmed ? (
+                                        <span className="sam-owner-badge is-confirmed">✓ Owner Confirmed</span>
+                                      ) : (
+                                        <span className="sam-owner-badge is-pending">⏳ Pending Owner</span>
+                                      )}
                                     </td>
                                     <td style={{ textAlign: "right", fontWeight: 700 }}>
                                       {peso(order.total)}

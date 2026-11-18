@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Restore the dynamic inventory category table when migration 019 was skipped.
 CREATE TABLE IF NOT EXISTS inventory_categories (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

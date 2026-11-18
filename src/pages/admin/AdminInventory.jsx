@@ -29,9 +29,15 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { createClientRequestId } from "../../utils/clientRequestId.js";
 import { formatUnitCost } from "../../utils/inventoryFormatting.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
-import { getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
+import {
+  InventoryArchiveConfirmModal,
+  InventoryInternalUseModal,
+  InventoryMovementHistoryModal,
+  InventoryRestockModal,
+} from "../../components/admin/inventory/InventoryActionModals.jsx";
 import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
@@ -509,6 +515,8 @@ function AdminInventory() {
   const [reverseInternalReason, setReverseInternalReason] = useState("");
   const [reverseInternalError, setReverseInternalError] = useState("");
   const reverseInternalInputRef = useRef(null);
+  const saveRequestIdRef = useRef(null);
+  const restockRequestIdRef = useRef(null);
   const [actionError, setActionError] = useState("");
   const [confirmedAdjKey, setConfirmedAdjKey] = useState("");
   const [notice, setNotice] = useState("");
@@ -664,23 +672,36 @@ function AdminInventory() {
     setActionError("");
   }, []);
 
+  const resetRestockState = useCallback(() => {
+    restockRequestIdRef.current = null;
+    setRestockItem(null);
+    setRestockQuantity("");
+    setRestockBatchCost("");
+    setRestockSupplierName("");
+    setRestockReferenceNo("");
+    setRestockCreditAccountCode("1010");
+    setRestockDiluteZeroCost(false);
+    setActionError("");
+  }, []);
+
+  const closeRestockModal = useCallback(() => {
+    if (isSaving) return;
+    resetRestockState();
+  }, [isSaving, resetRestockState]);
+
   useEffect(() => {
     if (!showForm && !restockItem && !internalUseItem && !itemToDelete && !movementHistory.item) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape" || isSaving) return;
       if (showForm) {
+        saveRequestIdRef.current = null;
         setShowForm(false);
         if (editingItem) {
           setEditingItem(null);
           setFormValues(loadInventoryAddDraft());
         }
       }
-      setRestockItem(null);
-      setRestockBatchCost("");
-      setRestockSupplierName("");
-      setRestockReferenceNo("");
-      setRestockCreditAccountCode("1010");
-      setRestockDiluteZeroCost(false);
+      resetRestockState();
       closeInternalUseModal();
       setItemToDelete(null);
       setReverseInternalTarget(null);
@@ -691,9 +712,11 @@ function AdminInventory() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showForm, editingItem, restockItem, internalUseItem, itemToDelete, movementHistory.item, isSaving, closeInternalUseModal]);
+  }, [showForm, editingItem, restockItem, internalUseItem, itemToDelete, movementHistory.item, isSaving, closeInternalUseModal, resetRestockState]);
 
   const resetForm = () => {
+    if (isSaving) return;
+    saveRequestIdRef.current = null;
     setShowForm(false);
     setActionError("");
     setIsSaving(false);
@@ -705,6 +728,7 @@ function AdminInventory() {
 
   const handleOpenAddForm = () => {
     setEditingItem(null);
+    saveRequestIdRef.current = createClientRequestId("inv");
     setActionError("");
     setFormValues(loadInventoryAddDraft());
     setShowForm(true);
@@ -712,6 +736,7 @@ function AdminInventory() {
 
   const handleEdit = useCallback((item) => {
     setEditingItem(item);
+    saveRequestIdRef.current = null;
     setActionError("");
     setFormValues({
       item: item.item,
@@ -749,6 +774,7 @@ function AdminInventory() {
   };
 
   const openRestock = useCallback((item) => {
+    restockRequestIdRef.current = createClientRequestId("rst");
     setRestockItem(item);
     const maxStock = Number(item.maximumStock);
     const currentQty = Number(item.quantity || 0);
@@ -878,14 +904,18 @@ function AdminInventory() {
 
   const handleRestock = async (event) => {
     event.preventDefault();
+    if (isSaving) return;
     const quantity = Number(restockQuantity);
-    if (!restockItem || !Number.isFinite(quantity) || quantity <= 0 || isSaving) {
+    if (!restockItem || !Number.isFinite(quantity) || quantity <= 0) {
       setActionError("Enter a restock quantity greater than zero.");
       return;
     }
     if (restockBatchCost !== "" && (!Number.isFinite(Number(restockBatchCost)) || Number(restockBatchCost) < 0)) {
       setActionError("Enter a valid non-negative batch cost.");
       return;
+    }
+    if (!restockRequestIdRef.current) {
+      restockRequestIdRef.current = createClientRequestId("rst");
     }
     setIsSaving(true);
     setActionError("");
@@ -896,16 +926,11 @@ function AdminInventory() {
         referenceNo: restockReferenceNo.trim() || undefined,
         creditAccountCode: Number(restockBatchCost) > 0 ? restockCreditAccountCode : undefined,
         diluteZeroCost: restockBatchCost !== "" && Number(restockBatchCost) === 0 ? restockDiluteZeroCost : false,
+        clientRequestId: restockRequestIdRef.current,
       });
+      restockRequestIdRef.current = null;
       setNotice(`${restockItem.item} restocked by ${quantity} ${restockItem.unit}.`);
-      setRestockItem(null);
-      setRestockBatchCost("");
-      setRestockSupplierName("");
-      setRestockReferenceNo("");
-      setRestockCreditAccountCode("1010");
-      setRestockDiluteZeroCost(false);
-      setRestockCreditAccountCode("1010");
-      setRestockDiluteZeroCost(false);
+      resetRestockState();
     } catch (error) {
       setActionError(error.message || "Could not restock this item.");
     } finally {
@@ -941,6 +966,7 @@ function AdminInventory() {
 
   const handleSave = async (event) => {
     event.preventDefault();
+    if (isSaving) return;
 
     const itemName = formValues.item.trim();
     const category = formValues.category.trim();
@@ -1017,6 +1043,9 @@ function AdminInventory() {
         ? Number((purchasePrice / totalMeasurable).toFixed(6))
         : 0;
 
+    if (!editingItem && !saveRequestIdRef.current) {
+      saveRequestIdRef.current = createClientRequestId("inv");
+    }
     setIsSaving(true);
     setActionError("");
     let savedItem;
@@ -1033,9 +1062,11 @@ function AdminInventory() {
         quantity,
         unit,
         maximumStock,
+        ...(!editingItem && saveRequestIdRef.current ? { clientRequestId: saveRequestIdRef.current } : {}),
       };
       if (editingItem) savedItem = await updateInventoryItem(editingItem.id, values);
       else savedItem = await addInventoryItem(values);
+      saveRequestIdRef.current = null;
     } catch (error) {
       setActionError(error.message || "Could not save the inventory item.");
       setIsSaving(false);
@@ -1982,7 +2013,10 @@ function AdminInventory() {
                           value={formValues.packageQuantity}
                           onChange={(event) => {
                             const newPkgQty = event.target.value;
-                            const nextTotal = (Number(newPkgQty || 1) * Number(formValues.contentsPerPackage || 0));
+                            const parsedPkg = newPkgQty.trim() === "" ? 0 : Number(newPkgQty);
+                            const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
+                              ? parsedPkg * Number(formValues.contentsPerPackage || 0)
+                              : 0;
                             setFormValues((prev) => ({
                               ...prev,
                               packageQuantity: newPkgQty,
@@ -2041,7 +2075,10 @@ function AdminInventory() {
                           value={formValues.contentsPerPackage}
                           onChange={(event) => {
                             const newContents = event.target.value;
-                            const nextTotal = (Number(formValues.packageQuantity || 1) * Number(newContents || 0));
+                            const parsedPkg = formValues.packageQuantity.trim() === "" ? 0 : Number(formValues.packageQuantity);
+                            const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
+                              ? parsedPkg * Number(newContents || 0)
+                              : 0;
                             setFormValues((prev) => ({
                               ...prev,
                               contentsPerPackage: newContents,
@@ -2160,7 +2197,7 @@ function AdminInventory() {
                     Clear Draft
                   </button>
                 )}
-                <button type="button" className="clipboard-btn-cancel" onClick={resetForm}>
+                <button type="button" className="clipboard-btn-cancel" onClick={resetForm} disabled={isSaving}>
                   Cancel
                 </button>
                 <button type="submit" className="clipboard-btn-save" disabled={isSaving}>
@@ -2173,396 +2210,64 @@ function AdminInventory() {
         </div>
       )}
 
-      {movementHistory.item && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={closeMovementHistory}>
-          <section className="admin-inventory-modal inventory-history-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-history-title" onClick={(event) => event.stopPropagation()}>
-            <div className="admin-inventory-modal-header">
-              <div>
-                <span className="admin-inventory-eyebrow">AUDIT TRAIL</span>
-                <h3 id="inventory-history-title">{movementHistory.item.item} history</h3>
-                <p>Stock changes, quantities, and the account that recorded them.</p>
-              </div>
-              <button type="button" onClick={closeMovementHistory} aria-label="Close stock history">×</button>
-            </div>
-            {reverseInternalTarget && (
-              <form
-                onSubmit={handleConfirmReverseInternalUse}
-                style={{
-                  marginBottom: "12px",
-                  padding: "12px",
-                  borderRadius: "10px",
-                  border: "1px solid #8b5e3c",
-                  background: "#fffaf3",
-                  display: "grid",
-                  gap: "8px",
-                }}
-              >
-                <strong style={{ fontSize: "12px", color: "#382518" }}>
-                  Reverse Internal Store Use #{reverseInternalTarget.id} ({Math.abs(Number(reverseInternalTarget.quantityChange || 0))} {reverseInternalTarget.unit || movementHistory.item.unit})
-                </strong>
-                <label htmlFor="reverse-internal-reason" style={{ fontSize: "11.5px", fontWeight: 600, color: "#4a2c11", display: "grid", gap: "4px" }}>
-                  Audit Reversal Reason (min 3 characters)
-                  <input
-                    ref={reverseInternalInputRef}
-                    id="reverse-internal-reason"
-                    type="text"
-                    maxLength={255}
-                    value={reverseInternalReason}
-                    onChange={(e) => setReverseInternalReason(e.target.value)}
-                    placeholder="e.g. Logged twice by mistake"
-                    required
-                    style={{ padding: "8px 10px", borderRadius: "6px", border: "1px solid #8b5e3c", fontSize: "12px" }}
-                  />
-                </label>
-                {reverseInternalError && (
-                  <p className="inventory-form-error" role="alert" style={{ margin: 0, color: "#b91c1c" }}>{reverseInternalError}</p>
-                )}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                  <button
-                    type="button"
-                    className="modal-cancel"
-                    disabled={isSaving}
-                    onClick={() => {
-                      setReverseInternalTarget(null);
-                      setReverseInternalReason("");
-                      setReverseInternalError("");
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="modal-save" disabled={isSaving}>
-                    {isSaving ? "Reversing…" : "Confirm Reversal"}
-                  </button>
-                </div>
-              </form>
-            )}
-            {movementHistory.loading ? <p className="inventory-history-empty">Loading stock history…</p>
-              : movementHistory.error ? <p className="inventory-history-error" role="alert">{movementHistory.error}</p>
-                : movementHistory.rows.length ? (
-                  <div className="inventory-history-list">
-                    {movementHistory.rows.map((row) => (
-                      <article className="inventory-history-row" key={row.id}>
-                        <div>
-                          <strong>
-                            {row.type === "usage"
-                              ? "Order usage"
-                              : row.type === "restock"
-                                ? "Restocked"
-                                : row.type === "spoilage"
-                                  ? (row.orderId || row.orderNumber ? "Order void spoilage" : "Waste / Spoilage")
-                                  : row.type === "void_restore"
-                                    ? "Void stock restore"
-                                    : row.type === "internal_use"
-                                      ? "Internal store use"
-                                      : row.type === "opening_balance"
-                                        ? "Opening stock"
-                                        : "Stock adjustment"}
-                            {row.wasteReason && (
-                              <em className="inventory-history-waste-badge">
-                                {getWasteReasonMeta(row.wasteReason).shortLabel}
-                              </em>
-                            )}
-                            {row.isReversed && (
-                              <em className="inventory-history-reversed-badge">Reversed</em>
-                            )}
-                          </strong>
-                          <span>{row.note || "Inventory updated"}</span>
-                          <small>{row.actor} · {new Date(row.timestamp).toLocaleString()}</small>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" }}>
-                          <b className={row.quantityChange > 0 ? "is-increase" : "is-decrease"}>{row.quantityChange > 0 ? "+" : ""}{row.quantityChange} {row.unit || movementHistory.item.unit}</b>
-                          {row.type === "internal_use" && !row.isReversed && reverseInternalUse && (
-                            <button
-                              type="button"
-                              aria-label={`Reverse internal store use #${row.id}`}
-                              onClick={() => {
-                                setReverseInternalTarget(row);
-                                setReverseInternalReason("");
-                                setReverseInternalError("");
-                              }}
-                              style={{
-                                border: "1px solid #8b5e3c",
-                                background: "#fff7ed",
-                                color: "#3d230e",
-                                borderRadius: "6px",
-                                padding: "4px 9px",
-                                fontSize: "11px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                minHeight: "30px",
-                              }}
-                            >
-                              Reverse
-                            </button>
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : <p className="inventory-history-empty">No stock movements recorded yet.</p>}
-          </section>
-        </div>
-      )}
+      <InventoryMovementHistoryModal
+        movementHistory={movementHistory}
+        closeMovementHistory={closeMovementHistory}
+        reverseInternalTarget={reverseInternalTarget}
+        setReverseInternalTarget={setReverseInternalTarget}
+        reverseInternalReason={reverseInternalReason}
+        setReverseInternalReason={setReverseInternalReason}
+        reverseInternalError={reverseInternalError}
+        setReverseInternalError={setReverseInternalError}
+        reverseInternalInputRef={reverseInternalInputRef}
+        handleConfirmReverseInternalUse={handleConfirmReverseInternalUse}
+        reverseInternalUse={reverseInternalUse}
+        isSaving={isSaving}
+      />
 
-      {restockItem && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => { if (!isSaving) { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); } }}>
-          <form className="admin-inventory-modal inventory-action-modal" onSubmit={handleRestock} role="dialog" aria-modal="true" aria-labelledby="restock-dialog-title" onClick={(event) => event.stopPropagation()}>
-            <div className="admin-inventory-modal-header">
-              <div>
-                <span className="admin-inventory-eyebrow">STOCK MOVEMENT</span>
-                <h3 id="restock-dialog-title">Restock {restockItem.item}</h3>
-                <p>Current: {restockItem.quantity} {restockItem.unit} · Maximum: {restockItem.maximumStock == null ? "Not set" : `${restockItem.maximumStock} ${restockItem.unit}`}</p>
-              </div>
-              <button type="button" onClick={() => { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); }} disabled={isSaving} aria-label="Close restock form">×</button>
-            </div>
-            <label className="inventory-restock-field">
-              Quantity to add ({restockItem.unit})
-              <input autoFocus type="number" min="0.01" step="any" value={restockQuantity} onChange={(event) => setRestockQuantity(event.target.value)} required />
-              <small>This amount will be added to the current stock and recorded as a restock.</small>
-            </label>
-            <label className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
-              Total paid for this batch (₱) — Optional
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={restockBatchCost}
-                onChange={(event) => setRestockBatchCost(event.target.value)}
-                placeholder="Leave blank to keep current unit cost"
-              />
-              <small>Enter total batch cost to recalculate weighted-average unit cost.</small>
-            </label>
-            {restockBatchCost !== "" && Number(restockBatchCost) > 0 && (
-              <label className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
-                Payment / Funding Source
-                <select
-                  value={restockCreditAccountCode}
-                  onChange={(event) => setRestockCreditAccountCode(event.target.value)}
-                >
-                  <option value="1010">1010 - Cash Drawer (Counter 1)</option>
-                  <option value="1020">1020 - GCash Official Wallet</option>
-                  <option value="1030">1030 - Store Bank Account</option>
-                  <option value="1040">1040 - Owner Capital Reserve</option>
-                  <option value="2010">2010 - Accounts Payable (Supplier Credit)</option>
-                  <option value="3010">3010 - Owner Capital Contribution</option>
-                </select>
-                <small>Credits the selected account and debits 1050 Merchandise Inventory.</small>
-              </label>
-            )}
-            {restockBatchCost !== "" && Number(restockBatchCost) === 0 && (
-              <label className="inventory-restock-checkbox" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.75rem", fontSize: "0.84rem" }}>
-                <input
-                  type="checkbox"
-                  checked={restockDiluteZeroCost}
-                  onChange={(event) => setRestockDiluteZeroCost(event.target.checked)}
-                />
-                <span>Dilute weighted-average unit cost with ₱0 free/bonus batch</span>
-              </label>
-            )}
-            <div className="inventory-restock-meta-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.75rem" }}>
-              <label className="inventory-restock-field">
-                Supplier Name — Optional
-                <input
-                  type="text"
-                  maxLength={120}
-                  value={restockSupplierName}
-                  onChange={(event) => setRestockSupplierName(event.target.value)}
-                  placeholder="e.g. Bukidnon Dairy"
-                />
-              </label>
-              <label className="inventory-restock-field">
-                Reference / Receipt No. — Optional
-                <input
-                  type="text"
-                  maxLength={80}
-                  value={restockReferenceNo}
-                  onChange={(event) => setRestockReferenceNo(event.target.value)}
-                  placeholder="e.g. INV-2026-041"
-                />
-              </label>
-            </div>
-            {(Number(restockBatchCost) > 0 || (restockBatchCost !== "" && Number(restockBatchCost) === 0 && restockDiluteZeroCost)) && Number(restockQuantity) > 0 && (
-              <div className="inventory-costing-preview-box" style={{ marginTop: "0.75rem" }}>
-                <div className="costing-preview-header">
-                  <span className="costing-preview-title">Weighted-Average Cost Preview</span>
-                  <span className="costing-preview-badge">
-                    ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost || 0)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
-                  </span>
-                </div>
-                <div className="costing-preview-metrics">
-                  <div>
-                    <small>Current Unit Cost</small>
-                    <strong>₱{formatUnitCost(restockItem.unitCost)} / {restockItem.unit}</strong>
-                  </div>
-                  <div>
-                    <small>Batch Unit Cost</small>
-                    <strong>₱{formatUnitCost(Number(restockBatchCost || 0) / Number(restockQuantity))} / {restockItem.unit}</strong>
-                  </div>
-                  <div>
-                    <small>New Weighted-Average Cost</small>
-                    <strong>
-                      ₱{formatUnitCost(((Math.max(0, Number(restockItem.quantity || 0)) * Number(restockItem.unitCost || 0)) + Number(restockBatchCost || 0)) / (Math.max(0, Number(restockItem.quantity || 0)) + Number(restockQuantity)))} / {restockItem.unit}
-                    </strong>
-                  </div>
-                </div>
-              </div>
-            )}
-            {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
-            <div className="admin-inventory-modal-actions">
-              <button type="button" className="modal-cancel" onClick={() => { setRestockItem(null); setRestockBatchCost(""); setRestockSupplierName(""); setRestockReferenceNo(""); }} disabled={isSaving}>Cancel</button>
-              <button type="submit" className="modal-save" disabled={isSaving}>{isSaving ? "Adding stock…" : "Confirm restock"}</button>
-            </div>
-          </form>
-        </div>
-      )}
+      <InventoryRestockModal
+        restockItem={restockItem}
+        closeRestockModal={closeRestockModal}
+        handleRestock={handleRestock}
+        restockQuantity={restockQuantity}
+        setRestockQuantity={setRestockQuantity}
+        restockBatchCost={restockBatchCost}
+        setRestockBatchCost={setRestockBatchCost}
+        restockCreditAccountCode={restockCreditAccountCode}
+        setRestockCreditAccountCode={setRestockCreditAccountCode}
+        restockDiluteZeroCost={restockDiluteZeroCost}
+        setRestockDiluteZeroCost={setRestockDiluteZeroCost}
+        restockSupplierName={restockSupplierName}
+        setRestockSupplierName={setRestockSupplierName}
+        restockReferenceNo={restockReferenceNo}
+        setRestockReferenceNo={setRestockReferenceNo}
+        actionError={actionError}
+        isSaving={isSaving}
+      />
 
-      {itemToDelete && (
-        <div className="admin-inventory-modal-backdrop" role="presentation" onClick={() => !isSaving && setItemToDelete(null)}>
-          <section className="admin-inventory-modal inventory-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" onClick={(event) => event.stopPropagation()}>
-            <div className="admin-inventory-modal-header">
-              <div>
-                <span className="admin-inventory-eyebrow">MOVE TO ARCHIVE</span>
-                <h3 id="delete-dialog-title">Archive {itemToDelete.item}?</h3>
-                <p>This item will be safely moved to the <strong>Archive</strong> for 30 days before permanent deletion. You can restore it anytime from Management → Archive!</p>
-              </div>
-            </div>
-            {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
-            <div className="admin-inventory-modal-actions">
-              <button type="button" className="modal-cancel" onClick={() => { setItemToDelete(null); setActionError(""); }} disabled={isSaving}>Cancel</button>
-              <button type="button" className="inventory-delete-confirm" onClick={confirmDelete} disabled={isSaving}>
-                {isSaving ? "Archiving…" : "Move to Archive"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      <InventoryArchiveConfirmModal
+        itemToDelete={itemToDelete}
+        actionError={actionError}
+        isSaving={isSaving}
+        onCancel={() => { setItemToDelete(null); setActionError(""); }}
+        onConfirm={confirmDelete}
+      />
 
-      {internalUseItem && (
-        <div
-          className="admin-inventory-modal-backdrop"
-          role="presentation"
-          onClick={() => {
-            if (!isSaving) closeInternalUseModal();
-          }}
-        >
-          <form
-            className="admin-inventory-modal inventory-action-modal"
-            onSubmit={handleInternalUseSubmit}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="internal-use-dialog-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="admin-inventory-modal-header">
-              <div>
-                <span className="admin-inventory-eyebrow">INTERNAL STORE USE</span>
-                <h3 id="internal-use-dialog-title">Use {internalUseItem.item}</h3>
-                <p>Available on hand: {internalUseItem.quantity} {internalUseItem.unit} · Moves cost from Inventory Asset (1050) to OPEX.</p>
-              </div>
-              <button
-                type="button"
-                onClick={closeInternalUseModal}
-                disabled={isSaving}
-                aria-label="Close store use form"
-              >
-                ×
-              </button>
-            </div>
-            <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.75rem 0" }}>
-              <legend style={{ fontSize: "12px", fontWeight: 700, color: "#4a2c11", marginBottom: "6px" }}>
-                1. Quick-Pick Reason *
-              </legend>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
-                {INTERNAL_USE_QUICK_PICKS.map((pick) => {
-                  const selected = internalUseAccount === pick.code;
-                  return (
-                    <button
-                      key={pick.code}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => setInternalUseAccount(pick.code)}
-                      style={{
-                        textAlign: "left",
-                        padding: "10px 11px",
-                        minHeight: "52px",
-                        borderRadius: "9px",
-                        border: selected ? "2px solid #603b26" : "1px solid #8b5e3c",
-                        background: selected ? "#fff7ed" : "#ffffff",
-                        color: "#382518",
-                        cursor: "pointer",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "2px",
-                      }}
-                    >
-                      <strong style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}>
-                        <span aria-hidden="true">{selected ? "●" : "○"}</span>
-                        {pick.title}
-                      </strong>
-                      <span style={{ fontSize: "11px", color: "#6b5847" }}>{pick.subtitle}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-            <label htmlFor="internal-use-account" className="inventory-restock-field" style={{ marginBottom: "0.75rem" }}>
-              Expense Account (All OPEX Targets)
-              <select
-                id="internal-use-account"
-                value={internalUseAccount}
-                onChange={(event) => setInternalUseAccount(event.target.value)}
-              >
-                {INTERNAL_USE_OPTIONS.map((opt) => (
-                  <option key={opt.code} value={opt.code}>{opt.label}</option>
-                ))}
-              </select>
-              <small style={{ color: "#6b5847" }}>
-                {(INTERNAL_USE_OPTIONS.find((opt) => opt.code === internalUseAccount) || INTERNAL_USE_OPTIONS[0]).hint}
-              </small>
-            </label>
-            <label htmlFor="internal-use-qty" className="inventory-restock-field">
-              Quantity ({internalUseItem.unit})
-              <input
-                id="internal-use-qty"
-                type="number"
-                inputMode="decimal"
-                min="0.000001"
-                max={Number(internalUseItem.quantity || 0) || undefined}
-                step="any"
-                value={internalUseQty}
-                onChange={(event) => setInternalUseQty(event.target.value)}
-                placeholder={`Max ${internalUseItem.quantity}`}
-                required
-              />
-            </label>
-            <label htmlFor="internal-use-note" className="inventory-restock-field" style={{ marginTop: "0.75rem" }}>
-              Note / Crew / Shift — Optional
-              <input
-                id="internal-use-note"
-                type="text"
-                maxLength={420}
-                value={internalUseNote}
-                onChange={(event) => setInternalUseNote(event.target.value)}
-                placeholder="e.g. Afternoon crew meal, kitchen sanitation refill, LPG tank opened"
-              />
-            </label>
-            {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
-            <div className="admin-inventory-modal-actions">
-              <button
-                type="button"
-                className="modal-cancel"
-                onClick={closeInternalUseModal}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              <button type="submit" className="modal-save" disabled={isSaving}>
-                {isSaving ? "Recording…" : "Record Store Use"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <InventoryInternalUseModal
+        internalUseItem={internalUseItem}
+        closeInternalUseModal={closeInternalUseModal}
+        handleInternalUseSubmit={handleInternalUseSubmit}
+        quickPicks={INTERNAL_USE_QUICK_PICKS}
+        accountOptions={INTERNAL_USE_OPTIONS}
+        internalUseAccount={internalUseAccount}
+        setInternalUseAccount={setInternalUseAccount}
+        internalUseQty={internalUseQty}
+        setInternalUseQty={setInternalUseQty}
+        internalUseNote={internalUseNote}
+        setInternalUseNote={setInternalUseNote}
+        actionError={actionError}
+        isSaving={isSaving}
+      />
 
       <LogWasteModal
         isOpen={Boolean(wasteItem)}

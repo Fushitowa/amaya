@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
   Award,
+  CheckCircle2,
   ChartNoAxesColumnIncreasing,
   Menu,
   CircleDollarSign,
@@ -19,6 +20,7 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import PortalHero from "../../components/PortalHero.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import StaffActivityModal from "../../components/StaffActivityModal.jsx";
 import LogWasteModal from "../../components/LogWasteModal.jsx";
 import StoreAssetsHeroCard from "../../components/StoreAssetsHeroCard.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
@@ -26,6 +28,7 @@ import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
 import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
+import { formatManilaDate, getManilaDateString } from "../../../shared/manilaDate.js";
 import { apiRequest } from "../../utils/api.js";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
@@ -67,7 +70,12 @@ function AdminDashboard() {
   const [wasteStatusNote, setWasteStatusNote] = useState("");
   const [serverSummary, setServerSummary] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [staffPerformance, setStaffPerformance] = useState([]);
+  const [selectedStaffMember, setSelectedStaffMember] = useState(null);
+  const [confirmingStaffId, setConfirmingStaffId] = useState(null);
+  const [cashierConfirmNotice, setCashierConfirmNotice] = useState("");
   const modalTriggerRef = useRef(null);
+  const staffModalTriggerRef = useRef(null);
   const reverseDialogRef = useRef(null);
   const reverseTextareaRef = useRef(null);
   const reverseTriggerRef = useRef(null);
@@ -111,6 +119,11 @@ function AdminDashboard() {
           if (active && Array.isArray(data?.items)) setServerAllProducts(data.items);
         })
         .catch(() => {});
+      apiRequest("/reports/staff-performance?rangeKey=all")
+        .then((data) => {
+          if (active && Array.isArray(data?.staff)) setStaffPerformance(data.staff);
+        })
+        .catch(() => {});
     };
     syncSummary();
     window.addEventListener("amaya:stock-mutated", syncSummary);
@@ -120,7 +133,7 @@ function AdminDashboard() {
       window.removeEventListener("amaya:stock-mutated", syncSummary);
       window.removeEventListener("amaya:session-changed", syncSummary);
     };
-  }, [orders]);
+  }, []);
 
   useEffect(() => {
     if (salesRange === "today") return undefined;
@@ -236,6 +249,50 @@ function AdminDashboard() {
     modalTriggerRef.current = event?.currentTarget || null;
     setSelectedOrder(order);
   }, []);
+
+  const openStaffActivityModal = useCallback((staff, event) => {
+    if (!staff) return;
+    staffModalTriggerRef.current = event?.currentTarget || null;
+    setSelectedStaffMember(staff);
+  }, []);
+
+  const handleDirectConfirmCashierSales = useCallback(async (staff) => {
+    const uid = staff?.userId ?? staff?.id;
+    if (!uid || confirmingStaffId) return;
+    const orderIds = Array.isArray(staff?.unconfirmedOrderIds) ? staff.unconfirmedOrderIds : [];
+    const inspectedBefore = staff?.inspectedBefore || null;
+    if (!orderIds.length && !inspectedBefore) {
+      setCashierConfirmNotice(`Inspect ${staff.displayName || "Cashier"}'s sales before confirming.`);
+      return;
+    }
+    setConfirmingStaffId(uid);
+    setCashierConfirmNotice("");
+    try {
+      const res = await apiRequest(`/reports/staff/${uid}/confirm-sales`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...(orderIds.length > 0 ? { orderIds } : {}),
+          ...(inspectedBefore ? { inspectedBefore } : {}),
+          note: `Owner confirmed cashier sales & counter cash for ${staff.displayName || "Cashier"}`,
+        }),
+      });
+      const count = Number(res?.confirmedOrdersCount || 0);
+      const total = Number(res?.confirmedSalesTotal || 0);
+      if (count > 0) {
+        setCashierConfirmNotice(
+          `Confirmed ${count} order${count === 1 ? "" : "s"} (₱${total.toFixed(2)}) for ${staff.displayName}. Added to Store Total Asset Value!`,
+        );
+      } else {
+        setCashierConfirmNotice(`All paid sales for ${staff.displayName} are already confirmed.`);
+      }
+      window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
+      window.dispatchEvent(new CustomEvent("amaya:session-changed"));
+    } catch (err) {
+      setCashierConfirmNotice(err?.message || "Could not confirm cashier sales.");
+    } finally {
+      setConfirmingStaffId(null);
+    }
+  }, [confirmingStaffId]);
 
   const [stockFilter, setStockFilter] = useState("all");
 
@@ -472,18 +529,13 @@ function AdminDashboard() {
   const todaysOrders = useMemo(() => orders.filter((order) => isToday(order.createdAt)), [orders]);
   const displayOrders = ordersTab === "today" ? todaysOrders : orders;
 
-  const liveDate = new Date().toLocaleDateString("en-US", {
+  const liveDate = formatManilaDate(new Date(), {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
   const salesBuckets = useMemo(() => {
-    const manilaTodayStr = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Manila",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
+    const manilaTodayStr = getManilaDateString(new Date());
     const [mYear, mMonth, mDay] = manilaTodayStr.split("-").map(Number);
     const manilaMidnight = new Date(`${manilaTodayStr}T00:00:00+08:00`);
     let buckets;
@@ -740,6 +792,16 @@ function AdminDashboard() {
   const topWastedItem = Array.isArray(wasteSummary.topWastedItems) && wasteSummary.topWastedItems.length
     ? wasteSummary.topWastedItems[0]
     : null;
+
+  const staffModalNode = selectedStaffMember ? (
+    <StaffActivityModal
+      staffMember={selectedStaffMember}
+      rangeParams={{ rangeKey: "all", label: "All Sessions" }}
+      productImageByName={productImageByName}
+      triggerRef={staffModalTriggerRef}
+      onClosed={() => setSelectedStaffMember(null)}
+    />
+  ) : null;
 
   const wasteModalNode = (
     <LogWasteModal
@@ -1034,6 +1096,7 @@ function AdminDashboard() {
 
         <Link to="/admin/menu" className="ad-fab"><Plus size={22} strokeWidth={2.6} aria-hidden="true" />Add item</Link>
         {orderModalNode}
+        {staffModalNode}
         {wasteModalNode}
         {reverseModalNode}
       </div>
@@ -1111,6 +1174,127 @@ function AdminDashboard() {
                 </small>
               </div>
             </div>
+          </section>
+
+          <section className="admin-panel admin-cashier-confirm-panel" aria-label="Cashier Sales and Owner Confirmation">
+            <div className="admin-cashier-confirm-head">
+              <div>
+                <span className="admin-cashier-eyebrow">OWNER REMITTANCE &amp; COUNTER CASH GATE</span>
+                <h3>Cashier Sales &amp; Owner Confirmation</h3>
+                <p>
+                  Inspect transactions and product sales handled by each assigned cashier. Unconfirmed counter cash is added to Store Total Asset Value once confirmed by the Owner.
+                </p>
+              </div>
+              <Link to="/admin/reports" className="restock-open-button">
+                Full Staff Report <ArrowUpRight size={13} aria-hidden="true" />
+              </Link>
+            </div>
+
+            {cashierConfirmNotice && (
+              <div className="admin-cashier-confirm-toast" role="status">
+                <CheckCircle2 size={15} aria-hidden="true" />
+                <span>{cashierConfirmNotice}</span>
+              </div>
+            )}
+
+            {staffPerformance.length === 0 ? (
+              <div className="admin-waste-empty">
+                <strong>No active cashier accounts found</strong>
+                <p>Assigned cashier orders and product sales will appear here for Owner verification.</p>
+              </div>
+            ) : (
+              <div className="admin-cashier-confirm-grid">
+                {staffPerformance.map((member) => {
+                  const unconfirmedCount = Number(member.unconfirmedOrdersCount || 0);
+                  const unconfirmedSales = Number(member.unconfirmedSales || 0);
+                  const unconfirmedCash = Number(member.unconfirmedCashSales || 0);
+                  const isBusy = confirmingStaffId === member.userId;
+
+                  return (
+                    <article
+                      key={member.userId}
+                      className={`admin-cashier-confirm-card ${unconfirmedCount > 0 ? "has-pending" : "is-confirmed"}`}
+                    >
+                      <div className="admin-cashier-card-top">
+                        <div className="admin-cashier-identity">
+                          <span className="admin-cashier-avatar" aria-hidden="true">
+                            {String(member.displayName || "S").charAt(0).toUpperCase()}
+                          </span>
+                          <div>
+                            <strong>
+                              {member.displayName}
+                              {member.role === "admin" && (
+                                <span style={{ marginLeft: "6px", fontSize: "10.5px", fontWeight: 700, padding: "2px 6px", borderRadius: "999px", background: "#f3ebe2", color: "#5a3e2b" }}>
+                                  Admin
+                                </span>
+                              )}
+                            </strong>
+                            <small>
+                              {member.ordersCount} order{member.ordersCount === 1 ? "" : "s"} · {member.unitsSold} product unit{member.unitsSold === 1 ? "" : "s"} sold
+                            </small>
+                          </div>
+                        </div>
+
+                        {unconfirmedCount > 0 ? (
+                          <span className="admin-cashier-badge is-pending">
+                            ⏳ {unconfirmedCount} Unconfirmed
+                          </span>
+                        ) : member.ordersCount > 0 ? (
+                          <span className="admin-cashier-badge is-confirmed">
+                            ✓ Sales Confirmed
+                          </span>
+                        ) : (
+                          <span className="admin-cashier-badge is-neutral">
+                            No Sales Yet
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="admin-cashier-metrics-row">
+                        <div>
+                          <span>Total Sales</span>
+                          <strong>₱{Number(member.grossSales || 0).toFixed(2)}</strong>
+                        </div>
+                        <div>
+                          <span>Pending Counter Cash</span>
+                          <strong className={unconfirmedCash > 0 ? "is-amber" : ""}>
+                            ₱{unconfirmedCash.toFixed(2)}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Confirmed Sales</span>
+                          <strong className="is-green">
+                            ₱{Number(member.confirmedSales || 0).toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="admin-cashier-card-actions">
+                        <button
+                          type="button"
+                          className="admin-cashier-inspect-btn"
+                          onClick={(e) => openStaffActivityModal(member, e)}
+                        >
+                          Inspect Sales &amp; Products
+                        </button>
+                        {unconfirmedCount > 0 && (
+                          <button
+                            type="button"
+                            className="admin-cashier-confirm-btn"
+                            onClick={() => handleDirectConfirmCashierSales(member)}
+                            disabled={isBusy}
+                          >
+                            {isBusy
+                              ? "Confirming..."
+                              : `✓ Confirm Sales (₱${unconfirmedSales.toFixed(2)})`}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
 
@@ -1755,6 +1939,7 @@ function AdminDashboard() {
 
       </main>
       {orderModalNode}
+      {staffModalNode}
       {wasteModalNode}
       {reverseModalNode}
     </div>

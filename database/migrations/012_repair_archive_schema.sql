@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Repair migration for databases where the original archive migration was
 -- marked applied but one or more archive fields are missing.
 -- The operations are idempotent so this can safely reconcile partial schemas.

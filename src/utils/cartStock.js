@@ -3,7 +3,7 @@ import {
   parseMenuPrice,
   resolveProductAddons,
   resolveProductSizes,
-} from "../context/MenuContext.jsx";
+} from "./menuCatalogHelpers.js";
 
 export function normalizeBaseSizeLabel(label) {
   const cleaned = String(label || "Regular")
@@ -24,7 +24,7 @@ export function getDefaultProductSize(product) {
   );
 }
 
-export function findMatchingSizeOption(sizeOptions = [], sizeLabel = "Regular") {
+export function findMatchingSizeOption(sizeOptions = [], sizeLabel = "Regular", { fallbackToFirst = false } = {}) {
   if (!Array.isArray(sizeOptions) || sizeOptions.length === 0) return null;
   const targetExact = String(sizeLabel || "Regular").trim().toLowerCase();
   const exactMatch = sizeOptions.find(
@@ -38,7 +38,7 @@ export function findMatchingSizeOption(sizeOptions = [], sizeLabel = "Regular") 
   );
   if (baseMatches.length === 1) return baseMatches[0];
 
-  return sizeOptions[0] || null;
+  return fallbackToFirst ? (sizeOptions[0] || null) : null;
 }
 
 export function getCartIngredientUsage(cartItems = [], catalogProducts = []) {
@@ -57,7 +57,7 @@ export function getCartIngredientUsage(cartItems = [], catalogProducts = []) {
 
     const itemSizes = resolveProductSizes(matchedCatalog);
     const itemAddons = resolveProductAddons(matchedCatalog);
-    const matchedSize = findMatchingSizeOption(itemSizes, cartItem.size || "Regular");
+    const matchedSize = findMatchingSizeOption(itemSizes, cartItem.size || "Regular", { fallbackToFirst: true });
 
     const itemEntries = [
       ...(matchedSize?.ingredients || matchedCatalog.ingredients || []),
@@ -139,6 +139,9 @@ export function canFulfillCartAddition({
   const sizeOptions = resolveProductSizes(matchedCatalog);
   const addonOptions = resolveProductAddons(matchedCatalog);
   const sizeObj = findMatchingSizeOption(sizeOptions, sizeLabel || getDefaultProductSize(matchedCatalog).label);
+  if (sizeOptions.length > 0 && sizeLabel && !sizeObj) {
+    return { allowed: false, maxAdditionalQty: 0, shortages: [] };
+  }
   const cartUsedByIngredientId = getCartIngredientUsage(cartItems, catalogProducts);
 
   const stockLines = buildIngredientStockLines({
@@ -150,25 +153,36 @@ export function canFulfillCartAddition({
     quantity: addQuantity,
   });
 
+  const hasBaseRecipe = Boolean(
+    (sizeObj?.ingredients && sizeObj.ingredients.length > 0)
+    || (matchedCatalog?.ingredients && matchedCatalog.ingredients.length > 0),
+  );
+  const alreadyInCartForProduct = cartItems
+    .filter((entry) => entry.productId === matchedCatalog.id || entry.title === (matchedCatalog.name || matchedCatalog.title))
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const rawCatalogStock = matchedCatalog.stock;
+  const maxCatalogStock = rawCatalogStock !== undefined && rawCatalogStock !== null && Number.isFinite(Number(rawCatalogStock))
+    ? Math.max(0, Math.floor((Number(rawCatalogStock) - alreadyInCartForProduct) + 1e-9))
+    : Infinity;
+
   if (!stockLines.length) {
-    const alreadyInCartForProduct = cartItems
-      .filter((entry) => entry.productId === matchedCatalog.id || entry.title === (matchedCatalog.name || matchedCatalog.title))
-      .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-    const maxStock = Number(matchedCatalog.stock ?? Infinity);
-    const maxAdditionalQty = Math.max(0, maxStock - alreadyInCartForProduct);
     return {
-      allowed: maxAdditionalQty >= addQuantity,
-      maxAdditionalQty,
+      allowed: maxCatalogStock >= addQuantity,
+      maxAdditionalQty: maxCatalogStock,
       shortages: [],
     };
   }
 
-  const maxAdditionalQty = stockLines.reduce((minServings, entry) => {
+  const ingredientMaxQty = stockLines.reduce((minServings, entry) => {
     if (!entry.configured || !(entry.perServing > 0)) return 0;
-    return Math.min(minServings, Math.floor(entry.inventoryQuantity / entry.perServing));
+    return Math.min(minServings, Math.floor((entry.inventoryQuantity / entry.perServing) + 1e-9));
   }, Infinity);
 
-  const shortages = stockLines.filter((entry) => !entry.configured || entry.availableAfter < 0);
+  const maxAdditionalQty = hasBaseRecipe
+    ? ingredientMaxQty
+    : Math.min(ingredientMaxQty, maxCatalogStock);
+
+  const shortages = stockLines.filter((entry) => !entry.configured || entry.availableAfter < -1e-9);
   return {
     allowed: shortages.length === 0 && maxAdditionalQty >= addQuantity,
     maxAdditionalQty,

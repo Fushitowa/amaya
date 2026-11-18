@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Store ingredient amounts by serving size. Existing product_ingredients rows
 -- remain the default recipe for older menu items and sizes without overrides.
 CREATE TABLE IF NOT EXISTS product_size_ingredients (

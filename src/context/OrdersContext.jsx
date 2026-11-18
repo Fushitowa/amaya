@@ -7,6 +7,7 @@ import {
   notifyOrderCreated,
   notifyReceiptPrinted,
 } from "../utils/notifications.js";
+import { formatManilaTime, getManilaDateString } from "../../shared/manilaDate.js";
 
 const OrdersContext = createContext(null);
 
@@ -48,44 +49,122 @@ export function normalizeOrderPayment(order) {
   };
 }
 
+function mergeOrdersWithActiveQueue(recentOrders = [], activeQueue = []) {
+  const byId = new Map();
+  for (const order of activeQueue) {
+    if (order?.id) byId.set(order.id, order);
+  }
+  for (const order of recentOrders) {
+    if (order?.id && !byId.has(order.id)) {
+      byId.set(order.id, order);
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
 export function OrdersProvider({ children }) {
   const [orders, setOrders] = useState([]);
+  const [activeQueueOrders, setActiveQueueOrders] = useState([]);
+  const [loadedUserId, setLoadedUserId] = useState(null);
+  const [ordersError, setOrdersError] = useState("");
   const { user } = useAuth();
-  const userId = user?.id;
+  const userId = user?.id ?? null;
+
+  const loadOrdersBundle = useCallback(async (signal = undefined) => {
+    const reqOpts = signal ? { signal } : {};
+    const [saved, activeQueue] = await Promise.all([
+      apiRequest("/orders", reqOpts),
+      apiRequest("/orders/active-queue", reqOpts).catch((err) => {
+        if (err?.name === "AbortError") throw err;
+        return [];
+      }),
+    ]);
+    const normalizedRecent = (Array.isArray(saved) ? saved : []).map((order) =>
+      normalizeOrderPayment(normalizeOrderCustomer(order)),
+    );
+    const normalizedQueue = (Array.isArray(activeQueue) ? activeQueue : []).map((order) =>
+      normalizeOrderPayment(normalizeOrderCustomer(order)),
+    );
+    const merged = mergeOrdersWithActiveQueue(normalizedRecent, normalizedQueue);
+    return { merged, normalizedQueue };
+  }, []);
 
   const refreshOrders = useCallback(async () => {
     if (!userId) return [];
-    const saved = await apiRequest("/orders");
-    const normalized = saved.map((order) => normalizeOrderPayment(normalizeOrderCustomer(order)));
-    setOrders(normalized);
-    return normalized;
-  }, [userId]);
+    try {
+      const { merged, normalizedQueue } = await loadOrdersBundle();
+      setOrders(merged);
+      setActiveQueueOrders(normalizedQueue);
+      setLoadedUserId(userId);
+      setOrdersError("");
+      return merged;
+    } catch (error) {
+      setLoadedUserId(userId);
+      setOrdersError(error?.message || "Could not load orders.");
+      throw error;
+    }
+  }, [loadOrdersBundle, userId]);
 
   useEffect(() => {
     if (!userId) return undefined;
     let active = true;
-    const refresh = () => apiRequest("/orders").then((saved) => {
-      if (active) setOrders(saved.map((order) => normalizeOrderPayment(normalizeOrderCustomer(order))));
-    }).catch((error) => console.error("Could not load orders:", error.message));
+    let controller = null;
+    const refresh = () => {
+      if (controller) controller.abort();
+      controller = new AbortController();
+      loadOrdersBundle(controller.signal)
+        .then(({ merged, normalizedQueue }) => {
+          if (!active) return;
+          setOrders(merged);
+          setActiveQueueOrders(normalizedQueue);
+          setLoadedUserId(userId);
+          setOrdersError("");
+        })
+        .catch((error) => {
+          if (error?.name === "AbortError") return;
+          console.error("Could not load orders:", error.message);
+          if (active) {
+            setLoadedUserId(userId);
+            setOrdersError(error?.message || "Could not load orders.");
+          }
+        });
+    };
+    const onInterval = () => {
+      if (document.visibilityState === "hidden") return;
+      refresh();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
     refresh();
-    const interval = window.setInterval(refresh, 15000);
+    const interval = window.setInterval(onInterval, 15000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("amaya:session-changed", refresh);
     window.addEventListener("amaya:stock-mutated", refresh);
     return () => {
       active = false;
+      if (controller) controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("amaya:session-changed", refresh);
       window.removeEventListener("amaya:stock-mutated", refresh);
     };
-  }, [userId]);
+  }, [loadOrdersBundle, userId]);
 
   const fetchOrderDetails = useCallback(async (orderNumber) => {
     const details = await apiRequest(`/orders/${encodeURIComponent(orderNumber)}`);
     return normalizeOrderPayment(normalizeOrderCustomer(details));
   }, []);
 
+  const isCurrentUserLoaded = Boolean(userId && loadedUserId === userId);
+
   const value = useMemo(() => ({
     orders: user ? orders : [],
+    activeQueueOrders: user ? activeQueueOrders : [],
+    loading: Boolean(userId && !isCurrentUserLoaded),
+    error: isCurrentUserLoaded ? ordersError : "",
     refreshOrders,
     fetchOrderDetails,
     addOrder: async (payload) => {
@@ -140,7 +219,7 @@ export function OrdersProvider({ children }) {
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return normalized;
     },
-    revertOrderItem: async (orderNumber, itemId, { quantity, reason, restoreStock, authorizationPassword, adminPassword } = {}) => {
+    revertOrderItem: async (orderNumber, itemId, { quantity, reason, restoreStock, authorizationPassword, adminPassword, clientRequestId } = {}) => {
       const updated = await apiRequest(
         `/orders/${encodeURIComponent(orderNumber)}/items/${encodeURIComponent(itemId)}/revert`,
         {
@@ -151,6 +230,7 @@ export function OrdersProvider({ children }) {
             restoreStock,
             authorizationPassword: authorizationPassword ?? adminPassword,
             adminPassword: adminPassword ?? authorizationPassword,
+            ...(clientRequestId ? { clientRequestId } : {}),
           }),
         },
       );
@@ -159,7 +239,7 @@ export function OrdersProvider({ children }) {
       window.dispatchEvent(new CustomEvent("amaya:stock-mutated"));
       return normalized;
     },
-  }), [fetchOrderDetails, orders, refreshOrders, user]);
+  }), [activeQueueOrders, fetchOrderDetails, isCurrentUserLoaded, orders, ordersError, refreshOrders, user, userId]);
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }
@@ -169,21 +249,14 @@ export function useOrders() {
 }
 
 export function getOrderTime(createdAt) {
-  return new Date(createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return formatManilaTime(createdAt);
 }
-
-const MANILA_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Manila",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
 
 export function isToday(createdAt) {
   if (!createdAt) return false;
   const date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) return false;
-  return MANILA_DATE_FORMAT.format(date) === MANILA_DATE_FORMAT.format(new Date());
+  return getManilaDateString(date) === getManilaDateString(new Date());
 }
 
 export function isOrderPaid(order) {

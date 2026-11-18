@@ -18,6 +18,7 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { formatManilaDate, formatManilaDateTime } from "../../../shared/manilaDate.js";
 
 import "../../assets/css/admin/AdminArchive.css";
 import "../../assets/css/portal-user.css";
@@ -48,7 +49,9 @@ export default function AdminArchive() {
     type: null, // "menu" | "inventory" | "empty"
     id: null,
     name: "",
+    scope: null,
   });
+  const [deleteModalError, setDeleteModalError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchArchiveData = useCallback(async () => {
@@ -99,11 +102,13 @@ export default function AdminArchive() {
   };
 
   const confirmPermanentDelete = async () => {
-    const { type, id, name } = deleteModal;
+    const { type, id, name, scope } = deleteModal;
     try {
+      setDeleteModalError("");
       setIsProcessing(true);
       if (type === "empty") {
-        const result = await apiRequest("/archive/empty", { method: "DELETE" });
+        const query = scope ? `?type=${encodeURIComponent(scope)}` : "";
+        const result = await apiRequest(`/archive/empty${query}`, { method: "DELETE" });
         const skipped = [...(result.skippedMenu || []), ...(result.skippedInventory || [])];
         setNotice(result.message || "Archive trash emptied.");
         if (skipped.length > 0) {
@@ -113,9 +118,10 @@ export default function AdminArchive() {
         await apiRequest(`/archive/${type}/${id}`, { method: "DELETE" });
         setNotice(`“${name}” was permanently deleted.`);
       }
-      setDeleteModal({ isOpen: false, type: null, id: null, name: "" });
+      setDeleteModal({ isOpen: false, type: null, id: null, name: "", scope: null });
       await fetchArchiveData();
     } catch (err) {
+      setDeleteModalError(err.message || "Deletion failed.");
       setError(err.message || "Deletion failed.");
     } finally {
       setIsProcessing(false);
@@ -144,17 +150,9 @@ export default function AdminArchive() {
     );
   };
 
-  const formatArchiveDate = (value) => {
-    if (!value) return "—";
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString();
-  };
+  const formatArchiveDate = (value) => formatManilaDate(value, { month: "short", day: "numeric", year: "numeric" });
 
-  const formatAuditDateTime = (value) => {
-    if (!value) return "—";
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
-  };
+  const formatAuditDateTime = (value) => formatManilaDateTime(value);
 
   const getPinTone = (daysRemaining) => {
     const days = Number(daysRemaining ?? 30);
@@ -222,6 +220,8 @@ export default function AdminArchive() {
     );
   }, [archiveData.auditLogs, search]);
 
+  const tabEmptyCount = activeTab === "menu" ? archiveData.counts.menu : archiveData.counts.inventory;
+  const tabEmptyLabel = activeTab === "menu" ? "archived menu items" : "archived inventory items";
   const emptyTrashButton = (
     <div className="admin-archive-grid-bar">
       <p className="admin-archive-note">
@@ -231,18 +231,20 @@ export default function AdminArchive() {
       <button
         type="button"
         className="admin-archive-empty-button"
-        disabled={archiveData.counts.totalArchived === 0 || isProcessing}
-        onClick={() =>
+        disabled={tabEmptyCount === 0 || isProcessing}
+        onClick={() => {
+          setDeleteModalError("");
           setDeleteModal({
             isOpen: true,
             type: "empty",
             id: null,
-            name: `all ${archiveData.counts.totalArchived} archived items`,
-          })
-        }
+            scope: activeTab === "menu" || activeTab === "inventory" ? activeTab : null,
+            name: `all ${tabEmptyCount} ${tabEmptyLabel}`,
+          });
+        }}
       >
         <Trash2 size={15} aria-hidden="true" />
-        <span>Empty Trash</span>
+        <span>Empty {activeTab === "menu" ? "Menu Trash" : "Inventory Trash"}</span>
       </button>
     </div>
   );
@@ -629,10 +631,16 @@ export default function AdminArchive() {
                                     <td>{formatAuditDateTime(log.created_at || log.timestamp)}</td>
                                     <td>
                                       <span className={`audit-action-badge ${log.action}`}>
-                                        {log.action.replace("_", " ")}
+                                        {String(log.action || "").replaceAll("_", " ")}
                                       </span>
                                     </td>
-                                    <td>{log.entity_type === "menu_product" ? "Menu Product" : "Inventory Item"}</td>
+                                    <td>
+                                      {({
+                                        menu_product: "Menu Product",
+                                        inventory_item: "Inventory Item",
+                                        catalog_vault: "Catalog Vault",
+                                      }[log.entityType || log.entity_type] || "Catalog Record")}
+                                    </td>
                                     <td><strong>{log.entity_name}</strong></td>
                                     <td>{log.actor_name}</td>
                                     <td className="audit-note-cell">{log.note || "—"}</td>
@@ -718,7 +726,7 @@ export default function AdminArchive() {
         <div
           className="archive-modal-backdrop"
           role="presentation"
-          onClick={() => !isProcessing && setDeleteModal({ isOpen: false, type: null, id: null, name: "" })}
+          onClick={() => !isProcessing && (setDeleteModalError(""), setDeleteModal({ isOpen: false, type: null, id: null, name: "", scope: null }))}
         >
           <div
             className="archive-modal-card"
@@ -741,12 +749,20 @@ export default function AdminArchive() {
               Are you sure you want to permanently delete <strong>{deleteModal.name}</strong>?
               This action <strong>cannot be undone</strong> and will be logged in the permanent audit trail.
             </p>
+            {deleteModalError && (
+              <p role="alert" style={{ color: "#991B1B", background: "#FEF2F2", border: "1px solid #FECACA", padding: "8px 10px", borderRadius: "8px", fontSize: "13px", marginTop: "8px" }}>
+                {deleteModalError}
+              </p>
+            )}
             <div className="archive-modal-actions">
               <button
                 type="button"
                 className="archive-modal-cancel"
                 disabled={isProcessing}
-                onClick={() => setDeleteModal({ isOpen: false, type: null, id: null, name: "" })}
+                onClick={() => {
+                  setDeleteModalError("");
+                  setDeleteModal({ isOpen: false, type: null, id: null, name: "", scope: null });
+                }}
               >
                 Cancel
               </button>

@@ -2,10 +2,7 @@ const resolveApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    return `http://${window.location.hostname}:3001/api`;
-  }
-  return "http://localhost:3001/api";
+  return "/api";
 };
 
 const API_BASE_URL = resolveApiBaseUrl();
@@ -30,13 +27,14 @@ export async function apiRequest(path, options = {}) {
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${cleanPath}`, { ...options, headers });
-  } catch {
-    throw new Error("Could not reach the Amaya API. Make sure the API server is running.");
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    throw new Error("Could not reach the Amaya API. Make sure the API server is running.", { cause: err });
   }
 
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));
-  if (response.status === 401 && cleanPath !== "/auth/login") {
+  if (response.status === 401 && cleanPath !== "/auth/login" && cleanPath !== "/auth/switch-cashier") {
     setAuthToken(null);
     window.dispatchEvent(new Event("amaya:unauthorized"));
   }
@@ -53,8 +51,9 @@ export async function apiFetchBlobWithMeta(path, options = {}) {
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${cleanPath}`, { ...options, headers });
-  } catch {
-    throw new Error("Could not reach the Amaya API. Make sure the API server is running.");
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    throw new Error("Could not reach the Amaya API. Make sure the API server is running.", { cause: err });
   }
 
   if (response.status === 401) {

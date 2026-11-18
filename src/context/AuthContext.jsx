@@ -70,7 +70,14 @@ export function AuthProvider({ children }) {
     return result;
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    if (getAuthToken()) {
+      try {
+        await apiRequest("/auth/logout", { method: "POST" });
+      } catch {
+        // Best-effort server-side token revocation; always clear local session state below
+      }
+    }
     setAuthToken(null);
     setUser(null);
     window.dispatchEvent(new CustomEvent("amaya:session-changed", { detail: { user: null } }));
@@ -82,7 +89,7 @@ export function AuthProvider({ children }) {
     const resetTimer = () => {
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = window.setTimeout(() => {
-        logout();
+        void logout();
       }, timeoutMs);
     };
     const events = ["pointerdown", "keydown", "scroll", "touchstart"];

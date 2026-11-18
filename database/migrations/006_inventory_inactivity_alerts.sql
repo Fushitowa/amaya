@@ -1,5 +1,3 @@
-USE amaya;
-
 CREATE TABLE IF NOT EXISTS inventory_inactivity_states (
     inventory_item_id BIGINT UNSIGNED NOT NULL,
     last_activity_at DATETIME NOT NULL,

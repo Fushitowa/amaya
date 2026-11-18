@@ -4,90 +4,32 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { notifyMenuAdded, notifyMenuDeleted } from "../utils/notifications.js";
 import { apiRequest } from "../utils/api.js";
 import { useAuth } from "./AuthContext.jsx";
+import {
+  findProductById,
+  normaliseLabel,
+  parseMenuPrice,
+  resolveProductAddons,
+  resolveProductSizes,
+} from "../utils/menuCatalogHelpers.js";
+
+export {
+  findProductById,
+  normaliseLabel,
+  parseMenuPrice,
+  resolveProductAddons,
+  resolveProductSizes,
+};
 
 const MenuContext = createContext(null);
-
-/**
- * Catalog read helpers.
- *
- * Admin Menu Management is the single source of truth for size variants and
- * add-ons: staff never define their own, they read what the catalog says.
- * These helpers are the one place that normalises those fields, so the
- * Staff Portal and the Admin Portal cannot drift apart.
- */
-
-// Catalog prices are stored as display strings (e.g. "\u20b139.00") in some
-// legacy records and as numbers in others; accept both.
-export function parseMenuPrice(raw) {
-  const value = Number(String(raw ?? "").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(value) ? value : 0;
-}
-
-export function findProductById(products, id) {
-  if (id === null || id === undefined) return null;
-  return (products || []).find((product) => product.id === id) || null;
-}
-
-// Admins type catalog labels in whatever case they like ("extra large", "LARGE").
-// Staff-facing option pills read better normalised, so title-case them once here
-// rather than relying on CSS text-transform, which would not affect the
-// summary text or the stored selection key.
-export function normaliseLabel(raw) {
-  return String(raw ?? "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-export function resolveProductSizes(product) {
-  const base = parseMenuPrice(product?.price);
-  const configured = Array.isArray(product?.sizes) ? product.sizes : [];
-  const seen = new Set();
-  const sizes = [];
-
-  configured.forEach((size) => {
-    const label = normaliseLabel(size?.label);
-    if (!label) return;
-    const key = label.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    sizes.push({ label, price: parseMenuPrice(size?.price), ingredients: Array.isArray(size?.ingredients) ? size.ingredients : [] });
-  });
-
-  // No configured variants: one default priced at the item's own base price.
-  // Derived from the product, never a hard-coded size table.
-  return sizes.length ? sizes : [{ label: "Regular", price: base }];
-}
-
-export function resolveProductAddons(product) {
-  const configured = Array.isArray(product?.addons) ? product.addons : [];
-  const seen = new Set();
-  const addons = [];
-
-  configured.forEach((addon) => {
-    const label = normaliseLabel(addon?.label);
-    if (!label) return;
-    const key = label.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    addons.push({
-      ...addon,
-      label,
-      price: parseMenuPrice(addon?.price),
-      quantityUsed: Number(addon?.quantityUsed || 0),
-      unit: addon?.unit || addon?.stockUnit || "pcs",
-      stockUnit: addon?.stockUnit || "pcs",
-    });
-  });
-
-  return addons;
-}
 
 export function MenuProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [menuError, setMenuError] = useState("");
-  const { user } = useAuth();
+  const [categoriesError, setCategoriesError] = useState("");
+  const { user } = useAuth() || {};
+  const isPortal = import.meta.env.MODE === "portal";
   const isSignedIn = Boolean(user);
   const userRole = user?.role;
 
@@ -100,57 +42,99 @@ export function MenuProvider({ children }) {
     return { ...product, image: "" };
   }, []);
 
-  const refreshCategories = useCallback(async () => {
+  const refreshCategories = useCallback(async (signal = undefined) => {
     try {
       const query = isSignedIn ? "?all=true" : "";
-      const saved = await apiRequest(`/menu/categories${query}`);
+      const saved = await apiRequest(`/menu/categories${query}`, signal ? { signal } : {});
       setCategories(saved);
+      setCategoriesError("");
       return saved;
     } catch (error) {
+      if (error?.name === "AbortError") return null;
       console.warn("Could not load menu categories:", error.message);
-      return [];
+      setCategoriesError(error?.message || "Could not load menu categories.");
+      return null;
     }
   }, [isSignedIn]);
 
   const refreshProducts = useCallback(async () => {
-    const query = isSignedIn ? "?all=true" : "";
-    const saved = await apiRequest(`/menu${query}`);
-    setMenuError("");
-    setProducts(saved.map(withLocalImage));
-    return saved.map(withLocalImage);
+    try {
+      const query = isSignedIn ? "?all=true&media=url" : "?media=url";
+      const saved = await apiRequest(`/menu${query}`);
+      const mapped = saved.map(withLocalImage);
+      setMenuError("");
+      setProducts(mapped);
+      setLoading(false);
+      return mapped;
+    } catch (error) {
+      setLoading(false);
+      setMenuError(error?.message || "Could not load menu items from server.");
+      throw error;
+    }
   }, [isSignedIn, withLocalImage]);
 
   useEffect(() => {
     let current = true;
+    let controller = null;
     const load = () => {
-      apiRequest(`/menu${isSignedIn ? "?all=true" : ""}`)
+      if (controller) controller.abort();
+      controller = new AbortController();
+      const { signal } = controller;
+      const query = isSignedIn ? "?all=true&media=url" : "?media=url";
+      apiRequest(`/menu${query}`, { signal })
         .then((saved) => {
           if (current) {
             setMenuError("");
             setProducts(saved.map(withLocalImage));
+            setLoading(false);
           }
         })
         .catch((error) => {
+          if (error?.name === "AbortError") return;
           console.error("Could not load menu:", error.message);
-          if (current) setMenuError(error.message || "Could not load menu items from server.");
+          if (current) {
+            setMenuError(error?.message || "Could not load menu items from server.");
+            setLoading(false);
+          }
         });
-      refreshCategories();
+      refreshCategories(signal);
     };
     load();
-    const interval = window.setInterval(load, 30000);
+
+    if (!isPortal) {
+      return () => {
+        current = false;
+        if (controller) controller.abort();
+      };
+    }
+
+    const onInterval = () => {
+      if (document.visibilityState === "hidden") return;
+      load();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    const interval = window.setInterval(onInterval, 30000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("amaya:stock-mutated", load);
     return () => {
       current = false;
+      if (controller) controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("amaya:stock-mutated", load);
     };
-  }, [isSignedIn, refreshCategories, userRole, withLocalImage]);
+  }, [isPortal, isSignedIn, refreshCategories, userRole, withLocalImage]);
 
   const value = useMemo(() => ({
     products: isSignedIn ? products : products.filter((product) => product.available),
     categories,
     categoryNames: ["All items", ...categories.filter((c) => c.isActive !== false).map((c) => c.name)],
+    loading,
+    error: menuError,
     menuError,
+    categoriesError,
     refreshProducts,
     refreshCategories,
     addCategory: async (categoryData) => {
@@ -200,7 +184,7 @@ export function MenuProvider({ children }) {
       setProducts((current) => current.filter((entry) => entry.id !== id));
       if (product) notifyMenuDeleted(product);
     },
-  }), [categories, isSignedIn, menuError, products, refreshCategories, refreshProducts, withLocalImage]);
+  }), [categories, categoriesError, isSignedIn, loading, menuError, products, refreshCategories, refreshProducts, withLocalImage]);
 
   return <MenuContext.Provider value={value}>{children}</MenuContext.Provider>;
 }

@@ -1,53 +1,22 @@
-export const DEFAULT_TARGET_FOOD_COST = 0.30;
-export const MIN_TARGET_FOOD_COST = 0.10;
-export const MAX_TARGET_FOOD_COST = 0.90;
+import {
+  DEFAULT_TARGET_FOOD_COST,
+  MAX_TARGET_FOOD_COST,
+  MIN_TARGET_FOOD_COST,
+  normalizeTargetFoodCost,
+} from "../../shared/costing.js";
+import {
+  UNIT_DEFINITIONS as unitFactors,
+  toInventoryQuantity as convertRecipeAmount,
+} from "../../shared/units.js";
 
-export function normalizeTargetFoodCost(value, fallback = DEFAULT_TARGET_FOOD_COST) {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value === "boolean" ||
-    typeof value === "object"
-  ) {
-    return fallback;
-  }
-  if (typeof value === "string" && !value.trim()) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= MIN_TARGET_FOOD_COST && parsed <= MAX_TARGET_FOOD_COST
-    ? Number(parsed.toFixed(4))
-    : fallback;
-}
-
-export const unitFactors = new Map();
-const registerUnit = (dimension, factorToBase, units) =>
-  units.forEach((unit) => unitFactors.set(unit.toLowerCase(), { dimension, factorToBase }));
-
-registerUnit("mass", 0.000001, ["µg", "μg", "ug", "mcg", "microgram", "micrograms"]);
-registerUnit("mass", 0.001, ["mg", "milligram", "milligrams"]);
-registerUnit("mass", 1, ["g", "gram", "grams"]);
-registerUnit("mass", 100, ["hg", "hectogram", "hectograms"]);
-registerUnit("mass", 1000, ["kg", "kilogram", "kilograms"]);
-registerUnit("mass", 1000000, ["t", "tonne", "tonnes", "metric ton", "metric tons"]);
-registerUnit("mass", 28.349523125, ["oz", "ounce", "ounces"]);
-registerUnit("mass", 453.59237, ["lb", "lbs", "pound", "pounds"]);
-registerUnit("volume", 1, ["ml", "milliliter", "milliliters", "millilitre", "millilitres", "cc", "cm3", "cm³"]);
-registerUnit("volume", 10, ["cl", "centiliter", "centiliters", "centilitre", "centilitres"]);
-registerUnit("volume", 100, ["dl", "deciliter", "deciliters", "decilitre", "decilitres"]);
-registerUnit("volume", 1000, ["l", "liter", "liters", "litre", "litres"]);
-registerUnit("volume", 1000000, ["m3", "m³", "cubic meter", "cubic meters", "cubic metre", "cubic metres"]);
-registerUnit("volume", 4.92892159375, ["tsp", "teaspoon", "teaspoons"]);
-registerUnit("volume", 14.78676478125, ["tbsp", "tablespoon", "tablespoons"]);
-registerUnit("volume", 236.5882365, ["cup", "cups"]);
-registerUnit("volume", 29.5735295625, ["fl oz", "fluid ounce", "fluid ounces"]);
-registerUnit("volume", 473.176473, ["pt", "pint", "pints"]);
-registerUnit("volume", 946.352946, ["qt", "quart", "quarts"]);
-registerUnit("volume", 3785.411784, ["gal", "gallon", "gallons"]);
-registerUnit("count", 1, ["pc", "pcs", "piece", "pieces", "ea", "each", "unit", "units"]);
-registerUnit("count", 1, ["can", "cans"]);
-registerUnit("count", 2, ["pair", "pairs"]);
-registerUnit("count", 12, ["dozen", "doz"]);
+export {
+  DEFAULT_TARGET_FOOD_COST,
+  MAX_TARGET_FOOD_COST,
+  MIN_TARGET_FOOD_COST,
+  convertRecipeAmount,
+  normalizeTargetFoodCost,
+  unitFactors,
+};
 
 export const safeLower = (val) => String(val || "").trim().toLowerCase();
 
@@ -68,19 +37,6 @@ export const findInventoryItemInList = (inventoryList, query, id = null) => {
     if (!clean) return false;
     return safeLower(safeItemName(entry)) === clean;
   });
-};
-
-export const convertRecipeAmount = (amount, recipeUnit, stockUnit) => {
-  const sourceName = safeLower(recipeUnit);
-  const targetName = safeLower(stockUnit);
-  const quantity = Number(amount);
-  const source = unitFactors.get(sourceName);
-  const target = unitFactors.get(targetName);
-  if (!Number.isFinite(quantity) || quantity <= 0) return null;
-  if (!source && !target && sourceName === targetName) return quantity;
-  if (!source || !target || source.dimension !== target.dimension) return null;
-  const converted = Number(((quantity * source.factorToBase) / target.factorToBase).toFixed(6));
-  return converted > 0 ? converted : null;
 };
 
 export const defaultSizeFactor = (factor, index = 0) =>

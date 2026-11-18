@@ -1,10 +1,9 @@
 import { httpError } from "../middleware/auth.js";
+import { round2 } from "../../../shared/units.js";
+import { getManilaDateString, isValidIsoDateOnly } from "../../../shared/manilaDate.js";
 import { parseStrictFiniteNumber } from "./wasteMeasurement.js";
 
-export function round2(val) {
-  const num = Number(val ?? 0);
-  return Number.isFinite(num) ? Number(num.toFixed(2)) : 0.0;
-}
+export { round2, getManilaDateString, isValidIsoDateOnly };
 
 export function parseExactMoney(raw, label = "Amount", { allowZero = false } = {}) {
   const num = parseStrictFiniteNumber(raw);
@@ -27,17 +26,48 @@ export function parseExactMoney(raw, label = "Amount", { allowZero = false } = {
   return rounded;
 }
 
-export async function resolveActiveSessionId(connection, userId, fallbackSessionId = null) {
-  let [[activeSession]] = await connection.execute(
+/**
+ * Resolve an active cashier shift without silently binding onto another user's open drawer.
+ * Back-office operations (expenses, withdrawals, restocks, waste) only attach to the actor's
+ * own open shift unless an explicit `explicitSessionId` (or `fallbackSessionId`) is provided.
+ */
+export async function resolveActiveSessionId(connection, userId, optionsOrFallback = null) {
+  const opts =
+    optionsOrFallback !== null && typeof optionsOrFallback === "object"
+      ? optionsOrFallback
+      : { fallbackSessionId: optionsOrFallback };
+  const {
+    explicitSessionId = null,
+    fallbackSessionId = null,
+    requireOpenForExplicit = true,
+  } = opts;
+
+  if (explicitSessionId !== null && explicitSessionId !== undefined && explicitSessionId !== "") {
+    const parsedExplicit = Number(explicitSessionId);
+    if (!Number.isSafeInteger(parsedExplicit) || parsedExplicit <= 0) {
+      throw httpError(400, "Invalid sessionId.");
+    }
+    const [[explicitRow]] = await connection.execute(
+      "SELECT id, status FROM cashier_sessions WHERE id = ? LIMIT 1",
+      [parsedExplicit],
+    );
+    if (!explicitRow) {
+      throw httpError(404, "Cashier session not found.");
+    }
+    if (requireOpenForExplicit && explicitRow.status !== "open") {
+      throw httpError(409, "Selected cashier session is closed.");
+    }
+    return Number(explicitRow.id);
+  }
+
+  const [[activeSession]] = await connection.execute(
     "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
     [userId],
   );
-  if (!activeSession) {
-    [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-    );
+  if (activeSession) {
+    return Number(activeSession.id);
   }
-  return activeSession ? Number(activeSession.id) : (fallbackSessionId ? Number(fallbackSessionId) : null);
+  return fallbackSessionId ? Number(fallbackSessionId) : null;
 }
 
 export function stripCostFromNote(noteText) {
@@ -53,26 +83,6 @@ export function generateEntryNumber(type) {
   const prefix = String(type || "JE").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "JE";
   const rand = Math.floor(Math.random() * 100_000).toString().padStart(5, "0");
   return `JE-${prefix}-${Date.now().toString().slice(-6)}-${rand}`;
-}
-
-export function getManilaDateString(date = new Date()) {
-  const target = date instanceof Date ? date : new Date(date);
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(target);
-}
-
-export function isValidIsoDateOnly(value) {
-  const match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const check = new Date(Date.UTC(year, month - 1, day));
-  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
 }
 
 export function assertValidDateRange(from, to) {
@@ -247,13 +257,18 @@ export async function postBalancedEntry(connection, {
   }
 
   const entryId = headerResult.insertId;
-  for (const line of normalizedLines) {
-    await connection.execute(
-      `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-       VALUES (?, ?, ?, ?, ?)`,
-      [entryId, codeMap.get(line.accountCode), line.debit, line.credit, line.lineMemo]
-    );
-  }
+  const lineRows = normalizedLines.map((line) => [
+    entryId,
+    codeMap.get(line.accountCode),
+    line.debit,
+    line.credit,
+    line.lineMemo,
+  ]);
+  await connection.query(
+    `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
+     VALUES ?`,
+    [lineRows],
+  );
 
   return { skipped: false, entryId: Number(entryId), amount: totalDebit };
 }
@@ -655,6 +670,7 @@ export async function postInventoryValuationDelta(connection, {
   memo,
   referenceNumber = null,
   sessionId = null,
+  idempotencyKey = null,
   userId,
 }) {
   const cleanDelta = round2(deltaValue);
@@ -679,7 +695,7 @@ export async function postInventoryValuationDelta(connection, {
     referenceNumber,
     inventoryMovementId,
     sessionId,
-    idempotencyKey: inventoryMovementId ? `inv_move:${inventoryMovementId}:${entryType}` : null,
+    idempotencyKey: idempotencyKey || (inventoryMovementId ? `inv_move:${inventoryMovementId}:${entryType}` : null),
     createdBy: userId,
     lines,
   });

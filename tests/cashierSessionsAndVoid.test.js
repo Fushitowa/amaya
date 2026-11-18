@@ -1349,4 +1349,154 @@ describe("Tala Suite: Cashier Auth, RBAC, Shared Consumptions, Non-Destructive V
       "Global trial balance must remain balanced after staff-authorized reverts",
     );
   });
+
+  it("PHASE 1 (P1-1, P1-2, P1-3, P1-4, P1-6): enforces switch-cashier 403 + session preservation, item-revert 72-byte cap + self-auth 403 + cross-cashier Pending 403, paid-order PATCH /payment 409, and UI receipt/checkout contracts", async () => {
+    const tag = makeUniqueTag("Phase1Auth");
+    const admin = await tracker.createUser({ role: "admin", password: `Adm_${tag}` });
+    const staffA = await tracker.createUser({ role: "staff", displayName: `Cashier A ${tag}`, password: `PassA_${tag}` });
+    const staffB = await tracker.createUser({ role: "staff", displayName: `Cashier B ${tag}`, password: `PassB_${tag}` });
+
+    // P1-3: Wrong switch-cashier password returns 403 (not 401) and leaves active session intact
+    const badSwitch = await server.requestJson("/api/auth/switch-cashier", {
+      method: "POST",
+      token: staffA.token,
+      body: { password: "definitely-wrong-cashier-pass" },
+    });
+    assert.equal(badSwitch.status, 403, `Wrong switch-cashier password must return 403, got ${badSwitch.status}`);
+    const stillValidMe = await server.requestJson("/api/auth/me", { token: staffA.token });
+    assert.equal(stillValidMe.status, 200, "Active staff JWT must remain valid after failed switch-cashier");
+
+    const apiUtilSrc = await fs.readFile(path.resolve("src/utils/api.js"), "utf8");
+    assert.ok(
+      apiUtilSrc.includes('cleanPath !== "/auth/switch-cashier"'),
+      "src/utils/api.js must exempt /auth/switch-cashier from forced 401 session wipe",
+    );
+
+    // Seed category & non-recipe snack for P1-4 / P1-6 checks
+    const [mCat] = await pool.execute(
+      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'single_fixed')",
+      [`P1_Cat_${tag}`],
+    );
+    tracker.menuCategoryIds.add(Number(mCat.insertId));
+    const snackRes = await server.requestJson("/api/menu", {
+      method: "POST",
+      token: admin.token,
+      body: {
+        name: `P1_Snack_${tag}`,
+        category: `P1_Cat_${tag}`,
+        price: "80.00",
+        costPrice: "25.00",
+        stock: 20,
+        sizes: [{ label: "Regular", price: 80 }],
+        ingredients: [],
+      },
+    });
+    assert.equal(snackRes.status, 201);
+    const snackId = Number(snackRes.data.id);
+    tracker.productIds.add(snackId);
+
+    const orderRes = await server.requestJson("/api/orders", {
+      method: "POST",
+      token: staffA.token,
+      body: {
+        type: "Counter",
+        paymentMethod: "Cash",
+        cashTendered: 200,
+        items: [{ productId: snackId, size: "Regular", quantity: 2 }],
+      },
+    });
+    assert.equal(orderRes.status, 201);
+    const orderNo = orderRes.data.id;
+    const itemId = Number(orderRes.data.items[0].id);
+    const [[dbOrder]] = await pool.execute("SELECT id FROM orders WHERE order_number = ?", [orderNo]);
+    tracker.orderIds.add(Number(dbOrder.id));
+
+    // P1-6: Paid order cannot be altered via PATCH /payment (409)
+    const patchPaid = await server.requestJson(`/api/orders/${orderNo}/payment`, {
+      method: "PATCH",
+      token: staffA.token,
+      body: { paymentMethod: "GCash" },
+    });
+    assert.equal(patchPaid.status, 409, `PATCH /payment on Paid order must reject with 409, got ${patchPaid.status}`);
+    const [[afterPatchOrder]] = await pool.execute("SELECT payment_method FROM orders WHERE id = ?", [dbOrder.id]);
+    assert.equal(afterPatchOrder.payment_method, "Cash", "Rejected PATCH /payment must leave payment_method untouched");
+
+    // P1-4: 72-byte authPassword cap on /revert -> 400
+    const longAuthRevert = await server.requestJson(`/api/orders/${orderNo}/items/${itemId}/revert`, {
+      method: "POST",
+      token: staffA.token,
+      body: { reason: "Testing 72 byte cap", authorizationPassword: "z".repeat(73) },
+    });
+    assert.equal(longAuthRevert.status, 400, `>72 byte authPassword must return 400, got ${longAuthRevert.status}`);
+
+    // P1-4: Cross-cashier Pending order revert by staffB without authPassword -> 403
+    const crossPendingNoPass = await server.requestJson(`/api/orders/${orderNo}/items/${itemId}/revert`, {
+      method: "POST",
+      token: staffB.token,
+      body: { quantity: 1, reason: "Cross cashier pending check", restoreStock: true },
+    });
+    assert.equal(
+      crossPendingNoPass.status,
+      403,
+      `Cross-cashier Pending revert without approval must reject 403, got ${crossPendingNoPass.status}`,
+    );
+
+    // Advance order to Preparing -> P1-4 self-authorization (staffA entering staffA.password) must reject 403
+    const prepRes = await server.requestJson(`/api/orders/${orderNo}/status`, {
+      method: "PATCH",
+      token: staffA.token,
+      body: { status: "Preparing" },
+    });
+    assert.equal(prepRes.status, 200);
+
+    const selfAuthRes = await server.requestJson(`/api/orders/${orderNo}/items/${itemId}/revert`, {
+      method: "POST",
+      token: staffA.token,
+      body: {
+        quantity: 1,
+        reason: "Self auth bypass attempt",
+        restoreStock: true,
+        authorizationPassword: staffA.password,
+      },
+    });
+    assert.equal(selfAuthRes.status, 403, `Self-authorization on Preparing revert must reject 403, got ${selfAuthRes.status}`);
+
+    // Peer staffB authorization -> 200
+    const peerAuthRes = await server.requestJson(`/api/orders/${orderNo}/items/${itemId}/revert`, {
+      method: "POST",
+      token: staffA.token,
+      body: {
+        quantity: 1,
+        reason: "Authorized by peer cashier",
+        restoreStock: true,
+        authorizationPassword: staffB.password,
+      },
+    });
+    assert.equal(peerAuthRes.status, 200);
+
+    // Verify server.js mounts revertAuthLimiter and orders.js checks reversed_at IS NULL in /payment
+    const [serverSrc, ordersSrc, confirmSrc, dashSrc, receiptSrc, heroSrc] = await Promise.all([
+      fs.readFile(path.resolve("api/src/server.js"), "utf8"),
+      fs.readFile(path.resolve("api/src/routes/orders.js"), "utf8"),
+      fs.readFile(path.resolve("src/pages/staff/StaffOrderConfirmation.jsx"), "utf8"),
+      fs.readFile(path.resolve("src/pages/staff/StaffDashboard.jsx"), "utf8"),
+      fs.readFile(path.resolve("src/pages/staff/StaffReceipt.jsx"), "utf8"),
+      fs.readFile(path.resolve("src/components/StoreAssetsHeroCard.jsx"), "utf8"),
+    ]);
+    assert.match(serverSrc, /app\.post\("\/api\/orders\/:orderNumber\/items\/:itemId\/revert",\s*revertAuthLimiter\)/);
+    assert.ok(ordersSrc.includes("AND reversed_at IS NULL"), "PATCH /payment must filter inv_cogs with reversed_at IS NULL");
+    assert.ok(ordersSrc.includes("AND oic.reversed_at IS NULL"), "PATCH /payment must filter direct_cogs with oic.reversed_at IS NULL");
+
+    // P1-1 UI check: Total due & short cash use grandTotal (no subtotal.toFixed in those lines)
+    assert.ok(confirmSrc.includes("Total due: <strong style={{ color: theme.text }}>₱{grandTotal.toFixed(2)}</strong>"));
+    assert.ok(confirmSrc.includes("₱{isShort ? (grandTotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}"));
+
+    // P1-2 UI check: StaffDashboard unpacks order metadata and StaffReceipt normalizes both array and orderRecord
+    assert.ok(dashSrc.includes("orderRecord: ord && !Array.isArray(ord) ? ord : null"));
+    assert.ok(receiptSrc.includes("rawOrderState") && receiptSrc.includes("orderRecord?.items"));
+
+    // P1-7 UI check: StoreAssetsHeroCard binds "1010" ceiling to confirmedCashDrawer and preserves all-time data when ranged
+    assert.match(heroSrc, /"1010":\s*confirmedCashDrawer/);
+    assert.ok(heroSrc.includes("if (!qs) {\n          setData(res);") || heroSrc.includes("if (!qs) { setData(res); }") || heroSrc.includes("if (!qs)"));
+  });
 });

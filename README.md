@@ -174,7 +174,7 @@ AMAYA/
 ├── public/                    # Static assets & brand media
 ├── scripts/                   # Desktop tooling & utilities
 │   ├── amaya_control_panel.py # v2.0 Tkinter multi-service control panel
-│   ├── generate_documentation_docx.py
+│   ├── run-tests.mjs          # Cross-platform Node test discovery runner
 │   └── generate_documentation_with_images.py
 ├── src/                       # React 19 Frontend (Vite 8)
 │   ├── apps/                  # CustomerApp.jsx (:5173), PortalApp.jsx (:5174)

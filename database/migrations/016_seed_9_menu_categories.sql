@@ -1,5 +1,3 @@
-USE amaya;
-
 -- 1. Seed/Update the 9 Canonical Menu Categories with ON DUPLICATE KEY UPDATE
 INSERT INTO menu_categories (name, description, display_order, is_active) VALUES
   ('Foods / Snacks', 'Crispy bites, street food, and comfort snacks.', 1, TRUE),

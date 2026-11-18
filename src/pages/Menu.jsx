@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import Footer from "../components/Footer.jsx";
 import Header from "../components/Header.jsx";
 import MenuProductImage from "../components/MenuProductImage.jsx";
 import { useMenu } from "../context/MenuContext.jsx";
@@ -7,7 +8,7 @@ import { useMenu } from "../context/MenuContext.jsx";
 import "../assets/css/Menu.css";
 
 function Menu() {
-  const { products } = useMenu();
+  const { products, loading, menuError, refreshProducts } = useMenu();
   const [searchTerm, setSearchTerm] = useState("");
 
   const categoryTitles = {
@@ -46,7 +47,9 @@ function Menu() {
   const dynamicCategories = Array.from(
     new Set(availableProducts.map((p) => String(p.category || "Uncategorized").trim()).filter(Boolean))
   );
-  const activeCategories = dynamicCategories.length > 0 ? dynamicCategories : Object.values(categoryTitles);
+  const activeCategories = dynamicCategories.length > 0
+    ? dynamicCategories
+    : Array.from(new Set(Object.values(categoryTitles).filter((c) => c !== "Milktea")));
 
   const menuSections = activeCategories.map((category) => {
     const matchedKey = Object.keys(categoryTitles).find(
@@ -112,7 +115,44 @@ function Menu() {
             </div>
 
             <div className="menu-category-list">
-              {filteredSections.map((section) => (
+              {menuError && (
+                <div
+                  role="alert"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    padding: "14px 18px",
+                    borderRadius: "12px",
+                    background: "#FEF2F2",
+                    border: "1px solid #FECACA",
+                    color: "#991B1B",
+                    marginBottom: "18px",
+                  }}
+                >
+                  <span>{menuError}</span>
+                  <button
+                    type="button"
+                    onClick={() => refreshProducts?.().catch(() => {})}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "8px",
+                      border: "1px solid #DC2626",
+                      background: "#FFFFFF",
+                      color: "#991B1B",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {loading && products.length === 0 ? (
+                <p className="menu-empty">Loading Amaya&apos;s fresh menu…</p>
+              ) : filteredSections.map((section) => (
                 <section className="menu-category-block" key={section.id}>
                   <div className="menu-category-title-row">
                     <span className="menu-category-heading">{section.sectionTitle}</span>
@@ -126,7 +166,7 @@ function Menu() {
                           <div className="menu-card-image-wrap">
                             <MenuProductImage
                               src={item.image}
-                              alt={item.title}
+                              alt={item.name || item.title || "Menu item"}
                               className="menu-card-image"
                               style={{ objectFit: "cover" }}
                             />
@@ -172,6 +212,8 @@ function Menu() {
           </div>
         </section>
       </main>
+
+      <Footer />
     </>
   );
 }

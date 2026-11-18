@@ -1,5 +1,3 @@
-USE amaya;
-
 ALTER TABLE product_addons
     ADD COLUMN usage_unit VARCHAR(40) NULL AFTER quantity_used;
 

@@ -278,12 +278,12 @@ def make_diagram_7():
 
     # Role 1: Admin (Top Right)
     draw.rounded_rectangle([(370, 120), (1150, 260)], radius=12, fill="#F5F3FF", outline="#7C3AED", width=2)
-    draw.text((390, 135), "👑 ROLE: ADMIN (Username: admin | Password: Admin12345678)", font=get_font(14, bold=True), fill="#5B21B6")
+    draw.text((390, 135), "👑 ROLE: ADMIN (Username: admin | Password: [Set via account-manager])", font=get_font(14, bold=True), fill="#5B21B6")
     draw.text((390, 165), "• Redirects to: /admin Dashboard upon authentication.\n• Full Privileges: Sales Reports, Recipe Builder, Inventory Control, Settings, and /admin/archive Management.\n• Capabilities: 1-Click Restore, Permanent Deletion, Empty Trash, and Store Configuration.", font=get_font(12), fill="#374151")
 
     # Role 2: Staff (Bottom Right)
     draw.rounded_rectangle([(370, 300), (1150, 440)], radius=12, fill="#ECFDF5", outline="#10B981", width=2)
-    draw.text((390, 315), "☕ ROLE: STAFF / CASHIER (Username: juan | Password: Staff12345678)", font=get_font(14, bold=True), fill="#065F46")
+    draw.text((390, 315), "☕ ROLE: STAFF / CASHIER (Username: staff | Password: [Set via account-manager])", font=get_font(14, bold=True), fill="#065F46")
     draw.text((390, 345), "• Redirects to: /staff/menu Counter POS upon authentication.\n• Operational Privileges: Walk-in counter ordering, size/add-on selection, automated math, thermal receipt print.\n• Boundary Enforcement: Strictly blocked from /admin routes, inventory deletion, and sales reconciliations.", font=get_font(12), fill="#374151")
 
     path = os.path.join(DIAGRAM_DIR, "fig7_auth_roles.png")
@@ -301,7 +301,7 @@ def make_diagram_8():
 
     categories = [
         ("Desktop Tooling", "#8B5E3C", "• amaya_control_panel.py (v2.0)\n• Start_Amaya_Control_Panel.bat", 50),
-        ("Database Engine", "#D97706", "• 009_archive_and_audit_logs.sql\n• api/src/migrate.js (Collation Fix)\n• 19 Relational MySQL Tables", 330),
+        ("Database Engine", "#D97706", "• 009_archive_and_audit_logs.sql\n• api/src/migrate.js (001–041)\n• Relational MariaDB Schema", 330),
         ("Backend REST API", "#2563EB", "• api/src/routes/archive.js\n• api/src/routes/menu.js\n• api/src/routes/inventory.js\n• api/src/server.js (Purge Worker)", 610),
         ("Admin Portal UI", "#7C3AED", "• src/pages/admin/AdminArchive.jsx\n• src/assets/css/admin/AdminArchive.css\n• src/components/Sidebar.jsx\n• src/apps/PortalApp.jsx", 890),
     ]
@@ -622,7 +622,7 @@ def build_full_docx_with_diagrams(output_path):
         "• Collation & Database Recovery: Resolved MariaDB 10.4 utf8mb4_0900_ai_ci crash, applied migrations 007 & 008, and restored menu catalog visibility.\n"
         "• Dependency-Aware Inventory Management: Protected recipes, identified exact linked products ('Milk Tea'), and enabled safe test stock deletions.\n"
         "• 30-Day Safe Archive & Audit Trail: Migration 009, soft-delete life-cycle, rolling hourly auto-purge worker, /admin/archive UI, and 1-click restore.\n"
-        "• Account Security & Access Credentials: Verified JWT authentication with active roles for Admin (admin) and Cashier/Staff (juan).",
+        "• Account Security & Access Credentials: Verified JWT authentication with active roles for Admin (admin) and Cashier/Staff (staff).",
         bg_hex="FAF7F4", border_hex="8B5E3C"
     )
 
@@ -699,8 +699,8 @@ def build_full_docx_with_diagrams(output_path):
     style_heading(p_h7, C_ESPRESSO, 13, space_before=16, space_after=6)
 
     doc.add_paragraph(
-        "User authentication uses bcrypt-hashed passwords in the users table, validated via JWT tokens stored in browser sessionStorage. "
-        "The following active, verified accounts are configured for evaluation and defense demonstrations:"
+        "User authentication uses bcrypt-hashed passwords in the users table, validated via server-revocable JWT tokens (`token_version`) persisted in browser localStorage. "
+        "Accounts and passwords are provisioned securely via api/src/account-manager.js (`--password-stdin`):"
     )
 
     insert_diagram(doc, diag7, "JWT Authentication Flow and Role-Based Portal Route Boundaries")

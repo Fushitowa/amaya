@@ -12,9 +12,9 @@ export const DEFAULT_DISCOUNT_PRESETS = [
 
 export const defaultBusinessSettings = {
   businessName: "Amaya's Drinks and Bites",
-  email: "jessiecataya25@gmail.com",
-  phone: "09636017184",
-  address: "Barangay Lilingayon, Valencia City, Bukidnon",
+  email: "",
+  phone: "",
+  address: "",
   openingTime: "09:00",
   closingTime: "19:00",
   isTemporarilyClosed: false,

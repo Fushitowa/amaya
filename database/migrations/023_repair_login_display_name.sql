@@ -1,5 +1,3 @@
-USE amaya;
-
 -- The login route reads display_name; add the optional field if an older schema lacks it.
 SET @has_display_name = (
   SELECT COUNT(*)

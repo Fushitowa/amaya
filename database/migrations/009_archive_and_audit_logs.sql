@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Add archive fields only when missing. This lets the migration recover from a
 -- partially applied earlier run without failing on duplicate columns.
 SET @archive_sql = IF(

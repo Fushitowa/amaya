@@ -1,6 +1,4 @@
 -- Link menu add-ons to inventory so selected add-ons consume stock as well.
-USE amaya;
-
 ALTER TABLE product_addons
     ADD COLUMN inventory_item_id BIGINT UNSIGNED NULL AFTER price,
     ADD COLUMN quantity_used DECIMAL(12,3) NULL AFTER inventory_item_id,

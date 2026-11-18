@@ -15,6 +15,7 @@ import {
 import Sidebar from "../../components/Sidebar.jsx";
 import StaffActivityModal from "../../components/StaffActivityModal.jsx";
 import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
+import { ReportRestockModal } from "../../components/admin/reports/ReportRestockModal.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import {
   getPaymentMethodLabel,
@@ -38,6 +39,13 @@ import {
 } from "../../utils/staffActivityFormatters.js";
 import { usePrefersReducedMotion } from "../../utils/usePrefersReducedMotion.js";
 import { DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost } from "../../utils/menuCosting.js";
+import {
+  allocateRestockBudget,
+  buildRestockSummary,
+  computeRestockItemPlan,
+  serializeRestockPlanItem,
+  sortRestockSuggestions,
+} from "../../../shared/restockSuggestion.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -96,19 +104,6 @@ function niceCeil(value) {
   return step * magnitude;
 }
 
-function getManilaHour(iso) {
-  if (!iso) return 0;
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return 0;
-  const formatted = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Manila",
-    hour: "numeric",
-    hour12: false,
-  }).format(parsed);
-  const hour = Number.parseInt(formatted, 10);
-  return Number.isFinite(hour) ? hour % 24 : 0;
-}
-
 function formatHourLabel(hour) {
   const normalized = ((hour % 24) + 24) % 24;
   if (normalized === 0) return "12 AM";
@@ -134,7 +129,7 @@ function buildRangeSearchParams({ rangeKey, from, to, staffId, extra = {} }) {
 
 function formatDeltaBadge(deltaObj, rangeKey) {
   if (rangeKey === "all" || !deltaObj) {
-    return { text: "All-time cumulative total", tone: "flat" };
+    return { text: "All-time total", tone: "flat" };
   }
   if (deltaObj.percent === null) {
     if (deltaObj.change > 0) return { text: "New vs ₱0.00 prior", tone: "up" };
@@ -145,38 +140,6 @@ function formatDeltaBadge(deltaObj, rangeKey) {
     text: `${deltaObj.percent > 0 ? "▲" : "▼"} ${Math.abs(deltaObj.percent).toFixed(1)}% vs prior`,
     tone: deltaObj.percent > 0 ? "up" : "down",
   };
-}
-
-async function fetchAllTodayPaidOrders({ from, to, rangeKey, staffId }) {
-  const baseParams = buildRangeSearchParams({
-    rangeKey,
-    from,
-    to,
-    staffId,
-    extra: { page: 1, limit: 200 },
-  });
-  const first = await apiRequest(`/reports/orders?${baseParams.toString()}`);
-  const items = Array.isArray(first?.items) ? [...first.items] : [];
-  const total = Number(first?.total || items.length);
-  const totalPages = Math.min(15, Math.ceil(total / 200));
-  if (totalPages > 1) {
-    const rest = await Promise.all(
-      Array.from({ length: totalPages - 1 }, (_, i) => {
-        const p = buildRangeSearchParams({
-          rangeKey,
-          from,
-          to,
-          staffId,
-          extra: { page: i + 2, limit: 200 },
-        });
-        return apiRequest(`/reports/orders?${p.toString()}`);
-      }),
-    );
-    rest.forEach((chunk) => {
-      if (Array.isArray(chunk?.items)) items.push(...chunk.items);
-    });
-  }
-  return items;
 }
 
 function AdminReport() {
@@ -208,6 +171,15 @@ function AdminReport() {
   const [restockModalOpen, setRestockModalOpen] = useState(false);
   const [restockClosing, setRestockClosing] = useState(false);
   const [restockNotice, setRestockNotice] = useState("");
+  const [restockLookbackDays, setRestockLookbackDays] = useState(14);
+  const [restockCoverDays, setRestockCoverDays] = useState(7);
+  const [restockBudget, setRestockBudget] = useState("");
+  const [restockPackMode, setRestockPackMode] = useState(false);
+  const [smartRestockState, setSmartRestockState] = useState({
+    queryKey: "",
+    data: null,
+    error: "",
+  });
   const restockTriggerRef = useRef(null);
   const restockDialogRef = useRef(null);
   const restockCloseTimerRef = useRef(null);
@@ -249,7 +221,7 @@ function AdminReport() {
     financial: null,
     staffPerf: null,
     productsData: null,
-    todayOrdersForHourly: [],
+    hourlySalesData: null,
     error: "",
   });
 
@@ -280,6 +252,8 @@ function AdminReport() {
   const coreQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${refreshNonce}`;
   const movQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${movTypeFilter}|${movSearch.trim()}|${movPage}|${refreshNonce}`;
   const ordersQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${ordersStatusFilter}|${ordersPaymentFilter}|${ordersSearch.trim()}|${ordersPage}|${refreshNonce}`;
+  const smartRestockQueryKey = `${restockLookbackDays}|${restockCoverDays}|${refreshNonce}`;
+  const smartRestockLoading = restockModalOpen && smartRestockState.queryKey !== smartRestockQueryKey;
 
   const productImageByName = useMemo(() => {
     const map = new Map();
@@ -338,17 +312,17 @@ function AdminReport() {
       apiRequest(`/reports/staff-performance?${staffParams.toString()}`),
       apiRequest(`/reports/products?${productParams.toString()}`),
       isHourlyDay
-        ? fetchAllTodayPaidOrders({ rangeKey, from: customStart, to: customEnd, staffId: staffFilterId })
-        : Promise.resolve([]),
+        ? apiRequest(`/reports/hourly-sales?${summaryParams.toString()}`)
+        : Promise.resolve(null),
     ])
-      .then(([financial, staffPerf, productsData, todayOrdersForHourly]) => {
+      .then(([financial, staffPerf, productsData, hourlySalesData]) => {
         if (!active) return;
         setCoreState({
           queryKey: coreQueryKey,
           financial,
           staffPerf,
           productsData,
-          todayOrdersForHourly,
+          hourlySalesData,
           error: "",
         });
       })
@@ -438,6 +412,40 @@ function AdminReport() {
       active = false;
     };
   }, [customEnd, customRangeInvalid, customStart, ordersPage, ordersPaymentFilter, ordersQueryKey, ordersSearch, ordersStatusFilter, rangeKey, staffFilterId]);
+
+  // Load Smart Restock Suggestions when Requisition Notebook is open
+  useEffect(() => {
+    if (!restockModalOpen) return undefined;
+    let active = true;
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      lookbackDays: String(restockLookbackDays),
+      coverDays: String(restockCoverDays),
+    });
+
+    apiRequest(`/reports/restock-suggestions?${params.toString()}`, { signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        setSmartRestockState({
+          queryKey: smartRestockQueryKey,
+          data,
+          error: "",
+        });
+      })
+      .catch((err) => {
+        if (!active || err?.name === "AbortError") return;
+        setSmartRestockState({
+          queryKey: smartRestockQueryKey,
+          data: null,
+          error: err?.message || "Smart forecast unavailable — showing static low-stock refills.",
+        });
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [restockCoverDays, restockLookbackDays, restockModalOpen, smartRestockQueryKey]);
 
   // Mobile nav Escape dismiss
   useEffect(() => {
@@ -571,10 +579,10 @@ function AdminReport() {
       if (Math.abs(rawDiffPts) < 0.05 || Math.abs(variancePts) === 0) {
         varianceLabel = "On target";
       } else if (variancePts > 0) {
-        varianceLabel = `+${variancePts.toFixed(1)} pts over`;
+        varianceLabel = `Over by ${variancePts.toFixed(1)}%`;
         isOverTarget = true;
       } else {
-        varianceLabel = `${Math.abs(variancePts).toFixed(1)} pts under`;
+        varianceLabel = `Under by ${Math.abs(variancePts).toFixed(1)}%`;
       }
     }
 
@@ -647,11 +655,13 @@ function AdminReport() {
         orders: 0,
         isHourly: true,
       }));
-      (coreState.todayOrdersForHourly || []).forEach((order) => {
-        if (order.status === "Cancelled" || order.payment !== "Paid") return;
-        const hr = getManilaHour(order.createdAt);
-        hourBuckets[hr].sales += Number(order.total || 0);
-        hourBuckets[hr].orders += 1;
+      const hours = Array.isArray(coreState.hourlySalesData?.hours) ? coreState.hourlySalesData.hours : [];
+      hours.forEach((entry) => {
+        const hr = Number(entry?.hour);
+        if (Number.isInteger(hr) && hr >= 0 && hr < 24) {
+          hourBuckets[hr].sales += Number(entry.sales || 0);
+          hourBuckets[hr].orders += Number(entry.ordersCount || 0);
+        }
       });
       return hourBuckets;
     }
@@ -683,7 +693,7 @@ function AdminReport() {
       });
     }
     return grouped;
-  }, [coreState.financial, coreState.todayOrdersForHourly, customEnd, customStart, rangeKey]);
+  }, [coreState.financial, coreState.hourlySalesData, customEnd, customStart, rangeKey]);
 
   const trend = useMemo(() => {
     const width = 760;
@@ -810,6 +820,72 @@ function AdminReport() {
       return aPriority - bPriority || String(a.item || "").localeCompare(String(b.item || ""));
     }), [stockReport]);
 
+  const inventoryById = useMemo(() => {
+    const map = new Map();
+    (inventory || []).forEach((entry) => {
+      map.set(Number(entry.id), entry);
+    });
+    return map;
+  }, [inventory]);
+
+  const isSmartRestockActive = Boolean(smartRestockState.data && !smartRestockState.error);
+
+  const baseModalRestockItems = useMemo(() => {
+    if (isSmartRestockActive && Array.isArray(smartRestockState.data?.items)) {
+      return smartRestockState.data.items;
+    }
+    const fallbackPlans = restockItems.map((item) => {
+      const rawEntry = inventoryById.get(Number(item.id)) || item;
+      return computeRestockItemPlan({
+        item: rawEntry,
+        totalConsumed: 0,
+        lookbackDays: restockLookbackDays,
+        coverDays: restockCoverDays,
+        lowThreshold,
+        criticalThreshold,
+      });
+    });
+    return sortRestockSuggestions(fallbackPlans).map(serializeRestockPlanItem);
+  }, [
+    criticalThreshold,
+    inventoryById,
+    isSmartRestockActive,
+    lowThreshold,
+    restockCoverDays,
+    restockItems,
+    restockLookbackDays,
+    smartRestockState.data,
+  ]);
+
+  const hasPackItems = useMemo(
+    () => baseModalRestockItems.some(
+      (item) => Number(item.contentsPerPackage) > 1 && Number(item.purchasePrice) > 0,
+    ),
+    [baseModalRestockItems],
+  );
+  const effectivePackMode = hasPackItems && restockPackMode;
+
+  const smartRestockSummary = useMemo(() => {
+    if (isSmartRestockActive && smartRestockState.data?.summary && !effectivePackMode) {
+      return smartRestockState.data.summary;
+    }
+    if (effectivePackMode) {
+      const packAdjusted = baseModalRestockItems.map((item) => {
+        const hasPack = Number(item.contentsPerPackage) > 1 && item.packEstimatedCost != null && Number(item.recommendedPacks) > 0;
+        return hasPack ? { ...item, estimatedCost: item.packEstimatedCost } : item;
+      });
+      return buildRestockSummary(packAdjusted);
+    }
+    return buildRestockSummary(baseModalRestockItems);
+  }, [baseModalRestockItems, effectivePackMode, isSmartRestockActive, smartRestockState.data]);
+
+  const budgetAllocation = useMemo(
+    () => allocateRestockBudget(baseModalRestockItems, restockBudget, { usePackMode: effectivePackMode }),
+    [baseModalRestockItems, effectivePackMode, restockBudget],
+  );
+
+  const modalRestockItems = budgetAllocation.items;
+
   const stockBreakdown = useMemo(() => ({
     total: stockReport.length,
     over: stockReport.filter((item) => item.tone === "over").length,
@@ -873,8 +949,8 @@ function AdminReport() {
     if (foodCostAnalysis.actualPct != null) {
       notes.push({
         tone: foodCostAnalysis.hasUncosted || foodCostAnalysis.isOverTarget ? "warning" : "positive",
-        label: "Food cost target",
-        value: `${foodCostAnalysis.actualPct.toFixed(1)}% actual vs ${Number(foodCostAnalysis.targetPct.toFixed(2))}% target (${foodCostAnalysis.varianceLabel}${foodCostAnalysis.hasUncosted ? " · partial COGS" : ""})`,
+        label: "Ingredient cost target",
+        value: `${foodCostAnalysis.actualPct.toFixed(1)}% actual vs ${Number(foodCostAnalysis.targetPct.toFixed(2))}% target (${foodCostAnalysis.varianceLabel}${foodCostAnalysis.hasUncosted ? " · missing some unit costs" : ""})`,
       });
     }
     if (restockItems.length || stockBreakdown.over) {
@@ -931,23 +1007,35 @@ function AdminReport() {
   };
 
   const handleCopyRestockList = async () => {
-    if (!restockItems.length) return;
+    if (!modalRestockItems.length) return;
     const now = new Date();
     const dateStamp = getManilaDateInputValue(0);
+    const hasBudget = budgetAllocation.budgetProvided != null;
     const lines = [
-      "AMAYA RESTOCK LIST",
+      isSmartRestockActive ? "AMAYA SMART RESTOCK LIST" : "AMAYA RESTOCK LIST (STATIC FALLBACK)",
       `Generated: ${now.toLocaleString()}`,
-      `Items needing restock: ${restockItems.length}`,
+      `Sales window: Last ${restockLookbackDays} days | Cover target: ${restockCoverDays} days | Unit mode: ${effectivePackMode ? "Full Packs" : "Stock Units"}`,
+      hasBudget
+        ? `Budget today: ₱${budgetAllocation.budgetProvided.toFixed(2)} | Allocated: ₱${budgetAllocation.allocatedTotalCost.toFixed(2)} | Remaining: ₱${budgetAllocation.budgetRemaining.toFixed(2)}`
+        : `Total estimated cost: ₱${smartRestockSummary.totalEstimatedCost.toFixed(2)}${smartRestockSummary.uncostedItemsCount ? ` (${smartRestockSummary.uncostedItemsCount} uncosted)` : ""}`,
+      `Items needing restock: ${modalRestockItems.length}`,
       "",
-      ...restockItems.flatMap((item, index) => [
-        `${index + 1}. ${item.item}`,
-        `   Status: ${item.label}${item.reportedPercent == null ? "" : ` (${item.reportedPercent}% of maximum stock)`}`,
-        `   Category: ${item.category || "Uncategorized"}`,
-        `   On hand: ${item.quantity.toLocaleString()} ${item.unit}`,
-        `   Maximum stock: ${item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}`,
-        `   Estimated refill to maximum: ${item.maximumStock == null ? "Set maximum stock first" : `${Math.max(0, item.maximumStock - item.quantity).toLocaleString()} ${item.unit}`}`,
-        "",
-      ]),
+      ...modalRestockItems.flatMap((item, index) => {
+        const displayCost = hasBudget ? item.allocatedCost : (effectivePackMode && item.packEstimatedCost != null && item.recommendedPacks > 0 ? item.packEstimatedCost : item.estimatedCost);
+        const packNote = item.recommendedPacks != null && item.recommendedPacks > 0
+          ? ` (${item.recommendedPacks} ${item.packageUnit || "pack"}${item.recommendedPacks === 1 ? "" : "s"} = ${item.packTotalQty.toLocaleString()} ${item.unit})`
+          : "";
+        return [
+          `${index + 1}. ${item.item} [${item.label}]`,
+          `   Category: ${item.category || "Uncategorized"} | Basis: ${item.basis === "velocity" ? "Velocity" : "Max Refill"}${item.lowData ? " | Low data" : ""}${item.exceedsMaxStock ? " | Exceeds max" : ""}`,
+          `   On hand: ${item.quantity.toLocaleString()} ${item.unit} | Max: ${item.maximumStock == null ? "Not set" : `${item.maximumStock.toLocaleString()} ${item.unit}`}`,
+          `   Avg daily usage: ${item.avgDailyUsage > 0 ? `${item.avgDailyUsage.toLocaleString()} ${item.unit}/day` : "0"}${item.daysOfStockLeft != null ? ` (~${item.daysOfStockLeft}d left)` : ""}`,
+          `   Suggested buy: +${item.suggestedBuyQty.toLocaleString()} ${item.unit}${packNote}`,
+          ...(hasBudget ? [`   Budget allocation: +${item.allocatedQty.toLocaleString()} ${item.unit} (${item.allocationStatus})`] : []),
+          `   Estimated cost: ${item.costKnown && displayCost != null ? `₱${Number(displayCost).toFixed(2)}` : "No cost set"}`,
+          "",
+        ];
+      }),
     ];
     const restockText = lines.join("\n");
     const url = URL.createObjectURL(new Blob([restockText], { type: "text/plain;charset=utf-8" }));
@@ -1117,15 +1205,15 @@ function AdminReport() {
               <div className="report-notebook-page">
                 <div className="panel-heading trend-heading">
                   <div>
-                    <span className="admin-report-eyebrow">REVENUE LEDGER</span>
+                    <span className="admin-report-eyebrow">SALES CHART</span>
                     <h2>
                       {rangeKey === "today"
-                        ? "Today's Session (Hourly) performance"
+                        ? "Today's Hourly Sales"
                         : rangeKey === "all"
-                          ? "All Sessions & Historical Sales performance"
+                          ? "All-Time Sales"
                           : rangeKey === "custom"
-                            ? "Custom range performance"
-                            : `Last ${rangeOption.label} performance`}
+                            ? "Custom Date Sales"
+                            : `Last ${rangeOption.label} Sales`}
                     </h2>
                     <span className="trend-hero-total">{peso(summary.grossCollectedSales)}</span>
                   </div>
@@ -1335,7 +1423,7 @@ function AdminReport() {
                   <div className="report-uncosted-warning" role="status">
                     <AlertTriangle size={13} aria-hidden="true" />
                     <span>
-                      {summary.uncostedItemsCount} unit{summary.uncostedItemsCount === 1 ? "" : "s"} missing unit cost · COGS is partial
+                      {summary.uncostedItemsCount} unit{summary.uncostedItemsCount === 1 ? "" : "s"} missing ingredient cost · cost is incomplete
                     </span>
                   </div>
                 )}
@@ -1343,38 +1431,42 @@ function AdminReport() {
                 <div className="sales-metrics">
                   <div>
                     <span>
-                      Gross collected sales
-                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                        Net Sales (ex-VAT): {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
-                      </small>
+                      Total Sales
+                      {(Number(summary.taxCollected || 0) > 0 || Number(summary.discountTotal || 0) > 0) && (
+                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                          Before tax: {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
+                        </small>
+                      )}
                     </span>
                     <strong>{peso(summary.grossCollectedSales)}</strong>
                   </div>
                   <div>
                     <span>
-                      Estimated COGS
-                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                        Total COGS incl. Spoilage: {peso(summary.totalCogs)}
-                      </small>
+                      Ingredient & Packaging Cost
+                      {Number(summary.spoilageCost || 0) > 0 && (
+                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                          With waste/spoilage: {peso(summary.totalCogs)}
+                        </small>
+                      )}
                     </span>
                     <strong>{peso(summary.cogs)}</strong>
                   </div>
                   <div>
                     <span className="sales-metric-label-with-badge">
-                      Food cost vs target
+                      Ingredient Cost %
                       {foodCostAnalysis.hasUncosted && (
                         <span
                           className="report-partial-cogs-badge"
                           title="One or more sold units are missing Inventory or Menu unit costs"
                         >
-                          Partial COGS
+                          Incomplete cost
                         </span>
                       )}
                     </span>
                     <strong>
                       {foodCostAnalysis.actualPct != null ? (
                         <>
-                          {foodCostAnalysis.actualPct.toFixed(1)}% vs {Number(foodCostAnalysis.targetPct.toFixed(2))}%{" "}
+                          {foodCostAnalysis.actualPct.toFixed(1)}% (Target: {Number(foodCostAnalysis.targetPct.toFixed(2))}%){" "}
                           <small
                             className={`sales-cost-variance-tag ${
                               foodCostAnalysis.isOverTarget ? "is-over-target" : "is-on-target"
@@ -1389,16 +1481,22 @@ function AdminReport() {
                     </strong>
                   </div>
                   <div>
-                    <span>Gross profit</span>
+                    <span>
+                      Profit from Sales
+                      {(Number(summary.spoilageCost || 0) > 0 || Number(summary.taxCollected || 0) > 0) && (
+                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                          After waste/spoilage: {peso(summary.reconciledGrossProfit)}
+                        </small>
+                      )}
+                    </span>
                     <strong>
                       {peso(summary.grossProfit)}
                       {" "}
                       <small className="sales-margin-tag">({Number(summary.marginPercent || 0).toFixed(1)}%)</small>
                     </strong>
-                    <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>Reconciled (ex-VAT, incl. Spoilage): {peso(summary.reconciledGrossProfit)}</small>
                   </div>
                   <div>
-                    <span>Average order value</span>
+                    <span>Avg. Spend per Order</span>
                     <strong>{peso(summary.averageOrderValue)}</strong>
                   </div>
                   <div>
@@ -1408,13 +1506,13 @@ function AdminReport() {
                     </strong>
                   </div>
                   <div>
-                    <span>Voided / Cancelled</span>
+                    <span>Cancelled Orders</span>
                     <strong className={summary.voidedOrdersCount > 0 ? "due" : ""}>
                       {summary.voidedOrdersCount} ({peso(summary.voidedSalesTotal)})
                     </strong>
                   </div>
                   <div>
-                    <span>Restock spend ({summary.inventoryRestockCount})</span>
+                    <span>Stock Purchases ({summary.inventoryRestockCount})</span>
                     <strong>{peso(summary.inventoryExpenditure)}</strong>
                   </div>
                 </div>
@@ -1426,10 +1524,10 @@ function AdminReport() {
                 <span className="kpi-slip-pin green" aria-hidden="true" />
                 <span className="report-stat-mark green">✓</span>
                 <div>
-                  <small>Units sold</small>
+                  <small>Items Sold</small>
                   <strong>{Number(summary.unitsSold || 0).toLocaleString()}</strong>
                   <span className="report-stat-note flat">
-                    {summary.paidOrdersCount} paid · {summary.unpaidOrdersCount} unpaid
+                    {`Across ${summary.paidOrdersCount} paid order${summary.paidOrdersCount === 1 ? "" : "s"}${summary.unpaidOrdersCount > 0 ? ` · ${summary.unpaidOrdersCount} unpaid` : ""}`}
                   </span>
                 </div>
               </div>
@@ -1437,19 +1535,21 @@ function AdminReport() {
                 <span className="kpi-slip-pin plum" aria-hidden="true" />
                 <span className="report-stat-mark plum">₱</span>
                 <div>
-                  <small>Gross collected sales</small>
+                  <small>Total Sales</small>
                   <strong>{peso(summary.grossCollectedSales)}</strong>
                   <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text}</span>
-                  <span className="report-stat-note flat">
-                    Net Sales (ex-VAT): {peso(summary.netSales)} · Cash Collected (incl. VAT): {peso(summary.grossCollectedSales)}
-                  </span>
+                  {Number(summary.taxCollected || 0) > 0 && (
+                    <span className="report-stat-note flat">
+                      Before tax: {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="report-kpi-slip tone-amber">
                 <span className="kpi-slip-pin amber" aria-hidden="true" />
                 <span className="report-stat-mark amber">◷</span>
                 <div>
-                  <small>Average ticket</small>
+                  <small>Avg. Spend per Order</small>
                   <strong>{peso(summary.averageOrderValue)}</strong>
                   <span className={`report-stat-note ${avgTrend.tone}`}>{avgTrend.text}</span>
                 </div>
@@ -1458,7 +1558,7 @@ function AdminReport() {
                 <span className="kpi-slip-pin blue" aria-hidden="true" />
                 <span className="report-stat-mark blue">▤</span>
                 <div>
-                  <small>Settled orders</small>
+                  <small>Completed Orders</small>
                   <strong>{Number(summary.paidOrdersCount || 0).toLocaleString()}</strong>
                   <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text}</span>
                 </div>
@@ -1760,6 +1860,17 @@ function AdminReport() {
                                   {!cashier.isActive && <span className="cashier-status-pill inactive">Inactive</span>}
                                   {cashier.role === "admin" && <span className="cashier-status-pill role">Admin</span>}
                                   {isFilteredHere && <span className="cashier-status-pill filtered">Filtered</span>}
+                                  {cashier.ordersCount > 0 && (
+                                    Number(cashier.unconfirmedOrdersCount || 0) > 0 ? (
+                                      <span className="cashier-status-pill unconfirmed" style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #f59e0b" }}>
+                                        ⏳ {cashier.unconfirmedOrdersCount} Unconfirmed ({peso(cashier.unconfirmedSales)})
+                                      </span>
+                                    ) : (
+                                      <span className="cashier-status-pill confirmed" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}>
+                                        ✓ Owner Confirmed
+                                      </span>
+                                    )
+                                  )}
                                 </span>
                                 <span className="cashier-meta-inline">
                                   <span>{cashier.ordersCount} {cashier.ordersCount === 1 ? "order" : "orders"}</span>
@@ -2417,7 +2528,7 @@ function AdminReport() {
                         ? "◉"
                         : insight.label === "Best seller"
                           ? "★"
-                          : insight.label === "Food cost target"
+                          : insight.label === "Ingredient cost target" || insight.label === "Food cost target"
                             ? "%"
                             : "!"}
                   </span>
@@ -2432,178 +2543,29 @@ function AdminReport() {
         </div>
       </main>
 
-      {restockModalOpen && (
-        <div
-          className={`restock-modal-backdrop ${restockClosing ? "is-closing" : ""}`}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeRestockModal();
-          }}
-        >
-          <section
-            ref={restockDialogRef}
-            tabIndex={-1}
-            className="restock-modal restock-notebook"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="restock-modal-title"
-            aria-describedby="restock-modal-description"
-          >
-            <div className="restock-notebook-spine" aria-hidden="true">
-              {Array.from({ length: 11 }).map((_, idx) => (
-                <span key={idx} className="notebook-ring-pair">
-                  <i className="notebook-ring-hole" />
-                  <b className="notebook-ring-wire" />
-                </span>
-              ))}
-            </div>
-
-            <div className="restock-notebook-ribbon" aria-hidden="true" />
-
-            <div className="restock-notebook-page">
-              <header className="restock-modal-header">
-                <div className="restock-notebook-title-block">
-                  <div className="restock-notebook-meta-row">
-                    <span className="admin-report-eyebrow">INVENTORY REQUISITION NOTEBOOK</span>
-                    <span className="restock-notebook-date">
-                      {new Date().toLocaleDateString("en-US", {
-                        timeZone: "Asia/Manila",
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <h2 id="restock-modal-title">Out of Stock &amp; Running Low</h2>
-                  <p id="restock-modal-description">
-                    Items at 40% stock or below. Suggested refill quantities restore each ingredient to its target maximum.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="restock-modal-close"
-                  onClick={closeRestockModal}
-                  aria-label="Close restock notebook"
-                >
-                  ×
-                </button>
-              </header>
-
-              <div className="restock-modal-summary">
-                <div className="restock-summary-badge">
-                  <strong>{restockItems.length}</strong>
-                  <span>
-                    {restockItems.length === 1 ? "line item needs" : "line items need"} restocking
-                  </span>
-                </div>
-                <div className="restock-summary-legend">
-                  <span className="legend-chip critical">
-                    <i /> Out / Critical
-                  </span>
-                  <span className="legend-chip low">
-                    <i /> Running Low (≤40%)
-                  </span>
-                </div>
-              </div>
-
-              {restockItems.length ? (
-                <div className="restock-notebook-body">
-                  <div className="restock-notebook-col-head" aria-hidden="true">
-                    <span># / Ingredient &amp; Category</span>
-                    <span>Status</span>
-                    <span>On Hand / Max</span>
-                    <span>Refill Needed</span>
-                  </div>
-
-                  <ol className="restock-notebook-list">
-                    {restockItems.map((item, idx) => {
-                      const refillAmount = item.maximumStock == null
-                        ? null
-                        : Math.max(0, item.maximumStock - item.quantity);
-
-                      return (
-                        <li
-                          key={item.id}
-                          className="restock-notebook-line"
-                          style={{ "--line-index": idx }}
-                        >
-                          <div className="notebook-line-main">
-                            <span className="notebook-line-check" aria-hidden="true">
-                              {String(idx + 1).padStart(2, "0")}
-                            </span>
-                            <div className="notebook-line-item">
-                              <strong>{item.item}</strong>
-                              <small>{item.category || "Uncategorized"}</small>
-                            </div>
-                          </div>
-
-                          <div className="notebook-line-status">
-                            <span className={`restock-status ${item.healthTone}`}>
-                              <span aria-hidden="true" />
-                              {item.label}
-                            </span>
-                          </div>
-
-                          <div className="notebook-line-stock">
-                            <span className="stock-current">
-                              {item.quantity.toLocaleString()} {item.unit}
-                            </span>
-                            <span className="stock-divider">/</span>
-                            <span className="stock-max">
-                              {item.maximumStock == null
-                                ? "No max"
-                                : `${item.maximumStock.toLocaleString()} ${item.unit}`}
-                            </span>
-                          </div>
-
-                          <div className="notebook-line-refill">
-                            {refillAmount == null ? (
-                              <span className="refill-unset">Set max first</span>
-                            ) : (
-                              <strong className="refill-tag">
-                                +{refillAmount.toLocaleString()} {item.unit}
-                              </strong>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </div>
-              ) : (
-                <div className="restock-empty-state">
-                  <span aria-hidden="true">✓</span>
-                  <strong>All pages clear — stock is healthy</strong>
-                  <p>No ingredients are out of stock or below 40% of their maximum level.</p>
-                </div>
-              )}
-
-              <footer className="restock-modal-footer">
-                <p role="status" aria-live="polite">
-                  {restockNotice ||
-                    "Copying also downloads a .txt checklist that can be opened in Notepad."}
-                </p>
-                <div>
-                  <button
-                    type="button"
-                    className="restock-secondary-button"
-                    onClick={closeRestockModal}
-                  >
-                    Close Notebook
-                  </button>
-                  <button
-                    type="button"
-                    className="restock-copy-button"
-                    onClick={handleCopyRestockList}
-                    disabled={!restockItems.length}
-                  >
-                    Copy &amp; Download .txt
-                  </button>
-                </div>
-              </footer>
-            </div>
-          </section>
-        </div>
-      )}
+      <ReportRestockModal
+        isOpen={restockModalOpen}
+        restockClosing={restockClosing}
+        restockDialogRef={restockDialogRef}
+        closeRestockModal={closeRestockModal}
+        lowThreshold={lowThreshold}
+        restockItems={modalRestockItems}
+        restockSummary={smartRestockSummary}
+        budgetAllocation={budgetAllocation}
+        lookbackDays={restockLookbackDays}
+        onLookbackDaysChange={setRestockLookbackDays}
+        coverDays={restockCoverDays}
+        onCoverDaysChange={setRestockCoverDays}
+        budgetValue={restockBudget}
+        onBudgetChange={setRestockBudget}
+        packMode={effectivePackMode}
+        hasPackItems={hasPackItems}
+        onTogglePackMode={() => setRestockPackMode((prev) => !prev)}
+        smartLoading={smartRestockLoading}
+        smartError={smartRestockState.error}
+        restockNotice={restockNotice}
+        handleCopyRestockList={handleCopyRestockList}
+      />
 
       {selectedStaffMember && (
         <StaffActivityModal

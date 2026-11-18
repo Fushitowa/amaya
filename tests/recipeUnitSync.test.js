@@ -22,25 +22,46 @@ function fakeConnection(fixtures) {
 }
 
 describe("Inventory unit change cascades to menu recipes", () => {
-  it("relabels recipe rows that used the old stock unit (l -> ml keeps 24 as 24 ml)", async () => {
-    const conn = fakeConnection({ product_ingredients: [{ id: 1, unit: "l" }] });
-    const changed = await retargetRecipeUnits(conn, 7, "l", "ml");
-    assert.equal(changed, 1);
-    assert.deepEqual(conn.updates[0].params, ["ml", 1]);
+  it("scales quantity_used when retargeting same-dimension units (l -> ml, kg <-> g)", async () => {
+    const conn = fakeConnection({
+      product_ingredients: [
+        { id: 1, quantity_used: 0.25, unit: "l" },
+        { id: 2, quantity_used: 15, unit: "ml" },
+      ],
+      product_size_ingredients: [{ id: 3, quantity_used: 0.5, unit: "l" }],
+      product_addons: [{ id: 4, quantity_used: 0.05, unit: "l" }],
+    });
+
+    const changedVol = await retargetRecipeUnits(conn, 7, "l", "ml");
+    assert.equal(changedVol, 3);
+    assert.deepEqual(conn.updates[0].params, ["ml", 250, 1]);
+    assert.deepEqual(conn.updates[1].params, ["ml", 500, 3]);
+    assert.deepEqual(conn.updates[2].params, ["ml", 50, 4]);
+
+    const connMass = fakeConnection({
+      product_ingredients: [{ id: 2, quantity_used: 250, unit: "g" }],
+      product_size_ingredients: [{ id: 3, quantity_used: 1.5, unit: "kg" }],
+    });
+    assert.equal(await retargetRecipeUnits(connMass, 7, "g", "kg"), 1);
+    assert.deepEqual(connMass.updates[0].params, ["kg", 0.25, 2]);
+    assert.ok(connMass.updates[0].sql.includes("quantity_used = ?"));
   });
 
   it("keeps rows in another unit that still converts (g stays g when stock goes kg -> g)", async () => {
-    const conn = fakeConnection({ product_ingredients: [{ id: 2, unit: "g" }] });
+    const conn = fakeConnection({ product_ingredients: [{ id: 2, quantity_used: 50, unit: "g" }] });
     assert.equal(await retargetRecipeUnits(conn, 7, "kg", "g"), 0);
+    assert.equal(conn.updates.length, 0);
   });
 
-  it("moves rows that no longer convert, across ingredients, sizes and add-ons", async () => {
+  it("moves rows that no longer convert across ingredients, sizes and add-ons without scaling", async () => {
     const conn = fakeConnection({
-      product_ingredients: [{ id: 3, unit: "pcs" }],
-      product_size_ingredients: [{ id: 4, unit: "pcs" }],
-      product_addons: [{ id: 5, unit: "pcs" }],
+      product_ingredients: [{ id: 3, quantity_used: 2, unit: "pcs" }],
+      product_size_ingredients: [{ id: 4, quantity_used: 1, unit: "pcs" }],
+      product_addons: [{ id: 5, quantity_used: 1, unit: "pcs" }],
     });
     assert.equal(await retargetRecipeUnits(conn, 7, "pcs", "ml"), 3);
+    assert.deepEqual(conn.updates[0].params, ["ml", 3]);
+    assert.deepEqual(conn.updates[1].params, ["ml", 4]);
     assert.ok(conn.updates.some((u) => u.sql.includes("product_addons SET usage_unit")));
   });
 

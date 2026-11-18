@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Repair databases where migration 019 was recorded but its column is missing.
 SET @has_operational_family = (
   SELECT COUNT(*)

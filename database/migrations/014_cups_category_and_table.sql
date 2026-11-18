@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Dedicated table for items in the "Cups" inventory category.
 -- inventory_items stays the source of truth for stock/cost; this adds cup-specific details.
 CREATE TABLE IF NOT EXISTS inventory_cups (

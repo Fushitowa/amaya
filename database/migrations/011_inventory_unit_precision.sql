@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Keep sub-gram/sub-milliliter conversions accurately when recipe and stock
 -- units differ (for example, milligrams recorded against kilograms in stock).
 ALTER TABLE inventory_items

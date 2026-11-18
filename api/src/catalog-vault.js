@@ -31,6 +31,13 @@ const SNAPSHOT_TABLES = [
   "inventory_movements",
   "inventory_alert_states",
   "inventory_inactivity_states",
+  "chart_of_accounts",
+  "journal_entries",
+  "financial_payables",
+  "journal_entry_lines",
+  "store_daily_asset_snapshots",
+  "notifications",
+  "archive_audit_logs",
 ];
 
 // By default archive-clean ONLY clears catalog/inventory tables, preserving orders, sessions, and movements.
@@ -48,8 +55,14 @@ const CLEAN_CATALOG_TABLES = [
   "inventory_categories",
 ];
 
-// Only cleared when explicit --purge-transactions CLI flag is passed
+// Only cleared when explicit --purge-transactions CLI flag is passed (children before parents)
 const CLEAN_TRANSACTION_TABLES = [
+  "journal_entry_lines",
+  "financial_payables",
+  "journal_entries",
+  "store_daily_asset_snapshots",
+  "notifications",
+  "archive_audit_logs",
   "order_status_events",
   "order_inventory_consumptions",
   "order_item_addons",
@@ -59,9 +72,10 @@ const CLEAN_TRANSACTION_TABLES = [
   "cashier_sessions",
 ];
 
-// Tables to re-insert during recover after upserting categories
+// Tables to re-insert during recover after upserting categories (parents before children)
 const RECOVER_DATA_TABLES = [
   "business_settings",
+  "chart_of_accounts",
   "inventory_items",
   "inventory_cups",
   "inventory_alert_states",
@@ -78,6 +92,12 @@ const RECOVER_DATA_TABLES = [
   "order_inventory_consumptions",
   "order_status_events",
   "inventory_movements",
+  "journal_entries",
+  "financial_payables",
+  "journal_entry_lines",
+  "store_daily_asset_snapshots",
+  "notifications",
+  "archive_audit_logs",
 ];
 
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -156,6 +176,26 @@ async function getValidTableColumns(connection, tableName) {
   return new Set(rows.map((r) => r.col || r.COLUMN_NAME));
 }
 
+async function acquireVaultMaintenanceLock(connection, timeoutSeconds = 10) {
+  const [[row]] = await connection.query(
+    "SELECT GET_LOCK('amaya_vault_maintenance', ?) AS acquired",
+    [timeoutSeconds],
+  );
+  if (Number(row?.acquired) !== 1) {
+    throw new Error(
+      "Could not acquire global vault maintenance lock ('amaya_vault_maintenance'). Stop any concurrent maintenance or API write activity and try again.",
+    );
+  }
+}
+
+async function releaseVaultMaintenanceLock(connection) {
+  try {
+    await connection.query("SELECT RELEASE_LOCK('amaya_vault_maintenance')");
+  } catch {
+    // Preserve any prior error during cleanup
+  }
+}
+
 async function fetchSnapshotFromDb(connection) {
   const tables = {};
   for (const table of SNAPSHOT_TABLES) {
@@ -182,6 +222,13 @@ async function fetchSnapshotFromDb(connection) {
       cashierSessions: tables.cashier_sessions.length,
       orders: tables.orders.length,
       inventoryMovements: tables.inventory_movements.length,
+      chartOfAccounts: tables.chart_of_accounts.length,
+      journalEntries: tables.journal_entries.length,
+      journalEntryLines: tables.journal_entry_lines.length,
+      storeDailyAssetSnapshots: tables.store_daily_asset_snapshots.length,
+      financialPayables: tables.financial_payables.length,
+      notifications: tables.notifications.length,
+      archiveAuditLogs: tables.archive_audit_logs.length,
     },
     tables,
   };
@@ -289,8 +336,12 @@ async function runStatus() {
 async function runArchiveAndClean(force = false, purgeTransactions = false) {
   await mkdir(BACKUPS_DIR, { recursive: true });
   const connection = await pool.getConnection();
+  let lockHeld = false;
 
   try {
+    await acquireVaultMaintenanceLock(connection, 10);
+    lockHeld = true;
+
     const snapshot = await fetchSnapshotFromDb(connection);
     const liveMenuCount = snapshot.tables.menu_products.length;
     const liveInventoryCount = snapshot.tables.inventory_items.length;
@@ -337,23 +388,18 @@ async function runArchiveAndClean(force = false, purgeTransactions = false) {
     console.log(`  -> ${LATEST_BACKUP_PATH}`);
     console.log(`  -> ${timestampedPath}`);
 
+    const tablesToClean = purgeTransactions
+      ? [...CLEAN_TRANSACTION_TABLES, ...CLEAN_CATALOG_TABLES]
+      : CLEAN_CATALOG_TABLES;
+
     await ensureArchiveAuditSchema(connection);
     await connection.beginTransaction();
     try {
       await connection.query("SET FOREIGN_KEY_CHECKS = 0");
 
-      const tablesToClean = purgeTransactions
-        ? [...CLEAN_TRANSACTION_TABLES, ...CLEAN_CATALOG_TABLES]
-        : CLEAN_CATALOG_TABLES;
-
       for (const table of tablesToClean) {
         if (await tableExists(connection, table)) {
           await connection.query(`DELETE FROM \`${table}\``);
-          try {
-            await connection.query(`ALTER TABLE \`${table}\` AUTO_INCREMENT = 1`);
-          } catch {
-            // Ignore if table has no auto-increment column
-          }
         }
       }
 
@@ -376,6 +422,17 @@ async function runArchiveAndClean(force = false, purgeTransactions = false) {
       throw txErr;
     }
 
+    // Reset AUTO_INCREMENT outside the transaction (DDL causes an implicit commit in MySQL/MariaDB).
+    for (const table of tablesToClean) {
+      if (await tableExists(connection, table)) {
+        try {
+          await connection.query(`ALTER TABLE \`${table}\` AUTO_INCREMENT = 1`);
+        } catch {
+          // Ignore if table has no auto-increment column
+        }
+      }
+    }
+
     console.log(
       purgeTransactions
         ? `[Catalog Vault] Clean slate ready! Active Menu Products = 0, Active Inventory Items = 0, Transactions purged (Categories & Accounts preserved).`
@@ -393,6 +450,9 @@ async function runArchiveAndClean(force = false, purgeTransactions = false) {
     };
     console.log(`VAULT_STATUS_JSON:${JSON.stringify(payload)}`);
   } finally {
+    if (lockHeld) {
+      await releaseVaultMaintenanceLock(connection);
+    }
     connection.release();
   }
 }
@@ -423,7 +483,11 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
   }
 
   const connection = await pool.getConnection();
+  let lockHeld = false;
   try {
+    await acquireVaultMaintenanceLock(connection, 10);
+    lockHeld = true;
+
     // Safety net: if live DB currently has any rows in menu_products or inventory_items, back them up first
     const currentLive = await fetchSnapshotFromDb(connection);
     const currentMenuCount = currentLive.tables.menu_products.length;
@@ -443,6 +507,7 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
       await connection.query("SET FOREIGN_KEY_CHECKS = 0");
 
       // 1. Clear active catalog & inventory tables (and transactions only if --purge-transactions)
+      // Note: Do NOT run ALTER TABLE ... AUTO_INCREMENT = 1 inside the transaction (DDL triggers implicit commit).
       const tablesToClear = purgeTransactions
         ? [...CLEAN_TRANSACTION_TABLES, ...CLEAN_CATALOG_TABLES]
         : CLEAN_CATALOG_TABLES;
@@ -450,11 +515,6 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
       for (const table of tablesToClear) {
         if (await tableExists(connection, table)) {
           await connection.query(`DELETE FROM \`${table}\``);
-          try {
-            await connection.query(`ALTER TABLE \`${table}\` AUTO_INCREMENT = 1`);
-          } catch {
-            // Ignore if table has no auto-increment column
-          }
         }
       }
 
@@ -463,7 +523,7 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
       await upsertRowsIntoTable(connection, "inventory_categories", tables.inventory_categories || [], true);
 
       // 3. Re-insert all archived rows preserving primary keys, timestamps, decimals, and recipes
-      const transactionTableSet = new Set(["business_settings", ...CLEAN_TRANSACTION_TABLES]);
+      const transactionTableSet = new Set(["business_settings", "chart_of_accounts", ...CLEAN_TRANSACTION_TABLES]);
       for (const table of RECOVER_DATA_TABLES) {
         const rows = tables[table] || [];
         if (rows.length > 0) {
@@ -510,6 +570,9 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
       throw txErr;
     }
   } finally {
+    if (lockHeld) {
+      await releaseVaultMaintenanceLock(connection);
+    }
     connection.release();
   }
 }

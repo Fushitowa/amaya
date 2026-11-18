@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Keep inventory history by archiving rows. These guarded DDL statements also
 -- handle databases where the incoming archive migration already added the
 -- archived_at column or where the original unique-name index still exists.

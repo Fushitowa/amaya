@@ -14,6 +14,8 @@ import settingsRoutes from "../../api/src/routes/settings.js";
 import financesRoutes from "../../api/src/routes/finances.js";
 import archiveRoutes from "../../api/src/routes/archive.js";
 import notificationsRoutes from "../../api/src/routes/notifications.js";
+import decisionRoutes from "../../api/src/routes/decisions.js";
+import mediaRoutes from "../../api/src/routes/media.js";
 
 export function makeUniqueTag(prefix = "Tala") {
   const rand = Math.floor(Math.random() * 1_000_000);
@@ -34,6 +36,8 @@ export function createTestApp() {
   app.use("/api/finances", financesRoutes);
   app.use("/api/archive", archiveRoutes);
   app.use("/api/notifications", notificationsRoutes);
+  app.use("/api/decisions", decisionRoutes);
+  app.use("/api/media", mediaRoutes);
 
   app.use((request, response) => {
     response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });

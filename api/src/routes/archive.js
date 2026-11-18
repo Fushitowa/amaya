@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
+import { parsePositiveIntId } from "../utils/validation.js";
 import { loadBusinessSettings } from "./settings.js";
 
 const router = Router();
@@ -39,45 +40,40 @@ export async function recordArchiveAudit(connectionOrPool, {
  * Permanently deletes an inventory item and cleans up its non-order child references.
  * Throws 409 if the item is still linked to any active/archived menu product or customer order consumption.
  */
-export async function permanentlyDeleteInventoryItem(id, { actorId = null, actorName = "System", action = "manual_deleted", note = null } = {}) {
-  const [linkedRows] = await pool.execute(
-    `SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
-       JOIN product_ingredients pi ON pi.product_id = mp.id WHERE pi.inventory_item_id = ?
-     UNION
-     SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
-       JOIN product_sizes ps ON ps.product_id = mp.id
-       JOIN product_size_ingredients psi ON psi.product_size_id = ps.id WHERE psi.inventory_item_id = ?
-     UNION
-     SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
-       JOIN product_addons pa ON pa.product_id = mp.id WHERE pa.inventory_item_id = ?`,
-    [id, id, id],
-  );
-  if (linkedRows.length > 0) {
-    const productNames = linkedRows.map((row) => `${row.name}${row.is_archived ? " (in Archive)" : ""}`).join(", ");
-    throw httpError(409, `This inventory item is used in recipes/add-ons for: ${productNames}. Remove or permanently delete those menu items first.`);
-  }
-  const [[orderUsage]] = await pool.execute(
-    "SELECT COUNT(*) AS consumptions FROM order_inventory_consumptions WHERE inventory_item_id = ?",
-    [id],
-  );
-  if (Number(orderUsage.consumptions) > 0) {
-    throw httpError(409, "This item was consumed in recorded customer orders and cannot be permanently deleted.");
-  }
-  const [[movementHistory]] = await pool.execute(
-    "SELECT COUNT(*) AS movements FROM inventory_movements WHERE inventory_item_id = ?",
-    [id],
-  );
-  if (Number(movementHistory.movements) > 0) {
-    throw httpError(409, "This item has recorded inventory movement history and cannot be permanently deleted.");
-  }
-
-  const connection = await pool.getConnection();
+export async function permanentlyDeleteInventoryItem(id, { actorId = null, actorName = "System", action = "manual_deleted", note = null, connection: externalConnection = null } = {}) {
+  const connection = externalConnection || (await pool.getConnection());
+  const ownsConnection = !externalConnection;
+  let txOpen = false;
   try {
     await connection.beginTransaction();
+    txOpen = true;
     const [[existing]] = await connection.execute("SELECT id, name, is_archived FROM inventory_items WHERE id = ? FOR UPDATE", [id]);
     if (!existing) throw httpError(404, "Inventory item not found.");
     if (!existing.is_archived) {
       throw httpError(409, "Only archived inventory items can be permanently deleted.");
+    }
+    const [linkedRows] = await connection.execute(
+      `SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
+         JOIN product_ingredients pi ON pi.product_id = mp.id WHERE pi.inventory_item_id = ?
+       UNION
+       SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
+         JOIN product_sizes ps ON ps.product_id = mp.id
+         JOIN product_size_ingredients psi ON psi.product_size_id = ps.id WHERE psi.inventory_item_id = ?
+       UNION
+       SELECT DISTINCT mp.name, mp.is_archived FROM menu_products mp
+         JOIN product_addons pa ON pa.product_id = mp.id WHERE pa.inventory_item_id = ?`,
+      [id, id, id],
+    );
+    if (linkedRows.length > 0) {
+      const productNames = linkedRows.map((row) => `${row.name}${row.is_archived ? " (in Archive)" : ""}`).join(", ");
+      throw httpError(409, `This inventory item is used in recipes/add-ons for: ${productNames}. Remove or permanently delete those menu items first.`);
+    }
+    const [[orderUsage]] = await connection.execute(
+      "SELECT COUNT(*) AS consumptions FROM order_inventory_consumptions WHERE inventory_item_id = ?",
+      [id],
+    );
+    if (Number(orderUsage.consumptions) > 0) {
+      throw httpError(409, "This item was consumed in recorded customer orders and cannot be permanently deleted.");
     }
     const [[txMovements]] = await connection.execute(
       "SELECT COUNT(*) AS movements FROM inventory_movements WHERE inventory_item_id = ?",
@@ -100,23 +96,27 @@ export async function permanentlyDeleteInventoryItem(id, { actorId = null, actor
       note,
     });
     await connection.commit();
+    txOpen = false;
     return existing;
   } catch (error) {
-    await connection.rollback();
+    if (txOpen) await connection.rollback();
     if (error.code === "ER_ROW_IS_REFERENCED_2") throw httpError(409, "This item has related order or movement history and cannot be permanently deleted.");
     throw error;
   } finally {
-    connection.release();
+    if (ownsConnection) connection.release();
   }
 }
 
 /**
  * Permanently deletes a menu product (cascades sizes, recipes, and add-ons; preserves order_items snapshots).
  */
-export async function permanentlyDeleteMenuProduct(id, { actorId = null, actorName = "System", action = "manual_deleted", note = null } = {}) {
-  const connection = await pool.getConnection();
+export async function permanentlyDeleteMenuProduct(id, { actorId = null, actorName = "System", action = "manual_deleted", note = null, connection: externalConnection = null } = {}) {
+  const connection = externalConnection || (await pool.getConnection());
+  const ownsConnection = !externalConnection;
+  let txOpen = false;
   try {
     await connection.beginTransaction();
+    txOpen = true;
     const [[existing]] = await connection.execute("SELECT id, name, is_archived FROM menu_products WHERE id = ? FOR UPDATE", [id]);
     if (!existing) throw httpError(404, "Menu item not found.");
     if (!existing.is_archived) {
@@ -133,12 +133,13 @@ export async function permanentlyDeleteMenuProduct(id, { actorId = null, actorNa
       note,
     });
     await connection.commit();
+    txOpen = false;
     return existing;
   } catch (error) {
-    await connection.rollback();
+    if (txOpen) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (ownsConnection) connection.release();
   }
 }
 
@@ -174,6 +175,7 @@ export async function runArchivePurgeCheck() {
           actorName: "System Auto-Purge",
           action: "purged",
           note: `Automatically purged after ${retentionDays} days in Archive`,
+          connection: lockConn,
         });
         purgedMenuCount += 1;
       } catch (error) {
@@ -196,6 +198,7 @@ export async function runArchivePurgeCheck() {
           actorName: "System Auto-Purge",
           action: "purged",
           note: `Automatically purged after ${retentionDays} days in Archive`,
+          connection: lockConn,
         });
         purgedInventoryCount += 1;
       } catch (error) {
@@ -214,7 +217,6 @@ export async function runArchivePurgeCheck() {
 
 // GET /api/archive -> returns archived menu items, archived inventory items, and recent audit logs
 router.get("/", requireAuth, requireRole("admin"), async (_request, response) => {
-  await runArchivePurgeCheck().catch(() => null);
   const bizSettings = await loadBusinessSettings().catch(() => ({ archiveRetentionDays: ARCHIVE_RETENTION_DAYS }));
   const retentionDays = Math.max(1, Number(bizSettings?.archiveRetentionDays) || ARCHIVE_RETENTION_DAYS);
 
@@ -309,8 +311,7 @@ router.get("/", requireAuth, requireRole("admin"), async (_request, response) =>
 // POST /api/archive/restore/:type/:id -> restores an archived menu product or inventory item
 router.post("/restore/:type/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const type = String(request.params.type || "").toLowerCase();
-  const id = Number(request.params.id);
-  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid item ID.");
+  const id = parsePositiveIntId(request.params.id, "item ID");
   const actorId = Number(request.authUser?.sub) || null;
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
 
@@ -380,62 +381,77 @@ router.post("/restore/:type/:id", requireAuth, requireRole("admin"), async (requ
   throw httpError(400, "Invalid archive entity type. Expected 'menu' or 'inventory'.");
 });
 
-// DELETE /api/archive/empty -> permanently deletes all archived items that can be purged
+// DELETE /api/archive/empty -> permanently deletes archived items (optionally scoped by ?type=menu|inventory)
 router.delete("/empty", requireAuth, requireRole("admin"), async (request, response) => {
   const actorId = Number(request.authUser?.sub) || null;
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
-
-  const [archivedMenu] = await pool.execute("SELECT id, name FROM menu_products WHERE is_archived = TRUE");
-  let deletedMenu = 0;
-  const skippedMenu = [];
-  for (const product of archivedMenu) {
-    try {
-      await permanentlyDeleteMenuProduct(Number(product.id), {
-        actorId,
-        actorName,
-        action: "manual_deleted",
-        note: "Permanently deleted via Empty Archive",
-      });
-      deletedMenu += 1;
-    } catch (error) {
-      skippedMenu.push(`${product.name} (${error.message})`);
-    }
+  const scopeType = String(request.query?.type || "").trim().toLowerCase();
+  const clearMenu = !scopeType || scopeType === "menu";
+  const clearInventory = !scopeType || scopeType === "inventory";
+  if (!clearMenu && !clearInventory) {
+    throw httpError(400, "Invalid archive type filter. Expected 'menu' or 'inventory'.");
   }
-
-  const [archivedInventory] = await pool.execute("SELECT id, name FROM inventory_items WHERE is_archived = TRUE");
-  let deletedInventory = 0;
-  const skippedInventory = [];
-  for (const item of archivedInventory) {
-    try {
-      await permanentlyDeleteInventoryItem(Number(item.id), {
-        actorId,
-        actorName,
-        action: "manual_deleted",
-        note: "Permanently deleted via Empty Archive",
-      });
-      deletedInventory += 1;
-    } catch (error) {
-      skippedInventory.push(`${item.name} (${error.message})`);
+  const connection = await pool.getConnection();
+  try {
+    let deletedMenu = 0;
+    const skippedMenu = [];
+    if (clearMenu) {
+      const [archivedMenu] = await connection.execute("SELECT id, name FROM menu_products WHERE is_archived = TRUE");
+      for (const product of archivedMenu) {
+        try {
+          await permanentlyDeleteMenuProduct(Number(product.id), {
+            actorId,
+            actorName,
+            action: "manual_deleted",
+            note: "Permanently deleted via Empty Archive",
+            connection,
+          });
+          deletedMenu += 1;
+        } catch (error) {
+          skippedMenu.push(`${product.name} (${error.message})`);
+        }
+      }
     }
-  }
 
-  const skippedCount = skippedMenu.length + skippedInventory.length;
-  response.json({
-    deletedMenu,
-    deletedInventory,
-    skippedMenu,
-    skippedInventory,
-    message: skippedCount > 0
-      ? `Deleted ${deletedMenu} menu and ${deletedInventory} inventory item(s); skipped ${skippedCount} item(s) still linked to active recipes or order history.`
-      : `Permanently deleted ${deletedMenu} menu item(s) and ${deletedInventory} inventory item(s).`,
-  });
+    let deletedInventory = 0;
+    const skippedInventory = [];
+    if (clearInventory) {
+      const [archivedInventory] = await connection.execute("SELECT id, name FROM inventory_items WHERE is_archived = TRUE");
+      for (const item of archivedInventory) {
+        try {
+          await permanentlyDeleteInventoryItem(Number(item.id), {
+            actorId,
+            actorName,
+            action: "manual_deleted",
+            note: "Permanently deleted via Empty Archive",
+            connection,
+          });
+          deletedInventory += 1;
+        } catch (error) {
+          skippedInventory.push(`${item.name} (${error.message})`);
+        }
+      }
+    }
+
+    const skippedCount = skippedMenu.length + skippedInventory.length;
+    response.json({
+      deletedMenu,
+      deletedInventory,
+      skippedMenu,
+      skippedInventory,
+      message: skippedCount > 0
+        ? `Deleted ${deletedMenu} menu and ${deletedInventory} inventory item(s); skipped ${skippedCount} item(s) still linked to active recipes or order history.`
+        : `Permanently deleted ${deletedMenu} menu item(s) and ${deletedInventory} inventory item(s).`,
+    });
+  } finally {
+    connection.release();
+  }
 });
 
 // DELETE /api/archive/:type/:id -> permanently deletes a single archived item immediately
 router.delete("/:type/:id", requireAuth, requireRole("admin"), async (request, response) => {
   const type = String(request.params.type || "").toLowerCase();
-  const id = Number(request.params.id);
-  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid item ID.");
+  const id = parsePositiveIntId(request.params.id, "item ID");
   const actorId = Number(request.authUser?.sub) || null;
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
 

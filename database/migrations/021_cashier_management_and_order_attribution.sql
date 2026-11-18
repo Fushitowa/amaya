@@ -2,8 +2,6 @@
 -- Allows shared 'staff' username with individual cashier passwords and display names.
 -- Tracks cashier in charge for each order.
 
-USE amaya;
-
 -- 1. Add display_name column to users table if not exists
 SET @exist_display_name := (
     SELECT COUNT(*) FROM information_schema.COLUMNS

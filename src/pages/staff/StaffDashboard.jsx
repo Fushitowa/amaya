@@ -26,6 +26,7 @@ import { useTheme } from "../../context/ThemeContext.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { getOrderTime, isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
+import { formatManilaDate, formatManilaTime, MANILA_TIMEZONE } from "../../../shared/manilaDate.js";
 
 import "../../assets/css/staff/staff-dashboard.css";
 import "../../assets/css/portal-user.css";
@@ -55,9 +56,8 @@ function StaffDashboard() {
 
   const formatShortWasteTime = (ts) => {
     if (!ts) return "";
-    const parsed = new Date(ts);
-    if (Number.isNaN(parsed.getTime())) return "";
-    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const out = formatManilaTime(ts, { hour: "numeric", minute: "2-digit" }, "");
+    return out;
   };
 
   const handleWasteSuccess = (saved) => {
@@ -99,7 +99,7 @@ function StaffDashboard() {
 
   // Formatted date and time-of-day greeting
   const liveDate = useMemo(() => {
-    return new Date().toLocaleDateString("en-US", {
+    return formatManilaDate(new Date(), {
       weekday: "long",
       month: "long",
       day: "numeric",
@@ -108,7 +108,9 @@ function StaffDashboard() {
   }, []);
 
   const greetingTime = useMemo(() => {
-    const hour = new Date().getHours();
+    const hour = Number(
+      new Intl.DateTimeFormat("en-GB", { timeZone: MANILA_TIMEZONE, hour: "2-digit", hour12: false }).format(new Date()),
+    );
     if (hour < 12) return "Good morning";
     if (hour < 17) return "Good afternoon";
     return "Good evening";
@@ -595,7 +597,28 @@ function StaffDashboard() {
             }
             return updated;
           }}
-          onPrintReceipt={(ord) => navigate("/staff/receipt", { state: { order: ord } })}
+          onPrintReceipt={(ord) =>
+            navigate("/staff/receipt", {
+              state: {
+                order: Array.isArray(ord?.items) ? ord.items : (Array.isArray(ord) ? ord : []),
+                orderRecord: ord && !Array.isArray(ord) ? ord : null,
+                orderId: ord?.id || ord?.orderNumber,
+                customerName: ord?.customer || ord?.customerName,
+                orderType: ord?.type || ord?.orderType,
+                paymentMethod: ord?.paymentMethod || ord?.payment,
+                paymentStatus: ord?.paymentStatus || ord?.payment,
+                subtotal: ord?.subtotal,
+                discountAmount: ord?.discountAmount,
+                discountLabel: ord?.discountLabel,
+                taxAmount: ord?.taxAmount,
+                total: ord?.total,
+                cashTendered: ord?.cashTendered,
+                changeDue: ord?.changeDue,
+                cashierName: ord?.cashier || ord?.cashierName,
+                createdAt: ord?.createdAt,
+              },
+            })
+          }
           onClosed={() => setSelectedOrder(null)}
         />
       )}

@@ -11,22 +11,33 @@ import { OrdersProvider } from "./context/OrdersContext.jsx";
 import InventoryProvider from "./context/InventoryContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 
-document.title = import.meta.env.MODE === "portal" ? "Amaya Admin & Staff Portal" : "Amaya | Drinks & Bites";
+const isPortal = import.meta.env.MODE === "portal";
+document.title = isPortal ? "Amaya Admin & Staff Portal" : "Amaya | Drinks & Bites";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AuthProvider>
+    {isPortal ? (
+      <AuthProvider>
+        <ThemeProvider>
+          <BusinessProvider>
+            <OrdersProvider>
+              <MenuProvider>
+                <InventoryProvider>
+                  <App />
+                </InventoryProvider>
+              </MenuProvider>
+            </OrdersProvider>
+          </BusinessProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    ) : (
       <ThemeProvider>
         <BusinessProvider>
-          <OrdersProvider>
-            <MenuProvider>
-              <InventoryProvider>
-                <App />
-              </InventoryProvider>
-            </MenuProvider>
-          </OrdersProvider>
+          <MenuProvider>
+            <App />
+          </MenuProvider>
         </BusinessProvider>
       </ThemeProvider>
-    </AuthProvider>
+    )}
   </StrictMode>
 );

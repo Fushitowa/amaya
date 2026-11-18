@@ -5,6 +5,25 @@ import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 const router = Router();
 const TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 
+router.use(requireAuth);
+
+export function buildInventoryTriagePayload(items = []) {
+  return items.map((item) => {
+    const qty = Number(item.quantity || 0);
+    const max = item.maximum_stock == null ? null : Number(item.maximum_stock);
+    const fillRatio = max && max > 0 ? Number(((qty / max) * 100).toFixed(1)) : null;
+    return {
+      id: Number(item.id),
+      name: item.name,
+      category: item.category,
+      quantity: qty,
+      unit: item.unit,
+      maximumStock: max,
+      fillPercent: fillRatio,
+    };
+  });
+}
+
 async function evaluateWithTypeSafe(state, questions) {
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey) {
@@ -38,6 +57,13 @@ async function evaluateWithTypeSafe(state, questions) {
   return response.json();
 }
 
+router.all("/inventory-triage", requireAuth, requireRole("admin"), (request, response, next) => {
+  if (request.method !== "POST") {
+    return response.status(405).json({ message: "Method not allowed. Use POST." });
+  }
+  return next();
+});
+
 /**
  * POST /api/decisions/inventory-triage
  * Evaluates current warehouse stock levels using TypeSafe System One (Jev)
@@ -45,7 +71,7 @@ async function evaluateWithTypeSafe(state, questions) {
  */
 router.post("/inventory-triage", requireAuth, requireRole("admin"), async (_request, response) => {
   const [items] = await pool.execute(
-    `SELECT id, name, category, quantity, unit, maximum_stock, unit_cost
+    `SELECT id, name, category, quantity, unit, maximum_stock
        FROM inventory_items
       WHERE is_archived = FALSE
       ORDER BY quantity ASC, name ASC
@@ -56,21 +82,7 @@ router.post("/inventory-triage", requireAuth, requireRole("admin"), async (_requ
     return response.json({ model: "jev-latest", items: [], summary: null });
   }
 
-  const stateItems = items.map((item) => {
-    const qty = Number(item.quantity || 0);
-    const max = item.maximum_stock == null ? null : Number(item.maximum_stock);
-    const fillRatio = max && max > 0 ? Number(((qty / max) * 100).toFixed(1)) : null;
-    return {
-      id: Number(item.id),
-      name: item.name,
-      category: item.category,
-      quantity: qty,
-      unit: item.unit,
-      maximumStock: max,
-      fillPercent: fillRatio,
-      unitCost: Number(item.unit_cost || 0),
-    };
-  });
+  const stateItems = buildInventoryTriagePayload(items);
 
   const urgencyRubric = [
     "Healthy stock: no restock needed right now",
@@ -117,6 +129,13 @@ router.post("/inventory-triage", requireAuth, requireRole("admin"), async (_requ
     items: triagedItems,
     usage: evaluation.usage || null,
   });
+});
+
+router.all("/order-guard", requireAuth, requireRole("admin", "staff"), (request, response, next) => {
+  if (request.method !== "POST") {
+    return response.status(405).json({ message: "Method not allowed. Use POST." });
+  }
+  return next();
 });
 
 /**

@@ -227,24 +227,42 @@ export async function toggleCashier(cashierId) {
   }
 }
 
+function readStdinPassword() {
+  return new Promise((resolve, reject) => {
+    let chunks = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      chunks += chunk;
+    });
+    process.stdin.on("end", () => {
+      resolve(chunks.replace(/\r?\n$/, ""));
+    });
+    process.stdin.on("error", reject);
+  });
+}
+
 // CLI handler if invoked directly
 const isDirectRun = process.argv[1] && process.argv[1].replace(/\\/g, "/").endsWith("src/account-manager.js");
 if (isDirectRun) {
-  const [command, ...args] = process.argv.slice(2);
+  const [command, ...rawArgs] = process.argv.slice(2);
+  const useStdin = rawArgs.includes("--password-stdin");
+  const args = rawArgs.filter((arg) => arg !== "--password-stdin");
   try {
     if (command === "list") {
       const accounts = await listAccounts();
       console.log("ACCOUNTS_JSON:" + JSON.stringify(accounts));
     } else if (command === "set-admin-password") {
-      const [pwd] = args;
+      const pwd = useStdin ? await readStdinPassword() : args[0];
       const res = await setAdminPassword(pwd);
       console.log(JSON.stringify(res));
     } else if (command === "add-cashier") {
-      const [name, pwd] = args;
+      const name = args[0];
+      const pwd = useStdin ? await readStdinPassword() : args[1];
       const res = await addCashier(name, pwd);
       console.log(JSON.stringify(res));
     } else if (command === "set-cashier-password") {
-      const [idOrName, pwd] = args;
+      const idOrName = args[0];
+      const pwd = useStdin ? await readStdinPassword() : args[1];
       const res = await setCashierPassword(idOrName, pwd);
       console.log(JSON.stringify(res));
     } else if (command === "toggle-cashier") {
@@ -252,7 +270,7 @@ if (isDirectRun) {
       const res = await toggleCashier(id);
       console.log(JSON.stringify(res));
     } else {
-      console.log("Usage: node src/account-manager.js <list|set-admin-password|add-cashier|set-cashier-password|toggle-cashier> [args]");
+      console.log("Usage: node src/account-manager.js <list|set-admin-password|add-cashier|set-cashier-password|toggle-cashier> [args] [--password-stdin]");
     }
   } catch (err) {
     console.error("ERROR:" + err.message);

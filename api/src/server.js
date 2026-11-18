@@ -15,20 +15,29 @@ import decisionRoutes from "./routes/decisions.js";
 import sessionRoutes from "./routes/sessions.js";
 import reportRoutes from "./routes/reports.js";
 import financesRoutes from "./routes/finances.js";
+import mediaRoutes from "./routes/media.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
 
+const isProduction = process.env.NODE_ENV === "production";
 const lanOriginRegex = /^http:\/\/(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$/;
 const configuredOrigins = (process.env.WEB_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean);
-const devOrigins = ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", lanOriginRegex];
+const devOrigins = isProduction
+  ? []
+  : ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", lanOriginRegex];
 const allowedOrigins = [...new Set([...configuredOrigins, ...devOrigins])];
 app.use(helmet());
 app.use(cors({
   origin: allowedOrigins,
   exposedHeaders: ["X-Export-Truncated", "X-Export-Total", "X-Export-Count"],
 }));
-app.use(express.json({ limit: "9mb" }));
+
+const largeJsonParser = express.json({ limit: "9mb" });
+const defaultJsonParser = express.json({ limit: "1mb" });
+app.use("/api/menu", largeJsonParser);
+app.use("/api/inventory", largeJsonParser);
+app.use(defaultJsonParser);
 
 app.get("/", (_request, response) => {
   response.json({ name: "Amaya API", status: "running", health: "/api/health" });
@@ -53,8 +62,36 @@ const loginLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
 });
+const revertAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === "test" ? 1000 : (process.env.NODE_ENV === "production" ? 15 : 30),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === "test" ? 1000 : (process.env.NODE_ENV === "production" ? 10 : 15),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
+const decisionsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === "test" ? 1000 : (process.env.NODE_ENV === "production" ? 30 : 60),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
+const exportCsvLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === "test" ? 1000 : (process.env.NODE_ENV === "production" ? 20 : 40),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
 app.post("/api/auth/login", loginLimiter);
 app.post("/api/auth/switch-cashier", loginLimiter);
+app.post("/api/auth/change-password", changePasswordLimiter);
+app.post("/api/orders/:orderNumber/items/:itemId/revert", revertAuthLimiter);
+app.use("/api/decisions", decisionsLimiter);
+app.get("/api/reports/export.csv", exportCsvLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
@@ -66,6 +103,7 @@ app.use("/api/decisions", decisionRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/finances", financesRoutes);
+app.use("/api/media", mediaRoutes);
 
 app.use((request, response) => {
   response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });
@@ -77,7 +115,8 @@ app.use((error, _request, response, _next) => {
   response.status(status).json({ message: status < 500 ? error.message : "An unexpected server error occurred." });
 });
 
-app.listen(port, () => {
+let monitorInterval = null;
+const server = app.listen(port, () => {
   console.log(`Amaya API listening at http://localhost:${port}`);
   const runBackgroundMonitors = () => {
     runInventoryAlertCheck()
@@ -93,13 +132,21 @@ app.listen(port, () => {
       .catch((error) => console.warn("Archive auto-purge check failed:", error.message));
   };
   runBackgroundMonitors();
-  const monitorInterval = setInterval(runBackgroundMonitors, 60_000);
+  monitorInterval = setInterval(runBackgroundMonitors, 60_000);
   monitorInterval.unref();
 });
 
-async function closeDatabasePool() {
+let shuttingDown = false;
+async function gracefulShutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (monitorInterval) {
+    clearInterval(monitorInterval);
+    monitorInterval = null;
+  }
+  await new Promise((resolve) => server.close(() => resolve()));
   await pool.end();
 }
 
-process.on("SIGINT", closeDatabasePool);
-process.on("SIGTERM", closeDatabasePool);
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);

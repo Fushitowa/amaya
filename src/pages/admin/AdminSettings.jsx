@@ -6,6 +6,7 @@ import NotificationIcon from "../../components/NotificationIcon.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { formatManilaTime, MANILA_TIMEZONE } from "../../../shared/manilaDate.js";
 import {
 	DEFAULT_TARGET_FOOD_COST,
 	MIN_TARGET_FOOD_COST,
@@ -27,7 +28,13 @@ function isStoreOpen(openingTime, closingTime, currentDate) {
 	const closing = parseTime(closingTime);
 	if (opening === null || closing === null) return false;
 	if (opening === closing) return true;
-	const now = currentDate.getHours() * 60 + currentDate.getMinutes();
+	const [manilaHour, manilaMinute] = new Intl.DateTimeFormat("en-GB", {
+		timeZone: MANILA_TIMEZONE,
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	}).format(currentDate).split(":").map(Number);
+	const now = manilaHour * 60 + manilaMinute;
 	return closing > opening ? now >= opening && now < closing : now >= opening || now < closing;
 }
 
@@ -813,7 +820,7 @@ function AdminSettings() {
 
 						{saveError && <p className="settings-save-error" role="alert">{saveError}</p>}
 						{passwordFeedback && <p className={`settings-password-feedback is-${passwordFeedback.type}`} role={passwordFeedback.type === "error" ? "alert" : "status"}>{passwordFeedback.message}</p>}
-						<div className="admin-settings-footer"><span>{lastSaved ? `Last saved ${lastSaved.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Browser notifications auto-save locally` : "Business profile, hours & food cost targets save to the database when you submit."}</span><button type="submit" className={`admin-settings-save-button is-${saveState}`} disabled={!settingsLoaded || Boolean(settingsError) || saveState === "saving"} title={!settingsLoaded || settingsError ? "Load settings first before saving changes" : undefined} aria-live="polite">{saveState === "saving" ? <><span className="save-spinner" aria-hidden="true"></span>Saving changes</> : saveState === "success" ? <><span className="save-check" aria-hidden="true">✓</span>Changes Saved</> : saveState === "error" ? <>Retry save <span aria-hidden="true">↻</span></> : <>Save changes <span aria-hidden="true">→</span></>}</button></div>
+						<div className="admin-settings-footer"><span>{lastSaved ? `Last saved ${formatManilaTime(lastSaved)} · Browser notifications auto-save locally` : "Business profile, hours & food cost targets save to the database when you submit."}</span><button type="submit" className={`admin-settings-save-button is-${saveState}`} disabled={!settingsLoaded || Boolean(settingsError) || saveState === "saving"} title={!settingsLoaded || settingsError ? "Load settings first before saving changes" : undefined} aria-live="polite">{saveState === "saving" ? <><span className="save-spinner" aria-hidden="true"></span>Saving changes</> : saveState === "success" ? <><span className="save-check" aria-hidden="true">✓</span>Changes Saved</> : saveState === "error" ? <>Retry save <span aria-hidden="true">↻</span></> : <>Save changes <span aria-hidden="true">→</span></>}</button></div>
 					</form>
 				</div>
 			</main>

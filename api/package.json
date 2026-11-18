@@ -9,7 +9,9 @@
     "user:create": "node src/create-user.js",
     "accounts": "node src/account-manager.js",
     "db:migrate": "node src/migrate.js",
-    "db:vault": "node src/catalog-vault.js"
+    "db:vault": "node src/catalog-vault.js",
+    "lint": "node ../node_modules/eslint/bin/eslint.js src",
+    "test": "node ../scripts/run-tests.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

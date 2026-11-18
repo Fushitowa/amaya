@@ -1,7 +1,5 @@
 -- Preserve exact ingredient usage per order line so canceled orders can be
 -- reversed safely even after a menu recipe changes.
-USE amaya;
-
 CREATE TABLE IF NOT EXISTS order_inventory_consumptions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     order_id BIGINT UNSIGNED NULL,

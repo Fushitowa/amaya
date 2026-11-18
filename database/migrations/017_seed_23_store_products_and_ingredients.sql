@@ -1,5 +1,3 @@
-USE amaya;
-
 -- The product seed below uses three catalog fields that were not present in the
 -- original menu_products schema. Add them conditionally so this migration can
 -- run against both older databases and databases where the fields already exist.

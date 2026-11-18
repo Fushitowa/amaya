@@ -176,6 +176,62 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 
 
+def _is_weak_jwt_secret(val: str) -> bool:
+    cleaned = val.strip().strip("\"'")
+    return (
+        len(cleaned) < 32
+        or cleaned.lower().startswith("replace_with")
+        or len(set(cleaned)) <= 4
+    )
+
+
+def _repair_jwt_secret_in_env(content: str) -> tuple[str, bool]:
+    """Ensure JWT_SECRET is present and high-entropy; return (updated_text, changed)."""
+    jwt_re = re.compile(r"^JWT_SECRET=([^\r\n]*)", flags=re.MULTILINE)
+    found = False
+    changed = False
+
+    def _replace_if_weak(match: re.Match[str]) -> str:
+        nonlocal found, changed
+        found = True
+        if _is_weak_jwt_secret(match.group(1)):
+            changed = True
+            return f"JWT_SECRET={secrets.token_hex(32)}"
+        return match.group(0)
+
+    updated = jwt_re.sub(_replace_if_weak, content)
+    if not found:
+        eol = "\r\n" if "\r\n" in updated else "\n"
+        sep = "" if (not updated or updated.endswith("\n")) else eol
+        updated = f"{updated}{sep}JWT_SECRET={secrets.token_hex(32)}{eol}"
+        changed = True
+    return updated, changed
+
+
+def _read_env_file(env_path: pathlib.Path) -> dict[str, str]:
+    """Parse simple KEY=VALUE pairs from a .env file without mutating os.environ."""
+    values: dict[str, str] = {}
+    if not env_path.is_file():
+        return values
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            if key:
+                values[key] = val
+    except OSError:
+        pass
+    return values
+
+
 def resolve_npm_executable() -> str:
     if os.name == "nt":
         return shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
@@ -301,7 +357,11 @@ class AmayaControlPanel:
         self._last_api_health_time: float = 0.0
         self._cached_api_health: tuple[str, str] = ("ok", "Listening (:3001)")
 
-        # Runtime state per service
+        # Runtime state per service (protected by RLock for concurrent worker threads)
+        self._state_lock = threading.RLock()
+        self._service_locks: dict[str, threading.RLock] = {
+            cfg["id"]: threading.RLock() for cfg in SERVICES_CONFIG
+        }
         self.processes: dict[str, subprocess.Popen | None] = {
             cfg["id"]: None for cfg in SERVICES_CONFIG
         }
@@ -983,28 +1043,27 @@ class AmayaControlPanel:
 
         if error or not accounts:
             if hasattr(self, "cashier_status_label") and self.cashier_status_label:
-                self.cashier_status_label.configure(text="MySQL Offline (Defaults Loaded)", fg=COLOR_TEXT_MUTED)
+                self.cashier_status_label.configure(
+                    text="Offline / Unavailable" if error else "0 Cashiers Configured",
+                    fg=COLOR_TEXT_MUTED,
+                )
 
-            notice_frame = tk.Frame(self.cashier_rows_container, bg=COLOR_RECESSED, pady=6)
+            notice_frame = tk.Frame(self.cashier_rows_container, bg=COLOR_RECESSED, pady=10, padx=8)
             notice_frame.pack(fill=tk.X, padx=4)
 
             tk.Label(
                 notice_frame,
-                text="⚠️ Database is offline. Start MySQL (:3306) to sync live staff list.",
+                text=(
+                    "⚠️ Database is offline. Start MySQL (:3306) to load live cashiers."
+                    if error
+                    else "No active accounts found in database. Click '+ Add New Cashier' below."
+                ),
                 font=("Segoe UI", 8, "italic"),
-                fg=COLOR_WARN_TEXT,
+                fg=COLOR_WARN_TEXT if error else COLOR_TEXT_MUTED,
                 bg=COLOR_RECESSED,
-            ).pack(anchor="w", pady=(0, 4))
-
-            # Default offline preview cards
-            for default_name in ("Cashier 1 (Terminal #1)", "Cashier 2 (Terminal #2)"):
-                row = tk.Frame(self.cashier_rows_container, bg=COLOR_PANEL_WARM, padx=8, pady=6, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-                row.pack(fill=tk.X, padx=4, pady=2)
-                left = tk.Frame(row, bg=COLOR_PANEL_WARM)
-                left.pack(side=tk.LEFT)
-                tk.Label(left, text=f"👤 {default_name}", font=("Segoe UI", 9, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_PANEL_WARM).pack(anchor="w")
-                tk.Label(left, text="login: staff  |  Standard POS Access", font=("Segoe UI", 8), fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM).pack(anchor="w")
-                tk.Label(row, text="● READY", font=("Segoe UI", 7, "bold"), fg=COLOR_WARN_TEXT, bg=COLOR_WARN_BG, padx=6, pady=1).pack(side=tk.RIGHT)
+                wraplength=340,
+                justify=tk.LEFT,
+            ).pack(anchor="w")
             return
 
         if hasattr(self, "cashier_status_label") and self.cashier_status_label:
@@ -1086,8 +1145,9 @@ class AmayaControlPanel:
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 try:
                     res = subprocess.run(
-                        [node_exe, "src/account-manager.js", "set-admin-password", new_p],
+                        [node_exe, "src/account-manager.js", "set-admin-password", "--password-stdin"],
                         cwd=str(API_DIR),
+                        input=f"{new_p}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
@@ -1154,8 +1214,9 @@ class AmayaControlPanel:
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 try:
                     res = subprocess.run(
-                        [node_exe, "src/account-manager.js", "add-cashier", nm, pw],
+                        [node_exe, "src/account-manager.js", "add-cashier", nm, "--password-stdin"],
                         cwd=str(API_DIR),
+                        input=f"{pw}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
@@ -1946,35 +2007,42 @@ class AmayaControlPanel:
                 self.enqueue_log("api", "error", "Missing api/.env and api/.env.example!")
                 return False
             raw = example_path.read_text(encoding="utf-8")
-            generated_secret = secrets.token_hex(32)
-            raw = raw.replace(
-                "JWT_SECRET=replace_with_a_random_secret_at_least_32_characters_long",
-                f"JWT_SECRET={generated_secret}",
+            raw = re.sub(
+                r"^DB_USER=amaya_app(?=\r?$)",
+                "DB_USER=root",
+                raw,
+                flags=re.MULTILINE,
             )
-            raw = raw.replace(
-                "DB_PASSWORD=replace_with_your_local_mysql_password",
+            raw = re.sub(
+                r"^DB_PASSWORD=replace_with_your_local_mysql_password(?=\r?$)",
                 "DB_PASSWORD=",
+                raw,
+                flags=re.MULTILINE,
             )
-            env_path.write_text(raw, encoding="utf-8")
+            updated, _ = _repair_jwt_secret_in_env(raw)
+            env_path.write_text(updated, encoding="utf-8")
             self.enqueue_log(
                 "api",
                 "success",
                 "Created api/.env from .env.example with a 64-char JWT_SECRET.",
             )
+            self.enqueue_log(
+                "api",
+                "warn",
+                "Bootstrapped api/.env with local XAMPP defaults (DB_USER=root, empty DB_PASSWORD). "
+                "For non-dev or shared environments, provision a dedicated user via "
+                "database/setup_app_user.sql and set a strong DB_PASSWORD.",
+            )
             return True
 
         content = env_path.read_text(encoding="utf-8")
-        if "replace_with_a_random_secret_at_least_32_characters_long" in content:
-            generated_secret = secrets.token_hex(32)
-            content = content.replace(
-                "replace_with_a_random_secret_at_least_32_characters_long",
-                generated_secret,
-            )
-            env_path.write_text(content, encoding="utf-8")
+        updated, changed = _repair_jwt_secret_in_env(content)
+        if changed:
+            env_path.write_text(updated, encoding="utf-8")
             self.enqueue_log(
                 "api",
-                "success",
-                "Updated placeholder JWT_SECRET in api/.env with a 64-character secret.",
+                "warn",
+                "Replaced missing or weak JWT_SECRET in api/.env with a 64-character random secret.",
             )
         return True
 
@@ -1983,15 +2051,17 @@ class AmayaControlPanel:
         if nm_path.is_dir():
             return True
 
+        use_ci = (target_dir / "package-lock.json").is_file()
+        npm_cmd = "ci" if use_ci else "install"
         self.enqueue_log(
             service_id,
             "warn",
-            f"node_modules missing in {target_dir.name}. Running 'npm install' automatically...",
+            f"node_modules missing in {target_dir.name}. Running 'npm {npm_cmd}' automatically...",
         )
         try:
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(
-                [self.npm_exe, "install"],
+                [self.npm_exe, npm_cmd],
                 cwd=str(target_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -2007,12 +2077,12 @@ class AmayaControlPanel:
                     self.enqueue_log(service_id, "info", cleaned)
             proc.wait()
             if proc.returncode == 0:
-                self.enqueue_log(service_id, "success", f"npm install completed in {target_dir.name}!")
+                self.enqueue_log(service_id, "success", f"npm {npm_cmd} completed in {target_dir.name}!")
                 return True
-            self.enqueue_log(service_id, "error", f"npm install failed in {target_dir.name} (code {proc.returncode}).")
+            self.enqueue_log(service_id, "error", f"npm {npm_cmd} failed in {target_dir.name} (code {proc.returncode}).")
             return False
         except Exception as exc:
-            self.enqueue_log(service_id, "error", f"Failed to run npm install: {exc}")
+            self.enqueue_log(service_id, "error", f"Failed to run npm {npm_cmd}: {exc}")
             return False
 
     def run_setup_and_migrate(self) -> None:
@@ -2079,6 +2149,18 @@ class AmayaControlPanel:
                 return True
             time.sleep(0.25)
         return is_port_open(3306)
+
+    def _ensure_api_stopped_for_vault(self) -> bool:
+        api_proc = self.processes.get("api")
+        if not is_port_open(3001) and (api_proc is None or api_proc.poll() is not None):
+            return True
+        self.enqueue_log("api", "warn", "Backend API (:3001) is active. Stopping API cleanly before Vault maintenance...")
+        self._stop_service_worker("api")
+        for _ in range(16):
+            if not is_port_open(3001):
+                break
+            time.sleep(0.25)
+        return not is_port_open(3001)
 
     def _apply_vault_status_payload(self, data: dict) -> None:
         if not hasattr(self, "vault_status_lbl"):
@@ -2167,6 +2249,17 @@ class AmayaControlPanel:
                     lambda: messagebox.showerror(
                         "MySQL Offline",
                         "Could not connect to MySQL on port 3306. Please start XAMPP MySQL first.",
+                    ),
+                )
+                return
+
+            if not self._ensure_api_stopped_for_vault():
+                self.enqueue_log("api", "error", "Cannot run Catalog Vault while Backend API (:3001) is still active.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Backend API Active",
+                        "Could not stop Backend API on port 3001. Stop Backend API manually before running Archive & Clean.",
                     ),
                 )
                 return
@@ -2279,6 +2372,17 @@ class AmayaControlPanel:
                     lambda: messagebox.showerror(
                         "MySQL Offline",
                         "Could not connect to MySQL on port 3306. Please start XAMPP MySQL first.",
+                    ),
+                )
+                return
+
+            if not self._ensure_api_stopped_for_vault():
+                self.enqueue_log("api", "error", "Cannot run Catalog Vault recovery while Backend API (:3001) is active.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Backend API Active",
+                        "Could not stop Backend API on port 3001. Stop Backend API manually before running Catalog Recovery.",
                     ),
                 )
                 return
@@ -2478,8 +2582,9 @@ class AmayaControlPanel:
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 try:
                     res = subprocess.run(
-                        [node_exe, "src/account-manager.js", "set-admin-password", new_p],
+                        [node_exe, "src/account-manager.js", "set-admin-password", "--password-stdin"],
                         cwd=str(API_DIR),
+                        input=f"{new_p}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
@@ -2568,8 +2673,9 @@ class AmayaControlPanel:
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 try:
                     res = subprocess.run(
-                        [node_exe, "src/account-manager.js", "add-cashier", name, pwd],
+                        [node_exe, "src/account-manager.js", "add-cashier", name, "--password-stdin"],
                         cwd=str(API_DIR),
+                        input=f"{pwd}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
@@ -2690,7 +2796,7 @@ class AmayaControlPanel:
                         def _w():
                             node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                            res = subprocess.run([node_exe, "src/account-manager.js", "set-cashier-password", str(s_id), p], cwd=str(API_DIR), capture_output=True, text=True, creationflags=creationflags)
+                            res = subprocess.run([node_exe, "src/account-manager.js", "set-cashier-password", str(s_id), "--password-stdin"], cwd=str(API_DIR), input=f"{p}\n", capture_output=True, text=True, creationflags=creationflags)
                             if res.returncode == 0:
                                 dialog.after(0, lambda: [show_status(f"Password for {s_name} updated!"), entry_widget.delete(0, tk.END)])
                             else:
@@ -2739,6 +2845,11 @@ class AmayaControlPanel:
         threading.Thread(target=self._start_service_worker, args=(service_id,), daemon=True).start()
 
     def _start_service_worker(self, service_id: str) -> bool:
+        svc_lock = self._service_locks.get(service_id, self._state_lock)
+        with svc_lock:
+            return self._start_service_worker_locked(service_id)
+
+    def _start_service_worker_locked(self, service_id: str) -> bool:
         cfg = self._get_service_config(service_id)
         port = cfg["port"]
 
@@ -2746,7 +2857,8 @@ class AmayaControlPanel:
         if service_id == "mysql":
             if is_port_open(3306):
                 pids = find_pids_on_port(3306)
-                self.service_states["mysql"] = "RUNNING"
+                with self._state_lock:
+                    self.service_states["mysql"] = "RUNNING"
                 self.enqueue_log(
                     "mysql",
                     "success",
@@ -2755,7 +2867,8 @@ class AmayaControlPanel:
                 return True
 
             if not XAMPP_MYSQLD.is_file():
-                self.service_states["mysql"] = "ERROR"
+                with self._state_lock:
+                    self.service_states["mysql"] = "ERROR"
                 self.enqueue_log(
                     "mysql",
                     "error",
@@ -2763,8 +2876,9 @@ class AmayaControlPanel:
                 )
                 return False
 
-            self.stop_requested["mysql"] = False
-            self.service_states["mysql"] = "STARTING"
+            with self._state_lock:
+                self.stop_requested["mysql"] = False
+                self.service_states["mysql"] = "STARTING"
             creationflags = 0
             if os.name == "nt":
                 creationflags = (
@@ -2791,7 +2905,8 @@ class AmayaControlPanel:
                     errors="replace",
                     creationflags=creationflags,
                 )
-                self.processes["mysql"] = proc
+                with self._state_lock:
+                    self.processes["mysql"] = proc
                 threading.Thread(
                     target=self._read_process_output,
                     args=("mysql", proc),
@@ -2799,12 +2914,14 @@ class AmayaControlPanel:
                 ).start()
                 return True
             except Exception as exc:
-                self.service_states["mysql"] = "ERROR"
+                with self._state_lock:
+                    self.service_states["mysql"] = "ERROR"
                 self.enqueue_log("mysql", "error", f"Failed to start XAMPP MySQL: {exc}")
                 return False
 
         # Standard Node/Vite services (api, customer, portal)
-        existing_proc = self.processes.get(service_id)
+        with self._state_lock:
+            existing_proc = self.processes.get(service_id)
         if existing_proc is not None and existing_proc.poll() is None:
             self.enqueue_log(service_id, "warn", f"{cfg['short_name']} is already running (PID {existing_proc.pid}).")
             return True
@@ -2812,11 +2929,13 @@ class AmayaControlPanel:
         if service_id == "api":
             self._ensure_api_env_file()
             if not self._install_dependencies_if_missing(API_DIR, "api"):
-                self.service_states[service_id] = "ERROR"
+                with self._state_lock:
+                    self.service_states[service_id] = "ERROR"
                 return False
         else:
             if not self._install_dependencies_if_missing(ROOT_DIR, service_id):
-                self.service_states[service_id] = "ERROR"
+                with self._state_lock:
+                    self.service_states[service_id] = "ERROR"
                 return False
 
         # Dual-stack IPv4 + IPv6 Port Conflict Guard
@@ -2840,8 +2959,9 @@ class AmayaControlPanel:
                     break
                 time.sleep(0.25)
 
-        self.stop_requested[service_id] = False
-        self.service_states[service_id] = "STARTING"
+        with self._state_lock:
+            self.stop_requested[service_id] = False
+            self.service_states[service_id] = "STARTING"
 
         env = os.environ.copy()
         env["FORCE_COLOR"] = "0"
@@ -2872,9 +2992,11 @@ class AmayaControlPanel:
                 env=env,
                 creationflags=creationflags,
             )
-            self.processes[service_id] = proc
+            with self._state_lock:
+                self.processes[service_id] = proc
         except Exception as exc:
-            self.service_states[service_id] = "ERROR"
+            with self._state_lock:
+                self.service_states[service_id] = "ERROR"
             self.enqueue_log(service_id, "error", f"Failed to start {cfg['short_name']}: {exc}")
             return False
 
@@ -2910,13 +3032,17 @@ class AmayaControlPanel:
                 self.enqueue_log(service_id, "error", f"Log stream error: {exc}")
         finally:
             rc = proc.poll()
-            if self.processes.get(service_id) is proc:
-                self.processes[service_id] = None
-            if self.stop_requested.get(service_id):
-                self.service_states[service_id] = "STOPPED"
+            with self._state_lock:
+                if self.processes.get(service_id) is proc:
+                    self.processes[service_id] = None
+                was_stopped = self.stop_requested.get(service_id)
+                if was_stopped:
+                    self.service_states[service_id] = "STOPPED"
+                else:
+                    self.service_states[service_id] = "ERROR" if (rc and rc != 0) else "STOPPED"
+            if was_stopped:
                 self.enqueue_log(service_id, "info", f"{cfg['short_name']} stopped.")
             else:
-                self.service_states[service_id] = "ERROR" if (rc and rc != 0) else "STOPPED"
                 self.enqueue_log(
                     service_id,
                     "error" if (rc and rc != 0) else "warn",
@@ -2927,36 +3053,52 @@ class AmayaControlPanel:
         threading.Thread(target=self._stop_service_worker, args=(service_id,), daemon=True).start()
 
     def _stop_service_worker(self, service_id: str) -> None:
-        cfg = self._get_service_config(service_id)
-        self.stop_requested[service_id] = True
-        proc = self.processes.get(service_id)
+        svc_lock = self._service_locks.get(service_id, self._state_lock)
+        with svc_lock:
+            cfg = self._get_service_config(service_id)
+            with self._state_lock:
+                self.stop_requested[service_id] = True
+                proc = self.processes.get(service_id)
 
-        if service_id == "mysql" and XAMPP_MYSQLADMIN.is_file() and is_port_open(3306):
-            self.enqueue_log("mysql", "info", "Shutting down XAMPP MySQL cleanly via mysqladmin...")
-            try:
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                subprocess.run(
-                    [str(XAMPP_MYSQLADMIN), "-u", "root", "shutdown"],
-                    capture_output=True,
-                    text=True,
-                    timeout=6,
-                    creationflags=creationflags,
-                )
-            except Exception:
-                pass
+            if service_id == "mysql" and XAMPP_MYSQLADMIN.is_file() and is_port_open(3306):
+                self.enqueue_log("mysql", "info", "Shutting down XAMPP MySQL cleanly via mysqladmin...")
+                try:
+                    env_vars = _read_env_file(API_DIR / ".env")
+                    db_user = env_vars.get("DB_USER") or "root"
+                    db_password = env_vars.get("DB_PASSWORD", "")
+                    run_env = {**os.environ, "MYSQL_PWD": db_password} if db_password else None
+                    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    subprocess.run(
+                        [str(XAMPP_MYSQLADMIN), "-u", db_user, "shutdown"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        env=run_env,
+                        creationflags=creationflags,
+                    )
+                    # Wait for InnoDB buffer flush and clean socket exit before ever falling back to force-kill
+                    for _ in range(40):
+                        proc_done = proc is None or proc.poll() is not None
+                        if proc_done and not is_port_open(3306):
+                            break
+                        time.sleep(0.25)
+                except Exception:
+                    pass
 
-        if proc is not None and proc.poll() is None:
-            pid = proc.pid
-            self.enqueue_log(service_id, "info", f"Stopping {cfg['short_name']} process tree (PID {pid})...")
-            kill_process_tree(pid)
-            self.processes[service_id] = None
+            if proc is not None and proc.poll() is None:
+                pid = proc.pid
+                self.enqueue_log(service_id, "info", f"Stopping {cfg['short_name']} process tree (PID {pid})...")
+                kill_process_tree(pid)
+                with self._state_lock:
+                    self.processes[service_id] = None
 
-        port_pids = find_pids_on_port(cfg["port"])
-        for pid in port_pids:
-            self.enqueue_log(service_id, "info", f"Releasing port :{cfg['port']} (PID {pid})...")
-            kill_process_tree(pid)
+            port_pids = find_pids_on_port(cfg["port"])
+            for pid in port_pids:
+                self.enqueue_log(service_id, "info", f"Releasing port :{cfg['port']} (PID {pid})...")
+                kill_process_tree(pid)
 
-        self.service_states[service_id] = "STOPPED"
+            with self._state_lock:
+                self.service_states[service_id] = "STOPPED"
 
     def restart_service(self, service_id: str) -> None:
         def _worker() -> None:
@@ -3120,7 +3262,11 @@ class AmayaControlPanel:
                     ram_info["total_gb"] = round(stat.ullTotalPhys / (1024**3), 1)
                     ram_info["used_gb"] = round((stat.ullTotalPhys - stat.ullAvailPhys) / (1024**3), 1)
                     ram_info["free_gb"] = round(stat.ullAvailPhys / (1024**3), 1)
-                    cpu_info["pct"] = 14.0
+                    if hasattr(os, "getloadavg"):
+                        load_1m = os.getloadavg()[0]
+                        cpu_info["pct"] = round(min(100.0, (load_1m / max(1, cpu_info["cores"])) * 100.0), 1)
+                    else:
+                        cpu_info["pct"] = 0.0
                 except Exception:
                     pass
 
@@ -3128,7 +3274,9 @@ class AmayaControlPanel:
             for cfg in SERVICES_CONFIG:
                 sid = cfg["id"]
                 port = cfg["port"]
-                proc = self.processes.get(sid)
+                with self._state_lock:
+                    proc = self.processes.get(sid)
+                    current_state = self.service_states.get(sid)
                 port_open = mysql_open if sid == "mysql" else is_port_open(port)
                 port_status[port] = port_open
 
@@ -3145,7 +3293,8 @@ class AmayaControlPanel:
                         badge_text = "● RUNNING"
                         badge_style = "RUNNING"
                         health_detail = "Listening on 127.0.0.1:3306"
-                        self.service_states[sid] = "RUNNING"
+                        with self._state_lock:
+                            self.service_states[sid] = "RUNNING"
                     elif proc is not None and proc.poll() is None:
                         badge_text = "● STARTING..."
                         badge_style = "STARTING"
@@ -3160,6 +3309,8 @@ class AmayaControlPanel:
                             badge_text = "● MYSQL OFFLINE"
                             badge_style = "WARN"
                             health_detail = "Waiting for MySQL (:3306)"
+                            with self._state_lock:
+                                self.service_states[sid] = "WARN"
                         else:
                             now = time.time()
                             if now - self._last_api_health_time >= 5.0:
@@ -3169,18 +3320,23 @@ class AmayaControlPanel:
                             if health_state == "ok":
                                 badge_text = "● RUNNING"
                                 badge_style = "RUNNING"
+                                with self._state_lock:
+                                    self.service_states[sid] = "RUNNING"
                             elif health_state == "db_error":
                                 badge_text = "● DB WARNING"
                                 badge_style = "WARN"
+                                with self._state_lock:
+                                    self.service_states[sid] = "WARN"
                             else:
-                                badge_text = "● RUNNING"
-                                badge_style = "RUNNING"
-                        self.service_states[sid] = "RUNNING"
+                                badge_text = "● UNHEALTHY"
+                                badge_style = "WARN"
+                                with self._state_lock:
+                                    self.service_states[sid] = "WARN"
                     elif proc is not None and proc.poll() is None:
                         badge_text = "● STARTING..."
                         badge_style = "STARTING"
                         health_detail = "Booting Express..."
-                    elif self.service_states.get(sid) == "ERROR":
+                    elif current_state == "ERROR":
                         badge_text = "● ERROR"
                         badge_style = "ERROR"
                         health_detail = "Exited with error"
@@ -3193,12 +3349,13 @@ class AmayaControlPanel:
                         badge_text = "● RUNNING"
                         badge_style = "RUNNING"
                         health_detail = f"Serving http://localhost:{port}"
-                        self.service_states[sid] = "RUNNING"
+                        with self._state_lock:
+                            self.service_states[sid] = "RUNNING"
                     elif proc is not None and proc.poll() is None:
                         badge_text = "● STARTING..."
                         badge_style = "STARTING"
                         health_detail = "Starting Vite..."
-                    elif self.service_states.get(sid) == "ERROR":
+                    elif current_state == "ERROR":
                         badge_text = "● ERROR"
                         badge_style = "ERROR"
                         health_detail = "Exited with error"
@@ -3359,12 +3516,15 @@ class AmayaControlPanel:
             self.enqueue_log("system", "success", f"Copied '{key}' tab logs to clipboard.")
 
     def on_close(self) -> None:
-        running = [
-            cfg["short_name"]
-            for cfg in SERVICES_CONFIG
-            if (self.processes.get(cfg["id"]) is not None and self.processes[cfg["id"]].poll() is None)
-            or (cfg["id"] != "mysql" and is_port_open(cfg["port"]))
-        ]
+        if self.is_closing:
+            return
+        with self._state_lock:
+            running = [
+                cfg["short_name"]
+                for cfg in SERVICES_CONFIG
+                if (self.processes.get(cfg["id"]) is not None and self.processes[cfg["id"]].poll() is None)
+                or (cfg["id"] != "mysql" and is_port_open(cfg["port"]))
+            ]
         if running:
             confirm = messagebox.askyesno(
                 "Stop Amaya Services & Exit?",
@@ -3376,10 +3536,23 @@ class AmayaControlPanel:
                 return
 
         self.is_closing = True
-        for sid in ("portal", "customer", "api", "mysql"):
-            if self.processes.get(sid) is not None or sid != "mysql":
-                self._stop_service_worker(sid)
-        self.root.destroy()
+        try:
+            self.root.title("Amaya Control Panel — Stopping services...")
+        except Exception:
+            pass
+
+        def _shutdown_worker() -> None:
+            for sid in ("portal", "customer", "api", "mysql"):
+                with self._state_lock:
+                    proc = self.processes.get(sid)
+                if proc is not None or sid != "mysql":
+                    self._stop_service_worker(sid)
+            try:
+                self.root.after(0, self.root.destroy)
+            except Exception:
+                pass
+
+        threading.Thread(target=_shutdown_worker, daemon=True).start()
 
 
 def main() -> None:

@@ -31,16 +31,29 @@ const STAFF_PERMITTED_EVENTS = new Set(["order_new", "order_completed", "receipt
 
 router.post("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const type = String(request.body?.type || "info").trim().slice(0, 40);
-  if (request.authUser.role === "staff" && !STAFF_PERMITTED_EVENTS.has(type)) {
+  const isStaffActor = request.authUser.role === "staff";
+  if (isStaffActor && !STAFF_PERMITTED_EVENTS.has(type)) {
     throw httpError(403, "Staff members are restricted to transaction event notifications.");
   }
   const title = String(request.body?.title || "Notice").trim().slice(0, 120);
   const message = String(request.body?.message || "").trim().slice(0, 500);
-  const targetRole = request.authUser.role === "admin" && ["admin", "staff"].includes(String(request.body?.targetRole || "").toLowerCase())
+  const targetRole = !isStaffActor && ["admin", "staff"].includes(String(request.body?.targetRole || "").toLowerCase())
     ? String(request.body.targetRole).toLowerCase()
     : null;
   const eventKey = String(request.body?.eventKey || randomUUID()).trim().slice(0, 120);
   if (!type || !title || !eventKey) throw httpError(400, "Notification type, title, and event key are required.");
+
+  // Staff actors may only create transaction notifications for their own user inbox (never broadcast to admin or other cashiers).
+  if (isStaffActor) {
+    await pool.execute(
+      `INSERT INTO notifications (user_id, event_key, type, title, message)
+       SELECT id, ?, ?, ?, ? FROM users WHERE id = ? AND is_active = TRUE
+       ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
+      [eventKey, type, title, message, request.authUser.sub],
+    );
+    return response.status(201).json({ saved: true, eventKey });
+  }
+
   const roleFilter = targetRole ? "AND role = ?" : "";
   const queryParams = targetRole ? [eventKey, type, title, message, targetRole] : [eventKey, type, title, message];
   await pool.execute(
@@ -49,7 +62,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
      ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
     queryParams,
   );
-  response.status(201).json({ saved: true, eventKey });
+  return response.status(201).json({ saved: true, eventKey });
 });
 
 export async function runInventoryAlertCheck() {
@@ -80,15 +93,14 @@ export async function runInventoryAlertCheck() {
     );
     const alerts = [];
     const inactiveAlerts = [];
+    const alertStateRows = [];
+    const inactivityStateRows = [];
     for (const item of items) {
       const quantity = Number(item.quantity);
       const maximumStock = item.maximum_stock == null ? null : Number(item.maximum_stock);
       const status = quantity <= 0 ? "out" : maximumStock !== null && maximumStock > 0 && quantity > maximumStock ? "over" : "healthy";
       const previous = item.previous_status;
-      await connection.execute(
-        `INSERT INTO inventory_alert_states (inventory_item_id, status) VALUES (?, ?)
-         ON DUPLICATE KEY UPDATE status = VALUES(status)`, [item.id, status],
-      );
+      alertStateRows.push([item.id, status]);
       const enteredOver = status === "over" && previous !== "over";
       const enteredOut = status === "out" && previous !== "out";
       if (enteredOver || enteredOut) {
@@ -113,11 +125,21 @@ export async function runInventoryAlertCheck() {
           lastActivityAt,
         });
       }
-      await connection.execute(
+      inactivityStateRows.push([item.id, item.last_activity_at, inactive ? 1 : 0]);
+    }
+    if (alertStateRows.length > 0) {
+      await connection.query(
+        `INSERT INTO inventory_alert_states (inventory_item_id, status) VALUES ?
+         ON DUPLICATE KEY UPDATE status = VALUES(status)`,
+        [alertStateRows],
+      );
+    }
+    if (inactivityStateRows.length > 0) {
+      await connection.query(
         `INSERT INTO inventory_inactivity_states (inventory_item_id, last_activity_at, is_inactive)
-         VALUES (?, ?, ?)
+         VALUES ?
          ON DUPLICATE KEY UPDATE last_activity_at = VALUES(last_activity_at), is_inactive = VALUES(is_inactive)`,
-        [item.id, item.last_activity_at, inactive ? 1 : 0],
+        [inactivityStateRows],
       );
     }
     if (alerts.length) {
@@ -151,7 +173,7 @@ export async function runInventoryAlertCheck() {
     if (transactionStarted) await connection.rollback();
     throw error;
   } finally {
-    if (lockAcquired) await connection.execute("SELECT RELEASE_LOCK('amaya_inventory_alert_check')");
+    if (lockAcquired) await connection.execute("SELECT RELEASE_LOCK('amaya_inventory_alert_check')").catch(() => {});
     connection.release();
   }
 }

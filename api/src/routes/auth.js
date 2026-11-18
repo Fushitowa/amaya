@@ -11,6 +11,41 @@ function isWithinBcryptLimit(password) {
   return Buffer.byteLength(String(password || ""), "utf8") <= 72;
 }
 
+function hasTargetedCashierLookup(body = {}) {
+  return [body?.cashierId, body?.displayName, body?.identifier].some(
+    (val) => val !== undefined && val !== null && String(val).trim() !== ""
+  );
+}
+
+async function findActiveStaffTarget({ cashierId, displayName, identifier }) {
+  if (cashierId !== undefined && cashierId !== null && String(cashierId).trim() !== "") {
+    const idNum = Number(cashierId);
+    if (!Number.isSafeInteger(idNum) || idNum <= 0) return null;
+    const [rows] = await pool.execute(
+      "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE id = ? AND role = 'staff' AND is_active = 1 LIMIT 1",
+      [idNum]
+    );
+    return rows[0] || null;
+  }
+
+  const target = String(displayName ?? identifier ?? "").trim();
+  if (!target) return null;
+  if (/^\d+$/.test(target)) {
+    const idNum = Number(target);
+    const [rows] = await pool.execute(
+      "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 AND (id = ? OR LOWER(display_name) = LOWER(?)) LIMIT 1",
+      [Number.isSafeInteger(idNum) && idNum > 0 ? idNum : -1, target]
+    );
+    return rows[0] || null;
+  }
+
+  const [rows] = await pool.execute(
+    "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 AND (LOWER(display_name) = LOWER(?) OR LOWER(username) = LOWER(?)) LIMIT 1",
+    [target, target]
+  );
+  return rows[0] || null;
+}
+
 router.post("/login", async (request, response) => {
   const username = String(request.body?.username || "").trim();
   const password = String(request.body?.password || "");
@@ -25,21 +60,33 @@ router.post("/login", async (request, response) => {
 
   // 1. Staff Login: Username is 'staff' (case-insensitive: staff, STAFF, Staff)
   if (cleanUser === "staff") {
-    const [staffRows] = await pool.execute(
-      "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 ORDER BY id ASC"
-    );
-
     let authenticatedStaff = null;
-    for (const staff of staffRows) {
-      const match = await bcrypt.compare(password, staff.password_hash);
-      if (match) {
-        authenticatedStaff = staff;
-        break;
+    if (hasTargetedCashierLookup(request.body)) {
+      const target = await findActiveStaffTarget(request.body || {});
+      const targetHash = target ? target.password_hash : DUMMY_HASH;
+      const match = await bcrypt.compare(password, targetHash);
+      if (target && match) {
+        authenticatedStaff = target;
+      }
+    } else {
+      const [staffRows] = await pool.execute(
+        "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 ORDER BY id ASC"
+      );
+
+      for (const staff of staffRows) {
+        const match = await bcrypt.compare(password, staff.password_hash);
+        if (match) {
+          authenticatedStaff = staff;
+          break;
+        }
+      }
+
+      if (!authenticatedStaff) {
+        await bcrypt.compare(password, DUMMY_HASH);
       }
     }
 
     if (!authenticatedStaff) {
-      await bcrypt.compare(password, DUMMY_HASH);
       return response.status(401).json({ message: "Invalid username or password." });
     }
 
@@ -106,21 +153,33 @@ router.post("/switch-cashier", requireAuth, async (request, response) => {
     return response.status(400).json({ message: "Password must not exceed 72 bytes." });
   }
 
-  const [staffRows] = await pool.execute(
-    "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 ORDER BY id ASC"
-  );
-
   let authenticatedStaff = null;
-  for (const staff of staffRows) {
-    if (await bcrypt.compare(password, staff.password_hash)) {
-      authenticatedStaff = staff;
-      break;
+  if (hasTargetedCashierLookup(request.body)) {
+    const target = await findActiveStaffTarget(request.body || {});
+    const targetHash = target ? target.password_hash : DUMMY_HASH;
+    const match = await bcrypt.compare(password, targetHash);
+    if (target && match) {
+      authenticatedStaff = target;
+    }
+  } else {
+    const [staffRows] = await pool.execute(
+      "SELECT id, username, display_name, password_hash, role, token_version, is_active FROM users WHERE role = 'staff' AND is_active = 1 ORDER BY id ASC"
+    );
+
+    for (const staff of staffRows) {
+      if (await bcrypt.compare(password, staff.password_hash)) {
+        authenticatedStaff = staff;
+        break;
+      }
+    }
+
+    if (!authenticatedStaff) {
+      await bcrypt.compare(password, DUMMY_HASH);
     }
   }
 
   if (!authenticatedStaff) {
-    await bcrypt.compare(password, DUMMY_HASH);
-    return response.status(401).json({ message: "Invalid cashier password." });
+    return response.status(403).json({ message: "Invalid cashier password." });
   }
 
   const profile = {
@@ -131,6 +190,14 @@ router.post("/switch-cashier", requireAuth, async (request, response) => {
     token_version: authenticatedStaff.token_version,
   };
   return response.json({ token: createAccessToken(profile), user: profile });
+});
+
+router.post("/logout", requireAuth, async (request, response) => {
+  await pool.execute(
+    "UPDATE users SET token_version = token_version + 1 WHERE id = ?",
+    [request.authUser.sub]
+  );
+  return response.json({ loggedOut: true });
 });
 
 router.post("/change-password", requireAuth, async (request, response) => {

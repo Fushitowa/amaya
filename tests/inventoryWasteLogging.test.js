@@ -1377,7 +1377,7 @@ describe("Tala TDD Suite: Zero-Guesswork Waste & Spoilage Logging", () => {
     });
     assert.equal(legacyRevRes.status, 400);
 
-    // Archived item reversal -> blocked 409
+    // Archived item guard (P1-9 blocks archiving while stock > 0) + reversal on archived item -> blocked 409
     const archItem = await createTestInventoryItem({ namePrefix: "TalaArchRev_Test10", quantity: 100, unit: "g" });
     const archWasteRes = await server.requestJson(`/api/inventory/${archItem.id}/waste`, {
       method: "POST",
@@ -1392,6 +1392,26 @@ describe("Tala TDD Suite: Zero-Guesswork Waste & Spoilage Logging", () => {
       },
     });
     assert.equal(archWasteRes.status, 201);
+    const archiveBlockedRes = await server.requestJson(`/api/inventory/${archItem.id}`, {
+      method: "DELETE",
+      token: adminUser.token,
+    });
+    assert.equal(archiveBlockedRes.status, 409, "Archiving inventory item with quantity > 0 must reject with HTTP 409");
+
+    // Exhaust remaining 90g via waste so item reaches 0g, then archive cleanly (204)
+    const archExhaustRes = await server.requestJson(`/api/inventory/${archItem.id}/waste`, {
+      method: "POST",
+      token: staffUser.token,
+      body: {
+        measurementMethod: "direct_measure",
+        measuredQuantity: 90,
+        measuredUnit: "g",
+        wasteReason: "spill_accident",
+        note: "Zero out stock before archive",
+        clientRequestId: randomUUID(),
+      },
+    });
+    assert.equal(archExhaustRes.status, 201);
     const archiveDelRes = await server.requestJson(`/api/inventory/${archItem.id}`, {
       method: "DELETE",
       token: adminUser.token,
@@ -1403,5 +1423,126 @@ describe("Tala TDD Suite: Zero-Guesswork Waste & Spoilage Logging", () => {
       body: { reason: "Attempt reverse while archived" },
     });
     assert.equal(revArchRes.status, 409);
+  });
+
+  // --------------------------------------------------------------------------
+  // TEST 11: PHASE 1 (P1-8 & P1-9) UNIT-COST PRECISION & 1050 SYNC GUARDS
+  // --------------------------------------------------------------------------
+  it("TEST 11 (PHASE 1 P1-8 & P1-9): preserves exact unit_cost on beforeQuantity=0 sub-centavo waste/internal-use reversals and enforces restock batchCost / opening batch_cost parity", async () => {
+    // 1. P1-8 sub-centavo round-down case: 0.002 kg @ ₱2.00/kg => batch_cost=0.00 (not 0.004)
+    const itemZero = await createTestInventoryItem({
+      namePrefix: "TalaP1CostZero",
+      quantity: 0.002,
+      unit: "kg",
+      purchasePrice: 2,
+      packageQuantity: 1,
+      packageUnit: "bag",
+      contentsPerPackage: 1,
+    });
+    assert.equal(Number(itemZero.unitCost), 2);
+    const wasteZero = await server.requestJson(`/api/inventory/${itemZero.id}/waste`, {
+      method: "POST",
+      token: staffUser.token,
+      body: {
+        measurementMethod: "direct_measure",
+        measuredQuantity: 0.002,
+        measuredUnit: "kg",
+        wasteReason: "spill_accident",
+        note: "Sub-centavo waste precision test",
+        clientRequestId: randomUUID(),
+      },
+    });
+    assert.equal(wasteZero.status, 201);
+    assert.equal(await getDbItemQuantity(itemZero.id), 0);
+
+    const revZero = await server.requestJson(`/api/inventory/waste-logs/${wasteZero.data.id}/reverse`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { reason: "Restore exact ₱2.00/kg cost on zeroed batch" },
+    });
+    assert.equal(revZero.status, 200, `Reverse zeroed waste failed: ${revZero.text}`);
+    const [[dbZeroAfter]] = await pool.execute(
+      "SELECT quantity, unit_cost FROM inventory_items WHERE id = ? LIMIT 1",
+      [itemZero.id],
+    );
+    assert.equal(Number(dbZeroAfter.quantity), 0.002);
+    assert.equal(Number(dbZeroAfter.unit_cost), 2, "P1-8 must preserve unit_cost === 2.000000 instead of zeroing to 0");
+
+    // 2. P1-8 sub-centavo round-up case: 0.002 kg @ ₱3.00/kg => batch_cost=0.01 (not 0.006)
+    const itemInflate = await createTestInventoryItem({
+      namePrefix: "TalaP1CostInflate",
+      quantity: 0.002,
+      unit: "kg",
+      purchasePrice: 3,
+      packageQuantity: 1,
+      packageUnit: "bag",
+      contentsPerPackage: 1,
+    });
+    assert.equal(Number(itemInflate.unitCost), 3);
+    const useRes = await server.requestJson(`/api/inventory/${itemInflate.id}/internal-use`, {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        quantity: 0.002,
+        expenseAccountCode: "6141",
+        note: "Sub-centavo store use precision test",
+        clientRequestId: randomUUID(),
+      },
+    });
+    assert.equal(useRes.status, 201);
+    const useMoveId = Number(useRes.data.movementId ?? useRes.data.id);
+    assert.equal(await getDbItemQuantity(itemInflate.id), 0);
+
+    const revUseRes = await server.requestJson(`/api/inventory/internal-use/${useMoveId}/reverse`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { reason: "Restore exact ₱3.00/kg cost on zeroed store-use batch" },
+    });
+    assert.equal(revUseRes.status, 200, `Reverse zeroed internal-use failed: ${revUseRes.text}`);
+    const [[dbInflateAfter]] = await pool.execute(
+      "SELECT quantity, unit_cost FROM inventory_items WHERE id = ? LIMIT 1",
+      [itemInflate.id],
+    );
+    assert.equal(Number(dbInflateAfter.quantity), 0.002);
+    assert.equal(Number(dbInflateAfter.unit_cost), 3, "P1-8 must preserve unit_cost === 3.000000 instead of inflating to 5.00");
+
+    // 3. P1-9 Restock validation: blank/zero batchCost when unit_cost > 0 -> 400; >2 decimals -> 400
+    const missingCostRestock = await server.requestJson(`/api/inventory/${itemZero.id}/restock`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { quantity: 1 },
+    });
+    assert.equal(missingCostRestock.status, 400, "Blank batchCost restock on costed item must return 400");
+
+    const zeroCostRestock = await server.requestJson(`/api/inventory/${itemZero.id}/restock`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { quantity: 1, batchCost: 0 },
+    });
+    assert.equal(zeroCostRestock.status, 400, "Zero batchCost without diluteZeroCost on costed item must return 400");
+
+    const subCentRestock = await server.requestJson(`/api/inventory/${itemZero.id}/restock`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { quantity: 1, batchCost: 10.004 },
+    });
+    assert.equal(subCentRestock.status, 400, "Sub-centavo batchCost must reject via parseExactMoney with 400");
+
+    // 4. P1-9 Opening batch_cost matches openingValue (quantity * unitCost = 5 * 10 = 50, not pack purchasePrice = 100)
+    const openItem = await createTestInventoryItem({
+      namePrefix: "TalaP1OpenBatch",
+      quantity: 5,
+      unit: "pcs",
+      purchasePrice: 100,
+      packageQuantity: 1,
+      packageUnit: "pack",
+      contentsPerPackage: 10,
+    });
+    const [[openMov]] = await pool.execute(
+      "SELECT batch_cost FROM inventory_movements WHERE inventory_item_id = ? AND movement_type = 'restock' ORDER BY id ASC LIMIT 1",
+      [openItem.id],
+    );
+    assert.ok(openMov, "Opening stock movement must exist");
+    assert.equal(Number(openMov.batch_cost), 50, "Opening movement batch_cost must match openingValue (50.00)");
   });
 });

@@ -2,9 +2,9 @@ import jwt from "jsonwebtoken";
 import pool from "../database.js";
 
 const tokenSecret = () => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error("JWT_SECRET must be set to a random value of at least 32 characters.");
+  const secret = (process.env.JWT_SECRET || "").trim();
+  if (!secret || secret.length < 32 || /^(.)\1+$/.test(secret) || /^replace_with/i.test(secret)) {
+    throw new Error("JWT_SECRET must be set to a high-entropy random value of at least 32 characters.");
   }
   return secret;
 };

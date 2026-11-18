@@ -29,7 +29,9 @@ import {
   WALK_IN_CUSTOMER_NAME,
 } from "../context/OrdersContext.jsx";
 import { findProductById, resolveProductSizes, useMenu } from "../context/MenuContext.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
 import { useBusiness } from "../context/BusinessContext.jsx";
+import { createClientRequestId } from "../utils/clientRequestId.js";
 import { apiRequest } from "../utils/api.js";
 import {
   formatAuditTimestamp,
@@ -67,6 +69,7 @@ function OrderDetailsModal({
   onClosed,
 }) {
   const { products = [] } = useMenu() || {};
+  const { user: currentUser } = useAuth() || {};
   const ordersContext = useOrders();
   const { businessSettings } = useBusiness() || {};
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -75,6 +78,7 @@ function OrderDetailsModal({
 
   const dialogRef = useRef(null);
   const closeTimerRef = useRef(null);
+  const revertRequestIdRef = useRef(null);
 
   const [isClosing, setIsClosing] = useState(false);
   const [viewMode, setViewMode] = useState("details");
@@ -306,6 +310,7 @@ function OrderDetailsModal({
   const handleEnterItemRevertMode = (item) => {
     setActionError("");
     setActionNotice("");
+    revertRequestIdRef.current = createClientRequestId("rev");
     setRevertTargetItem(item);
     setRevertQty(Math.max(1, Number(item.quantity || 1)));
     setRevertReason("");
@@ -319,7 +324,18 @@ function OrderDetailsModal({
     setViewMode("item-revert-confirm");
   };
 
-  const needsAuthorizationPasswordForRevert = portal !== "admin" && displayOrder.status !== "Pending";
+  const isOwnerConfirmed = Boolean(displayOrder.ownerConfirmed || displayOrder.ownerConfirmedAt);
+  const isCrossCashierPending =
+    displayOrder.status === "Pending" &&
+    displayOrder.createdById != null &&
+    currentUser?.id != null &&
+    Number(displayOrder.createdById) !== Number(currentUser.id);
+  const needsAdminOnlyForRevert = portal !== "admin" && isOwnerConfirmed;
+  const needsPeerOrAdminForRevert =
+    portal !== "admin" &&
+    !isOwnerConfirmed &&
+    (displayOrder.status !== "Pending" || isCrossCashierPending);
+  const needsAuthorizationPasswordForRevert = needsAdminOnlyForRevert || needsPeerOrAdminForRevert;
   const maxRevertQty = Math.max(1, Number(revertTargetItem?.quantity || 1));
   const willCancelFullOrderOnRevert =
     Boolean(revertTargetItem) &&
@@ -335,8 +351,15 @@ function OrderDetailsModal({
       return;
     }
     if (needsAuthorizationPasswordForRevert && !authorizationPassword.trim()) {
-      setActionError("Staff or admin password is required to revert an item after preparation starts.");
+      setActionError(
+        needsAdminOnlyForRevert
+          ? "Admin password is required to revert an item on an owner-confirmed order."
+          : "Peer staff or admin password is required to authorize reverting this item.",
+      );
       return;
+    }
+    if (!revertRequestIdRef.current) {
+      revertRequestIdRef.current = createClientRequestId("rev");
     }
     setActionBusy(true);
     setActionError("");
@@ -346,10 +369,12 @@ function OrderDetailsModal({
         reason: trimmed,
         restoreStock: revertStockAction === "restore",
         authorizationPassword: needsAuthorizationPasswordForRevert ? authorizationPassword : undefined,
+        clientRequestId: revertRequestIdRef.current,
       });
       if (updated) {
         setFetchedState({ orderId, data: updated, loading: false, error: "" });
       }
+      revertRequestIdRef.current = null;
       const itemTitle = revertTargetItem.title;
       const revertedCount = revertQty;
       setViewMode("details");
@@ -709,19 +734,25 @@ function OrderDetailsModal({
                   <div className="odm-admin-auth-box">
                     <div className="odm-admin-auth-head">
                       <Lock size={15} strokeWidth={2.3} aria-hidden="true" />
-                      <strong>Staff or Admin Password Required ({displayOrder.status} Order)</strong>
+                      <strong>
+                        {needsAdminOnlyForRevert
+                          ? "Admin Password Required (Owner-Confirmed Order)"
+                          : `Peer Staff or Admin Password Required (${isCrossCashierPending ? "Cross-Cashier Pending" : displayOrder.status} Order)`}
+                      </strong>
                     </div>
                     <p className="odm-admin-auth-note">
-                      Owner away from the counter? Enter any active staff or admin password to confirm this revert. Everything is logged for Admin review.
+                      {needsAdminOnlyForRevert
+                        ? "This order's sales have already been confirmed by the Owner. Only an admin may revert items on an owner-confirmed order."
+                        : "Owner away from the counter? Enter another active peer staff member's or admin's password to confirm this revert. Everything is logged for Admin review."}
                     </p>
                     <label className="odm-password-label">
-                      <span>Staff or Admin Password</span>
+                      <span>{needsAdminOnlyForRevert ? "Admin Password" : "Peer Staff or Admin Password"}</span>
                       <input
                         type="password"
                         className="odm-input"
                         value={authorizationPassword}
                         onChange={(e) => setAuthorizationPassword(e.target.value)}
-                        placeholder="Enter staff or admin password"
+                        placeholder={needsAdminOnlyForRevert ? "Enter admin password" : "Enter peer staff or admin password"}
                         autoComplete="current-password"
                         required
                       />
@@ -731,7 +762,7 @@ function OrderDetailsModal({
                   <div className="odm-alert info" role="note">
                     <Info size={17} aria-hidden="true" />
                     <span>
-                      Pending orders revert directly with full inventory restoration and audit logging—no password needed.
+                      Your own Pending order reverts directly with full inventory restoration and audit logging—no password needed.
                     </span>
                   </div>
                 )
@@ -742,6 +773,7 @@ function OrderDetailsModal({
                   type="button"
                   className="odm-btn neutral"
                   onClick={() => {
+                    revertRequestIdRef.current = null;
                     setViewMode("details");
                     setActionError("");
                     setAuthorizationPassword("");

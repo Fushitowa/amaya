@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { CreditCard } from "lucide-react";
 
 import amayaLogo from "../../assets/images/amayalogo.png";
 import cashIcon from "../../assets/images/icon/cash.svg";
@@ -8,12 +9,16 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { PAYMENT_STATUS_PAID, useOrders } from "../../context/OrdersContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { createClientRequestId } from "../../utils/clientRequestId.js";
+import { computeOrderTotals } from "../../../shared/costing.js";
 import "../../assets/css/staff/staff-order-confirmation.css";
 
 const paymentMethods = [
   { id: "Cash", label: "Cash", icon: cashIcon, description: "Direct counter cash" },
   { id: "GCash", label: "GCash", icon: gcashIcon, description: "QR / e-wallet transfer" },
+  { id: "Card", label: "Card", icon: null, description: "Debit / credit card terminal" },
 ];
+const SERVICE_TYPES = ["Dine-in", "Takeout", "Counter"];
 
 const cashPresets = [100, 200, 500];
 
@@ -68,29 +73,52 @@ function StaffOrderConfirmation() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [activeSession, setActiveSession] = useState(undefined);
+  const [sessionError, setSessionError] = useState("");
   const [noteGuardWarning, setNoteGuardWarning] = useState("");
   const [noteGuardAcknowledged, setNoteGuardAcknowledged] = useState(false);
   // PENDING until the order is created, then PAID (counter sales settle immediately).
   const [paymentStatus, setPaymentStatus] = useState("PENDING");
+  const orderRequestIdRef = useRef(null);
 
   useEffect(() => {
+    orderRequestIdRef.current = null;
+  }, [order]);
+
+  const syncSession = useCallback(() => {
     let active = true;
-    const syncSession = () => {
-      apiRequest("/sessions/current")
-        .then((res) => {
-          if (active) setActiveSession(res?.session || null);
-        })
-        .catch(() => {
-          if (active) setActiveSession(null);
-        });
-    };
-    syncSession();
-    window.addEventListener("amaya:session-changed", syncSession);
+    apiRequest("/sessions/current")
+      .then((res) => {
+        if (!active) return;
+        setSessionError("");
+        setActiveSession(res?.session || null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setActiveSession(undefined);
+        setSessionError(error?.message || "Could not verify active cashier shift.");
+      });
     return () => {
       active = false;
-      window.removeEventListener("amaya:session-changed", syncSession);
     };
   }, []);
+
+  const retrySyncSession = useCallback(() => {
+    setSessionError("");
+    syncSession();
+  }, [syncSession]);
+
+  useEffect(() => {
+    let cleanup = syncSession();
+    const onSessionChanged = () => {
+      cleanup?.();
+      cleanup = syncSession();
+    };
+    window.addEventListener("amaya:session-changed", onSessionChanged);
+    return () => {
+      cleanup?.();
+      window.removeEventListener("amaya:session-changed", onSessionChanged);
+    };
+  }, [syncSession]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 760px)");
@@ -101,26 +129,20 @@ function StaffOrderConfirmation() {
     return () => query.removeEventListener("change", sync);
   }, []);
 
-  const subtotal = useMemo(() => {
-    return order.reduce(
-      (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
-      0
-    );
-  }, [order]);
-
   const activeDiscountPreset = useMemo(
     () => discountPresets.find((p) => p.label === selectedDiscountLabel) || null,
     [discountPresets, selectedDiscountLabel],
   );
-  const discountAmount = activeDiscountPreset
-    ? Math.min(subtotal, Math.round(((subtotal * Number(activeDiscountPreset.pct || 0)) / 100) * 100) / 100)
-    : 0;
-  const netTaxable = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
-  const taxAmount = vatEnabled && vatRatePercent > 0
-    ? Math.round(((netTaxable * vatRatePercent) / 100) * 100) / 100
-    : 0;
-  const grandTotal = Math.round((netTaxable + taxAmount) * 100) / 100;
-  const shiftGateBlocked = enforceShiftGate && activeSession === null;
+  const { subtotal, discountAmount, taxAmount, grandTotal } = useMemo(
+    () => computeOrderTotals({
+      items: order,
+      discountPct: activeDiscountPreset?.pct || 0,
+      vatEnabled,
+      vatRatePercent,
+    }),
+    [activeDiscountPreset, order, vatEnabled, vatRatePercent],
+  );
+  const shiftGateBlocked = enforceShiftGate && (activeSession === null || Boolean(sessionError));
 
   const totalItems = useMemo(() => {
     return order.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
@@ -152,6 +174,7 @@ function StaffOrderConfirmation() {
     if (isShort || isSubmitting || shiftGateBlocked) return;
 
     setSubmitError("");
+    setIsSubmitting(true);
 
     const baseNotes = String(location.state?.notes || "").trim();
     const combinedNotes = [
@@ -162,7 +185,6 @@ function StaffOrderConfirmation() {
       .join(" | ");
 
     if (requireKitchenNoteApproval && combinedNotes && !noteGuardAcknowledged) {
-      setIsSubmitting(true);
       try {
         const guard = await apiRequest("/decisions/order-guard", {
           method: "POST",
@@ -182,13 +204,13 @@ function StaffOrderConfirmation() {
           return;
         }
       } catch {
-        // Decision service unavailable — do not block POS checkout cleanly.
-      } finally {
-        setIsSubmitting(false);
+        // Decision service unavailable — do not block POS checkout cleanly, keep isSubmitting=true.
       }
     }
 
-    setIsSubmitting(true);
+    if (!orderRequestIdRef.current) {
+      orderRequestIdRef.current = createClientRequestId("ord");
+    }
 
     let savedOrder;
     if (addOrder) {
@@ -200,14 +222,17 @@ function StaffOrderConfirmation() {
           paymentMethod: selectedPayment,
           discountLabel: activeDiscountPreset ? activeDiscountPreset.label : undefined,
           cashTendered: isCash ? tenderedAmount : grandTotal,
-          changeDue: isCash ? changeDue : 0,
           notes: combinedNotes || undefined,
+          clientRequestId: orderRequestIdRef.current,
         });
+        orderRequestIdRef.current = null;
       } catch (error) {
         setIsSubmitting(false);
         setSubmitError(error?.message || "Unable to complete checkout. Please check shift status and stock.");
         return;
       }
+    } else {
+      orderRequestIdRef.current = null;
     }
 
     const orderId = savedOrder?.id || `AM-${String(Date.now()).slice(-6)}`;
@@ -278,7 +303,12 @@ function StaffOrderConfirmation() {
             </div>
           )}
 
-          {shiftGateBlocked && (
+          {sessionError ? (
+            <div className="confirm-error-banner" role="alert">
+              <span>Could not verify active cashier shift: {sessionError}</span>
+              <button type="button" onClick={retrySyncSession} aria-label="Retry shift verification">Retry</button>
+            </div>
+          ) : shiftGateBlocked && (
             <div className="confirm-error-banner" role="alert">
               <span>Cashier shift required: open your shift drawer in Operations before checking out.</span>
             </div>
@@ -303,7 +333,7 @@ function StaffOrderConfirmation() {
           <section className="am-section">
             <h2 className="am-section-title">Service type</h2>
             <div className="am-segmented" role="group" aria-label="Service type">
-              {["Dine-in", "Takeout"].map((type) => (
+              {SERVICE_TYPES.map((type) => (
                 <button key={type} type="button" aria-pressed={orderType === type} className={orderType === type ? "on" : ""} onClick={() => setOrderType(type)}>
                   {orderType === type ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg> : null}
                   {type}
@@ -321,7 +351,9 @@ function StaffOrderConfirmation() {
             <div className="am-pay-list" role="radiogroup" aria-label="Payment method">
               {paymentMethods.map((pm) => (
                 <button key={pm.id} type="button" role="radio" aria-checked={selectedPayment === pm.id} className={`am-pay ${selectedPayment === pm.id ? "on" : ""}`} onClick={() => setSelectedPayment(pm.id)}>
-                  <span className="am-pay-icon"><img src={pm.icon} alt="" aria-hidden="true" /></span>
+                  <span className="am-pay-icon">
+                    {pm.icon ? <img src={pm.icon} alt="" aria-hidden="true" /> : <CreditCard size={18} strokeWidth={2.1} aria-hidden="true" />}
+                  </span>
                   <span className="am-pay-text"><strong>{pm.label}</strong><small>{pm.description}</small></span>
                   <span className="am-radio" aria-hidden="true" />
                 </button>
@@ -379,7 +411,7 @@ function StaffOrderConfirmation() {
                   <span className="am-qty">{item.quantity}×</span>
                   <span className="am-item-text">
                     <strong>{item.title}</strong>
-                    <small>{item.size || "Regular"}{item.sugarLevel ? ` · ${item.sugarLevel}` : ""}{item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}</small>
+                    <small>{item.size || "Regular"}{item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}</small>
                     {(item.instructions || item.notes) ? <em>Note: {item.instructions || item.notes}</em> : null}
                   </span>
                   <span className="am-item-price">₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
@@ -515,6 +547,24 @@ function StaffOrderConfirmation() {
             </div>
           )}
 
+          {sessionError ? (
+            <div className="confirm-error-banner" role="alert">
+              <span>Could not verify active cashier shift: {sessionError}</span>
+              <button type="button" onClick={retrySyncSession} aria-label="Retry shift verification">Retry</button>
+            </div>
+          ) : shiftGateBlocked && (
+            <div className="confirm-error-banner" role="alert">
+              <span>Cashier shift required: open your shift drawer in Operations before checking out.</span>
+            </div>
+          )}
+
+          {noteGuardWarning && (
+            <div className="confirm-error-banner" role="status">
+              <span>{noteGuardWarning}</span>
+              <button type="button" onClick={() => setNoteGuardWarning("")} aria-label="Dismiss warning">×</button>
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",
@@ -573,8 +623,8 @@ function StaffOrderConfirmation() {
               >
                 Service type
               </span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
-                {["Takeout", "Dine-in"].map((type) => (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
+                {SERVICE_TYPES.map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -670,9 +720,14 @@ function StaffOrderConfirmation() {
                           borderRadius: "9px",
                           background: isSelected ? theme.card : theme.panel,
                           border: `1px solid ${theme.border}`,
+                          color: theme.earth,
                         }}
                       >
-                        <img src={pm.icon} alt="" aria-hidden="true" style={{ width: "20px", height: "20px", objectFit: "contain" }} />
+                        {pm.icon ? (
+                          <img src={pm.icon} alt="" aria-hidden="true" style={{ width: "20px", height: "20px", objectFit: "contain" }} />
+                        ) : (
+                          <CreditCard size={18} strokeWidth={2.1} aria-hidden="true" />
+                        )}
                       </span>
                       <span style={{ minWidth: 0 }}>
                         <strong style={{ display: "block", fontSize: "13.5px", color: theme.text }}>{pm.label}</strong>
@@ -795,7 +850,7 @@ function StaffOrderConfirmation() {
             >
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
                 <span style={{ fontSize: "12.5px", color: theme.textMuted }}>
-                  Total due: <strong style={{ color: theme.text }}>₱{subtotal.toFixed(2)}</strong>
+                  Total due: <strong style={{ color: theme.text }}>₱{grandTotal.toFixed(2)}</strong>
                 </span>
               </div>
 
@@ -834,7 +889,7 @@ function StaffOrderConfirmation() {
                     color: isShort ? theme.danger : theme.green,
                   }}
                 >
-                  ₱{isShort ? (subtotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}
+                  ₱{isShort ? (grandTotal - tenderedAmount).toFixed(2) : changeDue.toFixed(2)}
                 </strong>
                 {!isCash ? (
                   <span style={{ fontSize: "12px", color: theme.textMuted }}>No cash change for {selectedPayment}</span>
@@ -912,10 +967,9 @@ function StaffOrderConfirmation() {
                     >
                       <div style={{ minWidth: 0, paddingLeft: "12px" }}>
                         <strong style={{ display: "block", fontSize: "13.5px", color: theme.text }}>{item.title}</strong>
-                        {(item.size || item.sugarLevel || (item.addons && item.addons.length > 0)) ? (
+                        {(item.size || (item.addons && item.addons.length > 0)) ? (
                           <span style={{ display: "block", marginTop: "2px", fontSize: "11.5px", color: theme.textMuted, lineHeight: 1.35 }}>
                             {item.size || "Regular"}
-                            {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
                             {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
                           </span>
                         ) : null}

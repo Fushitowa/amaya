@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { formatBusinessTime, useBusiness, defaultBusinessSettings } from "../../context/BusinessContext.jsx";
 import { getPaymentStatusLabel } from "../../context/OrdersContext.jsx";
 import { notifyStaff } from "../../utils/notifications.js";
+import { formatManilaDate, formatManilaTime } from "../../../shared/manilaDate.js";
 import "../../assets/css/staff/staff-receipt.css";
 
 function StaffReceipt() {
@@ -14,26 +15,44 @@ function StaffReceipt() {
   const { businessSettings } = useBusiness() || {};
   const business = businessSettings || defaultBusinessSettings;
 
-  const order = useMemo(() => location.state?.order || [], [location.state?.order]);
+  const rawOrderState = location.state?.order;
+  const orderRecord = useMemo(
+    () => (rawOrderState && !Array.isArray(rawOrderState) && typeof rawOrderState === "object"
+      ? rawOrderState
+      : (location.state?.orderRecord || null)),
+    [rawOrderState, location.state?.orderRecord],
+  );
+  const order = useMemo(() => {
+    const rawItems = Array.isArray(rawOrderState)
+      ? rawOrderState
+      : (Array.isArray(orderRecord?.items) ? orderRecord.items : []);
+    return rawItems.map((item) => ({
+      ...item,
+      title: item?.title || item?.name || item?.productName || "Item",
+      price: Number(item?.price ?? item?.unitPrice ?? 0),
+      quantity: Number(item?.quantity ?? 0),
+    }));
+  }, [rawOrderState, orderRecord]);
 
-  const customerName = location.state?.customerName || "Walk-in Customer";
-  const orderType = location.state?.orderType || "Dine-in";
-  const paymentMethod = location.state?.paymentMethod || "Cash";
-  const paymentStatus = location.state?.paymentStatus
-    ? String(location.state.paymentStatus).toUpperCase()
-    : getPaymentStatusLabel({ payment: location.state?.payment });
-  const subtotal = Number(location.state?.subtotal ?? 0);
-  const discountAmount = Number(location.state?.discountAmount ?? 0);
-  const discountLabel = location.state?.discountLabel || "";
-  const taxAmount = Number(location.state?.taxAmount ?? 0);
-  const vatRatePercent = Number(location.state?.vatRatePercent ?? (business.vatEnabled ? business.vatRatePercent || 0 : 0));
-  const total = Number(location.state?.total ?? Math.max(0, subtotal - discountAmount + taxAmount));
-  const cashTendered = Number(location.state?.cashTendered ?? total);
-  const changeDue = Number(location.state?.changeDue || 0);
+  const customerName = location.state?.customerName || orderRecord?.customer || orderRecord?.customerName || "Walk-in Customer";
+  const orderType = location.state?.orderType || orderRecord?.type || orderRecord?.orderType || "Dine-in";
+  const paymentMethod = location.state?.paymentMethod || orderRecord?.paymentMethod || orderRecord?.payment || "Cash";
+  const rawPaymentStatus = location.state?.paymentStatus ?? orderRecord?.paymentStatus;
+  const paymentStatus = rawPaymentStatus
+    ? String(rawPaymentStatus).toUpperCase()
+    : getPaymentStatusLabel({ payment: location.state?.payment ?? orderRecord?.payment });
+  const subtotal = Number(location.state?.subtotal ?? orderRecord?.subtotal ?? 0);
+  const discountAmount = Number(location.state?.discountAmount ?? orderRecord?.discountAmount ?? 0);
+  const discountLabel = location.state?.discountLabel ?? orderRecord?.discountLabel ?? "";
+  const taxAmount = Number(location.state?.taxAmount ?? orderRecord?.taxAmount ?? 0);
+  const vatRatePercent = Number(location.state?.vatRatePercent ?? orderRecord?.vatRatePercent ?? (business.vatEnabled ? (business.vatRatePercent ?? 12) : 0));
+  const total = Number(location.state?.total ?? orderRecord?.total ?? Math.max(0, subtotal - discountAmount + taxAmount));
+  const cashTendered = Number(location.state?.cashTendered ?? orderRecord?.cashTendered ?? total);
+  const changeDue = Number(location.state?.changeDue ?? orderRecord?.changeDue ?? 0);
   const receiptFooterText = String(business.receiptFooter || "Thank you for visiting Amaya!").trim() || "Thank you for visiting Amaya!";
 
   // No fabricated order number: the receipt only ever shows a real one.
-  const orderNumber = location.state?.orderId || "NEW";
+  const orderNumber = location.state?.orderId || orderRecord?.id || orderRecord?.orderNumber || "NEW";
   const printPreferences = useMemo(() => {
     if (location.state?.printPreferences) return location.state.printPreferences;
     try {
@@ -56,34 +75,29 @@ function StaffReceipt() {
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
-  const cashierName = location.state?.cashierName || user?.displayName || "Staff";
+  const cashierName = location.state?.cashierName || orderRecord?.cashier || orderRecord?.cashierName || user?.displayName || "Staff";
 
-  const shouldAutoPrint = Boolean(printPreferences.autoPrintReceipt || business.autoPrintReceipt);
+  const shouldAutoPrint = printPreferences.autoPrintReceipt !== undefined
+    ? Boolean(printPreferences.autoPrintReceipt)
+    : Boolean(business.autoPrintReceipt);
   useEffect(() => {
     if (!shouldAutoPrint || orderNumber === "NEW" || location.state?.testPrint) return undefined;
     const timer = window.setTimeout(() => window.print(), 400);
     return () => window.clearTimeout(timer);
   }, [location.state?.testPrint, orderNumber, shouldAutoPrint]);
 
-  const createdAt = location.state?.createdAt;
+  const createdAt = location.state?.createdAt || orderRecord?.createdAt;
 
   const date = useMemo(() => {
     const parsed = createdAt ? new Date(createdAt) : null;
     const target = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
-    return target.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    return formatManilaDate(target);
   }, [createdAt]);
 
   const time = useMemo(() => {
     const parsed = createdAt ? new Date(createdAt) : null;
     const target = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
-    return target.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return formatManilaTime(target);
   }, [createdAt]);
 
   const handlePrint = () => {
@@ -132,8 +146,8 @@ function StaffReceipt() {
           <header className="slip-header">
             {printPreferences.printLogoOnReceipt !== false && <img src={amayaLogo} alt="Amaya Logo" className="slip-logo" />}
             <h2 className="slip-title">{business.businessName || "AMAYA DRINKS & BITES"}</h2>
-            <p className="slip-meta-text">{business.address || "Barangay Lilingayon, Valencia City, Bukidnon"}</p>
-            <p className="slip-meta-text">Contact: {business.phone || "09636017184"}</p>
+            {business.address ? <p className="slip-meta-text">{business.address}</p> : null}
+            {business.phone ? <p className="slip-meta-text">Contact: {business.phone}</p> : null}
             <p className="slip-meta-text">Store Hours: {formatBusinessTime(business.openingTime || "09:00")} - {formatBusinessTime(business.closingTime || "19:00")}</p>
           </header>
 
@@ -198,11 +212,6 @@ function StaffReceipt() {
                     {item.size && item.size !== "Regular" && (
                       <span style={{ fontSize: "9.5px", color: "#666", display: "block" }}>
                         Size: {item.size}
-                      </span>
-                    )}
-                    {item.sugarLevel && (
-                      <span style={{ fontSize: "9.5px", color: "#666", display: "block" }}>
-                        Sugar: {item.sugarLevel}
                       </span>
                     )}
                     {item.addons && item.addons.length > 0 && (
@@ -330,7 +339,6 @@ function StaffReceipt() {
                     <strong>{item.title}</strong>
                     <small>
                       {item.size || "Regular"}
-                      {item.sugarLevel ? ` · ${item.sugarLevel}` : ""}
                       {item.addons && item.addons.length > 0 ? ` · +${item.addons.join(", ")}` : ""}
                     </small>
                   </span>

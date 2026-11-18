@@ -29,6 +29,7 @@ function InventoryProvider({ children }) {
   const [wasteLogsError, setWasteLogsError] = useState("");
   const [loadedUserId, setLoadedUserId] = useState(null);
   const [error, setError] = useState("");
+  const [categoriesError, setCategoriesError] = useState("");
   const lastWasteQueryRef = useRef({ scope: "today", limit: 20 });
   const wasteRequestSeqRef = useRef(0);
   const { user } = useAuth();
@@ -40,17 +41,19 @@ function InventoryProvider({ children }) {
     try {
       const saved = await apiRequest("/inventory/categories?all=true");
       setCategories(saved);
+      setCategoriesError("");
       return saved;
     } catch (requestError) {
       console.warn("Could not load inventory categories:", requestError.message);
-      return [];
+      setCategoriesError(requestError?.message || "Could not load inventory categories.");
+      return null;
     }
   }, [user]);
 
   const refreshInventory = useCallback(async () => {
     if (!user) return [];
     try {
-      const saved = await apiRequest("/inventory");
+      const saved = await apiRequest("/inventory?media=url");
       setInventory(saved);
       setLoadedUserId(user.id);
       setError("");
@@ -113,8 +116,12 @@ function InventoryProvider({ children }) {
     lastWasteQueryRef.current = { scope: "today", limit: 20 };
     if (!userId) return undefined;
     let active = true;
+    let controller = null;
     const load = () => {
-      apiRequest("/inventory")
+      if (controller) controller.abort();
+      controller = new AbortController();
+      const { signal } = controller;
+      apiRequest("/inventory?media=url", { signal })
         .then((saved) => {
           if (!active) return;
           setInventory(saved);
@@ -122,6 +129,7 @@ function InventoryProvider({ children }) {
           setError("");
         })
         .catch((requestError) => {
+          if (requestError?.name === "AbortError") return;
           if (!active) return;
           setLoadedUserId(userId);
           setError(requestError.message || "Could not load inventory.");
@@ -133,13 +141,23 @@ function InventoryProvider({ children }) {
         }
       });
     };
+    const onInterval = () => {
+      if (document.visibilityState === "hidden") return;
+      load();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load();
+    };
     load();
-    const interval = window.setInterval(load, 30000);
+    const interval = window.setInterval(onInterval, 30000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("amaya:stock-mutated", load);
     window.addEventListener("amaya:session-changed", load);
     return () => {
       active = false;
+      if (controller) controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("amaya:stock-mutated", load);
       window.removeEventListener("amaya:session-changed", load);
     };
@@ -221,6 +239,7 @@ function InventoryProvider({ children }) {
     categoryNames: ["All", ...(visibleCategories.filter((c) => c.isActive !== false).map((c) => c.name))],
     loading: Boolean(user && !isInventoryCurrent),
     error: isInventoryCurrent ? error : "",
+    categoriesError: isInventoryCurrent ? categoriesError : "",
     refreshInventory,
     refreshCategories,
     fetchWasteLogs,
@@ -283,6 +302,7 @@ function InventoryProvider({ children }) {
       const referenceNo = isMetaObj ? String(metaOrBatchCost.referenceNo || "").trim() : "";
       const creditAccountCode = isMetaObj ? String(metaOrBatchCost.creditAccountCode || "").trim() : "";
       const diluteZeroCost = isMetaObj ? Boolean(metaOrBatchCost.diluteZeroCost) : false;
+      const clientRequestId = isMetaObj ? String(metaOrBatchCost.clientRequestId || "").trim() : "";
       const payload = {
         quantity,
         ...(batchCost !== undefined && batchCost !== null && String(batchCost).trim() !== ""
@@ -292,6 +312,7 @@ function InventoryProvider({ children }) {
         ...(referenceNo ? { referenceNo } : {}),
         ...(creditAccountCode ? { creditAccountCode } : {}),
         ...(diluteZeroCost ? { diluteZeroCost: true } : {}),
+        ...(clientRequestId ? { clientRequestId } : {}),
       };
       const saved = await apiRequest(`/inventory/${id}/restock`, { method: "POST", body: JSON.stringify(payload) });
       setInventory((current) => current.map((item) => item.id === id ? saved : item));
@@ -306,6 +327,7 @@ function InventoryProvider({ children }) {
     };
   }, [
     categories,
+    categoriesError,
     error,
     fetchWasteLogs,
     inventory,

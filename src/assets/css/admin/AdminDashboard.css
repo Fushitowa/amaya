@@ -5125,3 +5125,229 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Cashier Sales & Owner Confirmation Panel */
+.admin-cashier-confirm-panel {
+  margin-bottom: 24px;
+  padding: 20px 22px;
+  border-radius: 16px;
+  border: 1px solid #e6d8ca;
+  background: #fffdfb;
+  box-shadow: 0 8px 20px rgba(46, 28, 14, 0.05);
+}
+
+.admin-cashier-confirm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-cashier-eyebrow {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b5e3c;
+  margin-bottom: 4px;
+}
+
+.admin-cashier-confirm-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #2d1f1a;
+}
+
+.admin-cashier-confirm-head p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #68584e;
+}
+
+.admin-cashier-confirm-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-cashier-confirm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.admin-cashier-confirm-card {
+  padding: 15px 16px;
+  border-radius: 14px;
+  border: 1px solid #e6d8ca;
+  background: #faf6f1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-cashier-confirm-card.has-pending {
+  border-color: #f59e0b;
+  background: #fffdf6;
+}
+
+.admin-cashier-confirm-card.is-confirmed {
+  border-color: #bbf7d0;
+  background: #f9fefb;
+}
+
+.admin-cashier-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-cashier-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-cashier-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #8b5e3c, #684227);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.admin-cashier-identity strong {
+  display: block;
+  font-size: 14.5px;
+  color: #2d1f1a;
+}
+
+.admin-cashier-identity small {
+  display: block;
+  font-size: 12px;
+  color: #68584e;
+  margin-top: 2px;
+}
+
+.admin-cashier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-cashier-badge.is-pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.admin-cashier-badge.is-confirmed {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.admin-cashier-badge.is-neutral {
+  background: #f3ece4;
+  color: #68584e;
+}
+
+.admin-cashier-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #ece0d3;
+}
+
+.admin-cashier-metrics-row span {
+  display: block;
+  font-size: 11px;
+  color: #7b6659;
+  font-weight: 600;
+}
+
+.admin-cashier-metrics-row strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13.5px;
+  color: #2d1f1a;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-cashier-metrics-row strong.is-amber {
+  color: #b45309;
+}
+
+.admin-cashier-metrics-row strong.is-green {
+  color: #166534;
+}
+
+.admin-cashier-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-cashier-inspect-btn,
+.admin-cashier-confirm-btn {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.admin-cashier-inspect-btn {
+  border: 1px solid #cbb6a1;
+  background: #ffffff;
+  color: #4a3327;
+}
+
+.admin-cashier-inspect-btn:hover {
+  background: #f5ebe0;
+}
+
+.admin-cashier-confirm-btn {
+  border: 1px solid #15803d;
+  background: #166534;
+  color: #ffffff;
+}
+
+.admin-cashier-confirm-btn:hover:not(:disabled) {
+  background: #14532d;
+}
+
+.admin-cashier-confirm-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}

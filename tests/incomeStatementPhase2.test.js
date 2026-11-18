@@ -2203,13 +2203,15 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
     const invCssPath = path.resolve("src/assets/css/admin/AdminInventory.css");
     const finPath = path.resolve("src/components/FinancialReconciliationCenter.jsx");
     const invPath = path.resolve("src/pages/admin/AdminInventory.jsx");
+    const heroPath = path.resolve("src/components/StoreAssetsHeroCard.jsx");
 
-    const [menuCss, finCss, invCss, finJsx, invJsx] = await Promise.all([
+    const [menuCss, finCss, invCss, finJsx, invJsx, heroJsx] = await Promise.all([
       fs.readFile(cssPath, "utf-8"),
       fs.readFile(finCssPath, "utf-8"),
       fs.readFile(invCssPath, "utf-8"),
       fs.readFile(finPath, "utf-8"),
       fs.readFile(invPath, "utf-8"),
+      fs.readFile(heroPath, "utf-8"),
     ]);
 
     // 1. AdminMenuManagement.css contrast override for Change Image button (light & dark mode)
@@ -2262,5 +2264,62 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       "createInternalUseRequestId must NEVER use Math.random()",
     );
     assert.ok(/6113/.test(invJsx), "AdminInventory.jsx Store Use modal must include 6113 Staff Meals");
+
+    // 4. StoreAssetsHeroCard.jsx equation bar renders Total Sales − COGS = Gross Profit (in that exact order) + Register Capital / Withdraw 3-day audit flow
+    const eqBarMatch = heroJsx.match(/className="store-assets-equation-bar"[\s\S]*?<\/div>\s*\)\}/);
+    assert.ok(eqBarMatch, "StoreAssetsHeroCard.jsx must define .store-assets-equation-bar");
+    const eqBarBlock = eqBarMatch[0];
+    const totalSalesIdx = eqBarBlock.indexOf(">Total Sales<");
+    const cogsIdx = eqBarBlock.indexOf(">COGS<");
+    const grossProfitIdx = eqBarBlock.indexOf(">Gross Profit<");
+    assert.ok(totalSalesIdx !== -1, "StoreAssetsHeroCard.jsx equation bar must render Total Sales label");
+    assert.ok(cogsIdx !== -1, "StoreAssetsHeroCard.jsx equation bar must render COGS label");
+    assert.ok(grossProfitIdx !== -1, "StoreAssetsHeroCard.jsx equation bar must render Gross Profit label");
+    assert.ok(
+      totalSalesIdx < cogsIdx && cogsIdx < grossProfitIdx,
+      "StoreAssetsHeroCard.jsx equation bar must render Total Sales, COGS, and Gross Profit in that exact order",
+    );
+    assert.ok(heroJsx.includes("+ Capital / Withdraw"), "StoreAssetsHeroCard.jsx must render + Capital / Withdraw dropdown button");
+    assert.ok(heroJsx.includes("Register Capital"), "StoreAssetsHeroCard.jsx must include Register Capital option");
+    assert.ok(heroJsx.includes("Withdraw"), "StoreAssetsHeroCard.jsx must include Withdraw option");
+    assert.ok(heroJsx.includes("Every 3 Days"), "StoreAssetsHeroCard.jsx Withdraw flow must include Every 3 Days preset");
+    assert.ok(heroJsx.includes("owner_withdrawal"), "StoreAssetsHeroCard.jsx Withdraw flow must post owner_withdrawal journal entry");
+
+    // 5. GET /api/finances/accounts returns cogs, grossProfit, netSalesRevenue with round2(netSalesRevenue - cogs) === round2(grossProfit) + supports ?from=&to=
+    const accountsRes = await server.requestJson("/api/finances/accounts", { token: adminUser.token });
+    assert.equal(accountsRes.status, 200, `GET /api/finances/accounts failed: ${accountsRes.text}`);
+    const accSummary = accountsRes.data?.summary || {};
+    assert.ok(Number.isFinite(accSummary.cogs), "summary.cogs must be a finite number");
+    assert.ok(Number.isFinite(accSummary.customerSalesCogs), "summary.customerSalesCogs must be a finite number");
+    assert.ok(Number.isFinite(accSummary.foodSpoilageCogs), "summary.foodSpoilageCogs must be a finite number");
+    assert.ok(Number.isFinite(accSummary.grossProfit), "summary.grossProfit must be a finite number");
+    assert.ok(Number.isFinite(accSummary.grossMarginPercent), "summary.grossMarginPercent must be a finite number");
+    assert.ok(Number.isFinite(accSummary.netSalesRevenue), "summary.netSalesRevenue must be a finite number");
+    assert.ok(Number.isFinite(accSummary.ledgerInventoryValue), "summary.ledgerInventoryValue must be a finite number");
+    assert.ok(Number.isFinite(accSummary.inventoryValuationVariance), "summary.inventoryValuationVariance must be a finite number");
+    assert.equal(
+      round2(accSummary.netSalesRevenue - accSummary.cogs),
+      round2(accSummary.grossProfit),
+      "GET /api/finances/accounts summary must satisfy round2(netSalesRevenue - cogs) === round2(grossProfit)",
+    );
+    assert.equal(
+      round2(accSummary.inventoryValuationVariance),
+      round2(accSummary.liveInventoryValue - accSummary.ledgerInventoryValue),
+      "GET /api/finances/accounts summary must satisfy inventoryValuationVariance === round2(liveInventoryValue - ledgerInventoryValue)",
+    );
+
+    const rangedAccountsRes = await server.requestJson(
+      `/api/finances/accounts?from=${today}&to=${today}`,
+      { token: adminUser.token },
+    );
+    assert.equal(rangedAccountsRes.status, 200, `GET /api/finances/accounts?from=&to= failed: ${rangedAccountsRes.text}`);
+    const rangedSummary = rangedAccountsRes.data?.summary || {};
+    assert.equal(rangedSummary.periodRange?.from, today);
+    assert.equal(rangedSummary.periodRange?.to, today);
+    assert.equal(
+      round2(rangedSummary.netSalesRevenue - rangedSummary.cogs),
+      round2(rangedSummary.grossProfit),
+      "Date-ranged GET /api/finances/accounts summary must satisfy round2(netSalesRevenue - cogs) === round2(grossProfit)",
+    );
   });
 });

@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Widen inventory unit_cost to 6 decimals for sub-gram/sub-milliliter weighted-average costing
 ALTER TABLE inventory_items
     MODIFY COLUMN unit_cost DECIMAL(14,6) NOT NULL DEFAULT 0.000000;

@@ -102,7 +102,7 @@ function Contact() {
                     <span>Call Us</span>
 
                     <strong>
-                      <a href={`tel:${phone}`}>{phone}</a>
+                      {phone ? <a href={`tel:${phone}`}>{phone}</a> : <span>Configured in Store Settings</span>}
                     </strong>
 
                     <p>We usually reply within 24 hours</p>
@@ -122,7 +122,7 @@ function Contact() {
                     <span>Email Us</span>
 
                     <strong>
-                      <a href={`mailto:${email}`}>{email}</a>
+                      {email ? <a href={`mailto:${email}`}>{email}</a> : <span>Configured in Store Settings</span>}
                     </strong>
 
                     <p>We usually reply within 24 hours</p>

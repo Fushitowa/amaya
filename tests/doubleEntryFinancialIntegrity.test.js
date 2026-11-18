@@ -482,6 +482,21 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
   // INVARIANT 5: OWNER DRAWING ISOLATION
   // --------------------------------------------------------------------------
   it("INVARIANT 5 (OWNER DRAWING ISOLATION): withdrawing personal profit reduces cash and total assets without recording an operating expense or business loss", async () => {
+    // Seed confirmed liquid funds in 1010 before owner drawing (P1-7 enforces positive confirmed cash balance)
+    const seedCashRes = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "capital_injection",
+        amount: 10000.00,
+        debitAccountCode: "1010",
+        creditAccountCode: "3010",
+        memo: "Seed cash drawer before Invariant 5 owner drawing",
+      },
+    });
+    assert.equal(seedCashRes.status, 201);
+    createdJournalEntryIds.add(Number(seedCashRes.data.entryId));
+
     // 1. Read baseline accounts and P&L
     const baselineAccRes = await server.requestJson("/api/finances/accounts", {
       token: adminUser.token,
@@ -867,6 +882,169 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
       Number((afterSummary.baseCapitalMoney + afterSummary.netProfitAfterSale).toFixed(2)),
       Number(afterSummary.totalStoreAssets.toFixed(2)),
       "Store Assets equation (baseCapitalMoney + netProfitAfterSale === totalStoreAssets) must hold to exact centavo after Sale + COGS"
+    );
+  });
+
+  // --------------------------------------------------------------------------
+  // INVARIANT 10: PHASE 1 GUARDS (P1-5 & P1-7)
+  // --------------------------------------------------------------------------
+  it("INVARIANT 10 (PHASE 1 P1-5 & P1-7 GUARDS): blocks manual reversal of order-backed JEs (409), blocks unconfirmed/negative owner withdrawals (409), blocks unguarded 2010/2030/inventory_restock manual entries (400), and keeps baseCapitalMoney date-range invariant", async () => {
+    const tag = makeUniqueTag("P1FinGuards");
+
+    // 1. Setup non-recipe product & place an unconfirmed Cash order as staffUser
+    const [catRes] = await pool.execute(
+      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'single_fixed')",
+      [`Cat_${tag}`],
+    );
+    tracker.menuCategoryIds.add(Number(catRes.insertId));
+    const prodRes = await server.requestJson("/api/menu", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        name: `GuardDrink_${tag}`,
+        category: `Cat_${tag}`,
+        basePrice: 100,
+        costPrice: 30,
+        stock: 10,
+        available: true,
+        ingredients: [],
+      },
+    });
+    assert.equal(prodRes.status, 201);
+    tracker.productIds.add(Number(prodRes.data.id));
+
+    const orderRes = await server.requestJson("/api/orders", {
+      method: "POST",
+      token: staffUser.token,
+      body: {
+        type: "Counter",
+        paymentMethod: "Cash",
+        cashTendered: 100,
+        customerName: "Phase 1 Guard Customer",
+        items: [{ productId: Number(prodRes.data.id), size: "Regular", quantity: 1 }],
+      },
+    });
+    assert.equal(orderRes.status, 201);
+    const [[dbOrder]] = await pool.execute(
+      "SELECT id FROM orders WHERE order_number = ? LIMIT 1",
+      [orderRes.data.id],
+    );
+    const orderId = Number(dbOrder.id);
+    tracker.orderIds.add(orderId);
+
+    // P1-5: Direct manual reversal of order-backed journal entry must reject with HTTP 409
+    const [[orderJe]] = await pool.execute(
+      "SELECT id FROM journal_entries WHERE order_id = ? AND is_reversal = FALSE LIMIT 1",
+      [orderId],
+    );
+    assert.ok(orderJe, "Paid order must have generated an order-backed journal entry");
+    const manualOrderRev = await server.requestJson(`/api/finances/journal-entries/${orderJe.id}/reverse`, {
+      method: "POST",
+      token: adminUser.token,
+      body: { reason: "Manual reversal attempt on order JE (-200% vector)" },
+    });
+    assert.equal(
+      manualOrderRev.status,
+      409,
+      `Manual reversal of order-backed JE must reject with HTTP 409, got ${manualOrderRev.status}: ${manualOrderRev.text}`,
+    );
+
+    // P1-7 (DB-09): Owner withdrawal cannot spend unconfirmed 1010 counter cash or push liquid accounts negative
+    const accMid = await server.requestJson("/api/finances/accounts", { token: adminUser.token });
+    assert.equal(accMid.status, 200);
+    const sMid = accMid.data.summary;
+    assert.ok(Number(sMid.unconfirmedCounterCash) >= 100, "Order cash must sit in unconfirmedCounterCash");
+    const overConfirmedAmt = Number((Math.max(0, Number(sMid.confirmedCashDrawer)) + 50).toFixed(2));
+    assert.ok(
+      Number(sMid.cashDrawer) >= overConfirmedAmt,
+      "Test preconditions must ensure total cashDrawer covers attempt while confirmedCashDrawer does not",
+    );
+    const unconfirmedWithdraw = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "owner_withdrawal",
+        amount: overConfirmedAmt,
+        debitAccountCode: "3020",
+        creditAccountCode: "1010",
+        memo: "Attempt withdrawal of unconfirmed counter cash",
+      },
+    });
+    assert.equal(
+      unconfirmedWithdraw.status,
+      409,
+      `Withdrawal exceeding confirmedCashDrawer must return 409, got ${unconfirmedWithdraw.status}: ${unconfirmedWithdraw.text}`,
+    );
+
+    const overReserveAmt = Number((Math.max(0, Number(sMid.reserve)) + 100).toFixed(2));
+    const negativeLiquidWithdraw = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "owner_withdrawal",
+        amount: overReserveAmt,
+        debitAccountCode: "3020",
+        creditAccountCode: "1040",
+        memo: "Attempt negative 1040 reserve withdrawal",
+      },
+    });
+    assert.equal(
+      negativeLiquidWithdraw.status,
+      409,
+      `Withdrawal pushing 1040 negative must return 409, got ${negativeLiquidWithdraw.status}`,
+    );
+
+    // P1-7: Block manual inventory_restock and unguarded 2010/2030 postings (400)
+    for (const badBody of [
+      {
+        entryType: "inventory_restock",
+        amount: 100,
+        debitAccountCode: "1050",
+        creditAccountCode: "1010",
+        memo: "Manual inventory_restock bypass",
+      },
+      {
+        entryType: "adjustment",
+        amount: 100,
+        debitAccountCode: "6010",
+        creditAccountCode: "2010",
+        memo: "Manual untracked 2010 AP bypass",
+      },
+      {
+        entryType: "capital_injection",
+        amount: 100,
+        debitAccountCode: "1010",
+        creditAccountCode: "2030",
+        memo: "Manual untracked 2030 Tax Payable bypass",
+      },
+    ]) {
+      const badManual = await server.requestJson("/api/finances/journal-entries", {
+        method: "POST",
+        token: adminUser.token,
+        body: badBody,
+      });
+      assert.equal(
+        badManual.status,
+        400,
+        `Unguarded manual ${badBody.entryType} touching tracked subledger must return 400, got ${badManual.status}: ${badManual.text}`,
+      );
+    }
+
+    // P1-7 (DB-05): Date-ranged GET /api/finances/accounts keeps baseCapitalMoney anchored to allTimeNetProfit
+    const pastRanged = await server.requestJson("/api/finances/accounts?from=2020-01-01&to=2020-01-02", {
+      token: adminUser.token,
+    });
+    assert.equal(pastRanged.status, 200);
+    assert.equal(
+      Number(pastRanged.data.summary.baseCapitalMoney),
+      Number(sMid.baseCapitalMoney),
+      "Date-filtered P&L range must NEVER distort point-in-time baseCapitalMoney",
+    );
+    assert.equal(typeof pastRanged.data.summary.netEquityCapital, "number");
+    assert.equal(typeof pastRanged.data.summary.allTimeNetProfit, "number");
+    assert.equal(
+      Number((Number(sMid.totalStoreAssets) - Number(pastRanged.data.summary.allTimeNetProfit)).toFixed(2)),
+      Number(pastRanged.data.summary.baseCapitalMoney),
     );
   });
 });

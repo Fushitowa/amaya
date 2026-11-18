@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   CakeSlice,
@@ -117,6 +117,15 @@ function StaffMenu() {
   });
   const [customizingItem, setCustomizingItem] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const toastTimerRef = useRef(null);
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
 
   // Initialize order state, merging any itemToAdd from location state if supplied
   const [order, setOrder] = useState(() => {
@@ -129,7 +138,8 @@ function StaffMenu() {
     return products
       .filter((p) => p.available !== false)
       .map((product) => {
-        const basePrice = Number(String(product.price).replace(/[^0-9.]/g, "")) || 35;
+        const parsedPrice = Number(String(product.price ?? "").replace(/[^0-9.]/g, ""));
+        const basePrice = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0;
         const stockNum = Number(product.stock);
 
         return {
@@ -167,21 +177,40 @@ function StaffMenu() {
     });
   }, [activeCategory, allFormattedProducts, searchTerm]);
 
-  const isItemOutOfStock = (item) => {
-    if (Number(item.stock) <= 0) return true;
-    if (Array.isArray(item.ingredientShortages) && item.ingredientShortages.length > 0) return true;
-    const defaultSize = getDefaultProductSize(item);
-    const defaultSizeLabel = defaultSize?.label || "Regular";
-    const check = canFulfillCartAddition({
-      cartItems: [],
-      catalogProducts: products,
-      targetProduct: item,
-      sizeLabel: defaultSizeLabel,
-      addons: [],
-      addQuantity: 1,
+  const outOfStockSet = useMemo(() => {
+    const blocked = new Set();
+    allFormattedProducts.forEach((item) => {
+      if (Number(item.stock) <= 0) {
+        blocked.add(item.id);
+        return;
+      }
+      if (Array.isArray(item.ingredientShortages) && item.ingredientShortages.length > 0) {
+        blocked.add(item.id);
+        return;
+      }
+      const defaultSize = getDefaultProductSize(item);
+      const defaultSizeLabel = defaultSize?.label || "Regular";
+      const check = canFulfillCartAddition({
+        cartItems: [],
+        catalogProducts: products,
+        targetProduct: item,
+        sizeLabel: defaultSizeLabel,
+        addons: [],
+        addQuantity: 1,
+      });
+      if (!check.allowed) {
+        blocked.add(item.id);
+      }
     });
-    return !check.allowed;
-  };
+    return blocked;
+  }, [allFormattedProducts, products]);
+
+  const isItemOutOfStock = (item) => outOfStockSet.has(item.id);
+
+  const pendingOrderCount = useMemo(
+    () => orders.filter((o) => o.status === "Pending").length,
+    [orders],
+  );
 
   // Add standard regular item directly to cart using the product's catalog default size
   const quickAddToOrder = (item) => {
@@ -203,8 +232,7 @@ function StaffMenu() {
       addQuantity: 1,
     });
     if (item.recipeConfigured === false || hasShortages || !defaultSizeStock.allowed) {
-      setToastMessage(`${item.title} cannot be quick-added due to insufficient stock or recipe setup`);
-      setTimeout(() => setToastMessage(null), 2500);
+      showToast(`${item.title} cannot be quick-added due to insufficient stock or recipe setup`);
       return;
     }
 
@@ -261,11 +289,10 @@ function StaffMenu() {
     });
 
     if (added) {
-      setToastMessage(`Added 1x ${item.title} (${defaultSizeLabel}) to order`);
+      showToast(`Added 1x ${item.title} (${defaultSizeLabel}) to order`);
     } else {
-      setToastMessage(`Maximum available stock reached for ${item.title}`);
+      showToast(`Maximum available stock reached for ${item.title}`);
     }
-    setTimeout(() => setToastMessage(null), 2500);
   };
 
   // Add customized item from the Modal
@@ -284,7 +311,6 @@ function StaffMenu() {
           return (
             sameProduct &&
             normalizeBaseSizeLabel(entry.size) === normalizeBaseSizeLabel(itemToAdd.size) &&
-            entry.sugarLevel === itemToAdd.sugarLevel &&
             JSON.stringify(entry.addons || []) === JSON.stringify(itemToAdd.addons || []) &&
             String(entry.instructions || entry.notes || "") === String(itemToAdd.instructions || itemToAdd.notes || "")
           );
@@ -303,8 +329,7 @@ function StaffMenu() {
     });
 
     setCustomizingItem(null);
-    setToastMessage(`Added ${itemToAdd.quantity}x ${itemToAdd.title} (${itemToAdd.size}) to order`);
-    setTimeout(() => setToastMessage(null), 2500);
+    showToast(`Added ${itemToAdd.quantity}x ${itemToAdd.title} (${itemToAdd.size}) to order`);
   };
 
   const updateQuantity = (index, delta) => {
@@ -343,8 +368,7 @@ function StaffMenu() {
     });
 
     if (blockedByStock) {
-      setToastMessage(`Maximum available ingredient stock reached for ${blockedTitle}`);
-      setTimeout(() => setToastMessage(null), 2500);
+      showToast(`Maximum available ingredient stock reached for ${blockedTitle}`);
     }
   };
 
@@ -398,7 +422,7 @@ function StaffMenu() {
       <Sidebar
         role="staff"
         activeTab="menu"
-        orderCount={orders.filter((o) => o.status === "Pending").length}
+        orderCount={pendingOrderCount}
         sidebarCollapsed={sidebarCollapsed}
         onToggle={() => {
           if (typeof window !== "undefined" && window.innerWidth <= 800) {
@@ -733,7 +757,7 @@ function StaffMenu() {
                     <div className="staff-menu-order-item">
                       <div className="staff-menu-order-item-title" title={item.title}>{item.title}</div>
                       <div className="staff-menu-order-item-meta">
-                        {item.size || "Regular"}{item.sugarLevel ? ` · ${item.sugarLevel}` : ""}{item.addons?.length ? ` · ${item.addons.join(", ")}` : ""}
+                        {item.size || "Regular"}{item.addons?.length ? ` · ${item.addons.join(", ")}` : ""}
                       </div>
                       {item.instructions || item.notes ? <div className="staff-menu-order-item-note">Note: {item.instructions || item.notes}</div> : null}
                       <div className="staff-menu-order-item-price">₱{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</div>

@@ -360,6 +360,144 @@
   font-size: 0.73rem;
 }
 
+.sam-owner-confirm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 15px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid #d7c3ae;
+  background: #fffaf3;
+}
+
+.sam-owner-confirm-banner.is-pending {
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+
+.sam-owner-confirm-banner.is-confirmed {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.sam-owner-confirm-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sam-owner-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.84rem;
+  color: #2d1f1a;
+}
+
+.sam-owner-confirm-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #5c4033;
+}
+
+.sam-owner-confirm-sep {
+  color: #b79678;
+}
+
+.sam-owner-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sam-confirm-sales-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 15px;
+  border-radius: 10px;
+  border: 1px solid #15803d;
+  background: #166534;
+  color: #ffffff;
+  font-size: 0.81rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 140ms ease, transform 100ms ease;
+}
+
+.sam-confirm-sales-btn:hover:not(:disabled) {
+  background: #14532d;
+}
+
+.sam-confirm-sales-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.sam-confirmed-all-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sam-confirm-feedback {
+  padding: 9px 13px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.sam-confirm-feedback.is-success {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.sam-confirm-feedback.is-error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.sam-owner-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.71rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sam-owner-badge.is-confirmed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sam-owner-badge.is-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.sam-owner-badge.is-void {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
 .sam-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

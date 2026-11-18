@@ -52,7 +52,7 @@ export function QuantityModifierContent({ product, order: orderProp, onConfirm, 
   const [instructions, setInstructions] = useState("");
 
   const currentSizeObj = useMemo(() => {
-    return findMatchingSizeOption(sizeOptions, selectedSize);
+    return findMatchingSizeOption(sizeOptions, selectedSize, { fallbackToFirst: true });
   }, [sizeOptions, selectedSize]);
 
   // Compute ingredient quantities already committed in the active cart

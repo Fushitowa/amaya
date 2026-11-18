@@ -24,12 +24,14 @@ try {
             o.order_number,
             o.payment_method,
             o.subtotal,
+            o.discount_amount,
+            o.tax_amount,
             o.total,
             o.session_id,
             o.created_by,
             o.paid_at,
             o.created_at,
-            COALESCE((SELECT SUM(oic.line_cost) FROM order_inventory_consumptions oic WHERE oic.order_id = o.id AND oic.reversed_at IS NULL), 0) AS inv_cogs,
+            COALESCE((SELECT SUM(oic.line_cost) FROM order_inventory_consumptions oic WHERE oic.order_id = o.id AND oic.order_item_id IS NOT NULL AND oic.reversed_at IS NULL), 0) AS inv_cogs,
             COALESCE((
               SELECT SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0))
                 FROM order_items oi
@@ -89,6 +91,8 @@ try {
           orderNumber: order.order_number,
           total: Number(order.total || 0),
           subtotal: Number(order.subtotal ?? order.total ?? 0),
+          discountAmount: Number(order.discount_amount || 0),
+          taxAmount: Number(order.tax_amount || 0),
           paymentMethod: order.payment_method || "Cash",
           totalCogs: orderCogs,
           sessionId: order.session_id ? Number(order.session_id) : null,
@@ -104,6 +108,7 @@ try {
           entryType: "opening_balance",
           offsetAccountCode: "3010",
           memo: `Backfill reconciliation: align Account 1050 to live inventory valuation (₱${liveInventoryVal.toFixed(2)})`,
+          idempotencyKey: "backfill:opening_inventory_1050_reconciliation",
           userId: systemActorId,
         });
       }

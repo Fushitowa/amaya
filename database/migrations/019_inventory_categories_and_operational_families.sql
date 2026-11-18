@@ -1,5 +1,3 @@
-USE amaya;
-
 -- 1. Enhance menu_categories with operational_family
 SET @operational_family_sql = IF(
   (SELECT COUNT(*) FROM information_schema.columns

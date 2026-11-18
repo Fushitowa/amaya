@@ -2,8 +2,6 @@
 -- Run this in the `amaya` database. This migration creates structure only;
 -- it intentionally does not seed demo orders or sample menu records.
 
-USE amaya;
-
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     username VARCHAR(80) NOT NULL,

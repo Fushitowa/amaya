@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import searchIcon from "../../assets/images/icon/search.svg";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { formatManilaDate } from "../../../shared/manilaDate.js";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
 import MenuProductImage from "../../components/MenuProductImage.jsx";
@@ -65,6 +66,7 @@ function StaffOrder() {
   const [searchQuery, setSearchQuery] = useState("");
   const [orderToPrint, setOrderToPrint] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -133,7 +135,7 @@ function StaffOrder() {
   };
 
   const handleStatusChange = async (orderId, currentStatus, newStatus) => {
-    if (!updateOrderStatus || newStatus === currentStatus) return;
+    if (!updateOrderStatus || newStatus === currentStatus || updatingOrderId === orderId) return;
 
     const allowed = getNextAllowedStatuses(currentStatus);
     if (!allowed.includes(newStatus)) {
@@ -148,6 +150,7 @@ function StaffOrder() {
       return;
     }
 
+    setUpdatingOrderId(orderId);
     try {
       const result = await updateOrderStatus(orderId, newStatus);
       if (result) {
@@ -155,6 +158,8 @@ function StaffOrder() {
       }
     } catch (err) {
       setToastMessage(err?.message || `Failed to update order ${orderId}`);
+    } finally {
+      setUpdatingOrderId((prev) => (prev === orderId ? null : prev));
     }
   };
 
@@ -276,8 +281,13 @@ function StaffOrder() {
                     {isCancelled ? (
                       <span className="so-cancelled-pill"><XCircle size={17} aria-hidden="true" /> Cancelled</span>
                     ) : order.status !== "Completed" ? (
-                      <button type="button" className="so-advance" onClick={() => handleStatusChange(order.id, order.status, "Completed")}>
-                        Complete Order
+                      <button
+                        type="button"
+                        className="so-advance"
+                        disabled={updatingOrderId === order.id}
+                        onClick={() => handleStatusChange(order.id, order.status, "Completed")}
+                      >
+                        {updatingOrderId === order.id ? "Completing…" : "Complete Order"}
                         <span aria-hidden="true">→</span>
                       </button>
                     ) : (
@@ -434,11 +444,7 @@ function StaffOrder() {
                     <article
                       className={`order-card ${order.status === "Cancelled" ? "cancelled" : ""}`}
                       key={order.id}
-                      title={new Date(order.createdAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      title={formatManilaDate(order.createdAt)}
                     >
                       <button
                         type="button"
@@ -537,12 +543,13 @@ function StaffOrder() {
                           <button
                             type="button"
                             className="order-complete-btn"
+                            disabled={updatingOrderId === order.id}
                             onClick={() => handleStatusChange(order.id, order.status, "Completed")}
                             title={`Mark order ${order.id} as Completed`}
                             aria-label={`Complete order ${order.id}`}
                           >
                             <Check aria-hidden="true" size={14} strokeWidth={2.6} />
-                            <span>Complete Order</span>
+                            <span>{updatingOrderId === order.id ? "Completing..." : "Complete Order"}</span>
                           </button>
                         )}
 
@@ -675,12 +682,16 @@ function StaffOrder() {
                 <h3 id="print-dialog-title" style={{ margin: "0", fontSize: "14px", fontWeight: 800 }}>
                   {business.businessName || "AMAYA DRINKS & BITES"}
                 </h3>
-                <p style={{ margin: "2px 0", fontSize: "10px", color: "#555" }}>
-                  {business.address || "Barangay Lilingayon, Valencia City"}
-                </p>
-                <p style={{ margin: "2px 0", fontSize: "10px", color: "#555" }}>
-                  Tel: {business.phone || "09636017184"}
-                </p>
+                {business.address ? (
+                  <p style={{ margin: "2px 0", fontSize: "10px", color: "#555" }}>
+                    {business.address}
+                  </p>
+                ) : null}
+                {business.phone ? (
+                  <p style={{ margin: "2px 0", fontSize: "10px", color: "#555" }}>
+                    Tel: {business.phone}
+                  </p>
+                ) : null}
               </div>
 
               <div style={{ borderTop: "1px dashed #666", margin: "8px 0" }}></div>
@@ -690,7 +701,7 @@ function StaffOrder() {
                   <span>ORDER NO:</span> <strong>{orderToPrint.id}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>DATE:</span> <span>{new Date(orderToPrint.createdAt).toLocaleDateString()}</span>
+                  <span>DATE:</span> <span>{formatManilaDate(orderToPrint.createdAt)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>TIME:</span> <span>{getOrderTime(orderToPrint.createdAt)}</span>
@@ -734,14 +745,42 @@ function StaffOrder() {
 
               <div style={{ borderTop: "1px dashed #666", margin: "8px 0" }}></div>
 
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "3px" }}>
-                <span>Subtotal:</span>
-                <span>₱{Number(orderToPrint.total || 0).toFixed(2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: 800, borderTop: "1px solid #222", paddingTop: "4px" }}>
-                <span>TOTAL AMOUNT:</span>
-                <span>₱{Number(orderToPrint.total || 0).toFixed(2)}</span>
-              </div>
+              {(() => {
+                const itemsSubtotal = (orderToPrint.items || []).reduce(
+                  (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+                  0,
+                );
+                const subtotalVal = Number.isFinite(Number(orderToPrint.subtotal))
+                  ? Number(orderToPrint.subtotal)
+                  : itemsSubtotal;
+                const discountVal = Number(orderToPrint.discountAmount || 0);
+                const taxVal = Number(orderToPrint.taxAmount || 0);
+                const totalVal = Number(orderToPrint.total || Math.max(0, subtotalVal - discountVal + taxVal));
+                return (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "3px" }}>
+                      <span>Subtotal:</span>
+                      <span>₱{subtotalVal.toFixed(2)}</span>
+                    </div>
+                    {discountVal > 0 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginBottom: "3px" }}>
+                        <span>Discount{orderToPrint.discountLabel ? ` (${orderToPrint.discountLabel})` : ""}:</span>
+                        <span>-₱{discountVal.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {taxVal > 0 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginBottom: "3px" }}>
+                        <span>Tax / VAT{orderToPrint.vatRatePercent ? ` (${orderToPrint.vatRatePercent}%)` : ""}:</span>
+                        <span>₱{taxVal.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: 800, borderTop: "1px solid #222", paddingTop: "4px" }}>
+                      <span>TOTAL AMOUNT:</span>
+                      <span>₱{totalVal.toFixed(2)}</span>
+                    </div>
+                  </>
+                );
+              })()}
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", marginTop: "3px" }}>
                 <span>PAYMENT METHOD:</span>
                 <strong>{getPaymentMethodLabel(orderToPrint)}</strong>

@@ -1,5 +1,3 @@
-USE amaya;
-
 -- Migration 010: Add purchase pricing, package quantities, and unit cost to inventory_items
 ALTER TABLE inventory_items
     ADD COLUMN purchase_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,

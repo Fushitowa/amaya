@@ -7,126 +7,29 @@ import {
   getManilaDateString,
   assertValidDateRange,
   parseBoundedPositiveInt,
-  summarizeIncomeStatementLines,
   postBalancedEntry,
   parseExactMoney,
   resolveActiveSessionId,
   isValidIsoDateOnly,
 } from "../utils/ledgerService.js";
+import { parseOptionalClientRequestId } from "../utils/validation.js";
+import { LIQUID_ACCOUNT_CODES } from "../utils/coaConstants.js";
+import { formatDbDateOnly } from "../../../shared/manilaDate.js";
+import {
+  getAccountsAndAssetsReport,
+  getBalanceSheetReport,
+  getCashFlowReport,
+  getDailyReconciliationReport,
+  getProfitAndLossReport,
+  getTrialBalanceReport,
+} from "../services/financesReportService.js";
 
 const router = Router();
-const CLIENT_REQUEST_ID_REGEX = /^[A-Za-z0-9:_-]{16,96}$/;
-const LIQUID_ACCOUNT_CODES = new Set(["1010", "1020", "1030", "1040"]);
-
-function parseOptionalClientRequestId(rawValue) {
-  const hasField = rawValue !== undefined && rawValue !== null && String(rawValue) !== "";
-  if (!hasField) return null;
-  if (typeof rawValue !== "string") {
-    throw httpError(400, "Invalid clientRequestId format.");
-  }
-  const trimmed = rawValue.trim();
-  if (!CLIENT_REQUEST_ID_REGEX.test(trimmed)) {
-    throw httpError(400, "Invalid clientRequestId format.");
-  }
-  return trimmed;
-}
 
 function parseOptionalOpeningAmount(rawValue, label) {
   if (rawValue === undefined || rawValue === null) return 0;
   if (typeof rawValue === "string" && rawValue.trim() === "") return 0;
   return parseExactMoney(rawValue, label, { allowZero: true });
-}
-
-function formatDbDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return value.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-  }
-  return String(value).slice(0, 10);
-}
-
-const BS_LABELS = {
-  "1010": "Cash Drawer (Counter 1)",
-  "1020": "GCash Official Wallet",
-  "1030": "Store Bank Account",
-  "1040": "Owner Capital Reserve",
-  "1050": "Merchandise Inventory (Ledger)",
-  "1510": "Kitchen & Espresso Equipment",
-  "1520": "Less: Accumulated Depreciation",
-  "2010": "Accounts Payable (Suppliers)",
-  "2020": "2020 - Sales Tax / VAT Payable (Collected on Orders)",
-  "2030": "Income Tax Payable",
-};
-
-function summarizeBalanceSheetAccounts(accounts = []) {
-  const accountMap = new Map();
-  const currentAssets = [];
-  const nonCurrentAssets = [];
-  const currentLiabilities = [];
-
-  let totalCurrentAssets = 0;
-  let grossEquipment = 0;
-  let accumulatedDepreciation = 0;
-  let netEquipment = 0;
-  let totalLiabilities = 0;
-
-  for (const acc of accounts) {
-    const code = String(acc.account_code);
-    const bal = round2(acc.current_balance);
-    accountMap.set(code, bal);
-    if (acc.report_section !== "balance_sheet") continue;
-
-    if (acc.account_category === "asset") {
-      const isContra = String(acc.normal_balance).toLowerCase() === "credit";
-      const signed = isContra ? -bal : bal;
-      if (LIQUID_ACCOUNT_CODES.has(code) || code === "1050") {
-        currentAssets.push({
-          accountCode: code,
-          accountName: BS_LABELS[code] || acc.account_name,
-          amount: bal,
-        });
-        totalCurrentAssets += signed;
-      } else {
-        nonCurrentAssets.push({
-          accountCode: code,
-          accountName: BS_LABELS[code] || acc.account_name,
-          amount: bal,
-          ...(isContra ? { isContra: true } : {}),
-        });
-        if (isContra) accumulatedDepreciation += bal;
-        else grossEquipment += bal;
-        netEquipment += signed;
-      }
-    } else if (acc.account_category === "liability") {
-      const isCreditNormal = String(acc.normal_balance).toLowerCase() === "credit";
-      const signed = isCreditNormal ? bal : -bal;
-      currentLiabilities.push({
-        accountCode: code,
-        accountName: BS_LABELS[code] || acc.account_name,
-        amount: signed,
-      });
-      totalLiabilities += signed;
-    }
-  }
-
-  const roundedGrossEquip = round2(grossEquipment);
-  const roundedAccumDepr = round2(accumulatedDepreciation);
-  const roundedNetEquip = round2(netEquipment);
-  const roundedTotalCurrent = round2(totalCurrentAssets);
-
-  return {
-    accountMap,
-    currentAssets,
-    nonCurrentAssets,
-    grossEquipment: roundedGrossEquip,
-    accumulatedDepreciation: roundedAccumDepr,
-    netEquipment: roundedNetEquip,
-    totalAssets: round2(roundedTotalCurrent + roundedNetEquip),
-    currentLiabilities,
-    totalLiabilities: round2(totalLiabilities),
-    ownerCapital: accountMap.get("3010") || 0.00,
-    ownerDrawings: accountMap.get("3020") || 0.00,
-  };
 }
 
 async function assertJournalReplayMatches(executor, existingEntryId, expectedEntryType, expectedLines) {
@@ -186,7 +89,7 @@ async function assertJournalReplayMatches(executor, existingEntryId, expectedEnt
 // -------------------------------------------------------------
 // 1. TRIAL BALANCE & RECONCILIATION SUMMARY (Admin Only)
 // -------------------------------------------------------------
-router.all(["/accounts", "/accounts/:id"], (request, response, next) => {
+router.all(["/accounts", "/accounts/:id"], requireAuth, requireRole("admin"), (request, response, next) => {
   if (["PUT", "PATCH", "DELETE", "POST"].includes(request.method)) {
     return response.status(405).json({
       message: "Account balances are strictly derived from journal ledger entries and cannot be directly modified.",
@@ -195,7 +98,7 @@ router.all(["/accounts", "/accounts/:id"], (request, response, next) => {
   next();
 });
 
-router.all("/journal-entries/:id", (request, response, next) => {
+router.all("/journal-entries/:id", requireAuth, requireRole("admin"), (request, response, next) => {
   if (["PUT", "PATCH", "DELETE"].includes(request.method)) {
     return response.status(405).json({
       message: "Financial records are strictly immutable. Journal entries cannot be edited or deleted; corrections must be posted as traceable reversals via POST /api/finances/journal-entries/:id/reverse.",
@@ -205,128 +108,14 @@ router.all("/journal-entries/:id", (request, response, next) => {
 });
 
 router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request, response) => {
-  const [rows] = await pool.query(
-    `SELECT coa.id,
-            coa.account_code,
-            coa.account_name,
-            coa.account_category,
-            coa.normal_balance,
-            coa.report_section,
-            coa.expense_group,
-            COALESCE(v.total_debits, 0.00) AS total_debits,
-            COALESCE(v.total_credits, 0.00) AS total_credits,
-            COALESCE(v.current_balance, 0.00) AS current_balance
-       FROM chart_of_accounts coa
-       LEFT JOIN view_account_balances v ON v.id = coa.id
-      WHERE coa.is_active = TRUE
-      ORDER BY coa.account_code ASC`
-  );
-
-  let totalDebits = 0;
-  let totalCredits = 0;
-  for (const row of rows) {
-    totalDebits += Number(row.total_debits || 0);
-    totalCredits += Number(row.total_credits || 0);
-  }
-
-  const roundedDebits = round2(totalDebits);
-  const roundedCredits = round2(totalCredits);
-  const isBalanced = Math.abs(roundedDebits - roundedCredits) < 0.005;
-
-  response.json({
-    accounts: rows.map((r) => ({
-      id: Number(r.id),
-      accountCode: r.account_code,
-      accountName: r.account_name,
-      category: r.account_category,
-      normalBalance: r.normal_balance,
-      reportSection: r.report_section,
-      expenseGroup: r.expense_group || null,
-      totalDebits: round2(r.total_debits),
-      totalCredits: round2(r.total_credits),
-      currentBalance: round2(r.current_balance),
-    })),
-    totalDebits: roundedDebits,
-    totalCredits: roundedCredits,
-    isBalanced,
-  });
+  response.json(await getTrialBalanceReport());
 });
 
 // -------------------------------------------------------------
 // 2. ACCOUNTS & STORE TOTAL ASSETS OVERVIEW (Admin Only)
 // -------------------------------------------------------------
-router.get("/accounts", requireAuth, requireRole("admin"), async (_request, response) => {
-  const [accounts] = await pool.query(
-    `SELECT coa.id,
-            coa.account_code,
-            coa.account_name,
-            coa.account_category,
-            coa.normal_balance,
-            coa.report_section,
-            coa.expense_group,
-            COALESCE(v.total_debits, 0.00) AS total_debits,
-            COALESCE(v.total_credits, 0.00) AS total_credits,
-            COALESCE(v.current_balance, 0.00) AS current_balance
-       FROM chart_of_accounts coa
-       LEFT JOIN view_account_balances v ON v.id = coa.id
-      WHERE coa.is_active = TRUE
-      ORDER BY coa.account_code ASC`
-  );
-
-  // Live ingredient inventory valuation directly from active stock
-  const [[invRow]] = await pool.query(
-    "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS live_inventory_value FROM inventory_items WHERE is_archived = FALSE"
-  );
-  const liveInventoryValue = round2(invRow?.live_inventory_value);
-
-  const bs = summarizeBalanceSheetAccounts(accounts);
-  const cashDrawer = bs.accountMap.get("1010") || 0.00;
-  const gcash = bs.accountMap.get("1020") || 0.00;
-  const bank = bs.accountMap.get("1030") || 0.00;
-  const reserve = bs.accountMap.get("1040") || 0.00;
-  const nonCurrentEquipment = bs.netEquipment;
-
-  const totalLiquidAssets = round2(cashDrawer + gcash + bank + reserve);
-  const totalStoreAssets = round2(totalLiquidAssets + liveInventoryValue + nonCurrentEquipment);
-  const totalLiabilities = bs.totalLiabilities;
-  const ownerCapital = bs.ownerCapital;
-  const ownerDrawings = bs.ownerDrawings;
-
-  const pnl = summarizeIncomeStatementLines(accounts, { clampSections: false });
-  const netSalesRevenue = pnl.netSales;
-  const totalCogsAndExpenses = round2(pnl.cogs + pnl.totalOperatingExpenses + pnl.depreciation + pnl.tax);
-  const netProfitAfterSale = pnl.netIncome;
-  const baseCapitalMoney = round2(totalStoreAssets - netProfitAfterSale);
-
-  response.json({
-    accounts: accounts.map((a) => ({
-      id: Number(a.id),
-      accountCode: a.account_code,
-      accountName: a.account_name,
-      category: a.account_category,
-      normalBalance: a.normal_balance,
-      reportSection: a.report_section,
-      expenseGroup: a.expense_group || null,
-      balance: round2(a.current_balance),
-    })),
-    summary: {
-      cashDrawer,
-      gcash,
-      bank,
-      reserve,
-      totalLiquidAssets,
-      liveInventoryValue,
-      nonCurrentEquipment,
-      totalStoreAssets,
-      totalLiabilities,
-      ownerCapital,
-      ownerDrawings,
-      baseCapitalMoney,
-      netProfitAfterSale,
-      netSalesRevenue,
-      totalCogsAndExpenses,
-    },
-  });
+router.get("/accounts", requireAuth, requireRole("admin"), async (request, response) => {
+  response.json(await getAccountsAndAssetsReport(request.query?.from, request.query?.to));
 });
 
 // -------------------------------------------------------------
@@ -594,6 +383,12 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
   if (!validTypes.includes(entryType)) {
     throw httpError(400, `Invalid entryType. Allowed types: ${validTypes.join(", ")}`);
   }
+  if (entryType === "inventory_restock") {
+    throw httpError(
+      400,
+      "Inventory restocks must be recorded via POST /api/inventory/:id/restock so stock quantities and payables stay synchronized.",
+    );
+  }
 
   let finalLines = [];
 
@@ -687,6 +482,15 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
   if (finalLines.some((l) => l.accountCode === "2020")) {
     throw httpError(400, "Account 2020 (Sales Tax / VAT Payable) is reserved strictly for automated POS order transactions.");
   }
+  if (
+    finalLines.some((l) => l.accountCode === "2010" || l.accountCode === "2030") &&
+    !["operating_expense", "income_tax", "ap_settlement"].includes(entryType)
+  ) {
+    throw httpError(
+      400,
+      "Accounts 2010 and 2030 are tracked subledger liabilities and may only be posted via operating_expense, income_tax, or ap_settlement entries.",
+    );
+  }
 
   const totalAmount = round2(finalLines.reduce((s, l) => s + l.debit, 0));
   const accountCodes = [...new Set(finalLines.map((l) => l.accountCode))];
@@ -744,25 +548,17 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       }
 
       await connection.execute(
-        "SELECT id FROM chart_of_accounts WHERE account_code IN ('1510', '1520') FOR UPDATE",
+        "SELECT id FROM chart_of_accounts WHERE account_code IN ('1510', '1520') ORDER BY account_code ASC FOR UPDATE",
       );
-      const [equipLines] = await connection.execute(
-        `SELECT coa.account_code, jel.debit, jel.credit
+      const [[equipAgg]] = await connection.execute(
+        `SELECT COALESCE(SUM(CASE WHEN coa.account_code = '1510' THEN jel.debit - jel.credit ELSE 0 END), 0.00) AS bal_1510,
+                COALESCE(SUM(CASE WHEN coa.account_code = '1520' THEN jel.credit - jel.debit ELSE 0 END), 0.00) AS bal_1520
            FROM journal_entry_lines jel
            JOIN chart_of_accounts coa ON coa.id = jel.account_id
-          WHERE coa.account_code IN ('1510', '1520')
-          FOR UPDATE`,
+          WHERE coa.account_code IN ('1510', '1520')`,
       );
-      let bal1510 = 0;
-      let bal1520 = 0;
-      for (const row of equipLines) {
-        const d = Number(row.debit || 0);
-        const c = Number(row.credit || 0);
-        if (row.account_code === "1510") bal1510 += d - c;
-        else if (row.account_code === "1520") bal1520 += c - d;
-      }
-      bal1510 = round2(bal1510);
-      bal1520 = round2(bal1520);
+      const bal1510 = round2(equipAgg?.bal_1510 || 0);
+      const bal1520 = round2(equipAgg?.bal_1520 || 0);
       const netBookValue = round2(bal1510 - bal1520);
       if (totalAmount > netBookValue + 0.001) {
         throw httpError(
@@ -793,27 +589,28 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
         throw httpError(400, "Payable settlements must credit a liquid account (1010–1040).");
       }
       const targetLiability = liabCodes[0];
+      // Lock parent COA row and open payables; avoid scanning/locking historical journal_entry_lines rows.
       await connection.execute(
-        "SELECT id FROM chart_of_accounts WHERE account_code = ? AND is_active = TRUE FOR UPDATE",
+        "SELECT id FROM chart_of_accounts WHERE account_code = ? AND is_active = TRUE ORDER BY account_code ASC FOR UPDATE",
         [targetLiability],
       );
-      const [glLines] = await connection.execute(
-        `SELECT jel.credit, jel.debit
-           FROM journal_entry_lines jel
-           JOIN chart_of_accounts coa ON coa.id = jel.account_id
-          WHERE coa.account_code = ?
-          FOR UPDATE`,
-        [targetLiability],
-      );
-      const glBalance = round2(glLines.reduce((s, r) => s + Number(r.credit || 0) - Number(r.debit || 0), 0));
       const [trackedRows] = await connection.execute(
         `SELECT original_amount, paid_amount
            FROM financial_payables
           WHERE liability_account_code = ?
             AND status IN ('unpaid', 'partial')
+          ORDER BY id ASC
           FOR UPDATE`,
         [targetLiability],
       );
+      const [[glAgg]] = await connection.execute(
+        `SELECT COALESCE(SUM(jel.credit - jel.debit), 0.00) AS gl_balance
+           FROM journal_entry_lines jel
+           JOIN chart_of_accounts coa ON coa.id = jel.account_id
+          WHERE coa.account_code = ?`,
+        [targetLiability],
+      );
+      const glBalance = round2(glAgg?.gl_balance || 0);
       const trackedOpen = round2(
         trackedRows.reduce((s, r) => s + Number(r.original_amount || 0) - Number(r.paid_amount || 0), 0),
       );
@@ -824,6 +621,49 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     } else if (entryType === "owner_withdrawal") {
       if (!debitLines.every((l) => l.accountCode === "3020") || !creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
         throw httpError(400, "Owner withdrawals must debit 3020 and credit a liquid account (1010–1040).");
+      }
+      const uniqueLiquidCodes = [...new Set(creditLines.map((l) => l.accountCode))].sort();
+      if (uniqueLiquidCodes.length > 0) {
+        await connection.execute(
+          `SELECT id FROM chart_of_accounts WHERE account_code IN (${uniqueLiquidCodes.map(() => "?").join(",")}) ORDER BY account_code ASC FOR UPDATE`,
+          uniqueLiquidCodes,
+        );
+      }
+      for (const accountCode of uniqueLiquidCodes) {
+        const [[glRow]] = await connection.execute(
+          `SELECT COALESCE(SUM(jel.debit - jel.credit), 0.00) AS gl_balance
+             FROM journal_entry_lines jel
+             JOIN chart_of_accounts coa ON coa.id = jel.account_id
+            WHERE coa.account_code = ?`,
+          [accountCode],
+        );
+        let availableBalance = round2(glRow?.gl_balance || 0);
+        if (accountCode === "1010") {
+          const [[unconfirmedRow]] = await connection.execute(
+            `SELECT COALESCE(SUM(jel.debit - jel.credit), 0.00) AS unconfirmed_counter_cash
+               FROM journal_entry_lines jel
+               JOIN journal_entries je ON je.id = jel.journal_entry_id
+               JOIN chart_of_accounts coa ON coa.id = jel.account_id
+               JOIN orders o ON o.id = je.order_id
+              WHERE coa.account_code = '1010'
+                AND o.payment_status = 'Paid'
+                AND o.order_status <> 'Cancelled'
+                AND o.owner_confirmed_at IS NULL`,
+          );
+          const unconfirmedCash = round2(Math.max(0, Number(unconfirmedRow?.unconfirmed_counter_cash || 0)));
+          availableBalance = round2(availableBalance - unconfirmedCash);
+        }
+        const creditToAccount = round2(
+          creditLines
+            .filter((l) => l.accountCode === accountCode)
+            .reduce((sum, l) => sum + Number(l.credit || 0), 0),
+        );
+        if (creditToAccount > availableBalance + 0.001) {
+          throw httpError(
+            409,
+            `Insufficient confirmed funds in account ${accountCode}: trying to withdraw ₱${creditToAccount.toFixed(2)}, but available confirmed balance is ₱${Math.max(0, availableBalance).toFixed(2)}.`,
+          );
+        }
       }
     } else if (entryType === "capital_injection") {
       if (!debitLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode)) || !creditLines.every((l) => l.accountCode === "3010")) {
@@ -836,7 +676,10 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     }
 
     const touchesDrawer = entryType !== "opening_balance" && finalLines.some((l) => l.accountCode === "1010");
-    const sessionId = touchesDrawer ? await resolveActiveSessionId(connection, request.authUser.sub) : null;
+    const explicitSessionId = request.body?.sessionId ?? null;
+    const sessionId = touchesDrawer
+      ? await resolveActiveSessionId(connection, request.authUser.sub, { explicitSessionId })
+      : null;
 
     const ledgerRes = await postBalancedEntry(connection, {
       entryType,
@@ -957,26 +800,31 @@ router.get("/payables", requireAuth, requireRole("admin"), async (request, respo
     params.push(rawCategory);
   }
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const page = Math.max(1, Number.parseInt(request.query?.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, Number.parseInt(request.query?.limit, 10) || 50));
+  const offset = (page - 1) * limit;
 
-  const [rows] = await pool.query(
-    `SELECT fp.*
-       FROM financial_payables fp
-       ${whereClause}
-      ORDER BY FIELD(fp.status, 'unpaid', 'partial', 'paid', 'voided'), COALESCE(fp.due_date, fp.bill_date) ASC, fp.id DESC`,
-    params,
-  );
-
-  const [[totalsRow]] = await pool.query(
-    `SELECT COALESCE(SUM(CASE WHEN liability_account_code = '2010' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_ap_2010,
-            COALESCE(SUM(CASE WHEN liability_account_code = '2030' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_tax_2030
-       FROM financial_payables`,
-  );
-
-  const [glRows] = await pool.query(
-    `SELECT account_code, COALESCE(current_balance, 0.00) AS balance
-       FROM view_account_balances
-      WHERE account_code IN ('2010', '2030')`,
-  );
+  const [[countRow], [rows], [[totalsRow]], [glRows]] = await Promise.all([
+    pool.query(`SELECT COUNT(*) AS total FROM financial_payables fp ${whereClause}`, params),
+    pool.query(
+      `SELECT fp.*
+         FROM financial_payables fp
+         ${whereClause}
+        ORDER BY FIELD(fp.status, 'unpaid', 'partial', 'paid', 'voided'), COALESCE(fp.due_date, fp.bill_date) ASC, fp.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN liability_account_code = '2010' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_ap_2010,
+              COALESCE(SUM(CASE WHEN liability_account_code = '2030' AND status IN ('unpaid', 'partial') THEN original_amount - paid_amount ELSE 0 END), 0.00) AS unpaid_tax_2030
+         FROM financial_payables`,
+    ),
+    pool.query(
+      `SELECT account_code, COALESCE(current_balance, 0.00) AS balance
+         FROM view_account_balances
+        WHERE account_code IN ('2010', '2030')`,
+    ),
+  ]);
   const glMap = new Map(glRows.map((r) => [r.account_code, round2(r.balance)]));
 
   response.json({
@@ -997,6 +845,9 @@ router.get("/payables", requireAuth, requireRole("admin"), async (request, respo
       sessionId: r.session_id ? Number(r.session_id) : null,
       notes: r.notes || "",
     })),
+    total: Number(countRow?.[0]?.total ?? rows.length),
+    page,
+    limit,
     totals: {
       unpaidAp2010: round2(totalsRow?.unpaid_ap_2010 || 0),
       unpaidTax2030: round2(totalsRow?.unpaid_tax_2030 || 0),
@@ -1023,6 +874,14 @@ router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (re
   const cleanNotes = request.body?.notes ? String(request.body.notes).trim().slice(0, 255) : "";
   const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId);
 
+  const [[payableMeta]] = await pool.execute(
+    "SELECT id, liability_account_code FROM financial_payables WHERE id = ? LIMIT 1",
+    [payableId],
+  );
+  if (!payableMeta) {
+    throw httpError(404, "Payable record not found.");
+  }
+
   const connection = await pool.getConnection();
   let txOpen = false;
   let resultPayload;
@@ -1030,6 +889,23 @@ router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (re
   try {
     await connection.beginTransaction();
     txOpen = true;
+
+    // Deterministic lock hierarchy matching POST /journal-entries:
+    // chart_of_accounts (sorted ascending) -> financial_payables -> journal_entry_lines
+    const lockCodes = [...new Set([payableMeta.liability_account_code, paymentAccountCode])].sort();
+    const [lockedCoaRows] = await connection.execute(
+      `SELECT id, account_code
+         FROM chart_of_accounts
+        WHERE account_code IN (${lockCodes.map(() => "?").join(",")})
+          AND is_active = TRUE
+        ORDER BY account_code ASC
+        FOR UPDATE`,
+      lockCodes,
+    );
+    const liabCoa = lockedCoaRows.find((r) => r.account_code === payableMeta.liability_account_code);
+    if (!liabCoa) {
+      throw httpError(400, `Liability account '${payableMeta.liability_account_code}' is inactive or missing.`);
+    }
 
     const [[payable]] = await connection.execute(
       "SELECT * FROM financial_payables WHERE id = ? FOR UPDATE",
@@ -1090,22 +966,13 @@ router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (re
       );
     }
 
-    const [[liabCoa]] = await connection.execute(
-      "SELECT id FROM chart_of_accounts WHERE account_code = ? AND is_active = TRUE FOR UPDATE",
-      [payable.liability_account_code],
-    );
-    if (!liabCoa) {
-      throw httpError(400, `Liability account '${payable.liability_account_code}' is inactive or missing.`);
-    }
-
-    const [glLines] = await connection.execute(
-      `SELECT credit, debit
+    const [[glAgg]] = await connection.execute(
+      `SELECT COALESCE(SUM(credit - debit), 0.00) AS live_gl_balance
          FROM journal_entry_lines
-        WHERE account_id = ?
-        FOR UPDATE`,
+        WHERE account_id = ?`,
       [liabCoa.id],
     );
-    const liveGlBalance = round2(glLines.reduce((s, r) => s + Number(r.credit || 0) - Number(r.debit || 0), 0));
+    const liveGlBalance = round2(glAgg?.live_gl_balance || 0);
     if (amount > liveGlBalance + 0.001) {
       throw httpError(
         409,
@@ -1113,8 +980,9 @@ router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (re
       );
     }
 
+    const explicitSessionId = request.body?.sessionId ?? null;
     const sessionId = paymentAccountCode === "1010"
-      ? await resolveActiveSessionId(connection, request.authUser.sub)
+      ? await resolveActiveSessionId(connection, request.authUser.sub, { explicitSessionId })
       : null;
 
     const jeRes = await postBalancedEntry(connection, {
@@ -1209,6 +1077,9 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
     }
     if (originalEntry.inventory_movement_id != null) {
       throw httpError(409, "Reverse inventory-backed entries via Inventory endpoints so stock quantities stay synchronized.");
+    }
+    if (originalEntry.order_id != null) {
+      throw httpError(409, "Reverse order-backed entries via Order Void or Item Revert so order status and stock stay synchronized.");
     }
 
     const [[existingReversal]] = await connection.execute(
@@ -1313,377 +1184,28 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
 // 7. FORMAL PROFIT & LOSS (P&L) STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from: rawFrom, to: rawTo } = request.query || {};
-  const { from, to } = assertValidDateRange(rawFrom, rawTo);
-  const conditions = [];
-  const params = [];
-
-  if (from) {
-    conditions.push("je.entry_date >= ?");
-    params.push(`${from} 00:00:00`);
-  }
-  if (to) {
-    conditions.push("je.entry_date <= ?");
-    params.push(`${to} 23:59:59`);
-  }
-  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  const [lines] = await pool.query(
-    `SELECT coa.account_code,
-            coa.account_name,
-            coa.account_category,
-            coa.normal_balance,
-            coa.report_section,
-            coa.expense_group,
-            COALESCE(SUM(jel.debit), 0.00) AS total_debit,
-            COALESCE(SUM(jel.credit), 0.00) AS total_credit
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-       JOIN chart_of_accounts coa ON coa.id = jel.account_id
-       ${whereClause}
-      GROUP BY coa.account_code, coa.account_name, coa.account_category, coa.normal_balance, coa.report_section, coa.expense_group`,
-    params
-  );
-
-  const pnl = summarizeIncomeStatementLines(lines);
-
-  response.json({
-    grossSales: pnl.grossSales,
-    discounts: pnl.discounts,
-    netSales: pnl.netSales,
-    customerSalesCogs: pnl.customerSalesCogs,
-    foodSpoilageCogs: pnl.foodSpoilageCogs,
-    cogs: pnl.cogs,
-    grossProfit: pnl.grossProfit,
-    grossMarginPercent: pnl.grossMarginPercent,
-    operatingExpenses: pnl.operatingExpenses,
-    totalOperatingExpenses: pnl.totalOperatingExpenses,
-    depreciation: pnl.depreciation,
-    tax: pnl.tax,
-    ebitdaOperatingIncome: pnl.ebitdaOperatingIncome,
-    netIncomeBeforeTax: pnl.netIncomeBeforeTax,
-    netIncome: pnl.netIncome,
-    netOperatingProfit: pnl.netOperatingProfit,
-  });
+  response.json(await getProfitAndLossReport(request.query?.from, request.query?.to));
 });
 
 // -------------------------------------------------------------
 // 8. CASH FLOW STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from: rawFrom, to: rawTo } = request.query || {};
-  const { from, to } = assertValidDateRange(rawFrom, rawTo);
-  const conditions = [
-    `EXISTS (
-      SELECT 1
-        FROM journal_entry_lines jel_liq
-        JOIN chart_of_accounts coa_liq ON coa_liq.id = jel_liq.account_id
-       WHERE jel_liq.journal_entry_id = je.id
-         AND coa_liq.account_code IN ('1010', '1020', '1030', '1040')
-    )`,
-  ];
-  const params = [];
-
-  if (from) {
-    conditions.push("je.entry_date >= ?");
-    params.push(`${from} 00:00:00`);
-  }
-  if (to) {
-    conditions.push("je.entry_date <= ?");
-    params.push(`${to} 23:59:59`);
-  }
-  const whereClause = `WHERE ${conditions.join(" AND ")}`;
-
-  const [rows] = await pool.query(
-    `SELECT je.id AS entry_id,
-            je.entry_type,
-            parent_je.entry_type AS parent_entry_type,
-            fp.bill_category AS payable_bill_category,
-            coa.account_code,
-            jel.debit,
-            jel.credit
-       FROM journal_entries je
-       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
-       JOIN chart_of_accounts coa ON coa.id = jel.account_id
-       LEFT JOIN journal_entries parent_je ON parent_je.id = je.reverses_entry_id
-       LEFT JOIN financial_payables fp ON fp.id = COALESCE(je.payable_id, parent_je.payable_id)
-       ${whereClause}
-      ORDER BY je.id ASC, jel.id ASC`,
-    params,
-  );
-
-  const byEntry = new Map();
-  for (const r of rows) {
-    const entryId = Number(r.entry_id);
-    let bucket = byEntry.get(entryId);
-    if (!bucket) {
-      bucket = {
-        entryType: r.entry_type,
-        parentEntryType: r.parent_entry_type || null,
-        payableBillCategory: r.payable_bill_category || null,
-        liquidNet: 0,
-        counterpartCodes: new Set(),
-      };
-      byEntry.set(entryId, bucket);
-    }
-    const code = String(r.account_code);
-    const debit = Number(r.debit || 0);
-    const credit = Number(r.credit || 0);
-    if (LIQUID_ACCOUNT_CODES.has(code)) {
-      bucket.liquidNet += (debit - credit);
-    } else {
-      bucket.counterpartCodes.add(code);
-    }
-  }
-
-  let cashSalesInflow = 0;
-  let opexCashOutflow = 0;
-  let restockCashOutflow = 0;
-  let taxCashOutflow = 0;
-  let otherOperatingCashNet = 0;
-  let investingNet = 0;
-  let capitalInflow = 0;
-  let drawingOutflow = 0;
-
-  for (const entry of byEntry.values()) {
-    const liquidNet = round2(entry.liquidNet);
-    if (Math.abs(liquidNet) < 0.005) continue;
-
-    const effectiveType = entry.entryType === "void_reversal" && entry.parentEntryType
-      ? entry.parentEntryType
-      : entry.entryType;
-    const counterparts = entry.counterpartCodes;
-
-    if (
-      effectiveType !== "opening_balance" &&
-      counterparts.has("1510") &&
-      !counterparts.has("1050") &&
-      !counterparts.has("3010") &&
-      !counterparts.has("3020")
-    ) {
-      investingNet += liquidNet;
-    } else if (effectiveType === "capital_injection" || effectiveType === "opening_balance") {
-      capitalInflow += liquidNet;
-    } else if (effectiveType === "owner_withdrawal") {
-      drawingOutflow += (-liquidNet);
-    } else if (effectiveType === "sales_revenue") {
-      cashSalesInflow += liquidNet;
-    } else if (effectiveType === "operating_expense") {
-      opexCashOutflow += (-liquidNet);
-    } else if (effectiveType === "inventory_restock") {
-      restockCashOutflow += (-liquidNet);
-    } else if (effectiveType === "income_tax") {
-      taxCashOutflow += (-liquidNet);
-    } else if (effectiveType === "ap_settlement") {
-      if (entry.payableBillCategory === "inventory_restock") {
-        restockCashOutflow += (-liquidNet);
-      } else if (entry.payableBillCategory === "income_tax" || (!entry.payableBillCategory && counterparts.has("2030"))) {
-        taxCashOutflow += (-liquidNet);
-      } else {
-        opexCashOutflow += (-liquidNet);
-      }
-    } else if (
-      counterparts.has("3010") &&
-      !counterparts.has("1050") &&
-      !counterparts.has("4010") &&
-      !counterparts.has("5010")
-    ) {
-      capitalInflow += liquidNet;
-    } else if (
-      counterparts.has("3020") &&
-      !counterparts.has("1050") &&
-      !counterparts.has("4010") &&
-      !counterparts.has("5010")
-    ) {
-      drawingOutflow += (-liquidNet);
-    } else if (
-      (counterparts.has("2030") || counterparts.has("6310")) &&
-      !counterparts.has("4010") &&
-      !counterparts.has("5010")
-    ) {
-      taxCashOutflow += (-liquidNet);
-    } else {
-      otherOperatingCashNet += liquidNet;
-    }
-  }
-
-  const operatingCashFlow = round2(
-    cashSalesInflow + otherOperatingCashNet - (opexCashOutflow + restockCashOutflow + taxCashOutflow),
-  );
-  const equipmentPurchased = round2(-investingNet);
-  const investingCashFlow = round2(investingNet);
-  const financingCashFlow = round2(capitalInflow - drawingOutflow);
-  const netCashFlow = round2(operatingCashFlow + investingCashFlow + financingCashFlow);
-
-  response.json({
-    operatingActivities: {
-      cashSalesInflow: round2(cashSalesInflow),
-      otherOperatingCashNet: round2(otherOperatingCashNet),
-      opexCashOutflow: round2(opexCashOutflow),
-      restockCashOutflow: round2(restockCashOutflow),
-      taxCashOutflow: round2(taxCashOutflow),
-      netOperatingCashFlow: operatingCashFlow,
-    },
-    investingActivities: {
-      equipmentPurchased,
-      netInvestingCashFlow: investingCashFlow,
-    },
-    financingActivities: {
-      capitalInjected: round2(capitalInflow),
-      drawingsWithdrawn: round2(drawingOutflow),
-      netFinancingCashFlow: financingCashFlow,
-    },
-    netCashFlow,
-  });
+  response.json(await getCashFlowReport(request.query?.from, request.query?.to));
 });
 
 // -------------------------------------------------------------
 // 9. DAILY STORE ASSET RECONCILIATION LEDGER (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/daily-reconciliation", requireAuth, requireRole("admin"), async (request, response) => {
-  const { from: rawFrom, to: rawTo, page, limit } = request.query || {};
-  const { from, to } = assertValidDateRange(rawFrom, rawTo);
-  const numPage = parseBoundedPositiveInt(page, 1, 1, 100_000, "Page");
-  const numLimit = parseBoundedPositiveInt(limit, 25, 1, 100, "Limit");
-  const offset = (numPage - 1) * numLimit;
-
-  const conditions = [];
-  const params = [];
-
-  if (from) {
-    conditions.push("snap.business_date >= ?");
-    params.push(from);
-  }
-  if (to) {
-    conditions.push("snap.business_date <= ?");
-    params.push(to);
-  }
-  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  const [[countRow]] = await pool.query(
-    `SELECT COUNT(*) AS total FROM store_daily_asset_snapshots snap ${whereClause}`,
-    params
-  );
-
-  const [rows] = await pool.query(
-    `SELECT snap.*,
-            DATE_FORMAT(snap.business_date, '%Y-%m-%d') AS business_date_formatted,
-            COALESCE(u1.display_name, u1.username) AS opened_by_name,
-            COALESCE(u2.display_name, u2.username) AS closed_by_name
-       FROM store_daily_asset_snapshots snap
-       LEFT JOIN users u1 ON u1.id = snap.opened_by
-       LEFT JOIN users u2 ON u2.id = snap.closed_by
-       ${whereClause}
-      ORDER BY snap.business_date DESC
-      LIMIT ? OFFSET ?`,
-    [...params, numLimit, offset]
-  );
-
-  response.json({
-    items: rows.map((r) => ({
-      id: Number(r.id),
-      businessDate: r.business_date_formatted || (r.business_date instanceof Date ? r.business_date.toLocaleDateString("en-CA") : String(r.business_date).slice(0, 10)),
-      status: r.status,
-      openingLiquidAssets: round2(r.opening_liquid_assets),
-      openingInventoryValue: round2(r.opening_inventory_value),
-      openingNonCurrentAssets: round2(r.opening_non_current_assets),
-      openingTotalAssets: round2(r.opening_total_assets),
-      closingLiquidAssets: r.closing_liquid_assets != null ? round2(r.closing_liquid_assets) : null,
-      closingInventoryValue: r.closing_inventory_value != null ? round2(r.closing_inventory_value) : null,
-      closingNonCurrentAssets: r.closing_non_current_assets != null ? round2(r.closing_non_current_assets) : null,
-      closingTotalAssets: r.closing_total_assets != null ? round2(r.closing_total_assets) : null,
-      grossSales: round2(r.gross_sales),
-      discountsGranted: round2(r.discounts_granted),
-      netSales: round2(r.net_sales),
-      cogsConsumed: round2(r.cogs_consumed),
-      grossProfit: round2(r.gross_profit),
-      operatingExpenses: round2(r.operating_expenses),
-      netOperatingProfit: round2(r.net_operating_profit),
-      capitalInjections: round2(r.capital_injections),
-      ownerWithdrawals: round2(r.owner_withdrawals),
-      drawerVariance: round2(r.drawer_variance),
-      spoilageShrinkage: round2(r.spoilage_shrinkage),
-      netAssetDelta: r.net_asset_delta != null ? round2(r.net_asset_delta) : null,
-      openedByName: r.opened_by_name,
-      closedByName: r.closed_by_name,
-    })),
-    total: Number(countRow?.total || 0),
-    page: numPage,
-    limit: numLimit,
-  });
+  response.json(await getDailyReconciliationReport(request.query || {}));
 });
 
 // -------------------------------------------------------------
 // 10. BALANCE SHEET STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_request, response) => {
-  const [accounts] = await pool.query(
-    `SELECT coa.id,
-            coa.account_code,
-            coa.account_name,
-            coa.account_category,
-            coa.normal_balance,
-            coa.report_section,
-            coa.expense_group,
-            COALESCE(v.total_debits, 0.00) AS total_debits,
-            COALESCE(v.total_credits, 0.00) AS total_credits,
-            COALESCE(v.current_balance, 0.00) AS current_balance
-       FROM chart_of_accounts coa
-       LEFT JOIN view_account_balances v ON v.id = coa.id
-      WHERE coa.is_active = TRUE
-      ORDER BY coa.account_code ASC`
-  );
-
-  const [[invRow]] = await pool.query(
-    "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS live_inventory_value FROM inventory_items WHERE is_archived = FALSE"
-  );
-  const liveInventoryValue = round2(invRow?.live_inventory_value);
-
-  const bs = summarizeBalanceSheetAccounts(accounts);
-  const ledgerInventoryValue = bs.accountMap.get("1050") || 0.00;
-  const inventoryValuationVariance = round2(liveInventoryValue - ledgerInventoryValue);
-
-  // Compute true Retained Earnings directly from database-classified Income Statement accounts
-  const retainedEarnings = summarizeIncomeStatementLines(accounts, { clampSections: false }).netIncome;
-  const totalEquity = round2(bs.ownerCapital - bs.ownerDrawings + retainedEarnings);
-
-  const balanceDifference = round2(bs.totalAssets - (bs.totalLiabilities + totalEquity));
-  const isBalanced = Math.abs(balanceDifference) < 0.005;
-
-  response.json({
-    asOfDate: getManilaDateString(),
-    assets: {
-      current: bs.currentAssets,
-      nonCurrent: bs.nonCurrentAssets,
-      grossEquipment: bs.grossEquipment,
-      accumulatedDepreciation: bs.accumulatedDepreciation,
-      netEquipment: bs.netEquipment,
-      totalAssets: bs.totalAssets,
-    },
-    grossEquipment: bs.grossEquipment,
-    accumulatedDepreciation: bs.accumulatedDepreciation,
-    netEquipment: bs.netEquipment,
-    totalAssets: bs.totalAssets,
-    ledgerInventoryValue,
-    liveInventoryValue,
-    inventoryValuationVariance,
-    liabilities: {
-      current: bs.currentLiabilities,
-      totalLiabilities: bs.totalLiabilities,
-    },
-    totalLiabilities: bs.totalLiabilities,
-    equity: {
-      capital: bs.ownerCapital,
-      ownerCapital: bs.ownerCapital,
-      drawings: bs.ownerDrawings,
-      ownerDrawings: bs.ownerDrawings,
-      retainedEarnings,
-      totalEquity,
-    },
-    totalEquity,
-    balanceDifference,
-    isBalanced,
-  });
+  response.json(await getBalanceSheetReport());
 });
 
 export default router;

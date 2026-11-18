@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -8,17 +8,12 @@ import {
   ShoppingBag,
   Trash2,
 } from "lucide-react";
-import { apiRequest } from "../utils/api.js";
 
+import { isAlertEnabledForType, useNotifications } from "../hooks/useNotifications.js";
 import {
   formatRelativeTime,
-  loadNotifications,
   playNotificationChime,
-  readStaffNotifications,
-  STAFF_NOTIFICATIONS_KEY,
   STAFF_NOTIFICATION_TYPES,
-  STAFF_NOTIFY_EVENT,
-  writeStaffNotifications,
 } from "../utils/notifications.js";
 import "../assets/css/staff-notifications.css";
 
@@ -26,6 +21,7 @@ const ICONS = {
   inventory_stock: AlertTriangle,
   inventory_low: AlertTriangle,
   inventory_inactive: AlertTriangle,
+  inventory_waste: AlertTriangle,
   order_new: ShoppingBag,
   order_completed: CheckCircle2,
   receipt_printed: Printer,
@@ -34,133 +30,53 @@ const ICONS = {
   info: Bell,
 };
 
-const DEFAULT_STAFF_ALERT_PREFERENCES = {
-  notifications: true,
-  orderAlerts: true,
-  inventoryAlerts: true,
-  audioChime: true,
-};
-
-function readStaffAlertPreferences() {
-  try {
-    return {
-      ...DEFAULT_STAFF_ALERT_PREFERENCES,
-      ...JSON.parse(localStorage.getItem("amaya-staff-preferences") || "{}"),
-    };
-  } catch {
-    return DEFAULT_STAFF_ALERT_PREFERENCES;
-  }
-}
-
 function StaffNotificationBell() {
-  // Read straight from storage on first render; the effect below only
-  // subscribes to external changes, so no cascading setState on mount.
-  const [notifications, setNotifications] = useState(readStaffNotifications);
   const [isOpen, setIsOpen] = useState(false);
   const [isRinging, setIsRinging] = useState(false);
-  const [alertPreferences, setAlertPreferences] = useState(readStaffAlertPreferences);
   const rootRef = useRef(null);
   const ringTimer = useRef(null);
 
-  const load = useCallback(() => {
-    setNotifications(readStaffNotifications());
-    loadNotifications().then(setNotifications);
+  const handleArrival = useCallback((type, preferences) => {
+    if (!isAlertEnabledForType(type, preferences)) return;
+    if (preferences.audioChime !== false) playNotificationChime();
+    setIsRinging(true);
+    clearTimeout(ringTimer.current);
+    ringTimer.current = setTimeout(() => setIsRinging(false), 900);
   }, []);
 
+  const {
+    notifications: visibleNotifications,
+    unreadCount,
+    markAllRead,
+    clearNotifications,
+    markOneRead,
+  } = useNotifications({
+    preferencesKey: "amaya-staff-preferences",
+    preferencesEvent: "amaya-staff-preferences",
+    onArrival: handleArrival,
+  });
+
   useEffect(() => {
-    // Newest arrival: chime, flash, and re-read (the notifier is the writer).
-    const handleNotification = (event) => {
-      load();
-      const type = event?.detail?.type;
-      // Polling refreshes the feed only. Alert effects should run only for a real notification event.
-      if (!type) return;
-      const preferences = readStaffAlertPreferences();
-      setAlertPreferences(preferences);
-      const isInventoryAlert = ["inventory_stock", "inventory_low", "inventory_inactive"].includes(type);
-      const alertEnabled = preferences.notifications !== false
-        && !(type === "order_new" && preferences.orderAlerts === false)
-        && !(isInventoryAlert && preferences.inventoryAlerts === false);
-      if (!alertEnabled) return;
-      if (preferences.audioChime !== false) playNotificationChime();
-      setIsRinging(true);
-      clearTimeout(ringTimer.current);
-      ringTimer.current = setTimeout(() => setIsRinging(false), 900);
-    };
-
-    // Cross-tab sync so an admin action lands on an already-open staff till.
-    const handleStorage = (event) => {
-      if (event.key === STAFF_NOTIFICATIONS_KEY) load();
-      if (event.key === "amaya-staff-preferences") setAlertPreferences(readStaffAlertPreferences());
-    };
-    const handlePreferenceChange = () => setAlertPreferences(readStaffAlertPreferences());
-
     const handleClickOutside = (event) => {
       if (rootRef.current && !rootRef.current.contains(event.target)) setIsOpen(false);
     };
-
     const handleEscape = (event) => {
       if (event.key === "Escape") setIsOpen(false);
     };
 
-    window.addEventListener(STAFF_NOTIFY_EVENT, handleNotification);
-    window.addEventListener("amaya:notifications-updated", load);
-    window.addEventListener("storage", handleStorage);
-    const poll = window.setInterval(load, 12000);
-    window.addEventListener("amaya-staff-preferences", handlePreferenceChange);
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
-
     return () => {
-      window.removeEventListener(STAFF_NOTIFY_EVENT, handleNotification);
-      window.removeEventListener("amaya:notifications-updated", load);
-      window.removeEventListener("storage", handleStorage);
-      window.clearInterval(poll);
-      window.removeEventListener("amaya-staff-preferences", handlePreferenceChange);
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
       clearTimeout(ringTimer.current);
     };
-  }, [load]);
-
-  const visibleNotifications = useMemo(() => notifications.filter((item) =>
-    alertPreferences.notifications !== false
-    && !(item.type === "order_new" && alertPreferences.orderAlerts === false)
-    && !(["inventory_stock", "inventory_low", "inventory_inactive"].includes(item.type) && alertPreferences.inventoryAlerts === false),
-  ), [alertPreferences, notifications]);
-  const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications]);
-
-  const commit = (next) => {
-    const capped = writeStaffNotifications(next);
-    setNotifications(capped);
-  };
-
-  const markAllAsRead = async () => {
-    commit(notifications.filter((item) => item.source !== "server").map((item) => ({ ...item, read: true })));
-    await apiRequest("/notifications/read-all", { method: "PATCH", body: "{}" }).catch(() => {});
-    load();
-  };
-
-  const markOneAsRead = async (id) => {
-    const selected = notifications.find((item) => item.id === id);
-    if (selected?.source === "server") {
-      await apiRequest(`/notifications/${id}/read`, { method: "PATCH", body: "{}" }).catch(() => {});
-      load();
-      return;
-    }
-    commit(notifications.filter((item) => item.source !== "server").map((item) => item.id === id ? { ...item, read: true } : item));
-  };
-
-  const clearAll = async () => {
-    commit([]);
-    await apiRequest("/notifications", { method: "DELETE" }).catch(() => {});
-    load();
-  };
+  }, []);
 
   const openAndToggle = () => {
     const next = !isOpen;
     setIsOpen(next);
-    // Opening the panel is an implicit acknowledgement.
-    if (next && unreadCount > 0) markAllAsRead();
+    if (next && unreadCount > 0) markAllRead();
   };
 
   return (
@@ -191,7 +107,7 @@ function StaffNotificationBell() {
               {unreadCount > 0 && <span className="staff-notif-pill">{unreadCount} new</span>}
             </div>
             {unreadCount > 0 && (
-              <button type="button" className="staff-notif-link" onClick={markAllAsRead}>
+              <button type="button" className="staff-notif-link" onClick={markAllRead}>
                 Mark all read
               </button>
             )}
@@ -209,7 +125,7 @@ function StaffNotificationBell() {
                     type="button"
                     role="menuitem"
                     className={`staff-notif-item ${item.read ? "read" : "unread"}`}
-                    onClick={() => markOneAsRead(item.id)}
+                    onClick={() => markOneRead(item.id)}
                   >
                     <span className={`staff-notif-icon ${tone}`} aria-hidden="true">
                       <Icon size={15} strokeWidth={2} />
@@ -235,7 +151,7 @@ function StaffNotificationBell() {
 
           {visibleNotifications.length > 0 && (
             <footer className="staff-notif-foot">
-              <button type="button" className="staff-notif-clear" onClick={clearAll}>
+              <button type="button" className="staff-notif-clear" onClick={clearNotifications}>
                 Clear all notifications
               </button>
             </footer>

@@ -1,6 +1,4 @@
 -- Expand product image storage and ensure the menu category list exists.
-USE amaya;
-
 ALTER TABLE menu_products MODIFY image_url LONGTEXT NULL;
 
 INSERT INTO menu_categories (name, description, display_order, is_active) VALUES

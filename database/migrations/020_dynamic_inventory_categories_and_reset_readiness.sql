@@ -1,5 +1,3 @@
-USE amaya;
-
 -- 1. Ensure inventory_categories table exists with dynamic defaults
 CREATE TABLE IF NOT EXISTS inventory_categories (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

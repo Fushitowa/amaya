@@ -27,6 +27,7 @@ export const STAFF_NOTIFICATION_TYPES = {
   inventory_stock: { label: "Stock limit", tone: "red" },
   inventory_low: { label: "Stock alert", tone: "red" },
   inventory_inactive: { label: "Inactive stock", tone: "amber" },
+  inventory_waste: { label: "Waste logged", tone: "red" },
   info: { label: "Notice", tone: "stone" },
 };
 
@@ -165,7 +166,11 @@ export function formatRelativeTime(timestamp) {
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
 
-  return new Date(then).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(then).toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /* ---- audio ----

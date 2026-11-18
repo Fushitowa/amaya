@@ -2,6 +2,7 @@ import "./helpers/loadEnv.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -204,6 +205,26 @@ describe("Double-Entry Ledger Reconciliation, Reversals & Export Limit", () => {
       assert.equal(summary.mode, "dry-run");
       assert.equal(typeof summary.unpostedPaidOrders, "number");
       assert.equal(typeof summary.liveInventoryValuation, "number");
+
+      // Phase 1 P1-9: verify backfillLedger.js and ledgerService.js propagate discount/tax, order_item_id guard, and idempotencyKey
+      const [backfillSrc, ledgerSvcSrc] = await Promise.all([
+        fs.readFile(path.join(API_DIR, "src/scripts/backfillLedger.js"), "utf8"),
+        fs.readFile(path.join(API_DIR, "src/utils/ledgerService.js"), "utf8"),
+      ]);
+      assert.ok(backfillSrc.includes("o.discount_amount"), "backfillLedger must select o.discount_amount");
+      assert.ok(backfillSrc.includes("o.tax_amount"), "backfillLedger must select o.tax_amount");
+      assert.ok(backfillSrc.includes("discountAmount: Number(order.discount_amount"), "backfillLedger must pass discountAmount");
+      assert.ok(backfillSrc.includes("taxAmount: Number(order.tax_amount"), "backfillLedger must pass taxAmount");
+      assert.ok(backfillSrc.includes("oic.order_item_id IS NOT NULL"), "backfillLedger inv_cogs must filter oic.order_item_id IS NOT NULL");
+      assert.ok(
+        backfillSrc.includes("backfill:opening_inventory_1050_reconciliation"),
+        "backfillLedger must supply deterministic idempotencyKey for valuation delta reconciliation",
+      );
+      assert.match(
+        ledgerSvcSrc,
+        /postInventoryValuationDelta\([\s\S]*idempotencyKey\s*=\s*null[\s\S]*idempotencyKey:\s*idempotencyKey\s*\|\|/,
+        "postInventoryValuationDelta must accept and forward explicit idempotencyKey",
+      );
     } finally {
       if (orderIds.length > 0) {
         const marks = orderIds.map(() => "?").join(",");

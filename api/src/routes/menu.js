@@ -3,7 +3,9 @@ import pool from "../database.js";
 import { httpError, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
 import { calculateLineCost, DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost, summarizeCosting } from "../utils/costing.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
+import { parsePositiveIntId, validateImageUrl } from "../utils/validation.js";
 import { recordArchiveAudit } from "./archive.js";
+import { resolveMediaUrl } from "./media.js";
 
 const router = Router();
 const toMoney = (value, label) => {
@@ -12,11 +14,7 @@ const toMoney = (value, label) => {
   if (!Number.isFinite(amount) || amount < 0 || amount > 1000000) throw httpError(400, `${label} must be a valid non-negative price.`);
   return amount.toFixed(2);
 };
-const idFrom = (value) => {
-  const id = Number(value);
-  if (!Number.isSafeInteger(id) || id <= 0) throw httpError(400, "Invalid menu item ID.");
-  return id;
-};
+const idFrom = (value) => parsePositiveIntId(value, "menu item ID");
 const explainPackedUnit = (name, value, fieldName) => {
 	const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([a-z].*)$/i);
 	if (!match) return null;
@@ -35,6 +33,7 @@ export function toProduct(
   includeInventory,
   includeCost = includeInventory,
   targetFoodCost = DEFAULT_TARGET_FOOD_COST,
+  mediaMode = null,
 ) {
   const showInventory = Boolean(includeInventory);
   const showCost = Boolean(includeCost);
@@ -136,7 +135,7 @@ export function toProduct(
     name: row.name,
     category: row.category || "Uncategorized",
     price: `₱${Number(row.base_price).toFixed(2)}`,
-    image: row.image_url || "",
+    image: mediaMode === "url" ? resolveMediaUrl("menu", row.id, row.image_url, row.updated_at) : (row.image_url || ""),
     description: row.description || "",
     stock: effectiveStock,
     available: Boolean(row.is_available),
@@ -187,12 +186,21 @@ export async function listProducts(
   includeInventory = false,
   db = pool,
   includeCost = includeInventory,
+  { productId = null, mediaMode = null } = {},
 ) {
+  const conditions = ["p.is_archived = FALSE"];
+  const params = [];
+  if (!includeUnavailable) conditions.push("p.is_available = TRUE");
+  if (productId != null) {
+    conditions.push("p.id = ?");
+    params.push(Number(productId));
+  }
   const [products] = await db.execute(
     `SELECT p.*, c.name AS category
        FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
-      WHERE p.is_archived = FALSE ${includeUnavailable ? "" : "AND p.is_available = TRUE"}
+      WHERE ${conditions.join(" AND ")}
       ORDER BY p.display_order, p.name`,
+    params,
   );
   if (!products.length) return [];
   let targetFoodCost = DEFAULT_TARGET_FOOD_COST;
@@ -230,7 +238,7 @@ export async function listProducts(
   const addons = addonRows;
   const ingredients = ingredientRows;
   return products.map((product) =>
-    toProduct(product, sizes, addons, ingredients, sizeIngredients, includeInventory, includeCost, targetFoodCost),
+    toProduct(product, sizes, addons, ingredients, sizeIngredients, includeInventory, includeCost, targetFoodCost, mediaMode),
   );
 }
 
@@ -278,11 +286,7 @@ export async function saveProduct(connection, body, id = null) {
     : null;
   const stock = Number(body.stock ?? 0);
   if (!Number.isSafeInteger(stock) || stock < 0) throw httpError(400, "Stock must be a non-negative whole number.");
-  const image = body.image == null ? null : String(body.image);
-  if (image && image.length > 8_000_000) throw httpError(413, "Product image is too large. Choose an image under 5 MB.");
-  if (image && !(/^(data:image\/(png|jpeg|webp);base64,|https?:\/\/|\/)/i.test(image))) {
-    throw httpError(400, "Product image must be a PNG, JPG, or WEBP upload or a valid image URL.");
-  }
+  const image = validateImageUrl(body.image, { label: "Product image", undefinedAs: null }) ?? null;
 
   const [categoryRows] = await connection.execute(
     "SELECT id, name, operational_family AS operationalFamily FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1",
@@ -304,14 +308,16 @@ export async function saveProduct(connection, body, id = null) {
     productId = result.insertId;
   } else {
     const [existing] = await connection.execute(
-      "SELECT id, cost_price FROM menu_products WHERE id = ? AND is_archived = FALSE",
+      "SELECT id, cost_price, image_url FROM menu_products WHERE id = ? AND is_archived = FALSE FOR UPDATE",
       [id],
     );
     if (!existing.length) throw httpError(404, "Menu item not found.");
     const effectiveCostPrice = parsedCostPrice !== null ? parsedCostPrice : existing[0].cost_price;
+    const isSelfMediaProxyUrl = typeof image === "string" && image.startsWith(`/api/media/menu/${Number(id)}`);
+    const effectiveImage = isSelfMediaProxyUrl ? existing[0].image_url : image;
     await connection.execute(
       `UPDATE menu_products SET category_id = ?, name = ?, description = ?, image_url = ?, base_price = ?, cost_price = ?, stock_quantity = ?, is_available = ?, is_featured = ? WHERE id = ?`,
-      [categoryId, name, description || null, image, basePrice, effectiveCostPrice, stock, body.available !== false, Boolean(body.featured), id],
+      [categoryId, name, description || null, effectiveImage, basePrice, effectiveCostPrice, stock, body.available !== false, Boolean(body.featured), id],
     );
   }
 
@@ -375,72 +381,131 @@ export async function saveProduct(connection, body, id = null) {
     throw httpError(400, "Each add-on name can only appear once per menu item.");
   }
 
-  // Resolve every ingredient used by the default recipe AND any size-specific recipe once.
+  // Resolve every ingredient and add-on non-lockingly in batch, then lock all inventory_items
+  // in ascending id order to prevent AB-BA deadlocks across concurrent menu saves and orders.
+  const allRecipeEntries = [...recipeInputs, ...sizeRecipeInputs.flat()];
+  const candidateIds = [
+    ...new Set(
+      [...allRecipeEntries, ...addonInputs]
+        .map((e) => Number(e.inventoryItemId))
+        .filter((id) => Number.isSafeInteger(id) && id > 0),
+    ),
+  ];
+  const candidateNames = [
+    ...new Set(
+      [
+        ...allRecipeEntries.map((e) => e.name.toLowerCase()),
+        ...addonInputs.flatMap((e) => [e.label.toLowerCase(), e.label.replace(/^extra\s+/i, "").trim().toLowerCase()]),
+      ].filter(Boolean),
+    ),
+  ];
+
+  const itemIdMap = new Map();
+  if (candidateIds.length > 0) {
+    const idMarks = candidateIds.map(() => "?").join(",");
+    const [idRows] = await connection.execute(
+      `SELECT id, name FROM inventory_items WHERE id IN (${idMarks}) AND is_archived = FALSE`,
+      candidateIds,
+    );
+    for (const row of idRows) itemIdMap.set(Number(row.id), row);
+  }
+  const itemNameMap = new Map();
+  if (candidateNames.length > 0) {
+    const nameMarks = candidateNames.map(() => "?").join(",");
+    const [nameRows] = await connection.execute(
+      `SELECT id, name FROM inventory_items WHERE LOWER(name) IN (${nameMarks}) AND is_archived = FALSE ORDER BY id ASC`,
+      candidateNames,
+    );
+    for (const row of nameRows) {
+      const k = String(row.name || "").toLowerCase();
+      if (!itemNameMap.has(k)) itemNameMap.set(k, row);
+    }
+  }
+
+  const ingredientLookupByKey = new Map();
+  const requiredInventoryIds = new Set();
+
+  for (const entry of allRecipeEntries) {
+    const key = entry.name.toLocaleLowerCase();
+    if (!ingredientLookupByKey.has(key)) {
+      const item =
+        (entry.inventoryItemId ? itemIdMap.get(Number(entry.inventoryItemId)) : null) ||
+        itemNameMap.get(key) ||
+        null;
+      if (!item) {
+        throw httpError(400, `Inventory item "${entry.name}" does not exist. Please add it to Inventory first.`);
+      }
+      const invId = Number(item.id);
+      ingredientLookupByKey.set(key, invId);
+      requiredInventoryIds.add(invId);
+    }
+  }
+
+  const addonLookupByIndex = [];
+  for (const entry of addonInputs) {
+    const strippedName = entry.label.replace(/^extra\s+/i, "").trim().toLowerCase();
+    const item =
+      (entry.inventoryItemId ? itemIdMap.get(Number(entry.inventoryItemId)) : null) ||
+      itemNameMap.get(entry.label.toLowerCase()) ||
+      itemNameMap.get(strippedName) ||
+      null;
+    if (!item) {
+      throw httpError(400, `Inventory item for add-on "${entry.label}" does not exist. Please add it to Inventory first.`);
+    }
+    const invId = Number(item.id);
+    addonLookupByIndex.push(invId);
+    requiredInventoryIds.add(invId);
+  }
+
+  const sortedInventoryIds = [...requiredInventoryIds].sort((a, b) => a - b);
+  const lockedInventoryById = new Map();
+  if (sortedInventoryIds.length > 0) {
+    const marks = sortedInventoryIds.map(() => "?").join(",");
+    const [lockedRows] = await connection.execute(
+      `SELECT ii.id, ii.name, ii.unit, ii.category,
+              COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
+         FROM inventory_items ii
+         LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
+        WHERE ii.id IN (${marks}) AND ii.is_archived = FALSE
+        ORDER BY ii.id ASC
+          FOR UPDATE`,
+      sortedInventoryIds,
+    );
+    for (const row of lockedRows) {
+      lockedInventoryById.set(Number(row.id), row);
+    }
+  }
+
   const itemByName = new Map();
   for (const entry of [...recipeInputs, ...sizeRecipeInputs.flat()]) {
     const key = entry.name.toLocaleLowerCase();
     if (!itemByName.has(key)) {
-      let item = null;
-      if (entry.inventoryItemId) {
-        const [[byId]] = await connection.execute(
-          `SELECT ii.id, ii.name, ii.unit, ii.category,
-                  COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
-             FROM inventory_items ii
-             LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
-            WHERE ii.id = ? AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
-          [entry.inventoryItemId],
-        );
-        item = byId;
-      }
-      if (!item) {
-        const [byName] = await connection.execute(
-          `SELECT ii.id, ii.name, ii.unit, ii.category,
-                  COALESCE(ic.is_cup_category, FALSE) AS is_cup_category
-             FROM inventory_items ii
-             LEFT JOIN inventory_categories ic ON LOWER(ii.category) COLLATE utf8mb4_unicode_ci = LOWER(ic.name) COLLATE utf8mb4_unicode_ci
-            WHERE LOWER(ii.name) = LOWER(?) AND ii.is_archived = FALSE LIMIT 1 FOR UPDATE`,
-          [entry.name],
-        );
-        item = byName[0];
-      }
-      if (!item) {
+      const invId = ingredientLookupByKey.get(key);
+      const locked = lockedInventoryById.get(invId);
+      if (!locked) {
         throw httpError(400, `Inventory item "${entry.name}" does not exist. Please add it to Inventory first.`);
       }
-      const isCup = Boolean(item.is_cup_category) || item.category === "Cups" || item.category === "Cups & Lids";
-      itemByName.set(key, { inventoryItemId: Number(item.id), stockUnit: item.unit, itemName: item.name, isCup });
+      const isCup = Boolean(locked.is_cup_category);
+      itemByName.set(key, { inventoryItemId: Number(locked.id), stockUnit: locked.unit, itemName: locked.name, isCup });
     }
     if (!toInventoryQuantity(entry.quantityUsed, entry.unit, itemByName.get(key).stockUnit)) {
       throw httpError(400, `“${entry.unit}” for ${entry.name} cannot be converted to inventory unit “${itemByName.get(key).stockUnit}”. Choose units from the same group (weight, volume, or count).`);
     }
   }
-  const effectiveRecipeInputs = recipeInputs.length > 0 ? recipeInputs : (sizeRecipeInputs[0] || []);
-  const recipeItems = effectiveRecipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
-  const addonInventoryItems = [];
-  for (const entry of addonInputs) {
-    let item = null;
-    if (entry.inventoryItemId) {
-      const [[byId]] = await connection.execute(
-        "SELECT id, name, unit FROM inventory_items WHERE id = ? AND is_archived = FALSE LIMIT 1 FOR UPDATE",
-        [entry.inventoryItemId],
-      );
-      item = byId;
-    }
-    if (!item) {
-      const strippedName = entry.label.replace(/^extra\s+/i, "").trim();
-      const [byName] = await connection.execute(
-        "SELECT id, name, unit FROM inventory_items WHERE (LOWER(name) = LOWER(?) OR LOWER(name) = LOWER(?)) AND is_archived = FALSE LIMIT 1 FOR UPDATE",
-        [entry.label, strippedName],
-      );
-      item = byName[0];
-    }
-    if (!item) {
+
+  // Never copy sizeRecipeInputs[0] into base product_ingredients; keep base recipe explicit.
+  const recipeItems = recipeInputs.map((entry) => ({ ...entry, ...itemByName.get(entry.name.toLocaleLowerCase()) }));
+  const addonInventoryItems = addonInputs.map((entry, idx) => {
+    const invId = addonLookupByIndex[idx];
+    const locked = lockedInventoryById.get(invId);
+    if (!locked) {
       throw httpError(400, `Inventory item for add-on "${entry.label}" does not exist. Please add it to Inventory first.`);
     }
-    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, item.unit)) {
-      throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${item.unit}”. Choose units from the same group (weight, volume, or count).`);
+    if (!toInventoryQuantity(entry.quantityUsed, entry.unit, locked.unit)) {
+      throw httpError(400, `“${entry.unit}” for ${entry.label} cannot be converted to inventory unit “${locked.unit}”. Choose units from the same group (weight, volume, or count).`);
     }
-    addonInventoryItems.push({ ...entry, inventoryItemId: Number(item.id), stockUnit: item.unit });
-  }
+    return { ...entry, inventoryItemId: Number(locked.id), stockUnit: locked.unit };
+  });
 
   if (operationalFamily === "drink") {
     for (const [index, size] of sizes.entries()) {
@@ -461,6 +526,7 @@ export async function saveProduct(connection, body, id = null) {
   await connection.execute("DELETE FROM product_addons WHERE product_id = ?", [productId]);
   await connection.execute("DELETE FROM product_ingredients WHERE product_id = ?", [productId]);
 
+  const sizeIngredientRows = [];
   for (const [index, size] of sizes.entries()) {
     const label = String(size?.label || "").trim();
     if (!label) continue;
@@ -473,22 +539,40 @@ export async function saveProduct(connection, body, id = null) {
       const base = itemByName.get(entry.name.toLocaleLowerCase());
       const quantityUsed = toInventoryQuantity(entry.quantityUsed, entry.unit, base.stockUnit);
       if (!quantityUsed) throw httpError(400, `The ${label} quantity for ${entry.name} cannot be converted to its Inventory stock unit “${base.stockUnit}”.`);
-      await connection.execute(
-        "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
-        [createdSize.insertId, base.inventoryItemId, entry.quantityUsed, entry.unit],
-      );
+      sizeIngredientRows.push([createdSize.insertId, base.inventoryItemId, entry.quantityUsed, entry.unit]);
     }
   }
-  for (const [index, addon] of addonInventoryItems.entries()) {
-    await connection.execute(
-      "INSERT INTO product_addons (product_id, label, price, inventory_item_id, quantity_used, usage_unit, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [productId, addon.label, addon.price, addon.inventoryItemId, addon.quantityUsed, addon.unit, index],
+  if (sizeIngredientRows.length > 0) {
+    await connection.query(
+      "INSERT INTO product_size_ingredients (product_size_id, inventory_item_id, quantity_used, unit) VALUES ?",
+      [sizeIngredientRows],
     );
   }
-  for (const entry of recipeItems) {
-    await connection.execute(
-      "INSERT INTO product_ingredients (product_id, inventory_item_id, quantity_used, unit) VALUES (?, ?, ?, ?)",
-      [productId, entry.inventoryItemId, entry.quantityUsed, entry.unit],
+  if (addonInventoryItems.length > 0) {
+    const addonRows = addonInventoryItems.map((addon, index) => [
+      productId,
+      addon.label,
+      addon.price,
+      addon.inventoryItemId,
+      addon.quantityUsed,
+      addon.unit,
+      index,
+    ]);
+    await connection.query(
+      "INSERT INTO product_addons (product_id, label, price, inventory_item_id, quantity_used, usage_unit, display_order) VALUES ?",
+      [addonRows],
+    );
+  }
+  if (recipeItems.length > 0) {
+    const recipeRows = recipeItems.map((entry) => [
+      productId,
+      entry.inventoryItemId,
+      entry.quantityUsed,
+      entry.unit,
+    ]);
+    await connection.query(
+      "INSERT INTO product_ingredients (product_id, inventory_item_id, quantity_used, unit) VALUES ?",
+      [recipeRows],
     );
   }
   return productId;
@@ -645,16 +729,15 @@ router.put("/categories/:id/reassign-and-delete", requireAuth, requireRole("admi
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[sourceCategory]] = await connection.execute(
-      "SELECT id, name FROM menu_categories WHERE id = ? FOR UPDATE",
-      [id],
+    const sortedCategoryIds = [id, targetId].sort((a, b) => a - b);
+    const [lockedCategories] = await connection.execute(
+      "SELECT id, name FROM menu_categories WHERE id IN (?, ?) ORDER BY id ASC FOR UPDATE",
+      sortedCategoryIds,
     );
+    const sourceCategory = lockedCategories.find((c) => Number(c.id) === id);
     if (!sourceCategory) throw httpError(404, "Source menu category not found.");
 
-    const [[targetCategory]] = await connection.execute(
-      "SELECT id, name FROM menu_categories WHERE id = ? FOR UPDATE",
-      [targetId],
-    );
+    const targetCategory = lockedCategories.find((c) => Number(c.id) === targetId);
     if (!targetCategory) throw httpError(404, "Target menu category not found.");
 
     const [updateResult] = await connection.execute(
@@ -686,7 +769,8 @@ router.get("/", optionalAuth, async (request, response) => {
     && request.query.all === "true";
   const includeInventory = Boolean(request.authUser && ["admin", "staff"].includes(request.authUser.role));
   const includeCost = Boolean(request.authUser && request.authUser.role === "admin");
-  response.json(await listProducts(includeUnavailable, includeInventory, pool, includeCost));
+  const mediaMode = request.query?.media === "url" ? "url" : null;
+  response.json(await listProducts(includeUnavailable, includeInventory, pool, includeCost, { mediaMode }));
 });
 
 router.post("/", requireAuth, requireRole("admin"), async (request, response) => {
@@ -695,7 +779,8 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
     await connection.beginTransaction();
     const id = await saveProduct(connection, request.body);
     await connection.commit();
-    response.status(201).json((await listProducts(true, true, pool, true)).find((product) => product.id === Number(id)));
+    const [created] = await listProducts(true, true, pool, true, { productId: Number(id) });
+    response.status(201).json(created);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -711,7 +796,8 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     await connection.beginTransaction();
     await saveProduct(connection, request.body, id);
     await connection.commit();
-    response.json((await listProducts(true, true, pool, true)).find((product) => product.id === id));
+    const [updated] = await listProducts(true, true, pool, true, { productId: id });
+    response.json(updated);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -741,7 +827,6 @@ router.delete("/:id", requireAuth, requireRole("admin"), async (request, respons
     actorId: request.authUser?.sub || null,
     actorName: request.authUser?.displayName || request.authUser?.username || "Admin",
     note: "Moved to 30-day Archive from Menu Management",
-    metadata: { category: existing.category || "Uncategorized", basePrice: Number(existing.base_price) },
   });
   response.status(204).end();
 });

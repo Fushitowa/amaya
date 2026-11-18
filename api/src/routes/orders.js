@@ -1,339 +1,58 @@
-import { randomInt } from "node:crypto";
-import bcrypt from "bcryptjs";
 import { Router } from "express";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { toInventoryQuantity } from "../utils/inventoryUnits.js";
-import {
-  postOrderItemRevertReversal,
-  postOrderSaleAndCogs,
-  postOrderVoidReversal,
-} from "../utils/ledgerService.js";
+import { postOrderSaleAndCogs } from "../utils/ledgerService.js";
+import { parseOptionalClientRequestId } from "../utils/validation.js";
 import { loadBusinessSettings } from "./settings.js";
+import {
+  findUnusedOrderNumber,
+  loadOrderByNumber,
+  loadOrders,
+  loadOrderSummary,
+  normalizeBaseSizeLabel,
+  ORDER_FLOW as orderFlow,
+  ORDER_TYPES as orderTypes,
+  PAYMENT_METHODS as paymentMethods,
+  selectRecipe,
+  VALID_ORDER_STATUSES,
+} from "../services/ordersQueryService.js";
+import {
+  executeOrderItemRevert,
+  executeVoidOrder,
+} from "../services/ordersReversalService.js";
 
-// A size with its own recipe rows uses them exclusively; only a size with none falls back to the base recipe.
-export const selectRecipe = (sizeRecipe, baseRecipe) => (sizeRecipe.length ? sizeRecipe : baseRecipe);
+export { selectRecipe };
 
 const router = Router();
-const orderFlow = ["Pending", "Preparing", "Completed"];
-const paymentMethods = ["Cash", "GCash", "Card"];
-const orderTypes = ["Counter", "Takeout", "Dine-in"];
-
-function formatManilaOrderStamp(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Manila",
-    year: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}${map.month}${map.day}${map.hour}${map.minute}${map.second}`;
-}
-
-function getManilaTodayBounds() {
-  const todayStr = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  return {
-    start: `${todayStr} 00:00:00`,
-    end: `${todayStr} 23:59:59`,
-  };
-}
-
-function normalizeBaseSizeLabel(label) {
-  const cleaned = String(label || "Regular")
-    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:fl\s*)?oz\s*\)\s*$/i, "")
-    .trim()
-    .toLowerCase();
-  return cleaned || "regular";
-}
-
-function mapOrderRecord(
-  order,
-  items,
-  addons,
-  { includeCost = false, includeDetails = false, statusEvents = [], consumptions = [] } = {},
-) {
-  const cashierDisplay = order.cashier_name || order.creator_display_name || "Staff";
-  const mapped = {
-    id: order.order_number,
-    customer: order.customer_name,
-    cashier: cashierDisplay,
-    createdById: order.created_by == null ? null : Number(order.created_by),
-    createdBy: cashierDisplay,
-    confirmedBy: order.confirmed_by == null ? null : Number(order.confirmed_by),
-    confirmedByName: order.confirmed_by_name || null,
-    paidBy: order.paid_by == null ? null : Number(order.paid_by),
-    paidByName: order.paid_by_name || null,
-    completedBy: order.completed_by == null ? null : Number(order.completed_by),
-    completedByName: order.completed_by_name || null,
-    completedAt: order.completed_at ? new Date(order.completed_at).toISOString() : null,
-    voidedBy: order.voided_by == null ? null : Number(order.voided_by),
-    voidedByName: order.voided_by_name || null,
-    voidedAt: order.voided_at ? new Date(order.voided_at).toISOString() : null,
-    voidReason: order.void_reason || null,
-    notes: order.notes || null,
-    sessionId: order.session_id == null ? null : Number(order.session_id),
-    items: items
-      .filter((item) => Number(item.order_id) === Number(order.id))
-      .map((item) => {
-        const snapshotVal = item.unit_cost_snapshot == null ? null : Number(item.unit_cost_snapshot);
-        return {
-          id: Number(item.id),
-          productId: item.product_id == null ? null : Number(item.product_id),
-          title: item.product_name_snapshot || item.current_product_name,
-          quantity: Number(item.quantity),
-          price: Number(item.unit_price),
-          ...(includeCost ? {
-            unitCost: snapshotVal,
-            ...(includeDetails ? { unitCostSnapshot: snapshotVal } : {}),
-          } : {}),
-          size: item.size_label,
-          category: item.category_name_snapshot || "Menu item",
-          sugarLevel: item.sugar_level,
-          addons: addons
-            .filter((addon) => Number(addon.order_item_id) === Number(item.id))
-            .map((addon) => addon.addon_name_snapshot),
-          instructions: item.instructions,
-          notes: item.instructions,
-        };
-      }),
-    subtotal: Number(order.subtotal ?? order.total),
-    discountAmount: Number(order.discount_amount ?? 0),
-    discountLabel: order.discount_label || null,
-    taxAmount: Number(order.tax_amount ?? 0),
-    total: Number(order.total),
-    status: order.order_status,
-    type: order.order_type,
-    payment: order.payment_status,
-    paymentMethod: order.payment_method,
-    paidAt: order.paid_at ? new Date(order.paid_at).toISOString() : null,
-    confirmed: Boolean(order.confirmed_at),
-    confirmedAt: order.confirmed_at ? new Date(order.confirmed_at).toISOString() : null,
-    cashTendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
-    changeDue: order.change_due == null ? null : Number(order.change_due),
-    cash_tendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
-    change_due: order.change_due == null ? null : Number(order.change_due),
-    createdAt: new Date(order.created_at).toISOString(),
-  };
-
-  if (includeDetails) {
-    mapped.statusEvents = statusEvents.map((event) => ({
-      id: Number(event.id),
-      orderId: Number(event.order_id),
-      fromStatus: event.from_status || null,
-      toStatus: event.to_status,
-      changedBy: event.changed_by == null ? null : Number(event.changed_by),
-      actorName: event.actor_name_snapshot || event.actor_display_name || "System",
-      reason: event.reason || null,
-      createdAt: new Date(event.created_at).toISOString(),
-    }));
-    mapped.ingredientsUsed = consumptions.map((c) => ({
-      id: Number(c.id),
-      orderItemId: c.order_item_id == null ? null : Number(c.order_item_id),
-      inventoryItemId: Number(c.inventory_item_id),
-      inventoryName: c.current_item_name || c.inventory_item_name_snapshot,
-      productName: c.product_name_snapshot,
-      quantityUsed: Number(c.quantity_used),
-      unit: c.unit,
-      source: c.source || "recipe",
-      reversedAt: c.reversed_at ? new Date(c.reversed_at).toISOString() : null,
-    }));
-    if (includeCost) {
-      mapped.consumptions = consumptions.map((c) => {
-        const name = c.current_item_name || c.inventory_item_name_snapshot;
-        const lineCost = Number(c.line_cost || 0);
-        return {
-          id: Number(c.id),
-          orderItemId: c.order_item_id == null ? null : Number(c.order_item_id),
-          inventoryItemId: Number(c.inventory_item_id),
-          inventoryName: name,
-          itemName: name,
-          productName: c.product_name_snapshot,
-          quantity: Number(c.quantity_used),
-          quantityUsed: Number(c.quantity_used),
-          unit: c.unit,
-          unitCostSnapshot: Number(c.unit_cost_snapshot || 0),
-          lineCost,
-          totalCost: lineCost,
-          source: c.source || "recipe",
-          reversedAt: c.reversed_at ? new Date(c.reversed_at).toISOString() : null,
-        };
-      });
-    }
-  }
-  return mapped;
-}
-
-const ORDER_WITH_ACTORS_SELECT = `
-  SELECT orders.*,
-         NULLIF(u.display_name, '') AS creator_display_name,
-         COALESCE(NULLIF(uc.display_name, ''), uc.username) AS confirmed_by_name,
-         COALESCE(NULLIF(up.display_name, ''), up.username) AS paid_by_name,
-         COALESCE(NULLIF(uco.display_name, ''), uco.username) AS completed_by_name,
-         COALESCE(NULLIF(uv.display_name, ''), uv.username) AS voided_by_name
-    FROM orders
-    LEFT JOIN users u ON u.id = orders.created_by
-    LEFT JOIN users uc ON uc.id = orders.confirmed_by
-    LEFT JOIN users up ON up.id = orders.paid_by
-    LEFT JOIN users uco ON uco.id = orders.completed_by
-    LEFT JOIN users uv ON uv.id = orders.voided_by
-`;
-
-async function loadOrders(limit = 500, { includeCost = false } = {}) {
-  const safeLimit = Math.min(Math.max(1, Number(limit || 500)), 5000);
-  const [orders] = await pool.query(
-    `${ORDER_WITH_ACTORS_SELECT} ORDER BY orders.created_at DESC, orders.id DESC LIMIT ?`,
-    [safeLimit],
-  );
-  if (!orders.length) return [];
-  const ids = orders.map((order) => order.id);
-  const marks = ids.map(() => "?").join(",");
-  const [itemResult, addonResult] = await Promise.all([
-    pool.execute("SELECT oi.*, p.name AS current_product_name FROM order_items oi LEFT JOIN menu_products p ON p.id = oi.product_id WHERE oi.order_id IN (" + marks + ") ORDER BY oi.id", ids),
-    pool.execute("SELECT oia.*, oi.order_id FROM order_item_addons oia JOIN order_items oi ON oi.id = oia.order_item_id WHERE oi.order_id IN (" + marks + ") ORDER BY oia.id", ids),
-  ]);
-  const items = itemResult[0];
-  const addons = addonResult[0];
-  return orders.map((order) => mapOrderRecord(order, items, addons, { includeCost }));
-}
-
-async function loadOrderByNumber(orderNumber, { includeCost = false, includeDetails = false } = {}) {
-  const [orders] = await pool.execute(
-    `${ORDER_WITH_ACTORS_SELECT} WHERE orders.order_number = ? LIMIT 1`,
-    [orderNumber],
-  );
-  const order = orders[0];
-  if (!order) return null;
-  const queries = [
-    pool.execute("SELECT oi.*, p.name AS current_product_name FROM order_items oi LEFT JOIN menu_products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id", [order.id]),
-    pool.execute("SELECT oia.*, oi.order_id FROM order_item_addons oia JOIN order_items oi ON oi.id = oia.order_item_id WHERE oi.order_id = ? ORDER BY oia.id", [order.id]),
-  ];
-  if (includeDetails) {
-    queries.push(
-      pool.execute(
-        `SELECT e.*, COALESCE(NULLIF(u.display_name, ''), u.username) AS actor_display_name
-           FROM order_status_events e
-           LEFT JOIN users u ON u.id = e.changed_by
-          WHERE e.order_id = ?
-          ORDER BY e.created_at ASC, e.id ASC`,
-        [order.id],
-      ),
-    );
-    const consumptionSelect = includeCost
-      ? "c.*, ii.name AS current_item_name"
-      : "c.id, c.order_item_id, c.inventory_item_id, c.product_name_snapshot, c.inventory_item_name_snapshot, c.quantity_used, c.unit, c.source, c.reversed_at, ii.name AS current_item_name";
-    queries.push(
-      pool.execute(
-        `SELECT ${consumptionSelect}
-           FROM order_inventory_consumptions c
-           LEFT JOIN inventory_items ii ON ii.id = c.inventory_item_id
-          WHERE c.order_id = ?
-          ORDER BY c.order_item_id ASC, c.source ASC, c.id ASC`,
-        [order.id],
-      ),
-    );
-  }
-  const results = await Promise.all(queries);
-  const items = results[0][0];
-  const addons = results[1][0];
-  const statusEvents = includeDetails ? results[2][0] : [];
-  const consumptions = includeDetails ? results[3][0] : [];
-  return mapOrderRecord(order, items, addons, { includeCost, includeDetails, statusEvents, consumptions });
-}
-
-async function findUnusedOrderNumber(connection) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const datePart = formatManilaOrderStamp();
-    const value = `AM-${datePart}-${String(randomInt(0, 1000000)).padStart(6, "0")}`;
-    const [rows] = await connection.execute("SELECT id FROM orders WHERE order_number = ?", [value]);
-    if (!rows.length) return value;
-  }
-  throw httpError(503, "Could not allocate an order number. Please try again.");
-}
 
 router.get("/summary", requireAuth, requireRole("admin"), async (_request, response) => {
-  const { start: todayStart, end: todayEnd } = getManilaTodayBounds();
-  const [salesRows] = await pool.execute(
-    `SELECT
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' THEN total ELSE 0 END), 0) AS all_time_sales,
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' AND created_at BETWEEN ? AND ? THEN total ELSE 0 END), 0) AS today_sales,
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' THEN 1 ELSE 0 END), 0) AS all_time_paid_orders,
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' AND created_at BETWEEN ? AND ? THEN 1 ELSE 0 END), 0) AS today_paid_orders,
-       COALESCE(SUM(CASE WHEN order_status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_orders,
-       COALESCE(SUM(CASE WHEN order_status = 'Cancelled' THEN 1 ELSE 0 END), 0) AS all_time_voided_orders,
-       COALESCE(SUM(CASE WHEN order_status = 'Cancelled' AND created_at BETWEEN ? AND ? THEN 1 ELSE 0 END), 0) AS today_voided_orders,
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' AND payment_method = 'Cash' AND created_at BETWEEN ? AND ? THEN total ELSE 0 END), 0) AS today_cash_collected,
-       COALESCE(SUM(CASE WHEN payment_status = 'Paid' AND order_status <> 'Cancelled' AND payment_method = 'Cash' THEN total ELSE 0 END), 0) AS all_time_cash_collected
-     FROM orders`,
-    [todayStart, todayEnd, todayStart, todayEnd, todayStart, todayEnd, todayStart, todayEnd],
-  );
-  const [itemRows] = await pool.execute(
-    `SELECT
-       COALESCE(SUM(oi.quantity), 0) AS all_time_units_sold,
-       COALESCE(SUM(CASE WHEN o.created_at BETWEEN ? AND ? THEN oi.quantity ELSE 0 END), 0) AS today_units_sold,
-       COALESCE(SUM(
-         COALESCE(
-           NULLIF(oic_sum.consumption_cost, 0),
-           oi.quantity * COALESCE(NULLIF(oi.unit_cost_snapshot, 0), NULLIF(mp.cost_price, 0), 0)
-         )
-       ), 0) AS all_time_cogs,
-       COALESCE(SUM(
-         CASE WHEN o.created_at BETWEEN ? AND ? THEN
-           COALESCE(
-             NULLIF(oic_sum.consumption_cost, 0),
-             oi.quantity * COALESCE(NULLIF(oi.unit_cost_snapshot, 0), NULLIF(mp.cost_price, 0), 0)
-           )
-         ELSE 0 END
-       ), 0) AS today_cogs
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     LEFT JOIN menu_products mp ON mp.id = oi.product_id
-     LEFT JOIN (
-       SELECT order_item_id, SUM(line_cost) AS consumption_cost
-         FROM order_inventory_consumptions
-        WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
-        GROUP BY order_item_id
-     ) oic_sum ON oic_sum.order_item_id = oi.id
-     WHERE o.payment_status = 'Paid' AND o.order_status <> 'Cancelled'`,
-    [todayStart, todayEnd, todayStart, todayEnd],
-  );
-  const s = salesRows[0] || {};
-  const it = itemRows[0] || {};
-  const allTimeSales = Number(Number(s.all_time_sales || 0).toFixed(2));
-  const todaySales = Number(Number(s.today_sales || 0).toFixed(2));
-  const allTimeCogs = Number(Number(it.all_time_cogs || 0).toFixed(2));
-  const todayCogs = Number(Number(it.today_cogs || 0).toFixed(2));
-  response.json({
-    allTimeSales,
-    todaySales,
-    allTimeCogs,
-    todayCogs,
-    allTimeGrossProfit: Number((allTimeSales - allTimeCogs).toFixed(2)),
-    todayGrossProfit: Number((todaySales - todayCogs).toFixed(2)),
-    allTimePaidOrders: Number(s.all_time_paid_orders || 0),
-    todayPaidOrders: Number(s.today_paid_orders || 0),
-    allTimeVoidedOrders: Number(s.all_time_voided_orders || 0),
-    todayVoidedOrders: Number(s.today_voided_orders || 0),
-    allTimeUnitsSold: Number(it.all_time_units_sold || 0),
-    todayUnitsSold: Number(it.today_units_sold || 0),
-    pendingOrders: Number(s.pending_orders || 0),
-    todayCashCollected: Number(Number(s.today_cash_collected || 0).toFixed(2)),
-    allTimeCashCollected: Number(Number(s.all_time_cash_collected || 0).toFixed(2)),
-  });
+  response.json(await loadOrderSummary());
 });
 
 router.get("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const limit = Math.min(Math.max(1, Number(request.query?.limit || 500)), 5000);
   const includeCost = request.authUser.role === "admin";
-  response.json(await loadOrders(limit, { includeCost }));
+  let statuses = null;
+  if (request.query?.status !== undefined && String(request.query.status).trim() !== "") {
+    statuses = [...new Set(
+      String(request.query.status)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )];
+    for (const s of statuses) {
+      if (!VALID_ORDER_STATUSES.has(s)) {
+        throw httpError(400, `Invalid status filter '${s}'. Allowed: Pending, Preparing, Completed, Cancelled.`);
+      }
+    }
+  }
+  response.json(await loadOrders(limit, { includeCost, statuses }));
+});
+
+router.get("/active-queue", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const includeCost = request.authUser.role === "admin";
+  response.json(await loadOrders(null, { includeCost, statuses: ["Pending", "Preparing"] }));
 });
 
 router.get("/:orderNumber", requireAuth, requireRole("admin", "staff"), async (request, response) => {
@@ -349,38 +68,88 @@ router.get("/:orderNumber", requireAuth, requireRole("admin", "staff"), async (r
 router.post("/", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const items = Array.isArray(request.body?.items) ? request.body.items : [];
   if (!items.length || items.length > 100) throw httpError(400, "An order must contain between 1 and 100 items.");
-  const type = orderTypes.includes(request.body.type) ? request.body.type : "Takeout";
-  const paymentMethod = paymentMethods.includes(request.body.paymentMethod) ? request.body.paymentMethod : "Cash";
+  const rawType = request.body?.type;
+  if (rawType !== undefined && rawType !== null && String(rawType).trim() !== "" && !orderTypes.includes(rawType)) {
+    throw httpError(400, `Invalid order type. Allowed: ${orderTypes.join(", ")}.`);
+  }
+  const type = rawType ? String(rawType) : "Takeout";
+  const rawPaymentMethod = request.body?.paymentMethod;
+  if (
+    rawPaymentMethod !== undefined &&
+    rawPaymentMethod !== null &&
+    String(rawPaymentMethod).trim() !== "" &&
+    !paymentMethods.includes(rawPaymentMethod)
+  ) {
+    throw httpError(400, `Invalid payment method. Allowed: ${paymentMethods.join(", ")}.`);
+  }
+  const paymentMethod = rawPaymentMethod ? String(rawPaymentMethod) : "Cash";
+  const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId);
   const customer = String(request.body.customerName || "Walk-in Customer").trim().slice(0, 160) || "Walk-in Customer";
   const orderNotes = String(request.body?.notes || "").trim().slice(0, 500) || null;
+  const validatedItems = items.map((item) => {
+    const productId = Number(item.productId);
+    const quantity = Number(item.quantity);
+    if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 1000) {
+      throw httpError(400, "Each order item needs a valid menu item and quantity.");
+    }
+    return { item, productId, quantity };
+  });
+
+  if (cleanClientRequestId) {
+    const [[existingOrder]] = await pool.execute(
+      "SELECT id, order_number FROM orders WHERE created_by = ? AND client_request_id = ? LIMIT 1",
+      [request.authUser.sub, cleanClientRequestId],
+    );
+    if (existingOrder) {
+      const loaded = await loadOrderByNumber(existingOrder.order_number, {
+        includeCost: request.authUser.role === "admin",
+      });
+      if (
+        loaded &&
+        loaded.type === type &&
+        loaded.paymentMethod === paymentMethod &&
+        (loaded.items?.length || 0) === validatedItems.length
+      ) {
+        return response.status(200).json(loaded);
+      }
+      throw httpError(409, "Client request ID was already used for a different order.");
+    }
+  }
+
   const bizSettings = await loadBusinessSettings();
   const connection = await pool.getConnection();
   let orderNumber;
+  let txOpen = false;
   try {
     await connection.beginTransaction();
+    txOpen = true;
     orderNumber = await findUnusedOrderNumber(connection);
     const [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
+      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1 FOR UPDATE",
       [request.authUser.sub],
     );
     const sessionId = activeSession ? Number(activeSession.id) : null;
     if (bizSettings.enforceShiftGate && !activeSession) {
       throw httpError(409, "Open a cashier shift before placing orders (Shift Gate is active in Settings).");
     }
+
+    const sortedProductIds = [...new Set(validatedItems.map((entry) => entry.productId))].sort((a, b) => a - b);
+    const lockProductMarks = sortedProductIds.map(() => "?").join(",");
+    const [lockedProducts] = await connection.execute(
+      `SELECT p.id, p.name, p.base_price, p.cost_price, p.stock_quantity, p.is_available, c.name AS category
+         FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id
+        WHERE p.id IN (${lockProductMarks}) AND p.is_archived = FALSE
+        ORDER BY p.id ASC
+          FOR UPDATE`,
+      sortedProductIds,
+    );
+    const productsById = new Map(lockedProducts.map((row) => [Number(row.id), row]));
+
     const lineItems = [];
     let subtotal = 0;
 
-    for (const item of items) {
-      const productId = Number(item.productId);
-      const quantity = Number(item.quantity);
-      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 1000) {
-        throw httpError(400, "Each order item needs a valid menu item and quantity.");
-      }
-      const [[product]] = await connection.execute(
-        `SELECT p.id, p.name, p.base_price, p.cost_price, p.stock_quantity, p.is_available, c.name AS category
-           FROM menu_products p LEFT JOIN menu_categories c ON c.id = p.category_id WHERE p.id = ? AND p.is_archived = FALSE FOR UPDATE`,
-        [productId],
-      );
+    for (const { item, productId, quantity } of validatedItems) {
+      const product = productsById.get(productId);
       if (!product || !product.is_available) throw httpError(409, "A selected menu item is unavailable.");
 
       const requestedSizeLabel = String(item.size || "Regular").trim().slice(0, 80);
@@ -628,8 +397,8 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
       `INSERT INTO orders (
          order_number, customer_name, order_type, order_status, payment_status, payment_method,
          subtotal, discount_amount, discount_label, tax_amount, total, cash_tendered, change_due, paid_at, created_by, cashier_name,
-         notes, paid_by, session_id
-       ) VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
+         notes, paid_by, session_id, client_request_id
+       ) VALUES (?, ?, ?, 'Pending', 'Paid', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)`,
       [
         orderNumber,
         customer,
@@ -647,6 +416,7 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         orderNotes,
         request.authUser.sub,
         sessionId,
+        cleanClientRequestId,
       ],
     );
 
@@ -668,13 +438,12 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
     }
 
     let orderTotalCogs = 0;
+    const consumptionRows = [];
+    const movementRows = [];
+    const addonRows = [];
     for (const line of lineItems) {
-      if (line.hasRecipe) {
-        await connection.execute(
-          "UPDATE menu_products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?",
-          [line.quantity, line.product.id],
-        );
-      } else {
+      // Only non-recipe products track stock via menu_products.stock_quantity (recipe items track ingredients).
+      if (!line.hasRecipe) {
         const [stockResult] = await connection.execute(
           "UPDATE menu_products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?",
           [line.quantity, line.product.id, line.quantity],
@@ -710,56 +479,67 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
         [created.insertId, line.product.id, line.product.name, line.product.category || "Menu item", line.quantity, line.sizeLabel, line.sugarLevel, line.unitPrice, itemUnitCostSnapshot, line.instructions],
       );
       for (const ingredient of lineConsumptions) {
-        await connection.execute(
-          `INSERT INTO order_inventory_consumptions
-             (order_id, order_item_id, order_number, product_name_snapshot, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, unit_cost_snapshot, line_cost, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             quantity_used = quantity_used + VALUES(quantity_used),
-             line_cost = line_cost + VALUES(line_cost)`,
-          [
-            created.insertId,
-            createdItem.insertId,
-            orderNumber,
-            line.product.name,
-            ingredient.inventoryItemId,
-            ingredient.inventoryName,
-            ingredient.quantityUsed,
-            ingredient.unit,
-            ingredient.unitCostSnapshot,
-            ingredient.lineCost,
-            ingredient.source,
-          ],
-        );
+        consumptionRows.push([
+          created.insertId,
+          createdItem.insertId,
+          orderNumber,
+          line.product.name,
+          ingredient.inventoryItemId,
+          ingredient.inventoryName,
+          ingredient.quantityUsed,
+          ingredient.unit,
+          ingredient.unitCostSnapshot,
+          ingredient.lineCost,
+          ingredient.source,
+        ]);
         const beforeQuantity = runningStockByItem.get(ingredient.inventoryItemId) ?? 0;
         const afterQuantity = Math.round((beforeQuantity - ingredient.quantityUsed) * 1000000) / 1000000;
         runningStockByItem.set(ingredient.inventoryItemId, afterQuantity);
-        await connection.execute(
-          `INSERT INTO inventory_movements (
-             inventory_item_id, user_id, movement_type, quantity_change, note,
-             item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit, order_id, session_id
-           ) VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            ingredient.inventoryItemId,
-            request.authUser.sub,
-            -ingredient.quantityUsed,
-            `Order ${orderNumber}: ${line.product.name} × ${line.quantity}`,
-            ingredient.inventoryName,
-            cashierName,
-            beforeQuantity,
-            afterQuantity,
-            ingredient.unit,
-            created.insertId,
-            sessionId,
-          ],
-        );
+        movementRows.push([
+          ingredient.inventoryItemId,
+          request.authUser.sub,
+          "usage",
+          -ingredient.quantityUsed,
+          `Order ${orderNumber}: ${line.product.name} × ${line.quantity}`,
+          ingredient.inventoryName,
+          cashierName,
+          beforeQuantity,
+          afterQuantity,
+          ingredient.unit,
+          created.insertId,
+          sessionId,
+        ]);
       }
       for (const addon of line.addonPrices) {
-        await connection.execute(
-          "INSERT INTO order_item_addons (order_item_id, addon_name_snapshot, addon_price_snapshot) VALUES (?, ?, ?)",
-          [createdItem.insertId, addon.label, addon.price],
-        );
+        addonRows.push([createdItem.insertId, addon.label, addon.price]);
       }
+    }
+
+    if (consumptionRows.length > 0) {
+      await connection.query(
+        `INSERT INTO order_inventory_consumptions
+           (order_id, order_item_id, order_number, product_name_snapshot, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, unit_cost_snapshot, line_cost, source)
+         VALUES ?
+         ON DUPLICATE KEY UPDATE
+           quantity_used = quantity_used + VALUES(quantity_used),
+           line_cost = line_cost + VALUES(line_cost)`,
+        [consumptionRows],
+      );
+    }
+    if (movementRows.length > 0) {
+      await connection.query(
+        `INSERT INTO inventory_movements (
+           inventory_item_id, user_id, movement_type, quantity_change, note,
+           item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit, order_id, session_id
+         ) VALUES ?`,
+        [movementRows],
+      );
+    }
+    if (addonRows.length > 0) {
+      await connection.query(
+        "INSERT INTO order_item_addons (order_item_id, addon_name_snapshot, addon_price_snapshot) VALUES ?",
+        [addonRows],
+      );
     }
 
     await postOrderSaleAndCogs(connection, {
@@ -776,8 +556,31 @@ router.post("/", requireAuth, requireRole("admin", "staff"), async (request, res
     });
 
     await connection.commit();
+    txOpen = false;
   } catch (error) {
-    await connection.rollback();
+    if (txOpen) {
+      await connection.rollback();
+    }
+    if (error.code === "ER_DUP_ENTRY" && cleanClientRequestId) {
+      const [[existingOrder]] = await pool.execute(
+        "SELECT id, order_number FROM orders WHERE created_by = ? AND client_request_id = ? LIMIT 1",
+        [request.authUser.sub, cleanClientRequestId],
+      );
+      if (existingOrder) {
+        const loaded = await loadOrderByNumber(existingOrder.order_number, {
+          includeCost: request.authUser.role === "admin",
+        });
+        if (
+          loaded &&
+          loaded.type === type &&
+          loaded.paymentMethod === paymentMethod &&
+          (loaded.items?.length || 0) === validatedItems.length
+        ) {
+          return response.status(200).json(loaded);
+        }
+        throw httpError(409, "Client request ID was already used for a different order.");
+      }
+    }
     throw error;
   } finally {
     connection.release();
@@ -879,11 +682,14 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
   try {
     await connection.beginTransaction();
     const [[order]] = await connection.execute(
-      "SELECT id, order_number, order_status, payment_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due, paid_at, session_id FROM orders WHERE order_number = ? FOR UPDATE",
+      "SELECT id, order_number, order_status, payment_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due, paid_at, owner_confirmed_at, session_id FROM orders WHERE order_number = ? FOR UPDATE",
       [request.params.orderNumber],
     );
     if (!order) throw httpError(404, "Order not found.");
     if (order.order_status === "Cancelled") throw httpError(409, "Cancelled orders cannot be modified.");
+    if (order.payment_status === "Paid" || order.owner_confirmed_at != null) {
+      throw httpError(409, "Paid or owner-confirmed orders cannot be altered directly. Use an admin adjustment/void.");
+    }
 
     const nextMethod = rawMethod || order.payment_method || "Cash";
     const orderTotal = Number(order.total || 0);
@@ -925,14 +731,14 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
     );
 
     const [[cogsRow]] = await connection.execute(
-      `SELECT COALESCE((SELECT SUM(line_cost) FROM order_inventory_consumptions WHERE order_id = ?), 0) AS inv_cogs,
+      `SELECT COALESCE((SELECT SUM(line_cost) FROM order_inventory_consumptions WHERE order_id = ? AND reversed_at IS NULL), 0) AS inv_cogs,
               COALESCE((
                 SELECT SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0))
                   FROM order_items oi
                  WHERE oi.order_id = ?
                    AND NOT EXISTS (
                      SELECT 1 FROM order_inventory_consumptions oic
-                      WHERE oic.order_item_id = oi.id AND oic.source = 'recipe'
+                      WHERE oic.order_item_id = oi.id AND COALESCE(oic.line_cost, 0) > 0 AND oic.reversed_at IS NULL
                    )
               ), 0) AS direct_cogs`,
       [order.id, order.id],
@@ -963,147 +769,6 @@ router.patch("/:orderNumber/payment", requireAuth, requireRole("admin", "staff")
   }));
 });
 
-async function reverseFullOrderInventoryAndCogs(
-  connection,
-  {
-    order,
-    restoreStock,
-    reason,
-    actorId,
-    actorName,
-    sessionId,
-    restoreNotePrefix = `Voided order ${order.order_number}`,
-    spoilageNotePrefix = `Spoilage on voided order #${order.order_number}`,
-  },
-) {
-  const [consumptions] = await connection.execute(
-    `SELECT id, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, line_cost
-       FROM order_inventory_consumptions
-      WHERE order_id = ? AND reversed_at IS NULL AND order_item_id IS NOT NULL
-      ORDER BY inventory_item_id ASC, id ASC
-        FOR UPDATE`,
-    [order.id],
-  );
-
-  const [[directCogsRow]] = await connection.execute(
-    `SELECT COALESCE(SUM(oi.quantity * COALESCE(oi.unit_cost_snapshot, 0)), 0) AS direct_cogs
-       FROM order_items oi
-      WHERE oi.order_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM order_inventory_consumptions oic
-           WHERE oic.order_item_id = oi.id AND oic.source = 'recipe'
-        )`,
-    [order.id],
-  );
-  const invCogs = consumptions.reduce((sum, c) => sum + Number(c.line_cost || 0), 0);
-  const voidTotalCogs = invCogs + Number(directCogsRow?.direct_cogs || 0);
-
-  const distinctInventoryIds = [...new Set(consumptions.map((c) => Number(c.inventory_item_id)))].sort((a, b) => a - b);
-  const runningStockByItem = new Map();
-  if (distinctInventoryIds.length) {
-    const marks = distinctInventoryIds.map(() => "?").join(",");
-    const [lockedInventory] = await connection.execute(
-      `SELECT id, name, quantity, unit FROM inventory_items WHERE id IN (${marks}) ORDER BY id FOR UPDATE`,
-      distinctInventoryIds,
-    );
-    for (const inv of lockedInventory) {
-      runningStockByItem.set(Number(inv.id), {
-        name: inv.name,
-        quantity: Number(inv.quantity),
-        unit: inv.unit,
-      });
-    }
-  }
-
-  if (restoreStock) {
-    for (const consumption of consumptions) {
-      const invId = Number(consumption.inventory_item_id);
-      const qty = Number(consumption.quantity_used);
-      const state = runningStockByItem.get(invId);
-      const beforeQuantity = state ? state.quantity : 0;
-      const afterQuantity = Math.round((beforeQuantity + qty) * 1000000) / 1000000;
-      if (state) state.quantity = afterQuantity;
-
-      await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?", [qty, invId]);
-      await connection.execute(
-        `INSERT INTO inventory_movements (
-           inventory_item_id, user_id, movement_type, quantity_change, note,
-           item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit, order_id, session_id
-         ) VALUES (?, ?, 'void_restore', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          invId,
-          actorId,
-          qty,
-          `${restoreNotePrefix}: ${reason}`.slice(0, 500),
-          state?.name || consumption.inventory_item_name_snapshot,
-          actorName,
-          beforeQuantity,
-          afterQuantity,
-          state?.unit || consumption.unit,
-          order.id,
-          sessionId,
-        ],
-      );
-      await connection.execute("UPDATE order_inventory_consumptions SET reversed_at = CURRENT_TIMESTAMP WHERE id = ?", [consumption.id]);
-    }
-
-    const [nonRecipeItems] = await connection.execute(
-      `SELECT oi.product_id, SUM(oi.quantity) AS quantity
-         FROM order_items oi
-        WHERE oi.order_id = ?
-          AND oi.product_id IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM order_inventory_consumptions oic
-             WHERE oic.order_item_id = oi.id AND oic.source = 'recipe'
-          )
-        GROUP BY oi.product_id`,
-      [order.id],
-    );
-    for (const item of nonRecipeItems) {
-      await connection.execute(
-        "UPDATE menu_products SET stock_quantity = stock_quantity + ? WHERE id = ?",
-        [Number(item.quantity), item.product_id],
-      );
-    }
-  } else {
-    for (const consumption of consumptions) {
-      const invId = Number(consumption.inventory_item_id);
-      const state = runningStockByItem.get(invId);
-      const currentQty = state ? state.quantity : 0;
-      await connection.execute(
-        `INSERT INTO inventory_movements (
-           inventory_item_id, user_id, movement_type, quantity_change, note,
-           item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
-           batch_cost, order_id, session_id
-         ) VALUES (?, ?, 'spoilage', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          invId,
-          actorId,
-          `${spoilageNotePrefix}: ${reason}`.slice(0, 500),
-          state?.name || consumption.inventory_item_name_snapshot,
-          actorName,
-          currentQty,
-          currentQty,
-          state?.unit || consumption.unit,
-          Number(Number(consumption.line_cost || 0).toFixed(2)),
-          order.id,
-          sessionId,
-        ],
-      );
-    }
-  }
-
-  await postOrderVoidReversal(connection, {
-    orderId: order.id,
-    orderNumber: order.order_number,
-    restoreStock,
-    totalCogs: voidTotalCogs,
-    reason,
-    sessionId,
-    userId: actorId,
-  });
-}
-
 router.post("/:orderNumber/void", requireAuth, requireRole("admin"), async (request, response) => {
   const reason = String(request.body?.reason || "").trim();
   if (reason.length < 3 || reason.length > 255) {
@@ -1112,58 +777,12 @@ router.post("/:orderNumber/void", requireAuth, requireRole("admin"), async (requ
   const restoreStock = request.body?.restoreStock !== false;
   const actorId = request.authUser.sub;
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [[order]] = await connection.execute(
-      "SELECT id, order_number, order_status FROM orders WHERE order_number = ? FOR UPDATE",
-      [request.params.orderNumber],
-    );
-    if (!order) throw httpError(404, "Order not found.");
-    if (order.order_status === "Cancelled") {
-      throw httpError(409, "This order has already been voided.");
-    }
-
-    const [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      [actorId],
-    );
-    const sessionId = activeSession ? Number(activeSession.id) : null;
-
-    await connection.execute(
-      `UPDATE orders
-          SET order_status = 'Cancelled',
-              voided_by = ?,
-              voided_at = CURRENT_TIMESTAMP,
-              void_reason = ?
-        WHERE id = ?`,
-      [actorId, reason, order.id],
-    );
-    await connection.execute(
-      `INSERT INTO order_status_events (order_id, from_status, to_status, changed_by, actor_name_snapshot, reason)
-       VALUES (?, ?, 'Cancelled', ?, ?, ?)`,
-      [order.id, order.order_status, actorId, actorName, reason],
-    );
-
-    await reverseFullOrderInventoryAndCogs(connection, {
-      order,
-      restoreStock,
-      reason,
-      actorId,
-      actorName,
-      sessionId,
-    });
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-  response.json(await loadOrderByNumber(request.params.orderNumber, {
-    includeCost: true,
-    includeDetails: true,
+  response.json(await executeVoidOrder({
+    orderNumber: request.params.orderNumber,
+    reason,
+    restoreStock,
+    actorId,
+    actorName,
   }));
 });
 
@@ -1172,338 +791,27 @@ router.post("/:orderNumber/items/:itemId/revert", requireAuth, requireRole("admi
   if (reason.length < 3 || reason.length > 255) {
     throw httpError(400, "A revert reason between 3 and 255 characters is required.");
   }
+  const authPassword = String(request.body?.authorizationPassword ?? request.body?.adminPassword ?? "");
+  if (authPassword && Buffer.byteLength(authPassword, "utf8") > 72) {
+    throw httpError(400, "Authorization password must not exceed 72 bytes.");
+  }
   const restoreStock = request.body?.restoreStock !== false;
+  const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId);
   const actorId = request.authUser.sub;
   const actorName = request.authUser?.displayName || request.authUser?.username || (request.authUser.role === "admin" ? "Admin" : "Staff");
-  const connection = await pool.getConnection();
-  let authorizingUser = null;
-  try {
-    await connection.beginTransaction();
-    const [[order]] = await connection.execute(
-      `SELECT id, order_number, order_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due
-         FROM orders
-        WHERE order_number = ?
-          FOR UPDATE`,
-      [request.params.orderNumber],
-    );
-    if (!order) throw httpError(404, "Order not found.");
-    if (order.order_status === "Cancelled") {
-      throw httpError(409, "Cancelled orders cannot be modified.");
-    }
 
-    if (request.authUser.role !== "admin" && order.order_status !== "Pending") {
-      const authPassword = String(request.body?.authorizationPassword ?? request.body?.adminPassword ?? "");
-      if (authPassword) {
-        const [candidates] = await connection.execute(
-          `SELECT id, username, display_name, password_hash, role
-             FROM users
-            WHERE is_active = 1 AND role IN ('admin', 'staff')
-            ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, id ASC`,
-        );
-        for (const candidate of candidates) {
-          if (await bcrypt.compare(authPassword, candidate.password_hash)) {
-            authorizingUser = {
-              id: Number(candidate.id),
-              displayName: candidate.display_name || candidate.username,
-              role: candidate.role,
-            };
-            break;
-          }
-        }
-      }
-      if (!authorizingUser) {
-        throw httpError(403, "Enter a valid staff or admin password to authorize reverting an item after preparation starts.");
-      }
-    }
-
-    const [allItems] = await connection.execute(
-      "SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC FOR UPDATE",
-      [order.id],
-    );
-    const targetItem = allItems.find((r) => Number(r.id) === Number(request.params.itemId));
-    if (!targetItem) throw httpError(404, "Order item not found.");
-
-    const itemQty = Number(targetItem.quantity);
-    const revertQty = request.body?.quantity == null ? itemQty : Number(request.body.quantity);
-    if (!Number.isSafeInteger(revertQty) || revertQty < 1 || revertQty > itemQty) {
-      throw httpError(400, `Revert quantity must be an integer between 1 and ${itemQty}.`);
-    }
-
-    const [[activeSession]] = await connection.execute(
-      "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1",
-      [actorId],
-    );
-    const sessionId = activeSession ? Number(activeSession.id) : null;
-    const authSuffix = authorizingUser
-      ? ` (Authorized by ${authorizingUser.displayName} [${authorizingUser.role}])`
-      : "";
-    const buildAuditReason = (prefix, maxLen = 255) => {
-      const base = `${prefix}: ${reason}`;
-      if (!authSuffix) return base.slice(0, maxLen);
-      const baseMax = Math.max(0, maxLen - authSuffix.length);
-      return `${base.slice(0, baseMax)}${authSuffix}`.slice(0, maxLen);
-    };
-
-    let cancelledOrderByRevert = false;
-    let revertedDeltaAmount = 0;
-
-    if (allItems.length === 1 && revertQty === itemQty) {
-      cancelledOrderByRevert = true;
-      revertedDeltaAmount = Number(order.total ?? Number(targetItem.unit_price) * revertQty);
-      const fullReason = buildAuditReason(`Reverted (${targetItem.product_name_snapshot} ×${revertQty})`);
-      await connection.execute(
-        `UPDATE orders
-            SET order_status = 'Cancelled',
-                voided_by = ?,
-                voided_at = CURRENT_TIMESTAMP,
-                void_reason = ?
-          WHERE id = ?`,
-        [authorizingUser?.id || actorId, fullReason, order.id],
-      );
-      await connection.execute(
-        `INSERT INTO order_status_events (order_id, from_status, to_status, changed_by, actor_name_snapshot, reason)
-         VALUES (?, ?, 'Cancelled', ?, ?, ?)`,
-        [order.id, order.order_status, actorId, actorName, fullReason],
-      );
-
-      await reverseFullOrderInventoryAndCogs(connection, {
-        order,
-        restoreStock,
-        reason: fullReason,
-        actorId,
-        actorName,
-        sessionId,
-        restoreNotePrefix: `Reverted last item on order ${order.order_number}`,
-        spoilageNotePrefix: `Spoilage on reverted last item #${order.order_number}`,
-      });
-    } else {
-      const ratio = revertQty / itemQty;
-      const [consumptions] = await connection.execute(
-        `SELECT id, inventory_item_id, inventory_item_name_snapshot, quantity_used, unit, line_cost, source
-           FROM order_inventory_consumptions
-          WHERE order_item_id = ? AND reversed_at IS NULL
-          ORDER BY inventory_item_id ASC, id ASC
-            FOR UPDATE`,
-        [targetItem.id],
-      );
-
-      const distinctInventoryIds = [...new Set(consumptions.map((c) => Number(c.inventory_item_id)))].sort((a, b) => a - b);
-      const runningStockByItem = new Map();
-      if (distinctInventoryIds.length) {
-        const marks = distinctInventoryIds.map(() => "?").join(",");
-        const [lockedInventory] = await connection.execute(
-          `SELECT id, name, quantity, unit FROM inventory_items WHERE id IN (${marks}) ORDER BY id FOR UPDATE`,
-          distinctInventoryIds,
-        );
-        for (const inv of lockedInventory) {
-          runningStockByItem.set(Number(inv.id), {
-            name: inv.name,
-            quantity: Number(inv.quantity),
-            unit: inv.unit,
-          });
-        }
-      }
-
-      let revertedInvCogs = 0;
-      let hasRecipeConsumption = false;
-      for (const c of consumptions) {
-        if (c.source === "recipe") hasRecipeConsumption = true;
-        const invId = Number(c.inventory_item_id);
-        const restoreQty = Math.round(Number(c.quantity_used) * ratio * 1000000) / 1000000;
-        const restoreLineCost = Math.round(Number(c.line_cost || 0) * ratio * 10000) / 10000;
-        revertedInvCogs += restoreLineCost;
-
-        const state = runningStockByItem.get(invId);
-        if (restoreStock) {
-          const beforeQuantity = state ? state.quantity : 0;
-          const afterQuantity = Math.round((beforeQuantity + restoreQty) * 1000000) / 1000000;
-          if (state) state.quantity = afterQuantity;
-
-          await connection.execute("UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?", [restoreQty, invId]);
-          await connection.execute(
-            `INSERT INTO inventory_movements (
-               inventory_item_id, user_id, movement_type, quantity_change, note,
-               item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit, order_id, session_id
-             ) VALUES (?, ?, 'void_restore', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              invId,
-              actorId,
-              restoreQty,
-              `Reverted ${revertQty}× ${targetItem.product_name_snapshot} on order ${order.order_number}: ${reason}`.slice(0, 500),
-              state?.name || c.inventory_item_name_snapshot,
-              actorName,
-              beforeQuantity,
-              afterQuantity,
-              state?.unit || c.unit,
-              order.id,
-              sessionId,
-            ],
-          );
-        } else {
-          const currentQty = state ? state.quantity : 0;
-          await connection.execute(
-            `INSERT INTO inventory_movements (
-               inventory_item_id, user_id, movement_type, quantity_change, note,
-               item_name_snapshot, actor_name_snapshot, before_quantity, after_quantity, unit,
-               batch_cost, order_id, session_id
-             ) VALUES (?, ?, 'spoilage', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              invId,
-              actorId,
-              `Spoilage on reverted ${revertQty}× ${targetItem.product_name_snapshot} (#${order.order_number}): ${reason}`.slice(0, 500),
-              state?.name || c.inventory_item_name_snapshot,
-              actorName,
-              currentQty,
-              currentQty,
-              state?.unit || c.unit,
-              Number(restoreLineCost.toFixed(2)),
-              order.id,
-              sessionId,
-            ],
-          );
-        }
-
-        if (revertQty === itemQty) {
-          if (restoreStock) {
-            await connection.execute(
-              "UPDATE order_inventory_consumptions SET reversed_at = CURRENT_TIMESTAMP WHERE id = ?",
-              [c.id],
-            );
-          }
-        } else {
-          await connection.execute(
-            `UPDATE order_inventory_consumptions
-                SET quantity_used = GREATEST(0, quantity_used - ?),
-                    line_cost = GREATEST(0, COALESCE(line_cost, 0) - ?)
-              WHERE id = ?`,
-            [restoreQty, restoreLineCost, c.id],
-          );
-        }
-      }
-
-      let directCogsDelta = 0;
-      if (!hasRecipeConsumption && targetItem.product_id != null) {
-        directCogsDelta = Number(targetItem.unit_cost_snapshot || 0) * revertQty;
-        if (restoreStock) {
-          await connection.execute(
-            "UPDATE menu_products SET stock_quantity = stock_quantity + ? WHERE id = ?",
-            [revertQty, targetItem.product_id],
-          );
-        }
-      }
-      const cogsDelta = Math.round((revertedInvCogs + directCogsDelta) * 10000) / 10000;
-
-      if (revertQty === itemQty) {
-        await connection.execute("DELETE FROM order_items WHERE id = ?", [targetItem.id]);
-      } else {
-        await connection.execute("UPDATE order_items SET quantity = quantity - ? WHERE id = ?", [revertQty, targetItem.id]);
-      }
-
-      const revertedLineSubtotal = Math.round(Number(targetItem.unit_price) * revertQty * 100) / 100;
-      const oldSubtotal = Number(order.subtotal ?? order.total);
-      const oldDiscount = Number(order.discount_amount ?? 0);
-      const oldTax = Number(order.tax_amount ?? 0);
-      const oldTotal = Number(order.total);
-      const newSubtotal = Math.max(0, Math.round((oldSubtotal - revertedLineSubtotal) * 100) / 100);
-      const newDiscount = oldSubtotal > 0 && oldDiscount > 0
-        ? Math.round(oldDiscount * (newSubtotal / oldSubtotal) * 100) / 100
-        : 0;
-      const oldNetTaxable = Math.max(0, Math.round((oldSubtotal - oldDiscount) * 100) / 100);
-      const newNetTaxable = Math.max(0, Math.round((newSubtotal - newDiscount) * 100) / 100);
-      const newTax = oldNetTaxable > 0 && oldTax > 0
-        ? Math.round(oldTax * (newNetTaxable / oldNetTaxable) * 100) / 100
-        : 0;
-      const newTotal = Math.max(0, Math.round((newNetTaxable + newTax) * 100) / 100);
-      const subtotalDelta = Math.max(0, Math.round((oldSubtotal - newSubtotal) * 100) / 100);
-      const discountDelta = Math.max(0, Math.round((oldDiscount - newDiscount) * 100) / 100);
-      const taxDelta = Math.max(0, Math.round((oldTax - newTax) * 100) / 100);
-      const totalDelta = Math.max(0, Math.round((oldTotal - newTotal) * 100) / 100);
-
-      let newCashTendered = order.cash_tendered == null ? null : Number(order.cash_tendered);
-      let newChangeDue = order.change_due == null ? null : Number(order.change_due);
-      if (order.cash_tendered != null) {
-        newCashTendered = Math.max(newTotal, Math.round((Number(order.cash_tendered) - totalDelta) * 100) / 100);
-        newChangeDue = Math.max(0, Math.round((newCashTendered - newTotal) * 100) / 100);
-      }
-
-      await connection.execute(
-        `UPDATE orders
-            SET subtotal = ?,
-                discount_amount = ?,
-                tax_amount = ?,
-                total = ?,
-                cash_tendered = ?,
-                change_due = ?
-          WHERE id = ?`,
-        [newSubtotal, newDiscount, newTax, newTotal, newCashTendered, newChangeDue, order.id],
-      );
-
-      revertedDeltaAmount = totalDelta;
-      const eventReason = buildAuditReason(`Reverted ${revertQty}× ${targetItem.product_name_snapshot}`);
-      await connection.execute(
-        `INSERT INTO order_status_events (order_id, from_status, to_status, changed_by, actor_name_snapshot, reason)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [order.id, order.order_status, order.order_status, actorId, actorName, eventReason],
-      );
-
-      await postOrderItemRevertReversal(connection, {
-        orderId: order.id,
-        orderNumber: order.order_number,
-        revertKey: `${targetItem.id}:${Date.now()}-${randomInt(1000, 9999)}`,
-        subtotalDelta,
-        discountDelta,
-        taxDelta,
-        totalDelta,
-        cogsDelta,
-        restoreStock,
-        paymentMethod: order.payment_method || "Cash",
-        reason,
-        sessionId,
-        userId: actorId,
-      });
-    }
-
-    const approverLabel = authorizingUser
-      ? `${authorizingUser.displayName} (${authorizingUser.role})`
-      : `${actorName} (${request.authUser.role})`;
-    const notificationTitle = (
-      cancelledOrderByRevert
-        ? `Order #${order.order_number} Cancelled by Revert`
-        : `Item Reverted on Order #${order.order_number}`
-    ).slice(0, 180);
-    const notificationMessage = `${actorName} reverted ${revertQty}× ${targetItem.product_name_snapshot} (-₱${Number(revertedDeltaAmount || 0).toFixed(2)}) · Stock: ${restoreStock ? "Restored" : "Spoilage"} · Authorized by ${approverLabel} · Reason: ${reason}`.slice(0, 1000);
-    const notificationEventKey = `order-revert-${order.id}-${targetItem.id}-${Date.now()}-${randomInt(1000, 9999)}`.slice(0, 120);
-    await connection.execute(
-      `INSERT INTO notifications (user_id, event_key, type, title, message)
-       SELECT id, ?, 'order_revert', ?, ?
-         FROM users
-        WHERE is_active = TRUE AND role = 'admin'
-       ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
-      [notificationEventKey, notificationTitle, notificationMessage],
-    );
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-
-  const updatedOrder = await loadOrderByNumber(request.params.orderNumber, {
-    includeCost: request.authUser.role === "admin",
-    includeDetails: true,
-  });
-  response.json({
-    ...updatedOrder,
-    authorizedBy: authorizingUser
-      ? {
-          id: authorizingUser.id,
-          displayName: authorizingUser.displayName,
-          role: authorizingUser.role,
-        }
-      : null,
-  });
+  response.json(await executeOrderItemRevert({
+    orderNumber: request.params.orderNumber,
+    itemId: request.params.itemId,
+    reason,
+    authPassword,
+    restoreStock,
+    requestedQty: request.body?.quantity,
+    cleanClientRequestId,
+    actorId,
+    actorName,
+    actorRole: request.authUser.role,
+  }));
 });
 
 router.delete("/:orderNumber", requireAuth, requireRole("admin", "staff"), async (_request, response) => {

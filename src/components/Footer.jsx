@@ -62,11 +62,11 @@ function Footer() {
             <h3>Get In Touch</h3>
 
             <div className="footer-contact-list">
-              <a href={`tel:${phone}`}>{phone}</a>
+              {phone ? <a href={`tel:${phone}`}>{phone}</a> : null}
 
-              <a href={`mailto:${email}`}>{email}</a>
+              {email ? <a href={`mailto:${email}`}>{email}</a> : null}
 
-              <address>{address}</address>
+              <address>{address || "See Contact page for store details"}</address>
             </div>
           </div>
         </div>
