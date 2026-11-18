@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Landmark,
   LayoutGrid,
   LogOut,
   Package,
@@ -37,6 +38,7 @@ const NAV_BY_ROLE = {
       items: [
         { key: "categories", to: "/admin/categories", label: "Categories", Icon: Tags },
         { key: "reports", to: "/admin/reports", label: "Reports", Icon: BarChart2 },
+        { key: "finances", to: "/admin/finances", label: "Finances", Icon: Landmark },
         { key: "archive", to: "/admin/archive", label: "Archive / Trash", Icon: Archive },
         { key: "notifications", label: "Notifications", notification: true },
         { key: "settings", to: "/admin/settings", label: "Settings", Icon: Settings },

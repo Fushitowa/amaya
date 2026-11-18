@@ -1198,3 +1198,7 @@
     grid-template-columns: 1fr;
   }
 }
+
+.admin-finances-content .financial-center-panel {
+  margin-top: 0;
+}

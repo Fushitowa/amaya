@@ -14,6 +14,7 @@ import AdminInventory from "../pages/admin/AdminInventory.jsx";
 import AdminMenuManagement from "../pages/admin/AdminMenuManagement.jsx";
 import AdminCategories from "../pages/admin/AdminCategories.jsx";
 import AdminReport from "../pages/admin/AdminReport.jsx";
+import AdminFinances from "../pages/admin/AdminFinances.jsx";
 import AdminSettings from "../pages/admin/AdminSettings.jsx";
 import AdminArchive from "../pages/admin/AdminArchive.jsx";
 import AdminNotifications from "../pages/admin/AdminNotifications.jsx";
@@ -43,6 +44,7 @@ export default function PortalApp() {
             <Route path="/admin/menu" element={<AdminMenuManagement />} />
             <Route path="/admin/categories" element={<AdminCategories />} />
             <Route path="/admin/reports" element={<AdminReport />} />
+            <Route path="/admin/finances" element={<AdminFinances />} />
             <Route path="/admin/archive" element={<AdminArchive />} />
             <Route path="/admin/notifications" element={<AdminNotifications />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
