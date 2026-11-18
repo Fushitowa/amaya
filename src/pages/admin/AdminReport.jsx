@@ -2061,8 +2061,8 @@ function AdminReport() {
           <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period inventory activity and expenditure">
             <div className="panel-heading">
               <div>
-                <span className="admin-report-eyebrow">INVENTORY MOVEMENTS &amp; EXPENDITURE</span>
-                <h2>Period Inventory Activity Log</h2>
+                <span className="admin-report-eyebrow">STOCK CHANGES &amp; EXPENSES</span>
+                <h2>Stock &amp; Restock History</h2>
               </div>
               <span className="inventory-count">
                 Spend: {peso(movSummary.totalRestockCost)} ({movSummary.totalRestockCount} restocks)
@@ -2145,10 +2145,10 @@ function AdminReport() {
                         <th scope="col">Ingredient</th>
                         <th scope="col">Type</th>
                         <th scope="col">Change</th>
-                        <th scope="col">Stock Transition</th>
-                        <th scope="col">Spend / Ref</th>
+                        <th scope="col">Before → After</th>
+                        <th scope="col">Cost / Ref</th>
                         <th scope="col">Order</th>
-                        <th scope="col">Actor</th>
+                        <th scope="col">Staff</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2250,8 +2250,8 @@ function AdminReport() {
           <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period order ledger">
             <div className="panel-heading">
               <div>
-                <span className="admin-report-eyebrow">PERIOD ORDER LEDGER</span>
-                <h2>Order Audit &amp; Void Management</h2>
+                <span className="admin-report-eyebrow">ORDER HISTORY</span>
+                <h2>Customer Orders &amp; Cancellations</h2>
               </div>
               <span className="inventory-count">{ledgerOrdersTotal} orders</span>
             </div>
@@ -2356,7 +2356,7 @@ function AdminReport() {
                                 onClick={(e) => handleOpenOrderModal(ord, e)}
                               >
                                 <Receipt size={13} aria-hidden="true" />
-                                Inspect
+                                View
                               </button>
                             </td>
                           </tr>
