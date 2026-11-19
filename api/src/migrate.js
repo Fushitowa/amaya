@@ -60,6 +60,7 @@ const migrations = [
   "040_phase2_hardening.sql",
   "041_schema_hygiene_indexes_fks.sql",
   "042_restock_velocity_index.sql",
+  "043_expense_budgets.sql",
 ];
 
 // Never add unguarded bulk UPDATE/DELETE reset migrations; register historical resets here.

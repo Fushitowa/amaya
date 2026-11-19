@@ -15,6 +15,7 @@ import {
 import { parseOptionalClientRequestId } from "../utils/validation.js";
 import { LIQUID_ACCOUNT_CODES } from "../utils/coaConstants.js";
 import { formatDbDateOnly } from "../../../shared/manilaDate.js";
+import { EXPENSE_NAV_CATEGORIES, getExpenseNavCategory } from "../../../shared/expenseNavigation.js";
 import {
   getAccountsAndAssetsReport,
   getBalanceSheetReport,
@@ -25,6 +26,143 @@ import {
 } from "../services/financesReportService.js";
 
 const router = Router();
+
+function budgetMonth(value) {
+  const month = String(value || getManilaDateString().slice(0, 7));
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw httpError(400, "Month must use YYYY-MM format.");
+  return month;
+}
+
+async function getExpenseBudgetHealth(monthValue) {
+  const month = budgetMonth(monthValue);
+  const monthStart = `${month}-01`;
+  const nextMonthStart = new Date(`${monthStart}T00:00:00Z`);
+  nextMonthStart.setUTCMonth(nextMonthStart.getUTCMonth() + 1);
+  const monthEndExclusive = nextMonthStart.toISOString().slice(0, 10);
+  const allCodes = [...new Set(EXPENSE_NAV_CATEGORIES.flatMap((category) => category.accountCodes))];
+  const [budgetRows] = await pool.execute(
+    `SELECT ec.slug, eb.budget_amount, eb.date_set,
+            COALESCE(u.display_name, u.username) AS set_by_name
+       FROM expense_categories ec
+       LEFT JOIN expense_budgets eb ON eb.category_id = ec.id AND eb.budget_month = ?
+       LEFT JOIN users u ON u.id = eb.set_by`,
+    [monthStart],
+  );
+  const [spentRows] = await pool.execute(
+    `SELECT coa.account_code, ec.slug AS category_slug, COALESCE(SUM(jel.debit), 0.00) AS spent
+       FROM journal_entries je
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+       LEFT JOIN expense_categories ec ON ec.id = je.expense_category_id
+      WHERE je.entry_type = 'operating_expense'
+        AND je.is_reversal = FALSE
+        AND je.entry_date >= ? AND je.entry_date < ?
+        AND coa.report_section = 'opex'
+        AND coa.account_code IN (${allCodes.map(() => "?").join(",")})
+        AND NOT EXISTS (SELECT 1 FROM journal_entries rev WHERE rev.reverses_entry_id = je.id)
+      GROUP BY coa.account_code, ec.slug`,
+    [`${monthStart} 00:00:00`, `${monthEndExclusive} 00:00:00`, ...allCodes],
+  );
+  const spentByCode = new Map();
+  const spentByCategory = new Map();
+  for (const row of spentRows) {
+    if (row.category_slug) spentByCategory.set(row.category_slug, (spentByCategory.get(row.category_slug) || 0) + Number(row.spent || 0));
+    else spentByCode.set(String(row.account_code), Number(row.spent || 0));
+  }
+  const budgetBySlug = new Map(budgetRows.map((row) => [row.slug, row]));
+  return EXPENSE_NAV_CATEGORIES.map((category) => {
+    const row = budgetBySlug.get(category.slug);
+    const legacySpent = category.accountCodes.reduce((sum, code) => sum + (spentByCode.get(code) || 0), 0);
+    const spent = Math.round(((spentByCategory.get(category.slug) || 0) + legacySpent) * 100) / 100;
+    const budget = row?.budget_amount == null ? null : Number(row.budget_amount);
+    const remaining = budget == null ? null : Math.round((budget - spent) * 100) / 100;
+    const percentUsed = budget == null ? null : budget === 0 ? (spent > 0 ? 100 : 0) : Math.round((spent / budget) * 10000) / 100;
+    const status = budget == null ? "no_budget" : spent > budget ? "over_budget" : percentUsed >= 85 ? "red" : percentUsed >= 60 ? "yellow" : "green";
+    return {
+      category: category.slug,
+      label: category.label,
+      accountCodes: category.accountCodes,
+      month,
+      budget,
+      spent,
+      remaining,
+      percentUsed,
+      status,
+      setBy: row?.set_by_name || null,
+      dateSet: row?.date_set || null,
+      accountNote: category.accountNote || null,
+    };
+  });
+}
+
+router.get("/expense-budgets/health", requireAuth, async (request, response) => {
+  const health = await getExpenseBudgetHealth(request.query?.month);
+  response.json({ month: budgetMonth(request.query?.month), items: health });
+});
+
+router.put("/expense-budgets/:category", requireAuth, requireRole("admin"), async (request, response) => {
+  const category = getExpenseNavCategory(request.params.category);
+  if (!category) throw httpError(404, "Expense category not found.");
+  const month = budgetMonth(request.body?.month);
+  const amount = parseExactMoney(request.body?.amount, "Budget amount", { allowZero: true });
+  const monthStart = `${month}-01`;
+  await pool.execute(
+    `INSERT INTO expense_budgets (category_id, budget_month, budget_amount, set_by)
+     SELECT id, ?, ?, ? FROM expense_categories WHERE slug = ?
+     ON DUPLICATE KEY UPDATE budget_amount = VALUES(budget_amount), set_by = VALUES(set_by), date_set = CURRENT_TIMESTAMP`,
+    [monthStart, amount, request.authUser.sub, category.slug],
+  );
+  const items = await getExpenseBudgetHealth(month);
+  response.json({ message: "Monthly expense budget saved.", item: items.find((item) => item.category === category.slug) });
+});
+
+router.post("/expense-records", requireAuth, requireRole("admin", "staff"), async (request, response) => {
+  const category = getExpenseNavCategory(request.body?.category);
+  if (!category) throw httpError(400, "Choose a valid expense category.");
+  const description = String(request.body?.description || "").trim().slice(0, 180);
+  if (!description) throw httpError(400, "An item or expense description is required.");
+  const amount = parseExactMoney(request.body?.amount, "Expense amount");
+  const date = String(request.body?.date || getManilaDateString()).trim();
+  if (!isValidIsoDateOnly(date)) throw httpError(400, "Expense date must use YYYY-MM-DD format.");
+  const channelMap = {
+    cash_counter: "1010",
+    gcash: "1020",
+    store_bank: "1030",
+    owner_reserve: "1040",
+  };
+  const creditAccountCode = channelMap[String(request.body?.channel || "")];
+  if (!creditAccountCode) throw httpError(400, "Choose a valid money channel.");
+  const notes = String(request.body?.notes || "").trim().slice(0, 150);
+  const receiptReference = String(request.body?.receiptReference || "").trim().slice(0, 100);
+  const memo = `${description}${notes ? ` · ${notes}` : ""}`.slice(0, 255);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await postBalancedEntry(connection, {
+      entryType: "operating_expense",
+      memo,
+      referenceNumber: receiptReference || null,
+      entryDate: `${date} 12:00:00`,
+      createdBy: request.authUser.sub,
+      lines: [
+        { accountCode: category.accountCodes[0], debit: amount, credit: 0, lineMemo: description },
+        { accountCode: creditAccountCode, debit: 0, credit: amount, lineMemo: "Expense payment" },
+      ],
+    });
+    await connection.execute(
+      `UPDATE journal_entries je JOIN expense_categories ec ON ec.slug = ?
+          SET je.expense_category_id = ec.id WHERE je.id = ?`,
+      [category.slug, result.entryId],
+    );
+    await connection.commit();
+    response.status(201).json({ message: "Expense recorded.", entryId: result.entryId, amount, category: category.slug });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
 
 function parseOptionalOpeningAmount(rawValue, label) {
   if (rawValue === undefined || rawValue === null) return 0;
@@ -221,7 +359,7 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
 // 4. JOURNAL ENTRIES LIST & SEARCH (Admin Only)
 // -------------------------------------------------------------
 router.get("/journal-entries", requireAuth, requireRole("admin"), async (request, response) => {
-  const { type, from, to, page, limit, accountCodes } = request.query || {};
+  const { type, from, to, page, limit, accountCodes, expenseCategory } = request.query || {};
   const { from: cleanFrom, to: cleanTo } = assertValidDateRange(from, to);
   const numPage = parseBoundedPositiveInt(page, 1, 1, 100_000, "Page");
   const numLimit = parseBoundedPositiveInt(limit, 25, 1, 100, "Limit");
@@ -234,7 +372,19 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
     conditions.push("je.entry_type = ?");
     params.push(String(type).trim());
   }
-  if (accountCodes !== undefined && accountCodes !== "") {
+  if (expenseCategory !== undefined && expenseCategory !== "") {
+    const category = getExpenseNavCategory(String(expenseCategory).trim());
+    if (!category) throw httpError(400, "Invalid expense category filter.");
+    conditions.push(`(je.expense_category_id = (SELECT ec.id FROM expense_categories ec WHERE ec.slug = ?)
+      OR (je.expense_category_id IS NULL AND EXISTS (
+        SELECT 1 FROM journal_entry_lines jel_expense_filter
+        JOIN chart_of_accounts coa_expense_filter ON coa_expense_filter.id = jel_expense_filter.account_id
+        WHERE jel_expense_filter.journal_entry_id = je.id AND jel_expense_filter.debit > 0
+          AND coa_expense_filter.report_section = 'opex'
+          AND coa_expense_filter.account_code IN (${category.accountCodes.map(() => "?").join(",")})
+      )))`);
+    params.push(category.slug, ...category.accountCodes);
+  } else if (accountCodes !== undefined && accountCodes !== "") {
     const cleanAccountCodes = [...new Set(String(accountCodes).split(",").map((code) => code.trim()).filter(Boolean))];
     if (!cleanAccountCodes.length || cleanAccountCodes.length > 25 || cleanAccountCodes.some((code) => !/^\d{4}$/.test(code))) {
       throw httpError(400, "Invalid accountCodes filter. Provide up to 25 four-digit account codes.");
@@ -362,6 +512,7 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     clientRequestId,
     vendorName = null,
     dueDate = null,
+    expenseCategory = null,
   } = request.body || {};
 
   if (typeof memo !== "string" || memo.trim().length === 0) {
@@ -383,6 +534,12 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
   }
 
   const cleanClientRequestId = parseOptionalClientRequestId(clientRequestId);
+  let cleanExpenseCategory = null;
+  if (expenseCategory !== null && expenseCategory !== undefined && String(expenseCategory).trim()) {
+    cleanExpenseCategory = getExpenseNavCategory(String(expenseCategory).trim());
+    if (!cleanExpenseCategory) throw httpError(400, "Invalid expense category.");
+    if (entryType !== "operating_expense") throw httpError(400, "Expense categories can only be attached to operating expenses.");
+  }
 
   const validTypes = [
     "operating_expense",
@@ -586,6 +743,9 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       if (!debitLines.every((l) => coaMap.get(l.accountCode)?.report_section === "opex")) {
         throw httpError(400, "Operating expense debits must target active OPEX accounts.");
       }
+      if (cleanExpenseCategory && !debitLines.every((line) => cleanExpenseCategory.accountCodes.includes(line.accountCode))) {
+        throw httpError(400, "The selected expense category does not match the expense account.");
+      }
       if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode) || l.accountCode === "2010")) {
         throw httpError(400, "Operating expenses must be paid via 1010–1040 or accrued to 2010 Accounts Payable.");
       }
@@ -719,6 +879,14 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       });
     }
     postedEntryId = ledgerRes.entryId;
+
+    if (cleanExpenseCategory && postedEntryId) {
+      await connection.execute(
+        `UPDATE journal_entries je JOIN expense_categories ec ON ec.slug = ?
+            SET je.expense_category_id = ec.id WHERE je.id = ?`,
+        [cleanExpenseCategory.slug, postedEntryId],
+      );
+    }
 
     if (postedEntryId) {
       if (entryType === "operating_expense") {

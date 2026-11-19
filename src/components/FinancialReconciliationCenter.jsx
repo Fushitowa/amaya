@@ -14,6 +14,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
+import { EXPENSE_NAV_CATEGORIES } from "../config/expenseNavigation.js";
 import { BalanceSheetTabView, CashFlowTabView, JournalAuditTabView } from "./admin/finances/FinancialStatementTabs.jsx";
 import "../assets/css/admin/FinancialManagement.css";
 
@@ -263,6 +264,7 @@ export default function FinancialReconciliationCenter() {
   const [formAmount, setFormAmount] = useState("");
   const [formMemo, setFormMemo] = useState("");
   const [formExpenseCode, setFormExpenseCode] = useState("6120");
+  const [formExpenseCategory, setFormExpenseCategory] = useState("");
   const [formPrimaryAccount, setFormPrimaryAccount] = useState("1010");
   const [formSecondaryAccount, setFormSecondaryAccount] = useState("1030");
   const [formPaymentStatus, setFormPaymentStatus] = useState("paid"); // 'paid' | 'unpaid'
@@ -502,6 +504,9 @@ export default function FinancialReconciliationCenter() {
       coaAccounts.find((a) => a.reportSection === "opex" && a.accountCode !== "6020") ||
       coaAccounts.find((a) => a.reportSection === "opex");
     setFormExpenseCode(preferredOpex?.accountCode || "6120");
+    const preferredCode = String(preferredOpex?.accountCode || "6120");
+    const preferredCategories = EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(preferredCode)).sort((a, b) => a.accountCodes.length - b.accountCodes.length);
+    setFormExpenseCategory(preferredCategories[0]?.slug || "");
     setFormPrimaryAccount(mode === "settle" ? "1030" : "1010");
     setFormSecondaryAccount(mode === "transfer" ? "1030" : "1010");
 
@@ -613,6 +618,14 @@ export default function FinancialReconciliationCenter() {
       const extraBody = { clientRequestId: reqId };
 
       if (actionModal === "opex") {
+        const currentMonth = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit" }).format(new Date());
+        const healthResponse = await apiRequest(`/finances/expense-budgets/health?month=${encodeURIComponent(currentMonth)}`);
+        const affectedBudgets = (healthResponse?.items || []).filter((item) => item.category === formExpenseCategory && item.budget != null && amount > Number(item.remaining));
+        if (affectedBudgets.length) {
+          const labels = affectedBudgets.map((item) => `${item.label} (over by ${peso(amount - Number(item.remaining))})`).join(", ");
+          const shouldContinue = window.confirm(`This expense will exceed the monthly budget for: ${labels}. Continue and post it?`);
+          if (!shouldContinue) return;
+        }
         entryType = "operating_expense";
         const creditCode = formPaymentStatus === "unpaid" ? "2010" : formPrimaryAccount;
         lines = [
@@ -677,7 +690,7 @@ export default function FinancialReconciliationCenter() {
 
       await apiRequest("/finances/journal-entries", {
         method: "POST",
-        body: JSON.stringify({ entryType, memo: cleanMemo, lines, ...extraBody }),
+        body: JSON.stringify({ entryType, memo: cleanMemo, lines, ...(entryType === "operating_expense" && formExpenseCategory ? { expenseCategory: formExpenseCategory } : {}), ...extraBody }),
       });
       setActionModal(null);
       setNotice(`Posted ${peso(amount)} journal entry: ${cleanMemo}`);
@@ -1254,7 +1267,12 @@ export default function FinancialReconciliationCenter() {
                   id="fin-opex-account"
                   className="fin-form-input"
                   value={formExpenseCode}
-                  onChange={(e) => setFormExpenseCode(e.target.value)}
+                  onChange={(e) => {
+                    const nextCode = e.target.value;
+                    setFormExpenseCode(nextCode);
+                    const nextCategories = EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(nextCode)).sort((a, b) => a.accountCodes.length - b.accountCodes.length);
+                    setFormExpenseCategory(nextCategories[0]?.slug || "");
+                  }}
                 >
                   {groupedOpexAccounts.length > 0 ? (
                     groupedOpexAccounts.map((grp) => (
@@ -1277,6 +1295,22 @@ export default function FinancialReconciliationCenter() {
                     </>
                   )}
                 </select>
+              </div>
+
+              <div className="fin-form-group">
+                <label htmlFor="fin-opex-budget-category">Budget Category</label>
+                <select
+                  id="fin-opex-budget-category"
+                  className="fin-form-input"
+                  value={formExpenseCategory}
+                  onChange={(e) => setFormExpenseCategory(e.target.value)}
+                >
+                  <option value="">No budget category (unassigned account)</option>
+                  {EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(String(formExpenseCode))).map((category) => (
+                    <option key={category.slug} value={category.slug}>{category.label}</option>
+                  ))}
+                </select>
+                <small>Choose the closest category to apply its monthly budget. Older entries without a category assignment may be matched to each category using the same ledger account.</small>
               </div>
 
               <fieldset style={{ border: "none", padding: 0, margin: 0 }}>

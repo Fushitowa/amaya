@@ -8,6 +8,7 @@ import {
   Plus,
   Clock,
   Menu,
+  ReceiptText,
   Settings,
   ShoppingBag,
   Trash2,
@@ -138,6 +139,7 @@ function StaffDashboard() {
     const actions = [
       { to: "/staff/orders", label: "Order queue", note: "Advance statuses and print receipts", Icon: ClipboardList },
       { to: "/staff/menu", label: "Menu", note: "Browse items and stock", Icon: Package },
+      { to: "/staff/expenses/new", label: "Record expense", note: "Log a business expense", Icon: ReceiptText },
       { to: "/staff/settings", label: "Printer & settings", note: "Receipt printer and preferences", Icon: Settings },
     ];
 
@@ -341,6 +343,7 @@ function StaffDashboard() {
 
           <div className="topbar-right">
             <StaffOperationsBar variant="compact" darkMode={darkMode} />
+            <Link to="/staff/expenses/new" className="sd-expense-log-link"><ReceiptText size={16} aria-hidden="true" /> Record expense</Link>
             <StaffNotificationBell />
 
             <div className="staff-user">

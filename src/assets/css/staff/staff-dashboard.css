@@ -2768,3 +2768,6 @@
 .staff-dashboard.dark-mode .sd-waste-note {
   color: #ccbcb0;
 }
+
+.sd-expense-log-link { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid #e6d8ca; border-radius: 8px; background: #fffaf4; color: #795436; font-size: 10px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.sd-expense-log-link:hover { background: #f6ece1; }

@@ -48,12 +48,15 @@ const NAV_BY_ROLE = {
           key: "expensesPayroll",
           label: "Expenses and Payroll",
           Icon: Wallet,
-          children: EXPENSE_NAV_CATEGORIES.map((category) => ({
-            key: `expense-${category.slug}`,
-            to: `/admin/expenses-payroll/${category.slug}`,
-            label: category.label,
-            Icon: Circle,
-          })),
+          children: [
+            { key: "expense-budget-overview", to: "/admin/expenses-payroll", label: "Budget Overview", Icon: Wallet },
+            ...EXPENSE_NAV_CATEGORIES.map((category) => ({
+              key: `expense-${category.slug}`,
+              to: `/admin/expenses-payroll/${category.slug}`,
+              label: category.label,
+              Icon: Circle,
+            })),
+          ],
         },
         { key: "menu", to: "/admin/menu", label: "Menu Management", Icon: Utensils },
       ],

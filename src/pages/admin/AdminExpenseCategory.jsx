@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowLeft, ExternalLink, FileText, Menu, RefreshCw, Wallet } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
+import ExpenseBudgetHealth from "../../components/ExpenseBudgetHealth.jsx";
+import { currentBudgetMonth } from "../../utils/expenseBudget.js";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { getExpenseNavCategory } from "../../config/expenseNavigation.js";
@@ -45,6 +47,7 @@ function AdminExpenseCategory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [budgetMonth, setBudgetMonth] = useState(currentBudgetMonth);
 
   const loadEntries = useCallback(async () => {
     if (!category) return;
@@ -52,7 +55,7 @@ function AdminExpenseCategory() {
     setError("");
     const params = new URLSearchParams({
       type: "operating_expense",
-      accountCodes: category.accountCodes.join(","),
+      expenseCategory: category.slug,
       page: String(page),
       limit: String(PAGE_SIZE),
     });
@@ -72,7 +75,8 @@ function AdminExpenseCategory() {
   }, [category, fromDate, page, toDate]);
 
   useEffect(() => {
-    loadEntries();
+    const timer = window.setTimeout(() => loadEntries(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadEntries]);
 
   useEffect(() => {
@@ -146,6 +150,10 @@ function AdminExpenseCategory() {
               <Link className="expense-record-link" to="/admin/finances">
                 Record an expense <ExternalLink size={14} aria-hidden="true" />
               </Link>
+            </div>
+
+            <div className="expense-category-budget-wrap">
+              <ExpenseBudgetHealth month={budgetMonth} onMonthChange={setBudgetMonth} categorySlug={category.slug} compact />
             </div>
 
             <div className="expense-category-summary">
