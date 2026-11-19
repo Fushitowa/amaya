@@ -403,7 +403,9 @@
 }
 
 .amaya-sidebar.amaya-sidebar--admin-frame.amaya-sidebar--collapsed,
-.sidebar-collapsed .amaya-sidebar.amaya-sidebar--admin-frame {
+.amaya-sidebar.amaya-sidebar--staff-frame.amaya-sidebar--collapsed,
+.sidebar-collapsed .amaya-sidebar.amaya-sidebar--admin-frame,
+.sidebar-collapsed .amaya-sidebar.amaya-sidebar--staff-frame {
   top: 8px !important;
   width: 72px !important;
   flex: 0 0 72px !important;

@@ -128,7 +128,7 @@ function Sidebar({
 
   return (
     <aside
-      className={`amaya-sidebar ${role === "admin" ? "amaya-sidebar--admin-frame" : ""} ${sidebarCollapsed ? "amaya-sidebar--collapsed" : ""} ${className}`.trim()}
+      className={`amaya-sidebar amaya-sidebar--${role}-frame ${role === "admin" ? "amaya-sidebar--admin-frame" : ""} ${sidebarCollapsed ? "amaya-sidebar--collapsed" : ""} ${className}`.trim()}
       aria-label={`${portalLabel} navigation`}
       aria-expanded={!sidebarCollapsed}
       data-collapsed={sidebarCollapsed ? "true" : "false"}

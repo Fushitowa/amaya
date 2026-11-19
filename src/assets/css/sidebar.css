@@ -1,6 +1,6 @@
 .amaya-sidebar {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 260px;
+  flex: 0 0 260px;
   position: sticky;
   top: 0;
   align-self: flex-start;
@@ -11,31 +11,31 @@
   flex-direction: column;
   overflow: hidden;
   z-index: 1000;
-  background: #fdfbf7;
-  border-right: 1px solid #ece2d8;
-  box-shadow: 4px 0 18px rgba(60, 42, 30, 0.04);
+  background: linear-gradient(180deg, #fffdf9 0%, #fbf7f2 58%, #f7eee6 100%);
+  border: 1px solid #e7d7c7;
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(91, 61, 40, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.88);
   transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1), min-width 240ms cubic-bezier(0.4, 0, 0.2, 1);
   will-change: width, flex-basis;
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame {
+.amaya-sidebar.amaya-sidebar--admin-frame,
+.amaya-sidebar.amaya-sidebar--staff-frame {
   width: 260px;
   flex: 0 0 260px;
   height: calc(100vh - 20px);
   height: calc(100dvh - 20px);
   min-height: 0;
   margin: 10px;
-  border: 1px solid #e7d7c7;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fffdf9 0%, #fbf6f0 58%, #f7eee6 100%);
-  box-shadow: 0 8px 24px rgba(91, 61, 40, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-brand {
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-brand,
+.amaya-sidebar.amaya-sidebar--staff-frame .amaya-sidebar-brand {
   border-bottom-color: #eadccd;
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav {
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav,
+.amaya-sidebar.amaya-sidebar--staff-frame .amaya-sidebar-nav {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -43,16 +43,19 @@
   scrollbar-width: thin;
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar {
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar,
+.amaya-sidebar.amaya-sidebar--staff-frame .amaya-sidebar-nav::-webkit-scrollbar {
   width: 5px;
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar-thumb {
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav::-webkit-scrollbar-thumb,
+.amaya-sidebar.amaya-sidebar--staff-frame .amaya-sidebar-nav::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: #d2bdab;
 }
 
-.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-bottom {
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-bottom,
+.amaya-sidebar.amaya-sidebar--staff-frame .amaya-sidebar-bottom {
   border-top-color: #eadccd;
   background: rgba(255, 255, 255, 0.32);
 }
@@ -61,8 +64,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 98px;
-  padding: 22px 18px 18px;
+  min-height: 86px;
+  padding: 16px 16px 14px;
   border-bottom: 1px solid #ece2d8;
   transition: padding 240ms cubic-bezier(0.4, 0, 0.2, 1), gap 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -109,25 +112,25 @@
 
 .amaya-sidebar-brand-text strong {
   display: block;
-  color: #5a3e2b;
-  font: 800 22px "DM Sans", sans-serif;
+  color: #382518;
+  font: 800 20px "DM Sans", sans-serif;
   letter-spacing: -0.4px;
 }
 
 .amaya-sidebar-brand-text span {
   display: block;
   margin-top: 4px;
-  color: #a3928a;
+  color: #8b7a6d;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
 }
 
 .amaya-sidebar-nav {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 24px 16px 18px;
+  padding: 18px 12px 14px;
   overflow: hidden;
 }
 
@@ -137,32 +140,32 @@
 }
 
 .amaya-sidebar-section + .amaya-sidebar-section {
-  margin-top: 26px;
+  margin-top: 18px;
 }
 
 .amaya-sidebar-section-label {
   display: block;
-  padding: 0 12px 10px;
-  color: #b0a196;
-  font-size: 9px;
+  padding: 0 10px 8px;
+  color: #9d8c7f;
+  font-size: 9.5px;
   font-weight: 800;
-  letter-spacing: 2px;
+  letter-spacing: 1.8px;
   text-transform: uppercase;
 }
 
 .amaya-sidebar-link {
   position: relative;
   overflow: visible;
-  min-height: 48px;
+  min-height: 46px;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 0 14px;
-  margin-top: 4px;
-  border-radius: 14px;
-  color: #5c4a3e;
+  gap: 12px;
+  padding: 0 12px;
+  margin-top: 3px;
+  border-radius: 11px;
+  color: #58483d;
   font-size: 13.5px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.02em;
   text-decoration: none;
   transition: background 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
@@ -392,6 +395,7 @@
   margin-top: auto;
   padding: 14px 14px 18px;
   border-top: 1px solid #ece2d8;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(247, 238, 230, 0.62));
 }
 
 .amaya-sidebar-link--logout {
@@ -443,10 +447,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 58px;
-  margin-top: 12px;
-  padding: 12px 5px 0;
-  border-top: 1px solid #ece2d8;
+  min-height: 62px;
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #ece1d5;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 4px 12px rgba(91, 61, 40, 0.04);
 }
 
 .amaya-sidebar-profile-avatar {
@@ -551,7 +558,8 @@
     flex-basis: 88px;
   }
 
-  .amaya-sidebar.amaya-sidebar--admin-frame {
+  .amaya-sidebar.amaya-sidebar--admin-frame,
+  .amaya-sidebar.amaya-sidebar--staff-frame {
     width: 72px;
     flex-basis: 72px;
     margin: 8px;
