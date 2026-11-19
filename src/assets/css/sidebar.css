@@ -296,26 +296,40 @@
   letter-spacing: 0;
 }
 
+.amaya-sidebar-nav-group--expensesPayroll .amaya-sidebar-sublink {
+  min-height: 39px;
+  height: auto;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.amaya-sidebar-nav-group--expensesPayroll .amaya-sidebar-sublink .amaya-sidebar-link-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.2;
+}
+
 .amaya-sidebar-sublink svg {
   width: 15px;
   height: 15px;
   flex-basis: 15px;
 }
 
-.amaya-sidebar-sublink.active {
-  background: #efe5dc;
-  color: #5a3e2b;
-  box-shadow: inset 3px 0 0 #8b5e3c;
-  animation: none;
+.amaya-sidebar .amaya-sidebar-sublink.active {
+  background: #efe5dc !important;
+  color: #5a3e2b !important;
+  box-shadow: inset 3px 0 0 #8b5e3c !important;
+  animation: none !important;
 }
 
-.amaya-sidebar-sublink.active svg {
-  color: #8b5e3c;
+.amaya-sidebar .amaya-sidebar-sublink.active svg {
+  color: #8b5e3c !important;
 }
 
-.amaya-sidebar-sublink.active::before,
-.amaya-sidebar-sublink.active::after {
-  display: none;
+.amaya-sidebar .amaya-sidebar-sublink.active::before,
+.amaya-sidebar .amaya-sidebar-sublink.active::after {
+  display: none !important;
 }
 
 /* A small serving-inspired steam and lift cue for portal navigation clicks. */

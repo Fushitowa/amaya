@@ -221,7 +221,7 @@ router.post("/opening-balance", requireAuth, requireRole("admin"), async (reques
 // 4. JOURNAL ENTRIES LIST & SEARCH (Admin Only)
 // -------------------------------------------------------------
 router.get("/journal-entries", requireAuth, requireRole("admin"), async (request, response) => {
-  const { type, from, to, page, limit } = request.query || {};
+  const { type, from, to, page, limit, accountCodes } = request.query || {};
   const { from: cleanFrom, to: cleanTo } = assertValidDateRange(from, to);
   const numPage = parseBoundedPositiveInt(page, 1, 1, 100_000, "Page");
   const numLimit = parseBoundedPositiveInt(limit, 25, 1, 100, "Limit");
@@ -233,6 +233,22 @@ router.get("/journal-entries", requireAuth, requireRole("admin"), async (request
   if (type) {
     conditions.push("je.entry_type = ?");
     params.push(String(type).trim());
+  }
+  if (accountCodes !== undefined && accountCodes !== "") {
+    const cleanAccountCodes = [...new Set(String(accountCodes).split(",").map((code) => code.trim()).filter(Boolean))];
+    if (!cleanAccountCodes.length || cleanAccountCodes.length > 25 || cleanAccountCodes.some((code) => !/^\d{4}$/.test(code))) {
+      throw httpError(400, "Invalid accountCodes filter. Provide up to 25 four-digit account codes.");
+    }
+    conditions.push(`EXISTS (
+      SELECT 1
+        FROM journal_entry_lines jel_expense_filter
+        JOIN chart_of_accounts coa_expense_filter ON coa_expense_filter.id = jel_expense_filter.account_id
+       WHERE jel_expense_filter.journal_entry_id = je.id
+         AND jel_expense_filter.debit > 0
+         AND coa_expense_filter.report_section = 'opex'
+         AND coa_expense_filter.account_code IN (${cleanAccountCodes.map(() => "?").join(",")})
+    )`);
+    params.push(...cleanAccountCodes);
   }
   if (cleanFrom) {
     conditions.push("je.entry_date >= ?");

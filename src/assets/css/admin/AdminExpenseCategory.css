@@ -1,0 +1,445 @@
+.expense-category-content {
+  max-width: none;
+}
+
+.expense-category-panel {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #e8ddd3;
+  border-radius: 17px;
+  background: #fffdf9;
+  color: #30241d;
+  box-shadow: 0 12px 30px rgba(58, 38, 22, .07);
+}
+
+.expense-category-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 23px 26px 20px;
+  border-bottom: 1px solid #eee4dc;
+  background: linear-gradient(180deg, #fffdf9 0%, #fbf6f0 100%);
+}
+
+.expense-category-header > div:first-child {
+  min-width: 0;
+}
+
+.expense-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: #80644f;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.expense-back-link:hover {
+  color: #5a3e2b;
+}
+
+.expense-category-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #916745;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .15em;
+}
+
+.expense-category-header h2 {
+  margin: 7px 0 0;
+  color: #30241d;
+  font: 700 clamp(22px, 3vw, 31px)/1.15 "Playfair Display", Georgia, serif;
+}
+
+.expense-category-header p {
+  margin: 7px 0 0;
+  color: #7d6d60;
+  font-size: 12px;
+}
+
+.expense-account-codes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.expense-account-codes > span {
+  margin-right: 2px;
+  color: #806f61;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.expense-account-codes code,
+.expense-entry-table td code {
+  padding: 3px 6px;
+  border: 1px solid #e9ddd0;
+  border-radius: 6px;
+  background: #f6eee6;
+  color: #714e32;
+  font: 700 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.expense-category-header .expense-category-note {
+  margin-top: 9px;
+  color: #8a623d;
+  font-size: 11px;
+}
+
+.expense-record-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border-radius: 9px;
+  background: #8b5e3c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+
+.expense-record-link:hover {
+  background: #70482f;
+}
+
+.expense-category-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 17px 22px;
+  border-bottom: 1px solid #eee4dc;
+  background: #fffaf4;
+}
+
+.expense-category-summary article {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #eee2d7;
+  border-radius: 10px;
+  background: #fffdf9;
+}
+
+.expense-category-summary article span,
+.expense-category-summary article strong {
+  display: block;
+}
+
+.expense-category-summary article span {
+  color: #806f61;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.expense-category-summary article strong {
+  margin-top: 7px;
+  overflow: hidden;
+  color: #38281e;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 22px;
+}
+
+.expense-date-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.expense-date-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #806f61;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.expense-date-filters input {
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid #e5d9cd;
+  border-radius: 7px;
+  background: #fff;
+  color: #38281e;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.expense-date-filters button,
+.expense-entry-footer button {
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid #e5d9cd;
+  border-radius: 7px;
+  background: #fffdf9;
+  color: #735b47;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.expense-date-filters button:hover,
+.expense-entry-footer button:hover:not(:disabled) {
+  background: #f5ece2;
+}
+
+.expense-entry-search {
+  width: min(260px, 100%);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid #e5d9cd;
+  border-radius: 8px;
+  background: #fff;
+  color: #8a796c;
+}
+
+.expense-entry-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #38281e;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.expense-entry-table-wrap {
+  overflow-x: auto;
+}
+
+.expense-entry-table {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.expense-entry-table th {
+  padding: 11px 13px;
+  border-top: 1px solid #eee4dc;
+  border-bottom: 1px solid #e9ddd0;
+  background: #fbf7f1;
+  color: #827264;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.expense-entry-table td {
+  padding: 12px 13px;
+  border-bottom: 1px solid #f0e8df;
+  color: #4d3b2f;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.expense-entry-table tbody tr:hover {
+  background: #fffaf3;
+}
+
+.expense-entry-table td > strong,
+.expense-entry-table td > small {
+  display: block;
+}
+
+.expense-entry-table td > strong {
+  color: #38281e;
+  font-size: 11.5px;
+}
+
+.expense-entry-table td > small {
+  margin-top: 4px;
+  color: #8b7969;
+  font-size: 10px;
+}
+
+.expense-account-line {
+  display: block;
+  color: #75583f;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.expense-entry-amount {
+  color: #604329 !important;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.expense-entry-empty {
+  height: 140px;
+  text-align: center;
+}
+
+.expense-entry-empty strong,
+.expense-entry-empty span {
+  display: block;
+}
+
+.expense-entry-empty strong {
+  color: #38281e;
+  font-size: 12px;
+}
+
+.expense-entry-empty span {
+  margin-top: 6px;
+  color: #806f61;
+  font-size: 10.5px;
+}
+
+.expense-category-error {
+  margin: 0 22px 12px;
+  padding: 10px 12px;
+  border: 1px solid #e3b4ad;
+  border-radius: 8px;
+  background: #fbefed;
+  color: #8b302a;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.expense-entry-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  border-top: 1px solid #eee4dc;
+  background: #fbf7f1;
+  color: #806f61;
+  font-size: 10.5px;
+}
+
+.expense-entry-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.expense-entry-footer button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.expense-entry-footer .expense-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 5px;
+}
+
+body.dark-mode .expense-category-panel {
+  border-color: #49392e;
+  background: #211b17;
+  color: #f4e9df;
+}
+
+body.dark-mode .expense-category-header,
+body.dark-mode .expense-category-summary,
+body.dark-mode .expense-entry-footer,
+body.dark-mode .expense-entry-table th {
+  border-color: #49392e;
+  background: #29211c;
+}
+
+body.dark-mode .expense-category-header h2,
+body.dark-mode .expense-category-summary article strong,
+body.dark-mode .expense-entry-table td > strong,
+body.dark-mode .expense-entry-empty strong {
+  color: #f4e9df;
+}
+
+body.dark-mode .expense-category-summary article,
+body.dark-mode .expense-date-filters input,
+body.dark-mode .expense-entry-search,
+body.dark-mode .expense-date-filters button,
+body.dark-mode .expense-entry-footer button {
+  border-color: #49392e;
+  background: #211b17;
+  color: #e7d7c9;
+}
+
+body.dark-mode .expense-entry-table td {
+  border-color: #382c25;
+  color: #d8c8ba;
+}
+
+body.dark-mode .expense-entry-table tbody tr:hover {
+  background: #2c231d;
+}
+
+@media (max-width: 900px) {
+  .expense-category-header {
+    flex-direction: column;
+  }
+
+  .expense-category-summary {
+    grid-template-columns: 1fr;
+    padding-inline: 14px;
+  }
+
+  .expense-list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    padding-inline: 14px;
+  }
+
+  .expense-entry-search {
+    width: 100%;
+  }
+
+  .expense-entry-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .expense-category-header {
+    padding: 18px 16px;
+  }
+
+  .expense-category-summary article strong {
+    font-size: 18px;
+  }
+
+  .expense-date-filters {
+    align-items: flex-start;
+  }
+
+  .expense-entry-footer > div {
+    flex-wrap: wrap;
+  }
+}

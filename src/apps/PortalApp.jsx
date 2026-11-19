@@ -12,6 +12,7 @@ import StaffQuantity from "../pages/staff/StaffQuantity.jsx";
 import AdminDashboard from "../pages/admin/AdminDashboard.jsx";
 import AdminInventory from "../pages/admin/AdminInventory.jsx";
 import AdminWasteTracker from "../pages/admin/AdminWasteTracker.jsx";
+import AdminExpenseCategory from "../pages/admin/AdminExpenseCategory.jsx";
 import AdminMenuManagement from "../pages/admin/AdminMenuManagement.jsx";
 import AdminCategories from "../pages/admin/AdminCategories.jsx";
 import AdminReport from "../pages/admin/AdminReport.jsx";
@@ -43,6 +44,8 @@ export default function PortalApp() {
             <Route path="/admin/orders" element={<Navigate to="/admin" replace />} />
             <Route path="/admin/inventory" element={<AdminInventory />} />
             <Route path="/admin/inventory/waste-tracker" element={<AdminWasteTracker />} />
+            <Route path="/admin/expenses-payroll" element={<Navigate to="/admin/expenses-payroll/labor-and-payroll" replace />} />
+            <Route path="/admin/expenses-payroll/:category" element={<AdminExpenseCategory />} />
             <Route path="/admin/menu" element={<AdminMenuManagement />} />
             <Route path="/admin/categories" element={<AdminCategories />} />
             <Route path="/admin/reports" element={<AdminReport />} />

@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Circle,
   ClipboardList,
   Landmark,
   LayoutGrid,
@@ -18,6 +19,7 @@ import {
   Tags,
   Trash2,
   Utensils,
+  Wallet,
 } from "lucide-react";
 
 import amayaLogo from "../assets/images/amayalogo.png";
@@ -25,6 +27,7 @@ import adminAvatar from "../assets/images/icon/admin1.svg";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
 import AdminNotificationNavItem from "./AdminNotificationNavItem.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { EXPENSE_NAV_CATEGORIES } from "../config/expenseNavigation.js";
 
 const NAV_BY_ROLE = {
   admin: [
@@ -40,6 +43,17 @@ const NAV_BY_ROLE = {
             { key: "inventoryIngredients", to: "/admin/inventory", label: "Inventory Ingredients", Icon: ClipboardList },
             { key: "wasteTracker", to: "/admin/inventory/waste-tracker", label: "Waste & Spoilage Tracker", Icon: Trash2 },
           ],
+        },
+        {
+          key: "expensesPayroll",
+          label: "Expenses and Payroll",
+          Icon: Wallet,
+          children: EXPENSE_NAV_CATEGORIES.map((category) => ({
+            key: `expense-${category.slug}`,
+            to: `/admin/expenses-payroll/${category.slug}`,
+            label: category.label,
+            Icon: Circle,
+          })),
         },
         { key: "menu", to: "/admin/menu", label: "Menu Management", Icon: Utensils },
       ],
@@ -89,6 +103,7 @@ function Sidebar({
   const [animatedItem, setAnimatedItem] = useState("");
   const [expandedNav, setExpandedNav] = useState(() => ({
     inventory: location.pathname.startsWith("/admin/inventory"),
+    expensesPayroll: location.pathname.startsWith("/admin/expenses-payroll"),
   }));
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
@@ -153,7 +168,7 @@ function Sidebar({
                 const childIsActive = item.children.some((child) => location.pathname === child.to);
                 const isExpanded = Boolean(expandedNav[item.key]);
                 return (
-                  <div className="amaya-sidebar-nav-group" key={item.key}>
+                  <div className={`amaya-sidebar-nav-group amaya-sidebar-nav-group--${item.key}`} key={item.key}>
                     <button
                       type="button"
                       className={`amaya-sidebar-link amaya-sidebar-group-toggle${childIsActive ? " active" : ""}${animatedItem === item.key ? " nav-clicked" : ""}`}
