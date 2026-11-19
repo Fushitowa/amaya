@@ -39,6 +39,17 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
+function getSalesLogStatus(status) {
+  const normalized = String(status || "pending").trim().toLowerCase();
+  if (["cancelled", "canceled", "voided"].includes(normalized)) {
+    return { label: "Voided", tone: "cancelled" };
+  }
+  if (normalized === "completed") {
+    return { label: "Completed", tone: "completed" };
+  }
+  return { label: "Pending", tone: "pending" };
+}
+
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders, confirmOrder, voidOrder, revertOrderItem } = useOrders();
@@ -1395,47 +1406,27 @@ function AdminDashboard() {
                   <div className="orders-receipt-title-block">
                     <div className="orders-receipt-meta">
                       <span className="orders-live-led" aria-hidden="true" />
-                      <span className="orders-receipt-eyebrow">
-                        {ordersTab === "today" ? "LIVE REGISTER FEED" : "TRANSACTION ARCHIVE"}
-                      </span>
+                      <span className="orders-receipt-eyebrow">LIVE REGISTER FEED</span>
                       <span className="orders-receipt-serial">#REG-01</span>
                     </div>
-                    <h3>{ordersTab === "today" ? "Today's Orders & Transactions" : "All Recent Orders"}</h3>
-                    <p>{ordersTab === "today" ? `Active daily session (${liveDate})` : "All customer orders across sessions"}</p>
+                    <h3>Today&apos;s Orders &amp; Transactions</h3>
+                    <p>Active daily session ({liveDate})</p>
                   </div>
 
-                  <div className="orders-receipt-tabs" style={{ display: "inline-flex", background: "#F5EFE9", padding: "3px", borderRadius: "8px", gap: "3px" }}>
+                  <div className="orders-receipt-tabs" role="group" aria-label="Order time range">
                     <button
                       type="button"
+                      className={`orders-receipt-tab${ordersTab === "today" ? " is-active" : ""}`}
+                      aria-pressed={ordersTab === "today"}
                       onClick={() => setOrdersTab("today")}
-                      style={{
-                        padding: "5px 12px",
-                        borderRadius: "6px",
-                        border: "none",
-                        background: ordersTab === "today" ? "#8B5E3C" : "transparent",
-                        color: ordersTab === "today" ? "#FFFFFF" : "#6B5548",
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        cursor: "pointer",
-                        transition: "background-color 150ms ease, color 150ms ease",
-                      }}
                     >
                       Today's Session ({todaysOrders.length})
                     </button>
                     <button
                       type="button"
+                      className={`orders-receipt-tab${ordersTab === "all" ? " is-active" : ""}`}
+                      aria-pressed={ordersTab === "all"}
                       onClick={() => setOrdersTab("all")}
-                      style={{
-                        padding: "5px 12px",
-                        borderRadius: "6px",
-                        border: "none",
-                        background: ordersTab === "all" ? "#8B5E3C" : "transparent",
-                        color: ordersTab === "all" ? "#FFFFFF" : "#6B5548",
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        cursor: "pointer",
-                        transition: "background-color 150ms ease, color 150ms ease",
-                      }}
                     >
                       All Recent ({orders.length})
                     </button>
@@ -1465,7 +1456,7 @@ function AdminDashboard() {
                           </td>
                         </tr>
                       ) : (
-                        displayOrders.slice(0, ordersTab === "today" ? 30 : 10).map((order, idx) => (
+                        displayOrders.map((order, idx) => (
                           <tr
                             key={order.id}
                             className="orders-receipt-row is-clickable"
@@ -1493,8 +1484,8 @@ function AdminDashboard() {
                             </td>
                             <td className="orders-ticket-amount">₱{Number(order.total || 0).toFixed(2)}</td>
                             <td>
-                              <span className={`order-status-pill status-${String(order.status || "pending").toLowerCase()}`}>
-                                {order.status}
+                              <span className={`order-status-pill status-${getSalesLogStatus(order.status).tone}`}>
+                                {getSalesLogStatus(order.status).label}
                               </span>
                             </td>
                           </tr>
@@ -1505,8 +1496,8 @@ function AdminDashboard() {
                 </div>
 
                 {/* Thermal Receipt Barcode & Zigzag Serrated Tear Footer */}
-                <div className="orders-receipt-footer" aria-hidden="true">
-                  <div className="orders-receipt-barcode" />
+                <div className="orders-receipt-footer" aria-live="polite" aria-label={`${displayOrders.length} recorded transactions`}>
+                  <div className="orders-receipt-barcode" aria-hidden="true" />
                   <span className="orders-receipt-cut-note">
                     THERMAL LOG • {displayOrders.length} RECORDED TRANSACTION{displayOrders.length === 1 ? "" : "S"}
                   </span>

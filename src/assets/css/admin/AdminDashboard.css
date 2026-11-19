@@ -4110,6 +4110,40 @@ body {
   background: rgba(255, 252, 247, 0.85);
 }
 
+.admin-dashboard .orders-receipt-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #eadfd3;
+  border-radius: 9px;
+  background: #f5efe9;
+}
+
+.admin-dashboard .orders-receipt-tab {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b5548;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.admin-dashboard .orders-receipt-tab.is-active {
+  background: #8b5e3c;
+  color: #fff;
+}
+
+.admin-dashboard .orders-receipt-tab:focus-visible {
+  outline: 2px solid #8b5e3c;
+  outline-offset: 2px;
+}
+
 .admin-dashboard .orders-receipt-meta {
   display: flex;
   align-items: center;
