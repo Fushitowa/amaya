@@ -287,5 +287,6 @@ npm run dev:portal
 
 ## 👥 Project Team & Contributors
 
-* **Ken ([@Fushitowa](https://github.com/Fushitowa))** — *Lead Developer & Repository Maintainer* (Architecture, Base System, and Menu Management)
+* **Ken ([@Fushitowa](https://github.com/Fushitowa))** — *Lead Developer & Repository Maintainer* (End-to-end development, system architecture, frontend and backend implementation, feature integration, and repository maintenance)
 * **Markie** — *Helper & Contributor* (Inventory Pricing Calculations, UI Layout Refinements, Desktop Tooling, and System Utilities)
+* **Louie** — *Project Planner & Strategy Contributor* (Project planning, marketing strategies, and financial planning)
