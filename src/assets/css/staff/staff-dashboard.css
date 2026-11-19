@@ -2365,7 +2365,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 255px;
+  max-height: none;
   padding: 16px 20px;
   border-radius: 16px;
   border: 1.5px solid #dfd0bf;
@@ -2461,8 +2461,8 @@
 .waste-log-list {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 155px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   display: flex;
   flex-direction: column;
   gap: 8px;

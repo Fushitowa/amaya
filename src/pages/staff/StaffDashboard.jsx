@@ -92,7 +92,7 @@ function StaffDashboard() {
   }, []);
 
   useEffect(() => {
-    fetchWasteLogs?.({ scope: "today", limit: 20 }).catch((err) => {
+    fetchWasteLogs?.({ scope: "today", limit: 100, allPages: true }).catch((err) => {
       console.warn("Could not load staff waste logs:", err?.message || err);
     });
   }, [fetchWasteLogs]);
@@ -468,7 +468,7 @@ function StaffDashboard() {
 
               <div className="waste-log-list">
                 {wasteLogs.length ? (
-                  wasteLogs.slice(0, 8).map((entry) => {
+                  wasteLogs.map((entry) => {
                     const reasonMeta = getWasteReasonMeta(entry.wasteReason);
                     return (
                       <div key={entry.id} className={`waste-log-row${entry.isReversed ? " is-reversed" : ""}`}>

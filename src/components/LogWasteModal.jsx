@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Check,
   Clock,
-  Flame,
   Minus,
   Package,
   Plus,
@@ -19,12 +18,11 @@ import {
   computeWasteDeduction,
   formatWasteQty,
   getCompatibleWasteUnits,
-  getDefaultMeasurementMethod,
   getMeasurementMethodLabel,
   isDiscreteCountUnit,
   MEASUREMENT_METHODS,
   round2,
-  WASTE_REASONS,
+  WASTE_LOG_REASONS,
 } from "../utils/wasteMeasurement.js";
 import "../assets/css/log-waste-modal.css";
 
@@ -38,11 +36,11 @@ const FOCUSABLE_SELECTOR = [
 ].join(", ");
 
 const REASON_ICONS = {
-  spill_accident: AlertTriangle,
-  expired_spoiled: Clock,
-  prep_mistake: Flame,
-  damaged_contaminated: Trash2,
-  quality_reject: ShieldAlert,
+  spoiled: Clock,
+  expired: Clock,
+  damaged: Trash2,
+  spilled: AlertTriangle,
+  other: ShieldAlert,
 };
 
 function createClientRequestId() {
@@ -88,9 +86,7 @@ function LogWasteModalContent({
   );
   const [showItemPicker, setShowItemPicker] = useState(!initialItem?.id);
   const [itemSearch, setItemSearch] = useState("");
-  const [measurementMethod, setMeasurementMethod] = useState(() =>
-    initialItem ? getDefaultMeasurementMethod(initialItem) : "remaining_count",
-  );
+  const [measurementMethod, setMeasurementMethod] = useState("direct_measure");
   const [measuredQuantity, setMeasuredQuantity] = useState("");
   const [measuredUnit, setMeasuredUnit] = useState(initialItem?.unit || "");
   const [showTare, setShowTare] = useState(false);
@@ -138,6 +134,17 @@ function LogWasteModalContent({
         String(it.category || "").toLowerCase().includes(query),
     );
   }, [inventory, itemSearch]);
+
+  const groupedItems = useMemo(() => {
+    const groups = new Map();
+    filteredItems.forEach((item) => {
+      const category = String(item.category || "Uncategorized").trim() || "Uncategorized";
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(item);
+    });
+    return Array.from(groups, ([category, items]) => ({ category, items }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [filteredItems]);
 
   const finishClose = useCallback(() => {
     const previous = lastFocusedRef.current;
@@ -206,7 +213,7 @@ function LogWasteModalContent({
     setSelectedItemId(String(item.id));
     setShowItemPicker(false);
     setItemSearch("");
-    setMeasurementMethod(getDefaultMeasurementMethod(item));
+    setMeasurementMethod("direct_measure");
     setMeasuredUnit(item.unit || "");
     setMeasuredQuantity("");
     setTareWeight("");
@@ -256,7 +263,7 @@ function LogWasteModalContent({
       measuredUnit: activeUnit,
       tareWeight: showTare && measurementMethod === "remaining_count" ? tareWeight : null,
       wasteReason: wasteReason || "spill_accident",
-      note: note.trim().length >= 5 ? note : "preview",
+      note,
       beforeQuantity: Number(selectedItem.quantity || 0),
     });
   }, [
@@ -360,7 +367,7 @@ function LogWasteModalContent({
     .filter(Boolean)
     .join(" ") || undefined;
   const trimmedNoteLen = note.trim().length;
-  const noteInvalid = Boolean(validationSubmitted && (trimmedNoteLen < 5 || trimmedNoteLen > 450));
+  const noteInvalid = Boolean(validationSubmitted && trimmedNoteLen > 450);
 
   return (
     <div
@@ -442,34 +449,50 @@ function LogWasteModalContent({
                       aria-label="Search inventory item for waste"
                     />
                   </div>
+                  <div className="lwm-item-count" aria-live="polite">
+                    {filteredItems.length} ingredient{filteredItems.length === 1 ? "" : "s"}
+                    {itemSearch ? " found" : " in inventory"}
+                  </div>
                   <div className="lwm-item-list" role="listbox" aria-label="Inventory items">
                     {filteredItems.length === 0 ? (
                       <div style={{ padding: "12px", fontSize: "13px", color: "var(--lwm-muted)" }}>
                         No inventory items match &ldquo;{itemSearch}&rdquo;.
                       </div>
                     ) : (
-                      filteredItems.map((it) => {
-                        const outOfStock = Number(it.quantity || 0) <= 0;
-                        return (
-                          <button
-                            key={it.id}
-                            type="button"
-                            role="option"
-                            aria-selected={String(it.id) === String(selectedItemId)}
-                            className="lwm-item-option"
-                            disabled={outOfStock}
-                            onClick={() => handleSelectItem(it)}
-                          >
-                            <span>
-                              <span className="lwm-item-option-name">{it.item}</span>
-                              <span className="lwm-item-option-cat">{it.category}</span>
-                            </span>
-                            <span className="lwm-item-option-qty">
-                              {outOfStock ? "Out of stock" : formatWasteQty(it.quantity, it.unit)}
-                            </span>
-                          </button>
-                        );
-                      })
+                      <>
+                        {groupedItems.map(({ category, items }) => (
+                          <section key={category} className="lwm-category-group" role="group" aria-label={category}>
+                            <h3 className="lwm-category-heading">
+                              <span>{category}</span>
+                              <span className="lwm-category-count">{items.length}</span>
+                            </h3>
+                            <div className="lwm-item-grid">
+                              {items.map((it) => {
+                                const outOfStock = Number(it.quantity || 0) <= 0;
+                                return (
+                                  <button
+                                    key={it.id}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={String(it.id) === String(selectedItemId)}
+                                    className="lwm-item-option"
+                                    disabled={outOfStock}
+                                    onClick={() => handleSelectItem(it)}
+                                  >
+                                    <span className="lwm-item-option-meta">
+                                      <span className="lwm-item-option-name">{it.item}</span>
+                                      <span className="lwm-item-option-cat">{category}</span>
+                                    </span>
+                                    <span className={`lwm-item-option-qty${outOfStock ? " is-empty" : ""}`}>
+                                      {outOfStock ? "Out of stock" : formatWasteQty(it.quantity, it.unit)}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ))}
+                      </>
                     )}
                   </div>
                 </>
@@ -716,7 +739,7 @@ function LogWasteModalContent({
                     role="radiogroup"
                     aria-label="Standardized waste reason"
                   >
-                    {WASTE_REASONS.map((r) => {
+                    {WASTE_LOG_REASONS.map((r) => {
                       const IconComp = REASON_ICONS[r.value] || AlertTriangle;
                       const selected = wasteReason === r.value;
                       return (
@@ -742,10 +765,8 @@ function LogWasteModalContent({
                 {/* Step 5: Mandatory Note */}
                 <div className="lwm-section">
                   <label className="lwm-label" htmlFor="lwm-note-input">
-                    <span>4. Explanation Note (required)</span>
-                    <span className="lwm-label-hint">
-                      {note.trim().length}/5 min chars
-                    </span>
+                    <span>4. Notes (optional)</span>
+                    <span className="lwm-label-hint">{note.trim().length}/450</span>
                   </label>
                   <textarea
                     id="lwm-note-input"
@@ -760,7 +781,6 @@ function LogWasteModalContent({
                       setSubmitError("");
                     }}
                     placeholder="e.g., Pitcher slipped during rush prep / bottle seal broken on open"
-                    required
                   />
                 </div>
               </>

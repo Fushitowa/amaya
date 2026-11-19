@@ -30,7 +30,7 @@ function InventoryProvider({ children }) {
   const [loadedUserId, setLoadedUserId] = useState(null);
   const [error, setError] = useState("");
   const [categoriesError, setCategoriesError] = useState("");
-  const lastWasteQueryRef = useRef({ scope: "today", limit: 20 });
+  const lastWasteQueryRef = useRef({ scope: "today", limit: 100 });
   const wasteRequestSeqRef = useRef(0);
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -83,7 +83,20 @@ function InventoryProvider({ children }) {
     if (merged.limit) query.set("limit", String(merged.limit));
     setWasteLogsLoading(true);
     try {
-      const data = await apiRequest(`/inventory/waste-logs?${query.toString()}`);
+      let data = await apiRequest(`/inventory/waste-logs?${query.toString()}`);
+      if (merged.allPages && Number(data?.total || 0) > (Array.isArray(data?.items) ? data.items.length : 0)) {
+        const pageLimit = Math.max(1, Number.parseInt(merged.limit, 10) || 30);
+        const firstPage = Math.max(1, Number.parseInt(merged.page, 10) || 1);
+        const lastPage = Math.ceil(Number(data.total) / pageLimit);
+        const allItems = [...(Array.isArray(data.items) ? data.items : [])];
+        for (let page = firstPage + 1; page <= lastPage; page += 1) {
+          const pageQuery = new URLSearchParams(query);
+          pageQuery.set("page", String(page));
+          const pageData = await apiRequest(`/inventory/waste-logs?${pageQuery.toString()}`);
+          allItems.push(...(Array.isArray(pageData?.items) ? pageData.items : []));
+        }
+        data = { ...data, items: allItems };
+      }
       if (activeUserIdRef.current !== targetUserId || wasteRequestSeqRef.current !== reqSeq) {
         return data;
       }
@@ -113,7 +126,7 @@ function InventoryProvider({ children }) {
   useEffect(() => {
     activeUserIdRef.current = userId;
     wasteRequestSeqRef.current += 1;
-    lastWasteQueryRef.current = { scope: "today", limit: 20 };
+    lastWasteQueryRef.current = { scope: "today", limit: 100 };
     if (!userId) return undefined;
     let active = true;
     let controller = null;

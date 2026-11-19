@@ -12,7 +12,15 @@ export { round2, round6, isDiscreteCountUnit };
 
 export const MAX_WASTE_INPUT_QTY = 9_999_999_999;
 
-export const WASTE_REASONS = Object.freeze([
+export const WASTE_LOG_REASONS = Object.freeze([
+  { value: "spoiled", label: "Spoiled", shortLabel: "Spoiled", description: "Food or ingredient has spoiled." },
+  { value: "expired", label: "Expired", shortLabel: "Expired", description: "The item is past its expiration date." },
+  { value: "damaged", label: "Damaged", shortLabel: "Damaged", description: "Packaging or ingredient was damaged." },
+  { value: "spilled", label: "Spilled", shortLabel: "Spilled", description: "The item was spilled or dropped." },
+  { value: "other", label: "Other", shortLabel: "Other", description: "Another specific waste reason." },
+]);
+
+const LEGACY_WASTE_REASONS = Object.freeze([
   {
     value: "spill_accident",
     label: "Spill / Dropped",
@@ -45,6 +53,7 @@ export const WASTE_REASONS = Object.freeze([
   },
 ]);
 
+export const WASTE_REASONS = Object.freeze([...WASTE_LOG_REASONS, ...LEGACY_WASTE_REASONS]);
 export const WASTE_REASON_VALUES = Object.freeze(WASTE_REASONS.map((r) => r.value));
 export const WASTE_REASON_MAP = Object.freeze(
   Object.fromEntries(WASTE_REASONS.map((r) => [r.value, r])),
@@ -288,12 +297,6 @@ export function computeWasteDeduction({
   }
 
   const cleanNote = typeof note === "string" ? note.trim() : "";
-  if (cleanNote.length < 5) {
-    return {
-      ok: false,
-      error: "Please enter a brief explanation note (at least 5 characters).",
-    };
-  }
   if (cleanNote.length > 450) {
     return {
       ok: false,

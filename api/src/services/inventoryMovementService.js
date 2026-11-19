@@ -658,7 +658,7 @@ export async function executeLogWaste({ id, authUser, body, cleanClientRequestId
 
     const reasonLabel = WASTE_REASON_MAP[calc.wasteReason]?.label || calc.wasteReason;
     const notifTitle = `Waste Logged: ${current.name}`.slice(0, 180);
-    const notifMessage = `${actorName} logged -${calc.deductedQuantity} ${current.unit} (${reasonLabel})${wasteValue > 0 ? ` · ₱${wasteValue.toFixed(2)} loss` : ""} · ${calc.note}`.slice(0, 1000);
+    const notifMessage = `${actorName} logged -${calc.deductedQuantity} ${current.unit} (${reasonLabel})${wasteValue > 0 ? ` · ₱${wasteValue.toFixed(2)} loss` : ""}${calc.note ? ` · ${calc.note}` : ""}`.slice(0, 1000);
     const notifEventKey = `inventory-waste-${movementId}`.slice(0, 120);
     await connection.execute(
       `INSERT INTO notifications (user_id, event_key, type, title, message)
