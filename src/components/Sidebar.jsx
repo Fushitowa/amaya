@@ -1,12 +1,14 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArrowLeft,
   BarChart2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  ClipboardList,
   Landmark,
   LayoutGrid,
   LogOut,
@@ -14,6 +16,7 @@ import {
   Settings,
   ShoppingBag,
   Tags,
+  Trash2,
   Utensils,
 } from "lucide-react";
 
@@ -29,7 +32,15 @@ const NAV_BY_ROLE = {
       label: "MAIN MENU",
       items: [
         { key: "dashboard", to: "/admin", label: "Dashboard", Icon: LayoutGrid },
-        { key: "inventory", to: "/admin/inventory", label: "Inventory", Icon: Package },
+        {
+          key: "inventory",
+          label: "Inventory",
+          Icon: Package,
+          children: [
+            { key: "inventoryIngredients", to: "/admin/inventory", label: "Inventory Ingredients", Icon: ClipboardList },
+            { key: "wasteTracker", to: "/admin/inventory/waste-tracker", label: "Waste & Spoilage Tracker", Icon: Trash2 },
+          ],
+        },
         { key: "menu", to: "/admin/menu", label: "Menu Management", Icon: Utensils },
       ],
     },
@@ -74,7 +85,11 @@ function Sidebar({
   className = "",
 }) {
   const { logout } = useAuth();
+  const location = useLocation();
   const [animatedItem, setAnimatedItem] = useState("");
+  const [expandedNav, setExpandedNav] = useState(() => ({
+    inventory: location.pathname.startsWith("/admin/inventory"),
+  }));
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
 
@@ -133,6 +148,49 @@ function Sidebar({
             {section.items.map((item) => {
               if (item.notification) {
                 return <AdminNotificationNavItem key={item.key} active={item.key === activeTab} />;
+              }
+              if (item.children?.length) {
+                const childIsActive = item.children.some((child) => location.pathname === child.to);
+                const isExpanded = Boolean(expandedNav[item.key]);
+                return (
+                  <div className="amaya-sidebar-nav-group" key={item.key}>
+                    <button
+                      type="button"
+                      className={`amaya-sidebar-link amaya-sidebar-group-toggle${childIsActive ? " active" : ""}${animatedItem === item.key ? " nav-clicked" : ""}`}
+                      aria-expanded={isExpanded}
+                      aria-controls={`${item.key}-submenu`}
+                      onClick={() => {
+                        setExpandedNav((current) => ({ ...current, [item.key]: !current[item.key] }));
+                        replayNavMotion(item.key);
+                      }}
+                      title={item.label}
+                    >
+                      <item.Icon aria-hidden="true" />
+                      <span className="amaya-sidebar-link-label">{item.label}</span>
+                      <ChevronDown className="amaya-sidebar-link-chevron" aria-hidden="true" />
+                    </button>
+                    {isExpanded && (
+                      <div className="amaya-sidebar-submenu" id={`${item.key}-submenu`}>
+                        {item.children.map((child) => {
+                          const childActive = location.pathname === child.to;
+                          return (
+                            <Link
+                              key={child.key}
+                              to={child.to}
+                              className={`amaya-sidebar-link amaya-sidebar-sublink${childActive ? " active" : ""}${animatedItem === child.key ? " nav-clicked" : ""}`}
+                              aria-current={childActive ? "page" : undefined}
+                              onClick={() => replayNavMotion(child.key)}
+                              title={child.label}
+                            >
+                              <child.Icon aria-hidden="true" />
+                              <span className="amaya-sidebar-link-label">{child.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
               }
               const isActive = item.key === activeTab;
               const count = item.countKey ? orderCount : null;

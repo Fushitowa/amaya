@@ -262,6 +262,62 @@
   color: #ffffff;
 }
 
+.amaya-sidebar-group-toggle .amaya-sidebar-link-chevron {
+  width: 15px;
+  height: 15px;
+  margin-left: auto;
+  flex: 0 0 15px;
+  color: #9c897a;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.amaya-sidebar-group-toggle[aria-expanded="true"] .amaya-sidebar-link-chevron {
+  transform: rotate(180deg);
+}
+
+.amaya-sidebar-group-toggle.active .amaya-sidebar-link-chevron {
+  color: #fff;
+}
+
+.amaya-sidebar-submenu {
+  margin: 2px 0 7px 19px;
+  padding-left: 9px;
+  border-left: 1px solid #dfd2c6;
+}
+
+.amaya-sidebar-sublink {
+  min-height: 40px;
+  gap: 10px;
+  padding: 0 10px;
+  margin-top: 2px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.amaya-sidebar-sublink svg {
+  width: 15px;
+  height: 15px;
+  flex-basis: 15px;
+}
+
+.amaya-sidebar-sublink.active {
+  background: #efe5dc;
+  color: #5a3e2b;
+  box-shadow: inset 3px 0 0 #8b5e3c;
+  animation: none;
+}
+
+.amaya-sidebar-sublink.active svg {
+  color: #8b5e3c;
+}
+
+.amaya-sidebar-sublink.active::before,
+.amaya-sidebar-sublink.active::after {
+  display: none;
+}
+
 /* A small serving-inspired steam and lift cue for portal navigation clicks. */
 .amaya-sidebar-link.active svg,
 .amaya-sidebar-link.nav-clicked svg {

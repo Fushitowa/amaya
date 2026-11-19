@@ -362,6 +362,18 @@
   display: none !important;
 }
 
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link-chevron,
+.sidebar-collapsed .amaya-sidebar-link-chevron {
+  display: none !important;
+}
+
+.amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-submenu,
+.sidebar-collapsed .amaya-sidebar-submenu {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  border-left: 0 !important;
+}
+
 .amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link::before,
 .amaya-sidebar.amaya-sidebar--collapsed .amaya-sidebar-link::after,
 .sidebar-collapsed .amaya-sidebar-link::before,
