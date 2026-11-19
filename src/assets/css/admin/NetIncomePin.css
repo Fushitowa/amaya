@@ -1,0 +1,26 @@
+.net-income-pin-overlay { z-index: 1200; }
+.net-income-pin-dialog { max-width: 480px; }
+.net-income-pin-dialog .fin-modal-header h3 { display: flex; align-items: center; gap: .5rem; }
+.net-income-pin-form { display: grid; gap: .85rem; padding: 1.1rem 1.35rem 1.3rem; }
+.net-income-pin-form > p { margin: 0; color: #735f4f; font-size: .9rem; line-height: 1.45; }
+.net-income-pin-form label { display: grid; gap: .4rem; color: #4a2c11; font-size: .86rem; font-weight: 700; }
+.net-income-pin-form input { width: 100%; border: 1px solid #c7aa96; border-radius: 9px; padding: .75rem .85rem; font: inherit; font-size: 1.2rem; letter-spacing: .28em; color: #3d2617; }
+.net-income-pin-form input:focus { outline: 3px solid #d9a895; border-color: #9a584b; }
+.net-income-pin-actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; flex-wrap: wrap; padding-top: .3rem; }
+.net-income-pin-error { border: 1px solid #f1b5b5; background: #fff3f3; color: #a61b1b; border-radius: 8px; padding: .65rem .75rem; font-size: .86rem; }
+.net-income-gate-button { border: 1px solid #b88d78; background: #fffaf6; color: #613c27; border-radius: 8px; padding: .48rem .7rem; font: inherit; font-size: .83rem; font-weight: 750; cursor: pointer; }
+.net-income-gate-button:hover { background: #f4e7de; }
+.fin-action-primary { background: #673c23; color: #fff; border-color: #673c23; }
+.store-audit-payout-row.is-net-income { border-top: 1px solid #d9c2af; font-weight: 800; }
+.report-income-statement { margin-top: 1rem; border: 1px solid #e5d4c7; border-radius: 12px; padding: 1rem; background: #fffaf6; }
+.report-income-statement h3 { margin: .2rem 0 .8rem; color: #4c2e1d; font-size: 1.05rem; }
+.report-income-formula { display: flex; align-items: stretch; gap: .45rem; flex-wrap: wrap; }
+.report-income-formula > span { flex: 1 1 135px; min-width: 120px; display: grid; gap: .3rem; border: 1px solid #ead8ca; border-radius: 9px; padding: .65rem .75rem; color: #725b49; font-size: .76rem; }
+.report-income-formula strong { color: #3f2c20; font-size: .95rem; }
+.report-income-formula > b { align-self: center; color: #a9856d; }
+.report-income-formula .report-income-net { background: #f7ede5; border-color: #d5b7a2; color: #603a25; font-weight: 800; }
+.report-income-statement > .net-income-gate-button { margin-top: .75rem; }
+@media (max-width: 620px) {
+  .report-income-formula { display: grid; grid-template-columns: 1fr 1fr; }
+  .report-income-formula > b { display: none; }
+}

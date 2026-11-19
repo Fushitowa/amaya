@@ -508,7 +508,7 @@ export async function postOrderVoidReversal(connection, {
       }
     }
   } else {
-    // Spoilage: reclassify remaining COGS (or unposted inventory loss) into 6030 Inventory Wastage & Spoilage
+    // Inventory spoilage is posted to 6030 Waste Cost within COGS.
     const cleanLoss = round2(totalCogs);
     if (cleanLoss > 0) {
       const creditAcc = cogsEntry ? "5010" : "1050";

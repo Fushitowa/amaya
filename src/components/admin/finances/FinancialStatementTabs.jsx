@@ -73,7 +73,7 @@ export function CashFlowTabView({ cfData, peso }) {
   );
 }
 
-export function BalanceSheetTabView({ bsData, peso, openActionModal }) {
+export function BalanceSheetTabView({ bsData, peso, openActionModal, netIncomeUnlocked = false, onRequestNetIncome }) {
   if (!bsData) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -175,9 +175,12 @@ export function BalanceSheetTabView({ bsData, peso, openActionModal }) {
             <span>- {peso(bsData.equity?.drawings)}</span>
           </div>
           <div className="fin-statement-line">
-            <span>Retained Earnings (Net Income)</span>
-            <strong>{peso(bsData.equity?.retainedEarnings)}</strong>
+            <span>Store Earnings</span>
+            <strong>{netIncomeUnlocked && bsData.equity?.retainedEarnings != null ? peso(bsData.equity.retainedEarnings) : "₱••••••"}</strong>
           </div>
+          <button type="button" className="net-income-gate-button" onClick={onRequestNetIncome}>
+            {netIncomeUnlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+          </button>
 
           <div className="fin-bs-total-row">
             <span>TOTAL LIABILITIES &amp; EQUITY</span>

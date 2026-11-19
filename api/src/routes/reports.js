@@ -75,7 +75,28 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
     ? `${paidBaseWhere} AND o.payment_status = 'Paid' AND o.order_status <> 'Cancelled'`
     : "WHERE o.payment_status = 'Paid' AND o.order_status <> 'Cancelled'";
 
-  const [[seriesOrderRows], [seriesCogsRows], [channelRows], [paymentRows]] = await Promise.all([
+  const wasteSeriesConditions = ["coa.account_code = '6030'"];
+  const wasteSeriesParams = [];
+  let wasteSeriesOrderJoin = "";
+  if (range.start && range.end) {
+    wasteSeriesConditions.push("je.entry_date BETWEEN ? AND ?");
+    wasteSeriesParams.push(range.start, range.end);
+  }
+  const hasOrderSliceFilter = Boolean(filters.paymentMethod || filters.orderType || filters.status || filters.search);
+  if (hasOrderSliceFilter) {
+    wasteSeriesOrderJoin = "JOIN orders o ON o.id = je.order_id";
+    const orderSliceWhere = buildOrderWhereClause({ filters, alias: "o" });
+    if (orderSliceWhere.whereSql) {
+      wasteSeriesConditions.push(orderSliceWhere.whereSql.replace(/^WHERE\s+/i, ""));
+      wasteSeriesParams.push(...orderSliceWhere.params);
+    }
+  } else if (filters.staffId) {
+    wasteSeriesOrderJoin = "LEFT JOIN orders o ON o.id = je.order_id";
+    wasteSeriesConditions.push("COALESCE(o.paid_by, o.created_by, je.created_by) = ?");
+    wasteSeriesParams.push(filters.staffId);
+  }
+
+  const [[seriesOrderRows], [seriesWasteRows], [seriesCogsRows], [channelRows], [paymentRows]] = await Promise.all([
     pool.execute(
       `SELECT DATE_FORMAT(o.created_at, '%Y-%m-%d') AS bucket_date,
               COUNT(*) AS orders_count,
@@ -85,6 +106,18 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
         GROUP BY DATE_FORMAT(o.created_at, '%Y-%m-%d')
         ORDER BY bucket_date ASC`,
       paidBaseParams,
+    ),
+    pool.execute(
+      `SELECT DATE_FORMAT(je.entry_date, '%Y-%m-%d') AS bucket_date,
+              COALESCE(SUM(jel.debit - jel.credit), 0) AS waste_cost
+         FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+         ${wasteSeriesOrderJoin}
+        WHERE ${wasteSeriesConditions.join(" AND ")}
+        GROUP BY DATE_FORMAT(je.entry_date, '%Y-%m-%d')
+        ORDER BY bucket_date ASC`,
+      wasteSeriesParams,
     ),
     pool.execute(
       `SELECT DATE_FORMAT(o.created_at, '%Y-%m-%d') AS bucket_date,
@@ -129,6 +162,7 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
 
   const seriesOrderMap = new Map(seriesOrderRows.map((row) => [row.bucket_date, row]));
   const seriesCogsMap = new Map(seriesCogsRows.map((row) => [row.bucket_date, Number(row.cogs || 0)]));
+  const seriesWasteMap = new Map(seriesWasteRows.map((row) => [row.bucket_date, Number(row.waste_cost || 0)]));
   const series = [];
 
   if (range.from && range.to && diffDaysInclusive(range.from, range.to) <= 90) {
@@ -136,28 +170,36 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
     while (cursor <= range.to) {
       const ord = seriesOrderMap.get(cursor);
       const sales = round2(ord?.sales);
-      const cogs = round2(seriesCogsMap.get(cursor));
+      const salesCogs = round2(seriesCogsMap.get(cursor));
+      const wasteCost = round2(seriesWasteMap.get(cursor));
+      const cogs = round2(salesCogs + wasteCost);
       series.push({
         date: cursor,
         label: formatDayLabel(cursor),
         sales,
         cogs,
+        salesCogs,
+        wasteCost,
         profit: round2(sales - cogs),
         orders: Number(ord?.orders_count || 0),
       });
       cursor = addDaysIsoDate(cursor, 1);
     }
   } else {
-    const allDates = [...new Set([...seriesOrderMap.keys(), ...seriesCogsMap.keys()])].sort();
+    const allDates = [...new Set([...seriesOrderMap.keys(), ...seriesCogsMap.keys(), ...seriesWasteMap.keys()])].sort();
     for (const dateStr of allDates) {
       const ord = seriesOrderMap.get(dateStr);
       const sales = round2(ord?.sales);
-      const cogs = round2(seriesCogsMap.get(dateStr));
+      const salesCogs = round2(seriesCogsMap.get(dateStr));
+      const wasteCost = round2(seriesWasteMap.get(dateStr));
+      const cogs = round2(salesCogs + wasteCost);
       series.push({
         date: dateStr,
         label: formatDayLabel(dateStr),
         sales,
         cogs,
+        salesCogs,
+        wasteCost,
         profit: round2(sales - cogs),
         orders: Number(ord?.orders_count || 0),
       });
@@ -521,7 +563,7 @@ router.get("/staff-performance", requireAuth, requireRole("admin"), async (reque
       from: range.from,
       to: range.to,
     },
-    kpiNote: "Attributed Gross Profit is a store performance KPI (Sales minus COGS on attributed orders) and does not represent staff wages or commissions.",
+    kpiNote: "Attributed Gross Profit subtracts sold-item COGS and inventory Waste Cost recorded by the staff member; it excludes wages and commissions.",
     staff,
     totals,
   });
@@ -557,6 +599,27 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
     ? `${orderWhere} AND o.payment_status = 'Paid' AND o.order_status <> 'Cancelled'`
     : "WHERE o.payment_status = 'Paid' AND o.order_status <> 'Cancelled'";
 
+  const staffWasteConditions = ["coa.account_code = '6030'"];
+  const staffWasteParams = [];
+  let staffWasteOrderJoin;
+  if (range.start && range.end) {
+    staffWasteConditions.push("je.entry_date BETWEEN ? AND ?");
+    staffWasteParams.push(range.start, range.end);
+  }
+  const hasStaffOrderSliceFilter = Boolean(filters.paymentMethod || filters.orderType || filters.status || filters.search);
+  if (hasStaffOrderSliceFilter) {
+    staffWasteOrderJoin = "JOIN orders o ON o.id = je.order_id";
+    const orderSliceWhere = buildOrderWhereClause({ filters, alias: "o" });
+    if (orderSliceWhere.whereSql) {
+      staffWasteConditions.push(orderSliceWhere.whereSql.replace(/^WHERE\s+/i, ""));
+      staffWasteParams.push(...orderSliceWhere.params);
+    }
+  } else {
+    staffWasteOrderJoin = "LEFT JOIN orders o ON o.id = je.order_id";
+    staffWasteConditions.push("COALESCE(o.paid_by, o.created_by, je.created_by) = ?");
+    staffWasteParams.push(userId);
+  }
+
   const sessionRangeConditions = ["cs.user_id = ?"];
   const sessionParams = [userId];
   if (range.start && range.end) {
@@ -583,6 +646,7 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
     [productRows],
     [seriesOrderRows],
     [seriesCogsRows],
+    [seriesWasteRows],
     [orderCountRows],
     [orderRows],
     [sessionRows],
@@ -655,6 +719,18 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
         GROUP BY DATE_FORMAT(o.created_at, '%Y-%m-%d')
         ORDER BY bucket_date ASC`,
       orderParams,
+    ),
+    pool.execute(
+      `SELECT DATE_FORMAT(je.entry_date, '%Y-%m-%d') AS bucket_date,
+              COALESCE(SUM(jel.debit - jel.credit), 0) AS waste_cost
+         FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+         JOIN chart_of_accounts coa ON coa.id = jel.account_id
+         ${staffWasteOrderJoin}
+        WHERE ${staffWasteConditions.join(" AND ")}
+        GROUP BY DATE_FORMAT(je.entry_date, '%Y-%m-%d')
+        ORDER BY bucket_date ASC`,
+      staffWasteParams,
     ),
     pool.query(`SELECT COUNT(*) AS total FROM orders o ${orderWhere}`, orderParams),
     pool.query(
@@ -753,16 +829,21 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
 
   const seriesOrderMap = new Map(seriesOrderRows.map((row) => [row.bucket_date, row]));
   const seriesCogsMap = new Map(seriesCogsRows.map((row) => [row.bucket_date, Number(row.cogs || 0)]));
-  const seriesDates = [...new Set([...seriesOrderMap.keys(), ...seriesCogsMap.keys()])].sort();
+  const seriesWasteMap = new Map(seriesWasteRows.map((row) => [row.bucket_date, Number(row.waste_cost || 0)]));
+  const seriesDates = [...new Set([...seriesOrderMap.keys(), ...seriesCogsMap.keys(), ...seriesWasteMap.keys()])].sort();
   const series = seriesDates.map((dateStr) => {
     const ord = seriesOrderMap.get(dateStr);
     const sales = round2(ord?.sales);
-    const cogs = round2(seriesCogsMap.get(dateStr));
+    const salesCogs = round2(seriesCogsMap.get(dateStr));
+    const wasteCost = round2(seriesWasteMap.get(dateStr));
+    const cogs = round2(salesCogs + wasteCost);
     return {
       date: dateStr,
       label: formatDayLabel(dateStr),
       sales,
       cogs,
+      salesCogs,
+      wasteCost,
       profit: round2(sales - cogs),
       orders: Number(ord?.orders_count || 0),
     };

@@ -14,6 +14,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
+import { useNetIncomePin } from "../hooks/useNetIncomePin.js";
+import NetIncomePinModal from "./NetIncomePinModal.jsx";
 import { EXPENSE_NAV_CATEGORIES } from "../config/expenseNavigation.js";
 import { BalanceSheetTabView, CashFlowTabView, JournalAuditTabView } from "./admin/finances/FinancialStatementTabs.jsx";
 import "../assets/css/admin/FinancialManagement.css";
@@ -225,6 +227,7 @@ function FinDialog({ isOpen, onClose, title, titleId, busy = false, maxWidth = "
 }
 
 export default function FinancialReconciliationCenter() {
+  const netIncomePin = useNetIncomePin();
   const [activeTab, setActiveTab] = useState("recon"); // 'recon', 'pnl', 'cashflow', 'balancesheet', 'journal'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -370,7 +373,7 @@ export default function FinancialReconciliationCenter() {
           setReconData(res.items || []);
           setReconTotal(Number(res.total || 0));
         } else if (activeTab === "pnl") {
-          const res = await apiRequest(`/finances/reports/profit-and-loss${buildDateParams()}`);
+          const res = await apiRequest(`/finances/reports/profit-and-loss${buildDateParams()}`, { headers: netIncomePin.financialHeaders });
           if (!active) return;
           setPnlData(res);
         } else if (activeTab === "cashflow") {
@@ -378,7 +381,7 @@ export default function FinancialReconciliationCenter() {
           if (!active) return;
           setCfData(res);
         } else if (activeTab === "balancesheet") {
-          const res = await apiRequest("/finances/reports/balance-sheet");
+          const res = await apiRequest("/finances/reports/balance-sheet", { headers: netIncomePin.financialHeaders });
           if (!active) return;
           setBsData(res);
         } else if (activeTab === "journal") {
@@ -407,7 +410,7 @@ export default function FinancialReconciliationCenter() {
       window.removeEventListener("amaya:stock-mutated", onExternalUpdate);
       window.removeEventListener("amaya:session-changed", onExternalUpdate);
     };
-  }, [activeTab, buildDateParams, journalPage, reconPage, loadMeta]);
+  }, [activeTab, buildDateParams, journalPage, reconPage, loadMeta, netIncomePin.financialHeaders]);
 
   const accountBalanceMap = useMemo(() => {
     const map = new Map();
@@ -531,7 +534,7 @@ export default function FinancialReconciliationCenter() {
       setFormMemo("Business Income Tax");
       const reqSeq = ++incomeTaxFetchSeqRef.current;
       setNibtRefreshing(true);
-      apiRequest(`/finances/reports/profit-and-loss${buildDateParams()}`)
+      apiRequest(`/finances/reports/profit-and-loss${buildDateParams()}`, { headers: netIncomePin.financialHeaders })
         .then((res) => {
           if (!isMountedRef.current) return;
           if (incomeTaxFetchSeqRef.current !== reqSeq) return;
@@ -773,7 +776,7 @@ export default function FinancialReconciliationCenter() {
                 className="fin-action-btn"
                 onClick={() => openActionModal("opex")}
               >
-                <PlusCircle size={14} aria-hidden="true" /> Record OPEX
+                <PlusCircle size={14} aria-hidden="true" /> + Record Operating Expense
               </button>
               {openAp2010Display > 0 && (
                 <button
@@ -968,6 +971,12 @@ export default function FinancialReconciliationCenter() {
         {/* TAB 1: DAILY ASSET RECONCILIATION */}
         {!loading && activeTab === "recon" && (
           <>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: ".5rem", marginBottom: ".6rem" }}>
+              <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+              </button>
+              {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
+            </div>
             <div className="fin-table-wrap">
               <table className="fin-table">
                 <thead>
@@ -1007,7 +1016,7 @@ export default function FinancialReconciliationCenter() {
                         </td>
                         <td>{peso(row.grossSales)}</td>
                         <td>{peso(row.cogsConsumed)}</td>
-                        <td style={{ fontWeight: 600 }}>{peso(row.netOperatingProfit)}</td>
+                        <td style={{ fontWeight: 600 }}>{netIncomePin.unlocked && row.netOperatingProfit != null ? peso(row.netOperatingProfit) : "₱••••••"}</td>
                         <td style={{ color: Number(row.drawerVariance || 0) === 0 ? "#5a4029" : (row.drawerVariance < 0 ? "#c53030" : "#1e7047") }}>
                           {row.drawerVariance != null ? peso(row.drawerVariance) : "—"}
                         </td>
@@ -1058,20 +1067,20 @@ export default function FinancialReconciliationCenter() {
                 <span>{peso(pnlData.customerSalesCogs ?? pnlData.cogs)}</span>
               </div>
               <div className="fin-statement-line" style={{ fontSize: "0.82rem", color: "#6b5847" }}>
-                <span>6030 - Food Spoilage &amp; Waste</span>
-                <span>{peso(pnlData.foodSpoilageCogs ?? 0)}</span>
+                <span>6030 - Waste Cost (Inventory Spoilage)</span>
+                <span>{peso(pnlData.wasteCost ?? pnlData.foodSpoilageCogs ?? 0)}</span>
               </div>
             </div>
 
             <div className="fin-statement-row is-profit-band">
-              <span>Gross Operating Profit (Margin: {pnlData.grossMarginPercent}%)</span>
+              <span>Gross Profit (Margin: {pnlData.grossMarginPercent}%)</span>
               <span>{peso(pnlData.grossProfit)}</span>
             </div>
 
             <div className="fin-statement-card">
               <div className="fin-opex-head-bar">
                 <div className="fin-statement-card-total" style={{ marginTop: 0, paddingTop: 0, borderTop: "none", flex: 1 }}>
-                  <span>Operating Expenses (OPEX — 8 Categories)</span>
+                  <span>Operating Expenses</span>
                   <span>
                     {pnlData.totalOperatingExpenses >= 0
                       ? `- ${peso(pnlData.totalOperatingExpenses)}`
@@ -1149,8 +1158,8 @@ export default function FinancialReconciliationCenter() {
             </div>
 
             <div className="fin-statement-row is-ebitda">
-              <span>EBITDA / Operating Income</span>
-              <span>{peso(pnlData.ebitdaOperatingIncome)}</span>
+              <span>Profit After Operating Expenses, Before Depreciation</span>
+              <span>{netIncomePin.unlocked && pnlData.ebitdaOperatingIncome != null ? peso(pnlData.ebitdaOperatingIncome) : "₱••••••"}</span>
             </div>
 
             <div className="fin-statement-row is-deduction">
@@ -1168,8 +1177,8 @@ export default function FinancialReconciliationCenter() {
             </div>
 
             <div className="fin-statement-row is-subtotal">
-              <span>Net Income Before Tax (EBT)</span>
-              <span>{peso(nibtValue)}</span>
+              <span>Profit After Depreciation, Before Tax</span>
+              <span>{netIncomePin.unlocked && pnlData.netIncomeBeforeTax != null ? peso(nibtValue) : "₱••••••"}</span>
             </div>
 
             <div className="fin-statement-row is-deduction">
@@ -1188,14 +1197,18 @@ export default function FinancialReconciliationCenter() {
 
             <div className="fin-summary-hero">
               <div style={{ display: "flex", flexDirection: "column", gap: "0.18rem" }}>
-                <span>NET INCOME (BOTTOM-LINE PROFIT)</span>
+                <span>NET INCOME</span>
                 <small style={{ fontSize: "0.73rem", fontWeight: 500, color: "#e6d7c4" }}>
-                  Net Revenue &minus; COGS &minus; OPEX &minus; Depreciation &minus; Income Tax &middot; Net Margin: {netMarginPercent}%
+                  Gross Profit − Operating Expenses{netIncomePin.unlocked ? ` · Net Margin: ${netMarginPercent}%` : ""}
                 </small>
               </div>
               <span style={{ color: netIncomeValue >= 0 ? "#92e0be" : "#fca5a5" }}>
-                {peso(netIncomeValue)}
+                {netIncomePin.unlocked && pnlData.netIncome != null ? peso(netIncomeValue) : "₱••••••"}
               </span>
+              <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+              </button>
+              {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
             </div>
           </div>
         )}
@@ -1207,7 +1220,13 @@ export default function FinancialReconciliationCenter() {
 
         {/* TAB 4: BALANCE SHEET */}
         {!loading && activeTab === "balancesheet" && (
-          <BalanceSheetTabView bsData={bsData} peso={peso} openActionModal={openActionModal} />
+          <BalanceSheetTabView
+            bsData={bsData}
+            peso={peso}
+            openActionModal={openActionModal}
+            netIncomeUnlocked={netIncomePin.unlocked}
+            onRequestNetIncome={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}
+          />
         )}
 
         {/* TAB 5: JOURNAL AUDIT */}
@@ -1237,7 +1256,7 @@ export default function FinancialReconciliationCenter() {
         maxWidth={actionModal === "depreciation" || actionModal === "income_tax" ? "520px" : "480px"}
         title={
           actionModal === "opex"
-            ? "Record Operating Expense (OPEX)"
+            ? "Record Operating Expense"
             : actionModal === "settle"
               ? (settleLiabilityCode === "2030" ? "Pay Income Tax (2030 Tax Payable)" : "Settle Unpaid Bills (2010 AP)")
               : actionModal === "depreciation"
@@ -1258,11 +1277,11 @@ export default function FinancialReconciliationCenter() {
             </div>
           )}
 
-          {/* 1. RECORD OPEX */}
+          {/* 1. RECORD AN OPERATING EXPENSE */}
           {actionModal === "opex" && (
             <>
               <div className="fin-form-group">
-                <label htmlFor="fin-opex-account">Expense Account (8 OPEX Categories) *</label>
+                <label htmlFor="fin-opex-account">Expense Category *</label>
                 <select
                   id="fin-opex-account"
                   className="fin-form-input"
@@ -1291,7 +1310,7 @@ export default function FinancialReconciliationCenter() {
                       <option value="6140">6140 - Operating Supplies</option>
                       <option value="6144">6144 - Sanitation Supplies</option>
                       <option value="6172">6172 - Taxes &amp; Licenses (Permits)</option>
-                      <option value="6010">6010 - Operating Expenses (OPEX)</option>
+                      <option value="6010">6010 - Operating Expenses</option>
                     </>
                   )}
                 </select>
@@ -1317,7 +1336,7 @@ export default function FinancialReconciliationCenter() {
                 <legend style={{ fontSize: "0.82rem", fontWeight: 600, color: "#4a2c11", marginBottom: "0.35rem" }}>
                   Payment Status *
                 </legend>
-                <div className="fin-radio-grid" role="radiogroup" aria-label="OPEX payment status">
+                <div className="fin-radio-grid" role="radiogroup" aria-label="Operating expense payment status">
                   <button
                     ref={paidRadioRef}
                     type="button"
@@ -1539,7 +1558,7 @@ export default function FinancialReconciliationCenter() {
             <>
               <div className="fin-callout">
                 <div>
-                  Period Net Income Before Tax: <strong>{peso(nibtValue)}</strong>
+                  Period Profit Before Tax: <strong>{netIncomePin.unlocked && pnlData?.netIncomeBeforeTax != null ? peso(nibtValue) : "₱••••••"}</strong>
                   {nibtRefreshing && <small style={{ marginLeft: "0.45rem", color: "#6b5847" }}>(Refreshing…)</small>}
                 </div>
                 <small style={{ color: "#6b5847" }}>
@@ -1856,6 +1875,12 @@ export default function FinancialReconciliationCenter() {
           </div>
         </form>
       </FinDialog>
+      <NetIncomePinModal
+        open={netIncomePin.modalOpen}
+        hasPin={netIncomePin.hasPin}
+        onClose={() => netIncomePin.setModalOpen(false)}
+        onUnlocked={(accessToken) => netIncomePin.unlock(accessToken)}
+      />
     </section>
   );
 }

@@ -1,4 +1,6 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import {
@@ -26,6 +28,140 @@ import {
 } from "../services/financesReportService.js";
 
 const router = Router();
+
+function netIncomeTokenSecret() {
+  const secret = (process.env.JWT_SECRET || "").trim();
+  if (!secret || secret.length < 32 || /^(.)\1+$/.test(secret) || /^replace_with/i.test(secret)) {
+    throw new Error("JWT_SECRET must be set to a high-entropy random value of at least 32 characters.");
+  }
+  return secret;
+}
+
+function createNetIncomeAccessToken(userId) {
+  return jwt.sign(
+    { sub: String(userId), purpose: "view_net_income" },
+    netIncomeTokenSecret(),
+    { expiresIn: "15m", issuer: "amaya-api", audience: "amaya-net-income", algorithm: "HS256" },
+  );
+}
+
+function hasValidNetIncomeAccess(request) {
+  const token = request.get("X-Net-Income-Token");
+  if (!token) return false;
+  try {
+    const claims = jwt.verify(token, netIncomeTokenSecret(), {
+      issuer: "amaya-api",
+      audience: "amaya-net-income",
+      algorithms: ["HS256"],
+    });
+    return claims.purpose === "view_net_income" && String(claims.sub) === String(request.authUser?.sub);
+  } catch {
+    return false;
+  }
+}
+
+function parseOwnerPin(value) {
+  const pin = String(value ?? "");
+  if (!/^\d{4,6}$/.test(pin)) throw httpError(400, "Owner Numeric PIN must contain 4 to 6 numbers.");
+  return pin;
+}
+
+async function checkOwnerPin(connection, pin, userId) {
+  const [[settings]] = await connection.execute(
+    `SELECT owner_net_income_pin_hash, owner_net_income_pin_failed_attempts, owner_net_income_pin_locked_until,
+            (owner_net_income_pin_locked_until IS NOT NULL AND owner_net_income_pin_locked_until > NOW()) AS is_locked
+       FROM business_settings WHERE id = 1 FOR UPDATE`,
+  );
+  if (!settings) throw httpError(503, "Business security settings are unavailable.");
+  if (Number(settings.is_locked)) {
+    const until = settings.owner_net_income_pin_locked_until;
+    const err = httpError(429, `Too many incorrect PIN attempts. Try again after ${new Date(until).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}.`);
+    err.lockedUntil = until;
+    throw err;
+  }
+  if (!settings.owner_net_income_pin_hash) throw httpError(409, "Set an Owner Numeric PIN first.");
+  const [[user]] = await connection.execute("SELECT password_hash FROM users WHERE id = ? LIMIT 1", [userId]);
+  const isAdminPassword = user ? await bcrypt.compare(pin, user.password_hash) : false;
+  const matches = !isAdminPassword && await bcrypt.compare(pin, settings.owner_net_income_pin_hash);
+  if (!matches) {
+    const failedAttempts = Number(settings.owner_net_income_pin_failed_attempts || 0) + 1;
+    if (failedAttempts >= 5) {
+      await connection.execute(
+        "UPDATE business_settings SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_locked_until = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE id = 1",
+      );
+      throw httpError(429, "Too many incorrect PIN attempts. Net Income is locked for 5 minutes.");
+    }
+    await connection.execute(
+      "UPDATE business_settings SET owner_net_income_pin_failed_attempts = ?, owner_net_income_pin_locked_until = NULL WHERE id = 1",
+      [failedAttempts],
+    );
+    throw httpError(401, `Incorrect Owner Numeric PIN. ${5 - failedAttempts} attempt${5 - failedAttempts === 1 ? "" : "s"} remaining before a 5-minute lock.`);
+  }
+  await connection.execute(
+    "UPDATE business_settings SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_locked_until = NULL WHERE id = 1",
+  );
+}
+
+router.get("/net-income-pin/status", requireAuth, requireRole("admin"), async (_request, response) => {
+  const [[settings]] = await pool.execute(
+    `SELECT owner_net_income_pin_hash IS NOT NULL AS has_pin,
+            owner_net_income_pin_locked_until > NOW() AS is_locked,
+            owner_net_income_pin_locked_until AS locked_until
+       FROM business_settings WHERE id = 1 LIMIT 1`,
+  );
+  response.json({ hasPin: Boolean(settings?.has_pin), locked: Boolean(settings?.is_locked), lockedUntil: settings?.locked_until || null });
+});
+
+router.post("/net-income-pin/verify", requireAuth, requireRole("admin"), async (request, response) => {
+  const pin = parseOwnerPin(request.body?.pin);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await checkOwnerPin(connection, pin, request.authUser.sub);
+    await connection.commit();
+  } catch (error) {
+    await connection.commit();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  response.json({ accessToken: createNetIncomeAccessToken(request.authUser.sub), expiresInSeconds: 900 });
+});
+
+router.post("/net-income-pin/set", requireAuth, requireRole("admin"), async (request, response) => {
+  const pin = parseOwnerPin(request.body?.pin);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[settings]] = await connection.execute(
+      "SELECT owner_net_income_pin_hash FROM business_settings WHERE id = 1 FOR UPDATE",
+    );
+    if (!settings) throw httpError(503, "Business security settings are unavailable.");
+    if (settings.owner_net_income_pin_hash) {
+      const currentPin = parseOwnerPin(request.body?.currentPin);
+      await checkOwnerPin(connection, currentPin, request.authUser.sub);
+    }
+    const [[user]] = await connection.execute("SELECT password_hash FROM users WHERE id = ? LIMIT 1", [request.authUser.sub]);
+    if (user && await bcrypt.compare(pin, user.password_hash)) {
+      throw httpError(400, "Choose a Numeric PIN that is different from your Admin login password.");
+    }
+    const hash = await bcrypt.hash(pin, 12);
+    await connection.execute(
+      `UPDATE business_settings
+          SET owner_net_income_pin_hash = ?, owner_net_income_pin_failed_attempts = 0,
+              owner_net_income_pin_locked_until = NULL
+        WHERE id = 1`,
+      [hash],
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.commit();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  response.json({ message: "Owner Numeric PIN saved.", accessToken: createNetIncomeAccessToken(request.authUser.sub), expiresInSeconds: 900 });
+});
 
 function budgetMonth(value) {
   const month = String(value || getManilaDateString().slice(0, 7));
@@ -253,7 +389,14 @@ router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request,
 // 2. ACCOUNTS & STORE TOTAL ASSETS OVERVIEW (Admin Only)
 // -------------------------------------------------------------
 router.get("/accounts", requireAuth, requireRole("admin"), async (request, response) => {
-  response.json(await getAccountsAndAssetsReport(request.query?.from, request.query?.to));
+  const report = await getAccountsAndAssetsReport(request.query?.from, request.query?.to);
+  if (!hasValidNetIncomeAccess(request)) {
+    report.summary.netIncome = null;
+    report.summary.netProfitAfterSale = null;
+    report.summary.allTimeNetProfit = null;
+    report.summary.baseCapitalMoney = null;
+  }
+  response.json(report);
 });
 
 // -------------------------------------------------------------
@@ -652,6 +795,9 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     ];
   }
 
+  if (finalLines.some((l) => l.accountCode === "6030")) {
+    throw httpError(400, "Waste Cost (6030) is calculated from inventory waste records and cannot be entered as a manual journal amount.");
+  }
   if (finalLines.some((l) => l.accountCode === "2020")) {
     throw httpError(400, "Account 2020 (Sales Tax / VAT Payable) is reserved strictly for automated POS order transactions.");
   }
@@ -1368,7 +1514,15 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
 // 7. FORMAL PROFIT & LOSS (P&L) STATEMENT (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async (request, response) => {
-  response.json(await getProfitAndLossReport(request.query?.from, request.query?.to));
+  const report = await getProfitAndLossReport(request.query?.from, request.query?.to);
+  if (!hasValidNetIncomeAccess(request)) {
+    report.netIncome = null;
+    report.accountingNetIncome = null;
+    report.netIncomeBeforeTax = null;
+    report.netOperatingProfit = null;
+    report.ebitdaOperatingIncome = null;
+  }
+  response.json(report);
 });
 
 // -------------------------------------------------------------
@@ -1382,14 +1536,20 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
 // 9. DAILY STORE ASSET RECONCILIATION LEDGER (Admin Only)
 // -------------------------------------------------------------
 router.get("/reports/daily-reconciliation", requireAuth, requireRole("admin"), async (request, response) => {
-  response.json(await getDailyReconciliationReport(request.query || {}));
+  const report = await getDailyReconciliationReport(request.query || {});
+  if (!hasValidNetIncomeAccess(request)) {
+    report.items = report.items.map((item) => ({ ...item, netOperatingProfit: null }));
+  }
+  response.json(report);
 });
 
 // -------------------------------------------------------------
 // 10. BALANCE SHEET STATEMENT (Admin Only)
 // -------------------------------------------------------------
-router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (_request, response) => {
-  response.json(await getBalanceSheetReport());
+router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (request, response) => {
+  const report = await getBalanceSheetReport();
+  if (!hasValidNetIncomeAccess(request)) report.equity.retainedEarnings = null;
+  response.json(report);
 });
 
 export default router;

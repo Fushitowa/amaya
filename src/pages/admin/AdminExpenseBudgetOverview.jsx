@@ -25,7 +25,7 @@ export default function AdminExpenseBudgetOverview() {
           <div className="expense-budget-overview-intro">
             <Link className="expense-back-link" to="/admin/finances"><ArrowLeft size={15} aria-hidden="true" /> Financial Center</Link>
             <h2>Monthly budget overview</h2>
-            <p>Compare actual operating expense spending with each category’s monthly budget. Set or change budgets here; expense entries remain in the financial ledger.</p>
+            <p>Compare actual operating expense spending with each category’s monthly budget. Waste Cost is tracked under COGS and is excluded from these operating expense budgets.</p>
           </div>
           <ExpenseBudgetHealth month={month} onMonthChange={setMonth} />
         </div>

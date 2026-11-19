@@ -26,6 +26,8 @@ import { getInventoryStatus, useInventory } from "../../context/InventoryContext
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { useNetIncomePin } from "../../hooks/useNetIncomePin.js";
+import NetIncomePinModal from "../../components/NetIncomePinModal.jsx";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import {
   compactPeso,
@@ -143,6 +145,7 @@ function formatDeltaBadge(deltaObj, rangeKey) {
 }
 
 function AdminReport() {
+  const netIncomePin = useNetIncomePin();
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { orders = [], confirmOrder, voidOrder, revertOrderItem } = useOrders() || {};
   const { inventory = [], loading: inventoryLoading, error: inventoryError } = useInventory() || {};
@@ -224,6 +227,7 @@ function AdminReport() {
     hourlySalesData: null,
     error: "",
   });
+  const [incomeStatementSummary, setIncomeStatementSummary] = useState(null);
 
   // Movements State
   const [movState, setMovState] = useState({
@@ -254,6 +258,29 @@ function AdminReport() {
   const ordersQueryKey = `${rangeKey}|${customStart}|${customEnd}|${staffFilterId ?? "all"}|${ordersStatusFilter}|${ordersPaymentFilter}|${ordersSearch.trim()}|${ordersPage}|${refreshNonce}`;
   const smartRestockQueryKey = `${restockLookbackDays}|${restockCoverDays}|${refreshNonce}`;
   const smartRestockLoading = restockModalOpen && smartRestockState.queryKey !== smartRestockQueryKey;
+
+  useEffect(() => {
+    if (customRangeInvalid) return undefined;
+    let active = true;
+    const params = new URLSearchParams();
+    if (rangeKey === "today") {
+      params.set("from", getManilaDateInputValue(0));
+      params.set("to", getManilaDateInputValue(0));
+    } else if (rangeKey === "7d") {
+      params.set("from", getManilaDateInputValue(-6));
+      params.set("to", getManilaDateInputValue(0));
+    } else if (rangeKey === "30d") {
+      params.set("from", getManilaDateInputValue(-29));
+      params.set("to", getManilaDateInputValue(0));
+    } else if (rangeKey === "custom") {
+      if (customStart) params.set("from", customStart);
+      if (customEnd) params.set("to", customEnd);
+    }
+    apiRequest(`/finances/accounts${params.size ? `?${params.toString()}` : ""}`, { headers: netIncomePin.financialHeaders })
+      .then((data) => { if (active) setIncomeStatementSummary(data?.summary || null); })
+      .catch(() => { if (active) setIncomeStatementSummary(null); });
+    return () => { active = false; };
+  }, [customEnd, customRangeInvalid, customStart, rangeKey, netIncomePin.financialHeaders]);
 
   const productImageByName = useMemo(() => {
     const map = new Map();
@@ -535,6 +562,7 @@ function AdminReport() {
     netSales: 0,
     cogs: 0,
     spoilageCost: 0,
+    salesCogs: 0,
     totalCogs: 0,
     grossProfit: 0,
     reconciledGrossProfit: 0,
@@ -559,7 +587,7 @@ function AdminReport() {
   const isCoreLoading = !customRangeInvalid && coreState.queryKey !== coreQueryKey && !coreState.error;
 
   const foodCostAnalysis = useMemo(() => {
-    const grossSales = Number(summary.grossCollectedSales || 0);
+    const grossSales = Number(summary.netSales ?? summary.grossCollectedSales ?? 0);
     const cogs = Number(summary.cogs || 0);
     const normalizedTarget = normalizeTargetFoodCost(
       summary.targetFoodCost,
@@ -594,7 +622,7 @@ function AdminReport() {
       isOverTarget,
       hasUncosted,
     };
-  }, [summary.cogs, summary.grossCollectedSales, summary.targetFoodCost, summary.uncostedItemsCount]);
+  }, [summary.cogs, summary.netSales, summary.grossCollectedSales, summary.targetFoodCost, summary.uncostedItemsCount]);
 
   const staffList = useMemo(
     () => (Array.isArray(coreState.staffPerf?.staff) ? coreState.staffPerf.staff : []),
@@ -1442,18 +1470,16 @@ function AdminReport() {
                   </div>
                   <div>
                     <span>
-                      Ingredient & Packaging Cost
-                      {Number(summary.spoilageCost || 0) > 0 && (
-                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                          With waste/spoilage: {peso(summary.totalCogs)}
-                        </small>
-                      )}
+                      Total COGS (Sales + Waste)
+                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
+                        Sales COGS: {peso(summary.salesCogs)} · Waste Cost: {peso(summary.spoilageCost)}
+                      </small>
                     </span>
-                    <strong>{peso(summary.cogs)}</strong>
+                    <strong>{peso(summary.totalCogs ?? summary.cogs)}</strong>
                   </div>
                   <div>
                     <span className="sales-metric-label-with-badge">
-                      Ingredient Cost %
+                      COGS % (including waste)
                       {foodCostAnalysis.hasUncosted && (
                         <span
                           className="report-partial-cogs-badge"
@@ -1482,12 +1508,7 @@ function AdminReport() {
                   </div>
                   <div>
                     <span>
-                      Profit from Sales
-                      {(Number(summary.spoilageCost || 0) > 0 || Number(summary.taxCollected || 0) > 0) && (
-                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                          After waste/spoilage: {peso(summary.reconciledGrossProfit)}
-                        </small>
-                      )}
+                      Gross Profit After COGS
                     </span>
                     <strong>
                       {peso(summary.grossProfit)}
@@ -1516,6 +1537,27 @@ function AdminReport() {
                     <strong>{peso(summary.inventoryExpenditure)}</strong>
                   </div>
                 </div>
+                <section className="report-income-statement" aria-label="Income Statement Preparation">
+                  <div>
+                    <span className="admin-report-eyebrow">INCOME STATEMENT PREPARATION</span>
+                    <h3>How much did the store earn?</h3>
+                  </div>
+                  <div className="report-income-formula">
+                    <span>Total Sales <strong>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</strong></span>
+                    <b aria-hidden="true">−</b>
+                    <span>COGS, including Waste Cost <strong>{peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
+                    <b aria-hidden="true">=</b>
+                    <span>Gross Profit <strong>{peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
+                    <b aria-hidden="true">−</b>
+                    <span>Operating Expenses <strong>{peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
+                    <b aria-hidden="true">=</b>
+                    <span className="report-income-net">Net Income <strong>{netIncomePin.unlocked && incomeStatementSummary?.netIncome != null ? peso(incomeStatementSummary.netIncome) : "₱••••••"}</strong></span>
+                  </div>
+                  <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                    {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+                  </button>
+                  {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
+                </section>
               </div>
             </div>
 
@@ -2610,6 +2652,12 @@ function AdminReport() {
           onClosed={() => setSelectedOrder(null)}
         />
       )}
+      <NetIncomePinModal
+        open={netIncomePin.modalOpen}
+        hasPin={netIncomePin.hasPin}
+        onClose={() => netIncomePin.setModalOpen(false)}
+        onUnlocked={(accessToken) => netIncomePin.unlock(accessToken)}
+      />
     </div>
   );
 }

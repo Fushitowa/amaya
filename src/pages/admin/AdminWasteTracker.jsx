@@ -128,7 +128,7 @@ function AdminWasteTracker() {
           <div className="awt-heading-copy">
             <span className="awt-eyebrow"><ClipboardList size={14} aria-hidden="true" /> INVENTORY RECORDS</span>
             <h1>Waste &amp; Spoilage Tracker</h1>
-            <p>Review ingredient waste, recorded costs, and recurring stock losses.</p>
+            <p>Review ingredient waste and its actual inventory cost. Each unreversed waste record posts to COGS.</p>
             <span className="awt-date"><CalendarDays size={15} aria-hidden="true" /> {currentDate}</span>
           </div>
           <div className="awt-header-actions">
@@ -153,9 +153,9 @@ function AdminWasteTracker() {
             <small>{WASTE_SCOPES.find((entry) => entry.key === scope)?.label} records</small>
           </article>
           <article className="awt-kpi-card is-loss">
-            <span><CircleDollarSign size={16} aria-hidden="true" /> Cost of waste</span>
+            <span><CircleDollarSign size={16} aria-hidden="true" /> Waste Cost (COGS)</span>
             <strong>₱{totalLoss.toFixed(2)}</strong>
-            <small>Calculated from the recorded ingredient cost</small>
+            <small>Quantity wasted × ingredient unit cost · posted to account 6030</small>
           </article>
           <article className="awt-kpi-card">
             <span><Clock3 size={16} aria-hidden="true" /> Most frequent waste</span>

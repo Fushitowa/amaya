@@ -17,6 +17,8 @@ import {
   Calendar,
 } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
+import { useNetIncomePin } from "../hooks/useNetIncomePin.js";
+import NetIncomePinModal from "./NetIncomePinModal.jsx";
 import { createClientRequestId } from "../utils/clientRequestId.js";
 import "../assets/css/admin/FinancialManagement.css";
 
@@ -36,6 +38,7 @@ function getManilaDateOffset(daysAgo = 0) {
 }
 
 export default function StoreAssetsHeroCard() {
+  const netIncomePin = useNetIncomePin();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState(null);
@@ -73,7 +76,7 @@ export default function StoreAssetsHeroCard() {
       if (range?.from) params.set("from", range.from);
       if (range?.to) params.set("to", range.to);
       const qs = params.toString();
-      const res = await apiRequest(`/finances/accounts${qs ? `?${qs}` : ""}`);
+      const res = await apiRequest(`/finances/accounts${qs ? `?${qs}` : ""}`, { headers: netIncomePin.financialHeaders });
       setData(res);
       return res;
     } catch (err) {
@@ -84,12 +87,12 @@ export default function StoreAssetsHeroCard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [netIncomePin.financialHeaders]);
 
   useEffect(() => {
     let active = true;
     const syncAccounts = () => {
-      apiRequest("/finances/accounts")
+      apiRequest("/finances/accounts", { headers: netIncomePin.financialHeaders })
         .then((res) => {
           if (!active) return;
           setData(res);
@@ -111,7 +114,7 @@ export default function StoreAssetsHeroCard() {
       window.removeEventListener("amaya:stock-mutated", syncAccounts);
       window.removeEventListener("amaya:session-changed", syncAccounts);
     };
-  }, []);
+  }, [netIncomePin.financialHeaders]);
 
   // Close dropdown on outside click or Escape
   useEffect(() => {
@@ -146,7 +149,7 @@ export default function StoreAssetsHeroCard() {
     if (withdrawTo) params.set("to", withdrawTo);
     const qs = params.toString();
 
-    apiRequest(`/finances/accounts${qs ? `?${qs}` : ""}`)
+    apiRequest(`/finances/accounts${qs ? `?${qs}` : ""}`, { headers: netIncomePin.financialHeaders })
       .then((res) => {
         if (!active) return;
         const periodSum = res?.summary || null;
@@ -186,7 +189,7 @@ export default function StoreAssetsHeroCard() {
     return () => {
       active = false;
     };
-  }, [isModalOpen, modalType, withdrawFrom, withdrawTo, withdrawChannel]);
+  }, [isModalOpen, modalType, withdrawFrom, withdrawTo, withdrawChannel, netIncomePin.financialHeaders]);
 
   const applyWithdrawPreset = (presetKey) => {
     setWithdrawPreset(presetKey);
@@ -288,6 +291,8 @@ export default function StoreAssetsHeroCard() {
       ? activeAuditSummary.grossProfit
       : periodSales - periodCogs,
   );
+  const periodOperatingExpenses = Number(activeAuditSummary.totalOperatingExpenses ?? activeAuditSummary.operatingExpenses ?? 0);
+  const periodNetIncome = activeAuditSummary.netIncome == null ? null : Number(activeAuditSummary.netIncome);
 
   const channelBalancesMap = useMemo(() => ({
     "1010": confirmedCashDrawer,
@@ -475,6 +480,7 @@ export default function StoreAssetsHeroCard() {
                 </div>
               )}
               {!loading && (
+                <>
                 <div className="store-assets-equation-bar" aria-label="Store assets breakdown formula">
                   <div className="store-assets-eq-item">
                     <span className="store-assets-eq-label">Total Sales</span>
@@ -490,7 +496,22 @@ export default function StoreAssetsHeroCard() {
                     <span className="store-assets-eq-label">Gross Profit</span>
                     <strong className="store-assets-eq-val">{peso(grossProfit)}</strong>
                   </div>
+                  <span className="store-assets-eq-op" aria-hidden="true">−</span>
+                  <div className="store-assets-eq-item">
+                    <span className="store-assets-eq-label">Operating Expenses</span>
+                    <strong className="store-assets-eq-val">{peso(summary.totalOperatingExpenses ?? summary.operatingExpenses ?? 0)}</strong>
+                  </div>
+                  <span className="store-assets-eq-op" aria-hidden="true">=</span>
+                  <div className="store-assets-eq-item is-total is-profit">
+                    <span className="store-assets-eq-label">Net Income</span>
+                    <strong className="store-assets-eq-val">{netIncomePin.unlocked && summary.netIncome != null ? peso(summary.netIncome) : "₱••••••"}</strong>
+                  </div>
                 </div>
+                <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                  {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+                </button>
+                {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
+                </>
               )}
             </div>
 
@@ -705,6 +726,18 @@ export default function StoreAssetsHeroCard() {
                         <span>Gross Profit (Recommended to Withdraw)</span>
                         <strong>{peso(periodGrossProfit)}</strong>
                       </div>
+                      <div className="store-audit-payout-row">
+                        <span>Less Operating Expenses</span>
+                        <strong>− {peso(periodOperatingExpenses)}</strong>
+                      </div>
+                      <div className="store-audit-payout-row is-net-income">
+                        <span>Net Income</span>
+                        <strong>{netIncomePin.unlocked && periodNetIncome != null ? peso(periodNetIncome) : "₱••••••"}</strong>
+                      </div>
+                      <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                        {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+                      </button>
+                      {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
                       <div className="store-audit-payout-row is-available">
                         <span>Available Cash in Selected Channel</span>
                         <strong>{peso(selectedChannelBalance)}</strong>
@@ -901,6 +934,12 @@ export default function StoreAssetsHeroCard() {
           </div>
         </div>
       )}
+      <NetIncomePinModal
+        open={netIncomePin.modalOpen}
+        hasPin={netIncomePin.hasPin}
+        onClose={() => netIncomePin.setModalOpen(false)}
+        onUnlocked={(accessToken) => netIncomePin.unlock(accessToken)}
+      />
     </>
   );
 }

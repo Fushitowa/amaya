@@ -389,11 +389,11 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
   const discountTotal = round2(orderAgg?.discount_total);
   const taxCollected = round2(orderAgg?.tax_collected);
   const netSales = round2(grossSales - discountTotal);
-  const cogs = round2(itemAgg?.cogs);
+  const salesCogs = round2(itemAgg?.cogs);
   const spoilageCost = round2(Math.max(0, spoilAgg?.spoilage_cost));
-  const totalCogs = round2(cogs + spoilageCost);
-  const grossProfit = round2(grossCollectedSales - cogs);
-  const reconciledGrossProfit = round2(netSales - totalCogs);
+  const totalCogs = round2(salesCogs + spoilageCost);
+  const grossProfit = round2(netSales - totalCogs);
+  const reconciledGrossProfit = grossProfit;
   const paidOrdersCount = Number(orderAgg?.paid_orders_count || 0);
 
   return {
@@ -402,12 +402,14 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
     discountTotal,
     taxCollected,
     netSales,
-    cogs,
+    cogs: totalCogs,
+    salesCogs,
     spoilageCost,
+    wasteCost: spoilageCost,
     totalCogs,
     grossProfit,
     reconciledGrossProfit,
-    marginPercent: grossCollectedSales > 0 ? round2((grossProfit / grossCollectedSales) * 100) : 0,
+    marginPercent: netSales > 0 ? round2((grossProfit / netSales) * 100) : 0,
     paidOrdersCount,
     unpaidOrdersCount: Number(orderAgg?.unpaid_orders_count || 0),
     voidedOrdersCount: Number(orderAgg?.voided_orders_count || 0),

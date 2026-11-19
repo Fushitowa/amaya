@@ -34,7 +34,7 @@ VALUES
   ('5010', 'Cost of Goods Sold (COGS)', 'expense', 'debit', TRUE),
   ('6010', 'Operating Expenses (OPEX)', 'expense', 'debit', TRUE),
   ('6020', 'Utilities & Rent Expense', 'expense', 'debit', FALSE),
-  ('6030', 'Inventory Wastage & Spoilage', 'expense', 'debit', TRUE),
+  ('6030', 'Waste Cost', 'expense', 'debit', TRUE),
   ('6040', 'Cash Drawer Discrepancy', 'expense', 'debit', TRUE)
 ON DUPLICATE KEY UPDATE account_name = VALUES(account_name);
 

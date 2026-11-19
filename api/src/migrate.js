@@ -61,6 +61,8 @@ const migrations = [
   "041_schema_hygiene_indexes_fks.sql",
   "042_restock_velocity_index.sql",
   "043_expense_budgets.sql",
+  "044_rename_inventory_waste_cogs_account.sql",
+  "045_owner_net_income_pin.sql",
 ];
 
 // Never add unguarded bulk UPDATE/DELETE reset migrations; register historical resets here.
