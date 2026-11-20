@@ -258,7 +258,9 @@ router.post("/expense-records", requireAuth, requireRole("admin", "staff"), asyn
   const description = String(request.body?.description || "").trim().slice(0, 180);
   if (!description) throw httpError(400, "An item or expense description is required.");
   const amount = parseExactMoney(request.body?.amount, "Expense amount");
-  const date = String(request.body?.date || getManilaDateString()).trim();
+  const isStaff = request.authUser.role === "staff";
+  const today = getManilaDateString();
+  const date = String(request.body?.date || today).trim();
   if (!isValidIsoDateOnly(date)) throw httpError(400, "Expense date must use YYYY-MM-DD format.");
   const channelMap = {
     cash_counter: "1010",
@@ -268,17 +270,40 @@ router.post("/expense-records", requireAuth, requireRole("admin", "staff"), asyn
   };
   const creditAccountCode = channelMap[String(request.body?.channel || "")];
   if (!creditAccountCode) throw httpError(400, "Choose a valid money channel.");
+  // Staff only handle the counter drawer: GCash, bank, and owner reserve payments
+  // (and backdated entries) belong to the owner.
+  if (isStaff && creditAccountCode !== "1010") {
+    throw httpError(403, "Staff can only record expenses paid from the counter cash drawer. Ask the owner to record GCash, bank, or reserve payments.");
+  }
+  if (isStaff && date !== today) {
+    throw httpError(400, "Staff can only record expenses for today.");
+  }
   const notes = String(request.body?.notes || "").trim().slice(0, 150);
   const receiptReference = String(request.body?.receiptReference || "").trim().slice(0, 100);
   const memo = `${description}${notes ? ` · ${notes}` : ""}`.slice(0, 255);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    // Counter-cash expenses must be tied to the payer's open shift so the shift's
+    // expected cash drops by the same amount; otherwise closing the shift reports
+    // a false shortage and credits 1010 a second time.
+    let sessionId = null;
+    if (creditAccountCode === "1010") {
+      const [[openSession]] = await connection.execute(
+        "SELECT id FROM cashier_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC, id DESC LIMIT 1 FOR UPDATE",
+        [request.authUser.sub],
+      );
+      sessionId = openSession ? Number(openSession.id) : null;
+      if (isStaff && !sessionId) {
+        throw httpError(409, "Open your cashier shift before paying an expense from the counter cash.");
+      }
+    }
     const result = await postBalancedEntry(connection, {
       entryType: "operating_expense",
       memo,
       referenceNumber: receiptReference || null,
       entryDate: `${date} 12:00:00`,
+      sessionId,
       createdBy: request.authUser.sub,
       lines: [
         { accountCode: category.accountCodes[0], debit: amount, credit: 0, lineMemo: description },

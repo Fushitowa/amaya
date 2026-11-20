@@ -12,13 +12,11 @@ import "../../assets/css/admin/AdminExpenseCategory.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
-const TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const CHANNELS = [
-  ["cash_counter", "Cash in Counter"],
-  ["gcash", "GCash"],
-  ["store_bank", "Store Bank"],
-  ["owner_reserve", "Owner Reserve"],
-];
+// Computed on demand so a tab left open past midnight never records yesterday's date.
+const manilaToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+// Staff may only pay from the counter drawer, for today, during their open shift.
+// GCash, bank, and owner reserve payments are recorded by the owner.
+const STAFF_CHANNEL = "cash_counter";
 
 function StaffExpenseRecord() {
   const navigate = useNavigate();
@@ -28,8 +26,7 @@ function StaffExpenseRecord() {
   const [category, setCategory] = useState(EXPENSE_NAV_CATEGORIES.at(-1)?.slug || "miscellaneous");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(TODAY);
-  const [channel, setChannel] = useState("cash_counter");
+  const [date, setDate] = useState(manilaToday);
   const [receiptReference, setReceiptReference] = useState("");
   const [notes, setNotes] = useState("");
   const [health, setHealth] = useState(null);
@@ -59,11 +56,13 @@ function StaffExpenseRecord() {
       const overBy = value - health.remaining;
       if (!window.confirm(`This expense will exceed the ${health.label} budget by ₱${overBy.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Continue and record it? The owner will be notified by the budget health bar.`)) return;
     }
+    const recordDate = manilaToday();
+    setDate(recordDate);
     setSaving(true);
     try {
       const result = await apiRequest("/finances/expense-records", {
         method: "POST",
-        body: JSON.stringify({ category, description, amount: value, date, channel, receiptReference, notes }),
+        body: JSON.stringify({ category, description, amount: value, date: recordDate, channel: STAFF_CHANNEL, receiptReference, notes }),
       });
       try {
         const updatedHealth = await apiRequest(`/finances/expense-budgets/health?month=${encodeURIComponent(month)}`);
@@ -93,7 +92,7 @@ function StaffExpenseRecord() {
         <div className="admin-report-content admin-finances-content expense-category-content">
           <section className="staff-expense-form-panel">
             <Link className="expense-back-link" to="/staff/dashboard"><ArrowLeft size={15} /> Staff dashboard</Link>
-            <div className="staff-expense-form-title"><span><ReceiptText size={20} /></span><div><h2>Business expense</h2><p>Enter the actual amount. Expense records post to the operating expense ledger.</p></div></div>
+            <div className="staff-expense-form-title"><span><ReceiptText size={20} /></span><div><h2>Business expense</h2><p>Enter the actual amount paid from the counter cash. It is deducted from your shift&apos;s expected cash.</p></div></div>
             {health?.budget != null && <div className={`staff-expense-budget-hint status-${health.status === "over_budget" ? "over" : health.status}`}><strong>{health.label} · {month}</strong><span>Budget {`₱${Number(health.budget).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`} · Spent {`₱${Number(health.spent).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`} · Remaining {`₱${Number(health.remaining).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`}</span></div>}
             {health?.budget == null && <div className="staff-expense-budget-hint status-none">No budget is set for this category and month.</div>}
             {error && <div className="expense-budget-error" role="alert">{error}</div>}
@@ -105,8 +104,8 @@ function StaffExpenseRecord() {
                 <label>Amount (₱)<input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /></label>
               </div>
               <div className="staff-expense-form-row">
-                <label>Date<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
-                <label>Money channel<select value={channel} onChange={(event) => setChannel(event.target.value)}>{CHANNELS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                <label>Date<input type="date" value={date} readOnly aria-readonly="true" title="Staff expenses are recorded for today" /></label>
+                <label>Paid from<input type="text" value="Cash in Counter (your open shift)" readOnly aria-readonly="true" /></label>
               </div>
               <label>Receipt reference (optional)<input maxLength={100} value={receiptReference} onChange={(event) => setReceiptReference(event.target.value)} placeholder="Receipt number or saved receipt reference" /></label>
               <label>Notes (optional)<textarea maxLength={150} rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context for the owner" /></label>
