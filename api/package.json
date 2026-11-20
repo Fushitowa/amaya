@@ -11,7 +11,8 @@
     "db:migrate": "node src/migrate.js",
     "db:vault": "node src/catalog-vault.js",
     "lint": "node ../node_modules/eslint/bin/eslint.js src",
-    "test": "node ../scripts/run-tests.mjs"
+    "test": "node ../scripts/run-tests.mjs",
+    "db:backup": "node src/backup-db.js --reason manual"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

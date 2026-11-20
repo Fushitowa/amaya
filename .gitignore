@@ -37,6 +37,7 @@ __pycache__/
 database/*.sql
 database/backups/*.sql
 database/backups/*.json
+database/backups/auto/
 !database/migrations/*.sql
 *.backup.sql
 *_backup.sql

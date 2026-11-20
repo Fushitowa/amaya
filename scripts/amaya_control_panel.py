@@ -318,6 +318,34 @@ def find_mysqld_pids() -> list[int]:
         return []
 
 
+MYSQL_SERVICE_NAME = "mysql"  # name XAMPP uses when MySQL is installed as a Windows service
+
+
+def mysql_service_state() -> str | None:
+    """
+    Return the Windows service state of XAMPP MySQL ("RUNNING", "STOPPED", ...) or None if
+    MySQL is not installed as a service. As a service, Windows stops MySQL cleanly on
+    shutdown/updates, which a child process of this panel cannot guarantee.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        result = subprocess.run(
+            ["sc", "query", MYSQL_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return None
+    for line in result.stdout.splitlines():
+        if line.strip().upper().startswith("STATE"):
+            parts = line.split()
+            return parts[-1].upper() if parts else None
+    return None
+
+
 # MySQL must NEVER be force-killed while it is flushing InnoDB pages to disk:
 # a half-written page corrupts the table (this is what broke product_ingredients
 # on 2026-11-19). These limits are deliberately generous.
@@ -392,6 +420,7 @@ class AmayaControlPanel:
 
         # Runtime state per service (protected by RLock for concurrent worker threads)
         self._state_lock = threading.RLock()
+        self._backup_lock = threading.Lock()
         self._service_locks: dict[str, threading.RLock] = {
             cfg["id"]: threading.RLock() for cfg in SERVICES_CONFIG
         }
@@ -431,6 +460,7 @@ class AmayaControlPanel:
         self.root.after(150, self._run_initial_preflight_summary)
         self.root.after(80, self._poll_log_queue)
         self.root.after(1200, self._poll_service_health)
+        threading.Thread(target=self._daily_backup_loop, daemon=True).start()
 
     # ------------------------------------------------------------------
     # UI CONSTRUCTION (NAVIGATION SIDEBAR + RESPONSIVE PAGES)
@@ -1367,6 +1397,17 @@ class AmayaControlPanel:
 
         self._make_button(
             btn_bar,
+            text="💾 Backup Now",
+            bg=COLOR_CARD_DARK,
+            fg=COLOR_TEXT_SECONDARY,
+            command=self.backup_database_now,
+            padx=8,
+            pady=4,
+            border_color=COLOR_CARD_BORDER,
+        ).pack(side=tk.LEFT, padx=2)
+
+        self._make_button(
+            btn_bar,
             text="👥 Accounts Dialog",
             bg=COLOR_CARD_DARK,
             fg=COLOR_TEXT_SECONDARY,
@@ -2118,6 +2159,60 @@ class AmayaControlPanel:
             self.enqueue_log(service_id, "error", f"Failed to run npm {npm_cmd}: {exc}")
             return False
 
+    def _run_db_backup(self, reason: str, if_older_than_hours: float | None = None) -> bool:
+        """
+        Run api/src/backup-db.js (mysqldump --single-transaction, verified, rotated).
+        Returns True when a verified backup exists afterwards (new or recent enough).
+        Blocking; call from a worker thread.
+        """
+        if not is_port_open(3306):
+            self.enqueue_log("mysql", "warn", f"Skipping {reason} backup: MySQL (:3306) is not running.")
+            return False
+        node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+        cmd = [node_exe, "src/backup-db.js", "--reason", reason]
+        if if_older_than_hours is not None:
+            cmd += ["--if-older-than-hours", str(if_older_than_hours)]
+        with self._backup_lock:
+            try:
+                res = subprocess.run(
+                    cmd,
+                    cwd=str(API_DIR),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=600,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except Exception as exc:
+                self.enqueue_log("mysql", "error", f"Database backup ({reason}) could not run: {exc}")
+                return False
+        output = (res.stdout or "") + (res.stderr or "")
+        if res.returncode == 0 and "BACKUP_OK:" in output:
+            path = output.split("BACKUP_OK:", 1)[1].strip().splitlines()[0]
+            self.enqueue_log("mysql", "success", f"💾 Database backup ({reason}) saved: {path}")
+            return True
+        if res.returncode == 0 and "BACKUP_SKIPPED:" in output:
+            return True
+        self.enqueue_log("mysql", "error", f"Database backup ({reason}) FAILED: {output.strip()[-400:]}")
+        return False
+
+    def backup_database_now(self) -> None:
+        threading.Thread(target=lambda: self._run_db_backup("manual"), daemon=True).start()
+
+    def _daily_backup_loop(self) -> None:
+        """Every 30 minutes, take the daily backup if the newest one is older than 20 hours."""
+        while not self.is_closing:
+            try:
+                if is_port_open(3306):
+                    self._run_db_backup("daily", if_older_than_hours=20)
+            except Exception as exc:
+                self.enqueue_log("mysql", "warn", f"Daily backup check failed: {exc}")
+            for _ in range(30 * 60):
+                if self.is_closing:
+                    return
+                time.sleep(1)
+
     def run_setup_and_migrate(self) -> None:
         def _worker() -> None:
             self.enqueue_log("system", "info", "Starting environment setup & database migration...")
@@ -2133,6 +2228,10 @@ class AmayaControlPanel:
             if not self._install_dependencies_if_missing(ROOT_DIR, "system"):
                 return
             if not self._install_dependencies_if_missing(API_DIR, "api"):
+                return
+
+            if not self._run_db_backup("pre-migrate"):
+                self.enqueue_log("api", "error", "Migration cancelled: could not take a verified backup first.")
                 return
 
             self.enqueue_log("api", "info", "Running 'npm run db:migrate' in api/...")
@@ -2297,6 +2396,10 @@ class AmayaControlPanel:
                 )
                 return
 
+            if not self._run_db_backup("pre-vault"):
+                self.enqueue_log("api", "error", "Archive & Clean cancelled: could not take a verified backup first.")
+                return
+
             self.enqueue_log("api", "info", "Running Catalog Vault: 'node src/catalog-vault.js archive-clean'...")
             node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -2418,6 +2521,10 @@ class AmayaControlPanel:
                         "Could not stop Backend API on port 3001. Stop Backend API manually before running Catalog Recovery.",
                     ),
                 )
+                return
+
+            if not self._run_db_backup("pre-vault"):
+                self.enqueue_log("api", "error", "Catalog Recovery cancelled: could not take a verified backup first.")
                 return
 
             self.enqueue_log("api", "info", "Running Catalog Vault: 'node src/catalog-vault.js recover'...")
@@ -2938,6 +3045,30 @@ class AmayaControlPanel:
                     f"XAMPP mysqld.exe not found at {XAMPP_MYSQLD}. Please start your MySQL server manually.",
                 )
                 return False
+
+            service_state = mysql_service_state()
+            if service_state is not None:
+                # Installed as a Windows service: let Windows own the process so it is
+                # shut down cleanly on PC shutdown/updates.
+                with self._state_lock:
+                    self.stop_requested["mysql"] = False
+                    self.service_states["mysql"] = "STARTING"
+                self.enqueue_log("mysql", "info", f"Starting MySQL Windows service '{MYSQL_SERVICE_NAME}' (was {service_state})...")
+                res = subprocess.run(
+                    ["sc", "start", MYSQL_SERVICE_NAME],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if res.returncode == 0 or "1056" in (res.stdout or ""):  # 1056 = already running
+                    return True
+                self.enqueue_log(
+                    "mysql",
+                    "warn",
+                    "Could not start the MySQL service (Windows may need Administrator rights): "
+                    f"{(res.stdout or res.stderr).strip()[-200:]}. Starting MySQL from the panel instead.",
+                )
 
             with self._state_lock:
                 self.stop_requested["mysql"] = False
