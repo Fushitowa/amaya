@@ -292,6 +292,39 @@ def find_pids_on_port(port: int) -> list[int]:
     return sorted(pids)
 
 
+def find_mysqld_pids() -> list[int]:
+    """Return PIDs of every running mysqld.exe (even one still in crash recovery, before :3306 opens)."""
+    if os.name != "nt":
+        return []
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq mysqld.exe", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=creationflags,
+        )
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            parts = [p.strip('"') for p in line.split('","')]
+            if len(parts) >= 2 and parts[0].lower() == "mysqld.exe":
+                try:
+                    pids.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return sorted(pids)
+    except Exception:
+        return []
+
+
+# MySQL must NEVER be force-killed while it is flushing InnoDB pages to disk:
+# a half-written page corrupts the table (this is what broke product_ingredients
+# on 2026-11-19). These limits are deliberately generous.
+MYSQL_STARTUP_WAIT_SECONDS = 300   # crash recovery can take minutes before :3306 opens
+MYSQL_SHUTDOWN_WAIT_SECONDS = 180  # buffer pool flush after `mysqladmin shutdown`
+
+
 def kill_process_tree(pid: int) -> tuple[bool, str]:
     """Kill a process and its entire child tree on Windows using taskkill /F /T."""
     if pid <= 0:
@@ -2866,6 +2899,36 @@ class AmayaControlPanel:
                 )
                 return True
 
+            # A mysqld that is still in crash recovery has not opened :3306 yet.
+            # Launching a second one on the same data folder is dangerous, so wait instead.
+            running_pids = find_mysqld_pids()
+            if running_pids:
+                with self._state_lock:
+                    self.service_states["mysql"] = "STARTING"
+                self.enqueue_log(
+                    "mysql",
+                    "info",
+                    f"mysqld.exe is already running (PID {running_pids[0]}) but not ready yet. Waiting for it...",
+                )
+                deadline = time.time() + MYSQL_STARTUP_WAIT_SECONDS
+                while time.time() < deadline and find_mysqld_pids() and not is_port_open(3306):
+                    time.sleep(1)
+                if is_port_open(3306):
+                    with self._state_lock:
+                        self.service_states["mysql"] = "RUNNING"
+                    self.enqueue_log("mysql", "success", "MySQL finished starting and is ready on Port :3306.")
+                    return True
+                if find_mysqld_pids():
+                    with self._state_lock:
+                        self.service_states["mysql"] = "ERROR"
+                    self.enqueue_log(
+                        "mysql",
+                        "error",
+                        "MySQL is still starting after a long wait. Check C:\\xampp\\mysql\\data\\mysql_error.log.",
+                    )
+                    return False
+                self.enqueue_log("mysql", "warn", "The previous mysqld.exe exited. Starting a fresh one...")
+
             if not XAMPP_MYSQLD.is_file():
                 with self._state_lock:
                     self.service_states["mysql"] = "ERROR"
@@ -3031,23 +3094,30 @@ class AmayaControlPanel:
             if not self.stop_requested.get(service_id):
                 self.enqueue_log(service_id, "error", f"Log stream error: {exc}")
         finally:
-            rc = proc.poll()
-            with self._state_lock:
-                if self.processes.get(service_id) is proc:
-                    self.processes[service_id] = None
-                was_stopped = self.stop_requested.get(service_id)
-                if was_stopped:
-                    self.service_states[service_id] = "STOPPED"
-                else:
-                    self.service_states[service_id] = "ERROR" if (rc and rc != 0) else "STOPPED"
+            self._on_process_output_closed(service_id, proc, cfg)
+
+    def _on_process_output_closed(self, service_id: str, proc: subprocess.Popen, cfg: dict) -> None:
+        rc = proc.poll()
+        if service_id == "mysql" and rc is None:
+            # mysqld writes to mysql_error.log, so its stdout closes early while the
+            # server keeps running. Keep tracking it instead of reporting an exit.
+            return
+        with self._state_lock:
+            if self.processes.get(service_id) is proc:
+                self.processes[service_id] = None
+            was_stopped = self.stop_requested.get(service_id)
             if was_stopped:
-                self.enqueue_log(service_id, "info", f"{cfg['short_name']} stopped.")
+                self.service_states[service_id] = "STOPPED"
             else:
-                self.enqueue_log(
-                    service_id,
-                    "error" if (rc and rc != 0) else "warn",
-                    f"{cfg['short_name']} exited (code {rc}).",
-                )
+                self.service_states[service_id] = "ERROR" if (rc and rc != 0) else "STOPPED"
+        if was_stopped:
+            self.enqueue_log(service_id, "info", f"{cfg['short_name']} stopped.")
+        else:
+            self.enqueue_log(
+                service_id,
+                "error" if (rc and rc != 0) else "warn",
+                f"{cfg['short_name']} exited (code {rc}).",
+            )
 
     def stop_service(self, service_id: str) -> None:
         threading.Thread(target=self._stop_service_worker, args=(service_id,), daemon=True).start()
@@ -3060,30 +3130,13 @@ class AmayaControlPanel:
                 self.stop_requested[service_id] = True
                 proc = self.processes.get(service_id)
 
-            if service_id == "mysql" and XAMPP_MYSQLADMIN.is_file() and is_port_open(3306):
-                self.enqueue_log("mysql", "info", "Shutting down XAMPP MySQL cleanly via mysqladmin...")
-                try:
-                    env_vars = _read_env_file(API_DIR / ".env")
-                    db_user = env_vars.get("DB_USER") or "root"
-                    db_password = env_vars.get("DB_PASSWORD", "")
-                    run_env = {**os.environ, "MYSQL_PWD": db_password} if db_password else None
-                    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    subprocess.run(
-                        [str(XAMPP_MYSQLADMIN), "-u", db_user, "shutdown"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        env=run_env,
-                        creationflags=creationflags,
-                    )
-                    # Wait for InnoDB buffer flush and clean socket exit before ever falling back to force-kill
-                    for _ in range(40):
-                        proc_done = proc is None or proc.poll() is not None
-                        if proc_done and not is_port_open(3306):
-                            break
-                        time.sleep(0.25)
-                except Exception:
-                    pass
+            if service_id == "mysql":
+                # Never taskkill mysqld: a force-kill mid-flush corrupts InnoDB tables.
+                self._shutdown_mysql_gracefully()
+                with self._state_lock:
+                    self.processes["mysql"] = None
+                    self.service_states["mysql"] = "RUNNING" if find_mysqld_pids() else "STOPPED"
+                return
 
             if proc is not None and proc.poll() is None:
                 pid = proc.pid
@@ -3099,6 +3152,91 @@ class AmayaControlPanel:
 
             with self._state_lock:
                 self.service_states[service_id] = "STOPPED"
+
+    def _run_mysqladmin_shutdown(self) -> bool:
+        if not XAMPP_MYSQLADMIN.is_file():
+            self.enqueue_log("mysql", "error", f"mysqladmin.exe not found at {XAMPP_MYSQLADMIN}.")
+            return False
+        env_vars = _read_env_file(API_DIR / ".env")
+        db_user = env_vars.get("DB_USER") or "root"
+        db_password = env_vars.get("DB_PASSWORD", "")
+        run_env = {**os.environ, "MYSQL_PWD": db_password} if db_password else None
+        try:
+            res = subprocess.run(
+                [str(XAMPP_MYSQLADMIN), "-u", db_user, "-h", "127.0.0.1", "shutdown"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=run_env,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception as exc:
+            self.enqueue_log("mysql", "warn", f"mysqladmin shutdown failed: {exc}")
+            return False
+        if res.returncode != 0:
+            self.enqueue_log("mysql", "warn", f"mysqladmin shutdown failed: {(res.stderr or res.stdout).strip()}")
+            return False
+        return True
+
+    def _shutdown_mysql_gracefully(self) -> bool:
+        """
+        Stop mysqld ONLY through `mysqladmin shutdown` and wait for the process to fully exit.
+        Never force-kills: if MySQL does not stop, it is left running and the user is told.
+        """
+        if not find_mysqld_pids():
+            if is_port_open(3306):
+                self.enqueue_log("mysql", "warn", "Port :3306 is open but no XAMPP mysqld.exe found; leaving it alone.")
+            else:
+                self.enqueue_log("mysql", "info", "MySQL is not running.")
+            return True
+
+        # mysqladmin can only connect once :3306 is open. If mysqld is still in
+        # crash recovery, wait for it instead of killing it mid-recovery.
+        if not is_port_open(3306):
+            self.enqueue_log("mysql", "info", "MySQL is still starting (crash recovery?). Waiting for it before shutting down...")
+            deadline = time.time() + MYSQL_STARTUP_WAIT_SECONDS
+            while time.time() < deadline and find_mysqld_pids() and not is_port_open(3306):
+                time.sleep(1)
+            if not find_mysqld_pids():
+                self.enqueue_log("mysql", "info", "MySQL exited on its own.")
+                return True
+            if not is_port_open(3306):
+                self.enqueue_log(
+                    "mysql",
+                    "error",
+                    "MySQL is still not accepting connections. NOT force-killing it (that corrupts tables). "
+                    "Wait for it to finish, then press Stop again.",
+                )
+                return False
+
+        self.enqueue_log("mysql", "info", "Shutting down XAMPP MySQL cleanly via mysqladmin (this can take a while)...")
+        if not self._run_mysqladmin_shutdown():
+            self.enqueue_log(
+                "mysql",
+                "error",
+                "Could not ask MySQL to shut down. It is left running to protect your data; "
+                "stop it from the XAMPP Control Panel instead.",
+            )
+            return False
+
+        deadline = time.time() + MYSQL_SHUTDOWN_WAIT_SECONDS
+        last_note = time.time()
+        while time.time() < deadline:
+            if not find_mysqld_pids():
+                self.enqueue_log("mysql", "success", "MySQL shut down cleanly. All data flushed to disk.")
+                return True
+            if time.time() - last_note >= 15:
+                self.enqueue_log("mysql", "info", "Still flushing data to disk... please don't close the panel or turn off the PC.")
+                last_note = time.time()
+            time.sleep(0.5)
+
+        self.enqueue_log(
+            "mysql",
+            "error",
+            f"MySQL is still shutting down after {MYSQL_SHUTDOWN_WAIT_SECONDS}s. NOT force-killing it. "
+            "Let it finish before turning off the PC.",
+        )
+        return False
 
     def restart_service(self, service_id: str) -> None:
         def _worker() -> None:
