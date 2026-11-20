@@ -422,16 +422,9 @@ async function runArchiveAndClean(force = false, purgeTransactions = false) {
       throw txErr;
     }
 
-    // Reset AUTO_INCREMENT outside the transaction (DDL causes an implicit commit in MySQL/MariaDB).
-    for (const table of tablesToClean) {
-      if (await tableExists(connection, table)) {
-        try {
-          await connection.query(`ALTER TABLE \`${table}\` AUTO_INCREMENT = 1`);
-        } catch {
-          // Ignore if table has no auto-increment column
-        }
-      }
-    }
+    // Never reset AUTO_INCREMENT here: orders, inventory movements and consumptions keep
+    // pointing at the old product/ingredient IDs, so a reused ID would silently attach that
+    // history to a different new item (wrong restock velocity, waste and movement reports).
 
     console.log(
       purgeTransactions
