@@ -2,6 +2,7 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
+import { MIGRATIONS } from "./migrationList.js";
 
 /**
  * Sequential SQL migration runner for Amaya POS.
@@ -15,55 +16,7 @@ import mysql from "mysql2/promise";
  * - Destructive one-time reset migrations (DESTRUCTIVE_RESET_MIGRATIONS) are guarded against
  *   non-empty confirmed data unless --allow-destructive or ALLOW_DESTRUCTIVE_MIGRATIONS=1 is set.
  */
-const migrations = [
-  "001_initial_schema.sql",
-  "002_expand_product_images_and_seed_menu.sql",
-  "003_order_inventory_consumptions.sql",
-  "004_inventory_tracked_addons.sql",
-  "005_persistent_notifications.sql",
-  "006_inventory_inactivity_alerts.sql",
-  "007_recipe_unit_conversions.sql",
-  "008_size_specific_recipes.sql",
-  "009_replace_minimum_with_maximum_stock.sql",
-  "010_archive_inventory_items.sql",
-  "011_inventory_unit_precision.sql",
-  "009_archive_and_audit_logs.sql",
-  "010_inventory_pricing_and_costing.sql",
-  "012_repair_archive_schema.sql",
-  "013_cost_snapshots_and_unit_cost_precision.sql",
-  "014_cups_category_and_table.sql",
-  "015_user_token_version.sql",
-  "016_seed_9_menu_categories.sql",
-  "017_seed_23_store_products_and_ingredients.sql",
-  "018_seed_full_recipes_and_packaging_from_docx.sql",
-  "019_inventory_categories_and_operational_families.sql",
-  "020_dynamic_inventory_categories_and_reset_readiness.sql",
-  "021_cashier_management_and_order_attribution.sql",
-  "022_repair_operational_family.sql",
-  "023_repair_login_display_name.sql",
-  "024_repair_inventory_categories.sql",
-  "025_migration_sync_and_drift_reconciliation.sql",
-  "026_order_audit_void_and_addon_cogs.sql",
-  "027_structured_inventory_movements.sql",
-  "028_cashier_sessions.sql",
-  "029_business_settings_target_food_cost_check.sql",
-  "030_double_entry_financial_management_system.sql",
-  "031_financial_ledger_integrity.sql",
-  "032_expand_business_settings.sql",
-  "033_allow_partial_reversals.sql",
-  "034_inventory_waste_logging_metadata.sql",
-  "035_waste_measurement_precision_and_scoping.sql",
-  "036_income_statement_classification_and_accounts.sql",
-  "037_income_statement_phase2_missing_items.sql",
-  "038_cashier_sales_owner_confirmation.sql",
-  "039_reset_orders_owner_confirmation_for_live_gate.sql",
-  "040_phase2_hardening.sql",
-  "041_schema_hygiene_indexes_fks.sql",
-  "042_restock_velocity_index.sql",
-  "043_expense_budgets.sql",
-  "044_rename_inventory_waste_cogs_account.sql",
-  "045_owner_net_income_pin.sql",
-];
+const migrations = MIGRATIONS;
 
 // Never add unguarded bulk UPDATE/DELETE reset migrations; register historical resets here.
 const DESTRUCTIVE_RESET_MIGRATIONS = new Set([

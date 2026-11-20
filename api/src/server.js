@@ -16,6 +16,7 @@ import sessionRoutes from "./routes/sessions.js";
 import reportRoutes from "./routes/reports.js";
 import financesRoutes from "./routes/finances.js";
 import mediaRoutes from "./routes/media.js";
+import { findPendingMigrations } from "./utils/migrationStatus.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -46,9 +47,11 @@ app.get("/", (_request, response) => {
 app.get("/api/health", async (_request, response) => {
   try {
     const [rows] = await pool.query("SELECT 1 AS connected");
+    const pendingMigrations = await findPendingMigrations(pool).catch(() => []);
     response.json({
       status: "ok",
       connected: Boolean(rows[0]?.connected),
+      pendingMigrations,
     });
   } catch (error) {
     console.error("Database health check failed:", error.message);
@@ -118,6 +121,16 @@ app.use((error, _request, response, _next) => {
 let monitorInterval = null;
 const server = app.listen(port, () => {
   console.log(`Amaya API listening at http://localhost:${port}`);
+  findPendingMigrations(pool)
+    .then((pending) => {
+      if (pending.length) {
+        console.warn(
+          `WARNING: ${pending.length} database migration(s) not applied: ${pending.join(", ")}. ` +
+            "Features that depend on them will fail. Run 'npm run db:migrate' or Setup / Migrate in the control panel.",
+        );
+      }
+    })
+    .catch((error) => console.warn("Could not check database migrations:", error.message));
   const runBackgroundMonitors = () => {
     runInventoryAlertCheck()
       .then(({ inactiveAlerts }) => {
