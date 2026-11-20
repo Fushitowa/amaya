@@ -40,7 +40,9 @@ export function formatDateTime(iso) {
 export function initials(name) {
   const clean = String(name || "").trim();
   if (!clean) return "ST";
-  const parts = clean.split(/\s+/).filter(Boolean);
+  // Ignore leading punctuation so "Admin (Owner)" gives "AO", not "A(".
+  const parts = clean.split(/\s+/).map((part) => part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter(Boolean);
+  if (!parts.length) return "ST";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
 }

@@ -333,6 +333,28 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
     itemParams,
   );
 
+  // The ledger posts COGS once per order, rounded to 2 decimals (postOrderSaleAndCogs), so the
+  // Income Statement is the sum of per-order rounded amounts. Round per order here too, otherwise
+  // rounding once over the whole period can drift from the ledger by a centavo.
+  const [[perOrderCogsAgg]] = await pool.execute(
+    `SELECT COALESCE(SUM(order_cogs), 0) AS cogs
+       FROM (
+         SELECT o.id, ROUND(SUM(${LINE_COGS_EXPR}), 2) AS order_cogs
+           FROM order_items oi
+           JOIN orders o ON o.id = oi.order_id
+           LEFT JOIN menu_products mp ON mp.id = oi.product_id
+           LEFT JOIN (
+             SELECT order_item_id, SUM(line_cost) AS consumption_cost
+               FROM order_inventory_consumptions
+              WHERE order_item_id IS NOT NULL AND reversed_at IS NULL
+              GROUP BY order_item_id
+           ) oic_sum ON oic_sum.order_item_id = oi.id
+          WHERE ${itemConditions.join(" AND ")}
+          GROUP BY o.id
+       ) per_order`,
+    itemParams,
+  );
+
   const movConditions = ["m.movement_type = 'restock'"];
   const movParams = [];
   if (bounds?.start && bounds?.end) {
@@ -389,7 +411,7 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
   const discountTotal = round2(orderAgg?.discount_total);
   const taxCollected = round2(orderAgg?.tax_collected);
   const netSales = round2(grossSales - discountTotal);
-  const salesCogs = round2(itemAgg?.cogs);
+  const salesCogs = round2(perOrderCogsAgg?.cogs);
   const spoilageCost = round2(Math.max(0, spoilAgg?.spoilage_cost));
   const totalCogs = round2(salesCogs + spoilageCost);
   const grossProfit = round2(netSales - totalCogs);

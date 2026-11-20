@@ -5,10 +5,8 @@ import {
   Download,
   Filter,
   Menu,
-  Package,
   Receipt,
   Search,
-  User,
   X,
 } from "lucide-react";
 
@@ -32,9 +30,7 @@ import { getStockHealth } from "../../utils/stockHealth.js";
 import {
   compactPeso,
   downloadAuthenticatedCsv,
-  formatDateTime,
   getManilaDateInputValue,
-  getMovementLabel,
   getMovementTone,
   initials,
   peso,
@@ -69,25 +65,75 @@ const ROSTER_FILTERS = [
 ];
 
 const ROSTER_SORTS = [
-  { key: "grossSales", label: "Revenue (High -> Low)" },
-  { key: "ordersCount", label: "Orders Count" },
-  { key: "attributedGrossProfit", label: "Gross Profit" },
-  { key: "averageTicket", label: "Average Ticket" },
+  { key: "grossSales", label: "Sales (High -> Low)" },
+  { key: "ordersCount", label: "Number of orders" },
+  { key: "attributedGrossProfit", label: "Profit" },
+  { key: "averageTicket", label: "Average order" },
   { key: "displayName", label: "Staff Name (A-Z)" },
 ];
 
 const MOVEMENT_FILTERS = [
-  { key: "", label: "All Movements" },
-  { key: "restock", label: "Restock" },
-  { key: "usage", label: "Order Usage" },
-  { key: "internal_use", label: "Internal Store Use" },
-  { key: "adjustment", label: "Adjustment" },
-  { key: "spoilage", label: "Waste / Spoilage" },
-  { key: "void_restore", label: "Void Restore" },
+  { key: "", label: "All" },
+  { key: "restock", label: "Restocked" },
+  { key: "usage", label: "Used in orders" },
+  { key: "spoilage", label: "Wasted" },
+  { key: "adjustment", label: "Adjusted" },
+  { key: "internal_use", label: "Store use" },
+  { key: "void_restore", label: "Returned" },
 ];
 
 const ORDER_STATUS_FILTERS = ["All", "Pending", "Preparing", "Completed", "Cancelled"];
 const PAYMENT_METHOD_FILTERS = ["All", "Cash", "GCash", "Card"];
+
+// Rows per page in the two history panels. Used for both the request and the page count.
+const LEDGER_PAGE_SIZE = 10;
+
+const MOVEMENT_PLAIN_LABELS = {
+  restock: "Restocked",
+  usage: "Used in an order",
+  spoilage: "Wasted",
+  adjustment: "Adjusted",
+  internal_use: "Store use",
+  void_restore: "Returned to stock",
+};
+
+function getMovementPlainLabel(mov) {
+  const key = String(mov?.type || "").toLowerCase().trim();
+  if (key === "spoilage" && (mov.orderId || mov.orderNumber)) return "Wasted (cancelled order)";
+  return MOVEMENT_PLAIN_LABELS[key] || "Stock change";
+}
+
+// "Nov 18" and "7:25 PM" in Manila time. The year only appears when it is not the current year.
+function splitLedgerDate(iso) {
+  const parsed = iso ? new Date(iso) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return { day: "—", time: "" };
+  const zone = { timeZone: "Asia/Manila" };
+  const year = (value) => value.toLocaleDateString("en-US", { ...zone, year: "numeric" });
+  const showYear = year(parsed) !== year(new Date());
+  return {
+    day: parsed.toLocaleDateString("en-US", { ...zone, month: "short", day: "numeric", ...(showYear ? { year: "numeric" } : {}) }),
+    time: parsed.toLocaleTimeString("en-US", { ...zone, hour: "numeric", minute: "2-digit" }),
+  };
+}
+
+function LedgerPager({ page, total, onPage, noun }) {
+  if (!(total > 0)) return null;
+  const pages = Math.max(1, Math.ceil(total / LEDGER_PAGE_SIZE));
+  const from = (page - 1) * LEDGER_PAGE_SIZE + 1;
+  const to = Math.min(total, page * LEDGER_PAGE_SIZE);
+  return (
+    <nav className="lg-pager" aria-label={`${noun} pages`}>
+      <span>Showing {from}–{to} of {total.toLocaleString()}</span>
+      {pages > 1 && (
+        <div className="lg-pager-buttons">
+          <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+          <span aria-current="page">Page {page} of {pages}</span>
+          <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+        </div>
+      )}
+    </nav>
+  );
+}
 
 const RESTOCK_FOCUSABLE = [
   "a[href]",
@@ -380,7 +426,7 @@ function AdminReport() {
         type: movTypeFilter || undefined,
         search: movSearch.trim() || undefined,
         page: movPage,
-        limit: 15,
+        limit: LEDGER_PAGE_SIZE,
       },
     });
 
@@ -417,7 +463,7 @@ function AdminReport() {
         paymentMethod: ordersPaymentFilter !== "All" ? ordersPaymentFilter : undefined,
         search: ordersSearch.trim() || undefined,
         page: ordersPage,
-        limit: 15,
+        limit: LEDGER_PAGE_SIZE,
       },
     });
 
@@ -607,10 +653,10 @@ function AdminReport() {
       if (Math.abs(rawDiffPts) < 0.05 || Math.abs(variancePts) === 0) {
         varianceLabel = "On target";
       } else if (variancePts > 0) {
-        varianceLabel = `Over by ${variancePts.toFixed(1)}%`;
+        varianceLabel = `${variancePts.toFixed(1)}% above goal`;
         isOverTarget = true;
       } else {
-        varianceLabel = `Under by ${Math.abs(variancePts).toFixed(1)}%`;
+        varianceLabel = `${Math.abs(variancePts).toFixed(1)}% below goal`;
       }
     }
 
@@ -978,7 +1024,7 @@ function AdminReport() {
       notes.push({
         tone: foodCostAnalysis.hasUncosted || foodCostAnalysis.isOverTarget ? "warning" : "positive",
         label: "Ingredient cost target",
-        value: `${foodCostAnalysis.actualPct.toFixed(1)}% actual vs ${Number(foodCostAnalysis.targetPct.toFixed(2))}% target (${foodCostAnalysis.varianceLabel}${foodCostAnalysis.hasUncosted ? " · missing some unit costs" : ""})`,
+        value: `${foodCostAnalysis.actualPct.toFixed(1)}% actual vs ${Number(foodCostAnalysis.targetPct.toFixed(2))}% goal (${foodCostAnalysis.varianceLabel}${foodCostAnalysis.hasUncosted ? " · missing some unit costs" : ""})`,
       });
     }
     if (restockItems.length || stockBreakdown.over) {
@@ -1113,11 +1159,9 @@ function AdminReport() {
   };
   const movItems = Array.isArray(movState.data?.items) ? movState.data.items : [];
   const movTotal = Number(movState.data?.total || 0);
-  const movTotalPages = Math.max(1, Math.ceil(movTotal / 15));
 
   const ledgerOrders = Array.isArray(ordersState.data?.items) ? ordersState.data.items : [];
   const ledgerOrdersTotal = Number(ordersState.data?.total || 0);
-  const ledgerOrdersPages = Math.max(1, Math.ceil(ledgerOrdersTotal / 15));
 
   return (
     <div className={`admin-report-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
@@ -1469,17 +1513,17 @@ function AdminReport() {
                     <strong>{peso(summary.grossCollectedSales)}</strong>
                   </div>
                   <div>
-                    <span>
-                      Total COGS (Sales + Waste)
+                    <span title="Cost of goods sold (COGS): ingredient cost of what you sold, plus the cost of wasted stock">
+                      Cost to make (sales + waste)
                       <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                        Sales COGS: {peso(summary.salesCogs)} · Waste Cost: {peso(summary.spoilageCost)}
+                        Ingredients: {peso(summary.salesCogs)} · Wasted stock: {peso(summary.spoilageCost)}
                       </small>
                     </span>
                     <strong>{peso(summary.totalCogs ?? summary.cogs)}</strong>
                   </div>
                   <div>
-                    <span className="sales-metric-label-with-badge">
-                      COGS % (including waste)
+                    <span className="sales-metric-label-with-badge" title="COGS %: how much of every peso of sales goes to cost to make, including waste. Lower is better">
+                      Cost to make % (including waste)
                       {foodCostAnalysis.hasUncosted && (
                         <span
                           className="report-partial-cogs-badge"
@@ -1492,7 +1536,7 @@ function AdminReport() {
                     <strong>
                       {foodCostAnalysis.actualPct != null ? (
                         <>
-                          {foodCostAnalysis.actualPct.toFixed(1)}% (Target: {Number(foodCostAnalysis.targetPct.toFixed(2))}%){" "}
+                          {foodCostAnalysis.actualPct.toFixed(1)}% (Goal: {Number(foodCostAnalysis.targetPct.toFixed(2))}%){" "}
                           <small
                             className={`sales-cost-variance-tag ${
                               foodCostAnalysis.isOverTarget ? "is-over-target" : "is-on-target"
@@ -1507,8 +1551,8 @@ function AdminReport() {
                     </strong>
                   </div>
                   <div>
-                    <span>
-                      Gross Profit After COGS
+                    <span title="Gross profit: total sales minus the cost to make, before other expenses">
+                      Profit after cost to make
                     </span>
                     <strong>
                       {peso(summary.grossProfit)}
@@ -1517,7 +1561,7 @@ function AdminReport() {
                     </strong>
                   </div>
                   <div>
-                    <span>Avg. Spend per Order</span>
+                    <span title="Total sales divided by the number of paid orders">Average order</span>
                     <strong>{peso(summary.averageOrderValue)}</strong>
                   </div>
                   <div>
@@ -1537,29 +1581,6 @@ function AdminReport() {
                     <strong>{peso(summary.inventoryExpenditure)}</strong>
                   </div>
                 </div>
-                <section className="report-income-statement" aria-label="Income Statement Preparation">
-                  <div>
-                    <span className="admin-report-eyebrow">INCOME STATEMENT PREPARATION</span>
-                    <h3>How much did the store earn?</h3>
-                  </div>
-                  <div className="report-income-formula">
-                    <span>Total Sales <strong>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</strong></span>
-                    <b aria-hidden="true">−</b>
-                    <span>COGS, including Waste Cost <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
-                    <b aria-hidden="true">=</b>
-                    <span>Gross Profit <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
-                    <b aria-hidden="true">−</b>
-                    <span>Operating Expenses <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
-                    <b aria-hidden="true">−</b>
-                    <span>Depreciation &amp; Income Tax <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}</strong></span>
-                    <b aria-hidden="true">=</b>
-                    <span className="report-income-net">Net Income <strong>{netIncomePin.unlocked && incomeStatementSummary?.netIncome != null ? peso(incomeStatementSummary.netIncome) : "₱••••••"}</strong></span>
-                  </div>
-                  <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
-                    {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
-                  </button>
-                  {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
-                </section>
               </div>
             </div>
 
@@ -1593,7 +1614,7 @@ function AdminReport() {
                 <span className="kpi-slip-pin amber" aria-hidden="true" />
                 <span className="report-stat-mark amber">◷</span>
                 <div>
-                  <small>Avg. Spend per Order</small>
+                  <small title="Total sales divided by the number of paid orders">Average order</small>
                   <strong>{peso(summary.averageOrderValue)}</strong>
                   <span className={`report-stat-note ${avgTrend.tone}`}>{avgTrend.text}</span>
                 </div>
@@ -1608,6 +1629,29 @@ function AdminReport() {
                 </div>
               </div>
             </section>
+            <section className="report-income-statement report-income-statement--wide" aria-label="Income Statement Preparation">
+                <div>
+                  <span className="admin-report-eyebrow" title="Income statement: a summary of what the store earned and spent">YOUR PROFIT, STEP BY STEP</span>
+                  <h3>How much did the store earn?</h3>
+                </div>
+                <div className="report-income-formula">
+                  <span>Total Sales <strong>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</strong></span>
+                  <b aria-hidden="true">−</b>
+                  <span title="Cost of goods sold (COGS): ingredient cost of items sold, plus wasted stock">Cost to make, including waste <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
+                  <b aria-hidden="true">=</b>
+                  <span title="Gross profit: sales minus cost to make, before other expenses">Profit before expenses <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
+                  <b aria-hidden="true">−</b>
+                  <span title="Operating expenses: everyday costs of running the store, such as rent, salaries and utilities">Running costs <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
+                  <b aria-hidden="true">−</b>
+                  <span title="Depreciation: equipment losing value over time. Income tax: tax on the store's profit">Equipment wear &amp; tax <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}</strong></span>
+                  <b aria-hidden="true">=</b>
+                  <span className="report-income-net" title="Net income: what the store keeps after all costs and tax">Take-home profit <strong>{netIncomePin.unlocked && incomeStatementSummary?.netIncome != null ? peso(incomeStatementSummary.netIncome) : "₱••••••"}</strong></span>
+                </div>
+                <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
+                  {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
+                </button>
+                {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
+                </section>
           </div>
 
           <div className="admin-report-middle-grid">
@@ -1623,10 +1667,10 @@ function AdminReport() {
                 </div>
                 <div className="panel-heading">
                   <div>
-                    <span className="admin-report-eyebrow">CHANNEL MIX</span>
+                    <span className="admin-report-eyebrow" title="How customers ordered, such as dine-in or take-out">ORDER TYPES</span>
                     <h2>Where orders come from</h2>
                   </div>
-                  <span className="inventory-count">{channels.length} channels</span>
+                  <span className="inventory-count">{channels.length} {channels.length === 1 ? "type" : "types"}</span>
                 </div>
 
                 <div className="report-breakdown" key={`mix-${rangeKey}-${staffFilterId ?? "all"}`}>
@@ -1681,8 +1725,8 @@ function AdminReport() {
               </div>
               <div className="panel-heading folio-heading-padded">
                 <div>
-                  <span className="admin-report-eyebrow">PRODUCT PERFORMANCE</span>
-                  <h2>Ranked items &amp; margins</h2>
+                  <span className="admin-report-eyebrow">PRODUCT SALES</span>
+                  <h2 title="Items ranked by how much they earned, with the profit on each">Best sellers</h2>
                 </div>
                 <div className="report-panel-head-actions">
                   <span className="inventory-count">{rankedProducts.length} items</span>
@@ -1703,15 +1747,15 @@ function AdminReport() {
                   <table className="inventory-table report-products-table">
                     <thead>
                       <tr>
-                        <th scope="col">#</th>
+                        <th scope="col" title="Rank by sales, highest first">Rank</th>
                         <th scope="col">Product</th>
                         <th scope="col">Category</th>
-                        <th scope="col">Units</th>
-                        <th scope="col">Base / Add-ons</th>
-                        <th scope="col">Revenue</th>
-                        <th scope="col">COGS</th>
-                        <th scope="col">Gross profit</th>
-                        <th scope="col">Share</th>
+                        <th scope="col" title="How many were sold in this period">Sold</th>
+                        <th scope="col" title="Menu price of the item, plus the price of any add-ons">Price + add-ons</th>
+                        <th scope="col" title="Money collected from selling this item">Sales</th>
+                        <th scope="col" title="Cost of goods sold: the ingredient and packaging cost of the items sold">Cost to make</th>
+                        <th scope="col" title="Gross profit: sales minus cost to make. The percentage is profit out of sales">Profit</th>
+                        <th scope="col" title="How much of your total sales this item brought in">% of sales</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1774,7 +1818,7 @@ function AdminReport() {
                 <div className="admin-report-empty">
                   <span>◔</span>
                   <strong>No product sales in this period</strong>
-                  <p>Once paid orders are placed, your best sellers and COGS margins will appear here.</p>
+                  <p>Once paid orders are placed, your best sellers and their profit will appear here.</p>
                 </div>
               )}
             </section>
@@ -1797,10 +1841,10 @@ function AdminReport() {
             <div className="cashier-logbook-page">
               <div className="panel-heading cashier-panel-heading folio-heading-padded">
                 <div>
-                  <span className="admin-report-eyebrow">STAFF ATTRIBUTION · SHIFT LOGBOOK</span>
+                  <span className="admin-report-eyebrow" title="Sales and profit credited to each staff member who handled the order">STAFF SALES · SHIFT LOGBOOK</span>
                   <h2>Cashiers &amp; Staff Activity</h2>
                   <p className="cashier-panel-description">
-                    Click any team member to inspect shift logs, attributed revenue &amp; COGS, orders, sessions, and inventory movements.
+                    Click any team member to see their shifts, sales, cost to make, orders, and stock changes.
                   </p>
                 </div>
                 <span className="cashier-active-note">
@@ -1814,11 +1858,11 @@ function AdminReport() {
                   <strong className="cashier-summary-val">{staffRosterTotals.ordersCount.toLocaleString()}</strong>
                 </div>
                 <div className="cashier-summary-item revenue">
-                  <span className="cashier-summary-label">Attributed</span>
+                  <span className="cashier-summary-label" title="Total sales credited to staff who handled the orders">Staff sales</span>
                   <strong className="cashier-summary-val">{peso(staffRosterTotals.grossSales)}</strong>
                 </div>
                 <div className="cashier-summary-item">
-                  <span className="cashier-summary-label">Avg Ticket</span>
+                  <span className="cashier-summary-label" title="Average amount per order">Average order</span>
                   <strong className="cashier-summary-val">{peso(staffRosterTotals.averageTicket)}</strong>
                 </div>
               </div>
@@ -1855,7 +1899,7 @@ function AdminReport() {
                 <div className="cashier-table-wrap">
                   <div className="cashier-bar-list" key={`cashier-bars-${rangeKey}-${rosterFilter}-${rosterSort}`}>
                     <div className="cashier-bar-ruler" aria-hidden="true">
-                      <div className="cashier-bar-ruler-label">SHIFT LEDGER · REVENUE SHARE</div>
+                      <div className="cashier-bar-ruler-label">SHIFT LEDGER · SHARE OF SALES</div>
                       <div className="cashier-bar-ruler-scale">
                         <div>0%</div>
                         <div>25%</div>
@@ -1894,7 +1938,7 @@ function AdminReport() {
                           <span className="cashier-bar-top">
                             <span className="cashier-bar-identity">
                               <span className="cashier-crest">
-                                <span className="cashier-rank">{rankNum}</span>
+                                <span className="cashier-rank" title={isZero ? "No sales in this period" : `Ranked #${index + 1} by sales`}>{isZero ? "–" : rankNum}</span>
                                 <span className="cashier-avatar" aria-hidden="true">{initials(cashier.displayName)}</span>
                               </span>
                               <span className="cashier-name-group">
@@ -1906,12 +1950,20 @@ function AdminReport() {
                                   {isFilteredHere && <span className="cashier-status-pill filtered">Filtered</span>}
                                   {cashier.ordersCount > 0 && (
                                     Number(cashier.unconfirmedOrdersCount || 0) > 0 ? (
-                                      <span className="cashier-status-pill unconfirmed" style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #f59e0b" }}>
-                                        ⏳ {cashier.unconfirmedOrdersCount} Unconfirmed ({peso(cashier.unconfirmedSales)})
+                                      <span
+                                        className="cashier-status-pill unconfirmed"
+                                        title="Paid orders the owner has not yet confirmed"
+                                        style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #f59e0b" }}
+                                      >
+                                        ⏳ {cashier.unconfirmedOrdersCount} to confirm ({peso(cashier.unconfirmedSales)})
                                       </span>
                                     ) : (
-                                      <span className="cashier-status-pill confirmed" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}>
-                                        ✓ Owner Confirmed
+                                      <span
+                                        className="cashier-status-pill confirmed"
+                                        title="The owner has confirmed all of this person's paid orders"
+                                        style={{ background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}
+                                      >
+                                        ✓ All confirmed
                                       </span>
                                     )
                                   )}
@@ -1919,13 +1971,13 @@ function AdminReport() {
                                 <span className="cashier-meta-inline">
                                   <span>{cashier.ordersCount} {cashier.ordersCount === 1 ? "order" : "orders"}</span>
                                   <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                  <span>Avg ticket {peso(cashier.averageTicket)}</span>
+                                  <span title="Average amount per order">Average order {peso(cashier.averageTicket)}</span>
                                   <span className="cashier-meta-dot" aria-hidden="true">·</span>
                                   <span>Profit {peso(cashier.attributedGrossProfit)} ({Number(cashier.marginPercent || 0).toFixed(1)}%)</span>
                                   {cashier.voidedOrdersCount > 0 && (
                                     <>
                                       <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                      <span className="cashier-void-flag">{cashier.voidedOrdersCount} voided</span>
+                                      <span className="cashier-void-flag">{cashier.voidedOrdersCount} cancelled</span>
                                     </>
                                   )}
                                 </span>
@@ -2001,7 +2053,7 @@ function AdminReport() {
                   <span className="admin-report-eyebrow">INVENTORY REPORT</span>
                   <h2>Stock health</h2>
                   <p className="inventory-panel-description">
-                    Live ingredient snapshot · Asset valuation {peso(summary.inventoryAssetValue)}.
+                    Live ingredient stock · Total stock value {peso(summary.inventoryAssetValue)}.
                   </p>
                 </div>
                 <div className="inventory-panel-actions">
@@ -2028,12 +2080,12 @@ function AdminReport() {
                   <span className="stock-overview-label">Tracked</span>
                   <strong className="stock-overview-val">{stockBreakdown.total}</strong>
                 </div>
-                <div className="stock-overview-item healthy">
+                <div className="stock-overview-item healthy" title="Items that are not low, out of stock, or above the maximum. Moderate counts as healthy.">
                   <span className="stock-overview-dot healthy" aria-hidden="true" />
                   <span className="stock-overview-label">Healthy</span>
                   <strong className="stock-overview-val">{stockBreakdown.healthy}</strong>
                 </div>
-                <div className="stock-overview-item critical">
+                <div className="stock-overview-item critical" title="Items that are low or out of stock and need restocking">
                   <span className="stock-overview-dot critical" aria-hidden="true" />
                   <span className="stock-overview-label">Low &amp; Out</span>
                   <strong className="stock-overview-val">{restockItems.length}</strong>
@@ -2093,8 +2145,8 @@ function AdminReport() {
                     {/* Logbook Scale Ruler Header with Integrated Health Legend */}
                     <div className="stock-bar-ruler" aria-hidden="true">
                       <div className="stock-bar-ruler-top">
-                        <div className="stock-bar-ruler-label">CAPACITY LEDGER · STOCK LEVEL vs TARGET</div>
-                        <div className="stock-bar-ruler-legend">
+                        <div className="stock-bar-ruler-label">STOCK LEVEL · % OF MAXIMUM</div>
+                        <div className="stock-bar-ruler-legend" title="Bar colour shows how full the stock is: red up to 20%, orange up to 40%, yellow up to 70%, green above 70%">
                           <span className="stock-ruler-dot critical" /> ≤20%
                           <span className="stock-ruler-dot low" /> ≤40%
                           <span className="stock-ruler-dot moderate" /> ≤70%
@@ -2148,7 +2200,7 @@ function AdminReport() {
                               </div>
 
                               {item.capacityPercent != null && (
-                                <span className={`stock-bar-pct-badge ${item.healthTone}`}>
+                                <span className={`stock-bar-pct-badge ${item.healthTone}`} title={`${item.reportedPercent}% of the maximum stock`}>
                                   {item.reportedPercent}%
                                 </span>
                               )}
@@ -2209,52 +2261,31 @@ function AdminReport() {
           </section>
         </div>
 
-          {/* Period Inventory Activity & Expenditure Ledger (Pillar F) */}
-          <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period inventory activity and expenditure">
-            <div className="panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">STOCK CHANGES &amp; EXPENSES</span>
-                <h2>Stock &amp; Restock History</h2>
+          {/* Stock & restock history: one entry per stock change, newest first */}
+          <section className="admin-report-panel report-folio-sheet report-ledger-panel lg-panel" aria-label="Stock and restock history">
+            <header className="lg-head">
+              <div className="lg-head-copy">
+                <h2>Stock &amp; restock history</h2>
+                <p>Every time an ingredient was restocked, used, wasted or adjusted.</p>
               </div>
-              <span className="inventory-count">
-                Spend: {peso(movSummary.totalRestockCost)} ({movSummary.totalRestockCount} restocks)
-              </span>
-            </div>
+              <div className="lg-head-stat">
+                <strong>{movTotal.toLocaleString()}</strong>
+                <span>{movTotal === 1 ? "entry" : "entries"}</span>
+                {movSummary.totalRestockCount > 0 && (
+                  <small>
+                    {peso(movSummary.totalRestockCost)} spent on {movSummary.totalRestockCount} {movSummary.totalRestockCount === 1 ? "restock" : "restocks"}
+                  </small>
+                )}
+              </div>
+            </header>
 
-            <div className="report-mov-kpis">
-              <div className="report-mov-kpi positive">
-                <span>Restocks</span>
-                <strong>{movSummary.totalRestockCount}</strong>
-              </div>
-              <div className="report-mov-kpi neutral">
-                <span>Order Usage</span>
-                <strong>{movSummary.totalUsageCount}</strong>
-              </div>
-              <div className="report-mov-kpi">
-                <span>Adjustments</span>
-                <strong>{movSummary.totalAdjustmentCount}</strong>
-              </div>
-              <div className="report-mov-kpi warning">
-                <span>Spoilage</span>
-                <strong>{movSummary.totalSpoilageCount}</strong>
-              </div>
-              <div className="report-mov-kpi neutral">
-                <span>Store Use</span>
-                <strong>{movSummary.totalInternalUseCount ?? 0}</strong>
-              </div>
-              <div className="report-mov-kpi positive">
-                <span>Void Restored</span>
-                <strong>{movSummary.totalVoidRestoreCount}</strong>
-              </div>
-            </div>
-
-            <div className="report-ledger-toolbar">
-              <div className="report-filter-pills" role="group" aria-label="Movement type filter">
+            <div className="lg-controls">
+              <div className="lg-chips" role="group" aria-label="Show these stock changes">
                 {MOVEMENT_FILTERS.map((mf) => (
                   <button
                     key={mf.key || "all"}
                     type="button"
-                    className={`report-filter-pill ${movTypeFilter === mf.key ? "is-active" : ""}`}
+                    className={`lg-chip${movTypeFilter === mf.key ? " is-active" : ""}`}
                     aria-pressed={movTypeFilter === mf.key}
                     onClick={() => {
                       setMovTypeFilter(mf.key);
@@ -2265,17 +2296,17 @@ function AdminReport() {
                   </button>
                 ))}
               </div>
-              <label className="report-search-input-wrap">
+              <label className="lg-search">
                 <Search size={14} aria-hidden="true" />
                 <input
                   type="search"
-                  placeholder="Search item, supplier, ref..."
+                  placeholder="Search ingredient, supplier or note"
                   value={movSearch}
                   onChange={(e) => {
                     setMovSearch(e.target.value);
                     setMovPage(1);
                   }}
-                  aria-label="Search inventory movements"
+                  aria-label="Search stock history"
                 />
               </label>
             </div>
@@ -2289,171 +2320,138 @@ function AdminReport() {
 
             {movItems.length ? (
               <>
-                <div className="inventory-table-wrap">
-                  <table className="inventory-table report-movements-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Time</th>
-                        <th scope="col">Ingredient</th>
-                        <th scope="col">Type</th>
-                        <th scope="col">Change</th>
-                        <th scope="col">Before → After</th>
-                        <th scope="col">Cost / Ref</th>
-                        <th scope="col">Order</th>
-                        <th scope="col">Staff</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {movItems.map((mov) => {
-                        const tone = getMovementTone(mov.type);
-                        const linkedStaff = mov.actorId ? staffById.get(Number(mov.actorId)) : null;
-                        return (
-                          <tr key={mov.id}>
-                            <td className="report-nowrap">{formatDateTime(mov.timestamp)}</td>
-                            <td>
-                              <div className="report-product-title-cell">
-                                <span>{mov.itemName}</span>
-                                {mov.note && <small>{mov.note}</small>}
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`report-mov-badge ${tone}`}>
-                                <Package size={11} aria-hidden="true" />
-                                {getMovementLabel(mov.type, mov)}
+                <ul className="lg-list">
+                  {movItems.map((mov) => {
+                    const tone = getMovementTone(mov.type);
+                    const linkedStaff = mov.actorId ? staffById.get(Number(mov.actorId)) : null;
+                    const when = splitLedgerDate(mov.timestamp);
+                    const change = Number(mov.quantityChange);
+                    const hasLevels = mov.beforeQuantity != null && mov.afterQuantity != null;
+                    const source = [mov.supplierName, mov.referenceNo].filter(Boolean).join(" · ");
+                    return (
+                      <li key={mov.id} className={`lg-row tone-${tone}`}>
+                        <div className="lg-when">
+                          <strong>{when.day}</strong>
+                          <span>{when.time}</span>
+                        </div>
+                        <div className="lg-main">
+                          <div className="lg-title">
+                            <span className="lg-name">{mov.itemName}</span>
+                            <span className={`lg-tag tone-${tone}`}>{getMovementPlainLabel(mov)}</span>
+                          </div>
+                          <div className="lg-meta">
+                            {hasLevels && (
+                              <span title="Stock before and after this change">
+                                {mov.beforeQuantity} → {mov.afterQuantity} {mov.unit || ""}
                               </span>
-                            </td>
-                            <td className="report-num">
-                              {mov.quantityChange >= 0 ? "+" : ""}{mov.quantityChange} {mov.unit || ""}
-                            </td>
-                            <td className="report-num">
-                              {mov.beforeQuantity != null && mov.afterQuantity != null
-                                ? `${mov.beforeQuantity} → ${mov.afterQuantity} ${mov.unit || ""}`
-                                : "—"}
-                            </td>
-                            <td>
-                              {mov.batchCost != null ? <strong>{peso(mov.batchCost)}</strong> : "—"}
-                              {(mov.supplierName || mov.referenceNo) && (
-                                <small className="report-mov-meta">
-                                  {[mov.supplierName, mov.referenceNo].filter(Boolean).join(" · ")}
-                                </small>
-                              )}
-                            </td>
-                            <td>
-                              {mov.orderNumber ? (
-                                <button
-                                  type="button"
-                                  className="report-inline-action-btn"
-                                  onClick={(e) => handleOpenOrderModal({ id: mov.orderNumber }, e)}
-                                >
-                                  #{mov.orderNumber}
-                                </button>
-                              ) : "—"}
-                            </td>
-                            <td>
+                            )}
+                            {source && <span>{source}</span>}
+                            {mov.note && <span>{mov.note}</span>}
+                            {mov.orderNumber && (
+                              <button
+                                type="button"
+                                className="lg-link"
+                                onClick={(e) => handleOpenOrderModal({ id: mov.orderNumber }, e)}
+                              >
+                                Order #{mov.orderNumber}
+                              </button>
+                            )}
+                            <span>
+                              by{" "}
                               {linkedStaff ? (
                                 <button
                                   type="button"
-                                  className="report-inline-action-btn"
+                                  className="lg-link"
                                   onClick={(e) => handleOpenStaffModal(linkedStaff, e)}
                                 >
-                                  <User size={12} aria-hidden="true" />
                                   {mov.actor}
                                 </button>
                               ) : (
                                 mov.actor || "System"
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {movTotalPages > 1 && (
-                  <div className="report-pagination">
-                    <button
-                      type="button"
-                      disabled={movPage <= 1}
-                      onClick={() => setMovPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </button>
-                    <span>Page {movPage} of {movTotalPages} ({movTotal} movements)</span>
-                    <button
-                      type="button"
-                      disabled={movPage >= movTotalPages}
-                      onClick={() => setMovPage((p) => p + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="lg-amount">
+                          <strong className={change >= 0 ? "is-up" : "is-down"}>
+                            {change > 0 ? "+" : ""}{mov.quantityChange} {mov.unit || ""}
+                          </strong>
+                          {mov.batchCost != null && <span title="What this restock cost">{peso(mov.batchCost)}</span>}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <LedgerPager page={movPage} total={movTotal} onPage={setMovPage} noun="stock history" />
               </>
             ) : (
               <div className="admin-report-empty compact">
-                <strong>No inventory movements in this period</strong>
-                <p>Restocks, order usage deductions, void restorations, and adjustments will appear here.</p>
+                <strong>No stock changes found</strong>
+                <p>
+                  {movTypeFilter || movSearch.trim()
+                    ? "Try a different filter or search."
+                    : "Restocks, ingredients used in orders, waste and adjustments will show up here."}
+                </p>
               </div>
             )}
           </section>
 
-          {/* Period Order Ledger Folio (Pillar B) */}
-          <section className="admin-report-panel report-folio-sheet report-ledger-panel" aria-label="Period order ledger">
-            <div className="panel-heading">
-              <div>
-                <span className="admin-report-eyebrow">ORDER HISTORY</span>
-                <h2>Customer Orders &amp; Cancellations</h2>
+          {/* Order history: one entry per order, newest first */}
+          <section className="admin-report-panel report-folio-sheet report-ledger-panel lg-panel" aria-label="Order history">
+            <header className="lg-head">
+              <div className="lg-head-copy">
+                <h2>Order history</h2>
+                <p>Every order in this period, including cancelled ones.</p>
               </div>
-              <span className="inventory-count">{ledgerOrdersTotal} orders</span>
-            </div>
+              <div className="lg-head-stat">
+                <strong>{ledgerOrdersTotal.toLocaleString()}</strong>
+                <span>{ledgerOrdersTotal === 1 ? "order" : "orders"}</span>
+              </div>
+            </header>
 
-            <div className="report-ledger-toolbar">
-              <div className="report-ledger-selects">
-                <label className="report-inline-select">
-                  <span>Status</span>
-                  <select
-                    value={ordersStatusFilter}
-                    onChange={(e) => {
-                      setOrdersStatusFilter(e.target.value);
+            <div className="lg-controls">
+              <div className="lg-chips" role="group" aria-label="Show orders by status">
+                {ORDER_STATUS_FILTERS.map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    className={`lg-chip${ordersStatusFilter === st ? " is-active" : ""}`}
+                    aria-pressed={ordersStatusFilter === st}
+                    onClick={() => {
+                      setOrdersStatusFilter(st);
                       setOrdersPage(1);
                     }}
-                    aria-label="Filter order ledger by status"
                   >
-                    {ORDER_STATUS_FILTERS.map((st) => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="report-inline-select">
-                  <span>Payment</span>
-                  <select
-                    value={ordersPaymentFilter}
-                    onChange={(e) => {
-                      setOrdersPaymentFilter(e.target.value);
-                      setOrdersPage(1);
-                    }}
-                    aria-label="Filter order ledger by payment method"
-                  >
-                    {PAYMENT_METHOD_FILTERS.map((pm) => (
-                      <option key={pm} value={pm}>{pm}</option>
-                    ))}
-                  </select>
-                </label>
+                    {st}
+                  </button>
+                ))}
               </div>
-
-              <label className="report-search-input-wrap">
+              <label className="lg-select">
+                <span>Paid by</span>
+                <select
+                  value={ordersPaymentFilter}
+                  onChange={(e) => {
+                    setOrdersPaymentFilter(e.target.value);
+                    setOrdersPage(1);
+                  }}
+                  aria-label="Show orders by payment method"
+                >
+                  {PAYMENT_METHOD_FILTERS.map((pm) => (
+                    <option key={pm} value={pm}>{pm === "All" ? "Any method" : pm}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="lg-search">
                 <Search size={14} aria-hidden="true" />
                 <input
                   type="search"
-                  placeholder="Search order # or customer..."
+                  placeholder="Search order number or customer"
                   value={ordersSearch}
                   onChange={(e) => {
                     setOrdersSearch(e.target.value);
                     setOrdersPage(1);
                   }}
-                  aria-label="Search period order ledger"
+                  aria-label="Search order history"
                 />
               </label>
             </div>
@@ -2467,81 +2465,49 @@ function AdminReport() {
 
             {ledgerOrders.length ? (
               <>
-                <div className="inventory-table-wrap">
-                  <table className="inventory-table report-orders-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Order #</th>
-                        <th scope="col">Date &amp; Time</th>
-                        <th scope="col">Customer</th>
-                        <th scope="col">Cashier</th>
-                        <th scope="col">Payment</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Total</th>
-                        <th scope="col">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ledgerOrders.map((ord) => {
-                        const statusClass = String(ord.status || "Pending").toLowerCase();
-                        return (
-                          <tr key={ord.id}>
-                            <td className="report-nowrap"><strong>#{ord.id}</strong></td>
-                            <td className="report-nowrap">{formatDateTime(ord.createdAt)}</td>
-                            <td>{ord.customer || "Walk-in Customer"}</td>
-                            <td>{ord.cashier || "Staff"}</td>
-                            <td>
-                              {getPaymentMethodLabel(ord.paymentMethod)}
-                              {" "}
-                              <small className="report-payment-tag">({getPaymentStatusLabel(ord)})</small>
-                            </td>
-                            <td>
-                              <span className={`report-order-status-pill ${statusClass}`}>
-                                {ord.status}
-                              </span>
-                            </td>
-                            <td className="report-num"><strong>{peso(ord.total)}</strong></td>
-                            <td>
-                              <button
-                                type="button"
-                                className="report-inline-action-btn"
-                                onClick={(e) => handleOpenOrderModal(ord, e)}
-                              >
-                                <Receipt size={13} aria-hidden="true" />
-                                View
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {ledgerOrdersPages > 1 && (
-                  <div className="report-pagination">
-                    <button
-                      type="button"
-                      disabled={ordersPage <= 1}
-                      onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </button>
-                    <span>Page {ordersPage} of {ledgerOrdersPages} ({ledgerOrdersTotal} orders)</span>
-                    <button
-                      type="button"
-                      disabled={ordersPage >= ledgerOrdersPages}
-                      onClick={() => setOrdersPage((p) => p + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
+                <ul className="lg-list">
+                  {ledgerOrders.map((ord) => {
+                    const statusClass = String(ord.status || "Pending").toLowerCase();
+                    const when = splitLedgerDate(ord.createdAt);
+                    return (
+                      <li key={ord.id} className={`lg-row order-${statusClass}`}>
+                        <div className="lg-when">
+                          <strong>{when.day}</strong>
+                          <span>{when.time}</span>
+                        </div>
+                        <div className="lg-main">
+                          <div className="lg-title">
+                            <span className="lg-name">{ord.customer || "Walk-in customer"}</span>
+                            <span className={`lg-tag order-${statusClass}`}>{ord.status}</span>
+                          </div>
+                          <div className="lg-meta">
+                            <span>Order #{ord.id}</span>
+                            <span>{getPaymentMethodLabel(ord.paymentMethod)}, {getPaymentStatusLabel(ord)}</span>
+                            <span>by {ord.cashier || "Staff"}</span>
+                          </div>
+                        </div>
+                        <div className="lg-amount">
+                          <strong>{peso(ord.total)}</strong>
+                          <button
+                            type="button"
+                            className="lg-action"
+                            onClick={(e) => handleOpenOrderModal(ord, e)}
+                            aria-label={`View order ${ord.id}`}
+                          >
+                            <Receipt size={13} aria-hidden="true" />
+                            View
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <LedgerPager page={ordersPage} total={ledgerOrdersTotal} onPage={setOrdersPage} noun="order history" />
               </>
             ) : (
               <div className="admin-report-empty compact">
-                <strong>No matching orders in this period</strong>
-                <p>Try adjusting the search text, status, or payment method filters above.</p>
+                <strong>No orders found</strong>
+                <p>Try a different status, payment method or search.</p>
               </div>
             )}
           </section>
