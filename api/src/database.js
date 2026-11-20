@@ -23,10 +23,15 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 10000,
 });
 
+// Strict mode makes MariaDB reject out-of-range numbers and over-long text instead of
+// silently clamping/truncating them (XAMPP's default sql_mode is not strict).
+export const SESSION_SQL_MODE =
+  "STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
+
 pool.on("connection", (connection) => {
-  connection.query("SET time_zone = '+08:00'", (err) => {
+  connection.query(`SET time_zone = '+08:00', sql_mode = '${SESSION_SQL_MODE}'`, (err) => {
     if (err) {
-      console.warn("Could not set MariaDB session time_zone:", err.message);
+      console.warn("Could not set MariaDB session time_zone/sql_mode:", err.message);
     }
   });
 });

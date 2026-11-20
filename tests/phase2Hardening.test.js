@@ -207,7 +207,7 @@ describe("Phase 2 Hardening Suite (P2-16 .. P2-19)", () => {
     tracker.inventoryItemIds.add(ingId);
 
     const [catRow] = await pool.execute(
-      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'food')",
+      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'general')",
       [`Hardening_Cat_${tag}`],
     );
     tracker.menuCategoryIds.add(Number(catRow.insertId));
@@ -660,7 +660,7 @@ describe("Phase 2 Hardening Suite (P2-16 .. P2-19)", () => {
     tracker.inventoryItemIds.add(invId);
 
     const [catRow] = await pool.execute(
-      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'food')",
+      "INSERT INTO menu_categories (name, operational_family) VALUES (?, 'general')",
       [`B3B_Cat_${tag}`],
     );
     tracker.menuCategoryIds.add(Number(catRow.insertId));
