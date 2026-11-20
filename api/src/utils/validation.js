@@ -44,13 +44,21 @@ export function parsePositiveIntId(rawValue, label = "ID") {
  * Unified image URL / base64 data-URI validator across menu products and inventory items.
  * Rejects SVG uploads, restricts data URIs to PNG/JPG/JPEG/WEBP/GIF under maxBytes,
  * and allows relative (/...) or http(s) URLs under maxLength characters.
+ *
+ * Images are stored as base64 in a single row, and XAMPP MariaDB's default
+ * max_allowed_packet is 1 MB, so the stored data URI must stay well under 1 MB.
+ * The admin UI shrinks photos before upload (src/utils/imageResize.js).
  */
+export const MAX_IMAGE_BYTES = 600 * 1024;
+const MAX_IMAGE_DATA_URI_LENGTH = 850_000;
+const TOO_LARGE_MESSAGE = "is too large to save (limit about 600 KB). Use a smaller or more compressed photo.";
+
 export function validateImageUrl(
   rawImage,
   {
     label = "Image",
-    maxBytes = 5 * 1024 * 1024,
-    maxLength = 8_000_000,
+    maxBytes = MAX_IMAGE_BYTES,
+    maxLength = MAX_IMAGE_DATA_URI_LENGTH,
     undefinedAs = undefined,
   } = {},
 ) {
@@ -61,7 +69,7 @@ export function validateImageUrl(
   if (!image) return null;
 
   if (image.length > maxLength) {
-    throw httpError(413, `${label} is too large. Choose an image under 5 MB.`);
+    throw httpError(413, `${label} ${TOO_LARGE_MESSAGE}`);
   }
 
   if (/^data:image\/svg\+xml/i.test(image)) {
@@ -74,7 +82,7 @@ export function validateImageUrl(
     const padding = base64Clean.endsWith("==") ? 2 : base64Clean.endsWith("=") ? 1 : 0;
     const decodedBytes = Math.max(0, Math.floor((base64Clean.length * 3) / 4) - padding);
     if (decodedBytes > maxBytes) {
-      throw httpError(413, `${label} is too large. Choose an image under 5 MB.`);
+      throw httpError(413, `${label} ${TOO_LARGE_MESSAGE}`);
     }
     return image;
   }

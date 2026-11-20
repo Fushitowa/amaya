@@ -42,6 +42,7 @@ import "../../assets/css/admin/AdminInventory.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
+import { shrinkImageToDataUri } from "../../utils/imageResize.js";
 
 const inventoryUnitGroups = [
   { label: "Weight", options: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
@@ -945,17 +946,12 @@ function AdminInventory() {
       setActionError("Unsupported file type. Use PNG, JPG, JPEG, or WEBP.");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setActionError("Image is larger than 5MB. Please choose a smaller file.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFormValues((prev) => ({ ...prev, image: reader.result }));
-      setActionError("");
-    };
-    reader.onerror = () => setActionError("Could not read image file.");
-    reader.readAsDataURL(file);
+    shrinkImageToDataUri(file)
+      .then((dataUri) => {
+        setFormValues((prev) => ({ ...prev, image: dataUri }));
+        setActionError("");
+      })
+      .catch((error) => setActionError(error?.message || "Could not read image file."));
   };
 
   const handleImageDrop = (event) => {
@@ -1887,7 +1883,7 @@ function AdminInventory() {
                           <span className="inventory-dropzone-text">
                             <strong>Click to upload</strong> or drag photo here
                           </span>
-                          <small>PNG, JPG, WEBP (Up to 5MB)</small>
+                          <small>PNG, JPG, WEBP · resized automatically</small>
                         </label>
                       )}
                     </div>

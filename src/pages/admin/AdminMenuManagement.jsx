@@ -27,13 +27,14 @@ import {
 	formatRecipeBaseQtyBadge,
 } from "../../utils/menuCosting.js";
 
+import { shrinkImageToDataUri } from "../../utils/imageResize.js";
 import "../../assets/css/admin/AdminMenuManagement.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MENU_PAGE_SIZE = 16;
 const getInvItemName = safeItemName;
@@ -841,17 +842,12 @@ function AdminMenuManagement() {
 			setImageError("Unsupported file type. Use PNG, JPG, JPEG or WEBP.");
 			return;
 		}
-		if (file.size > MAX_IMAGE_BYTES) {
-			setImageError("Image is larger than 5MB. Please choose a smaller file.");
-			return;
-		}
-		const reader = new FileReader();
-		reader.onload = () => {
-			setFormValues((current) => ({ ...current, image: reader.result }));
-			setImageError("");
-		};
-		reader.onerror = () => setImageError("Could not read that file. Please try another.");
-		reader.readAsDataURL(file);
+		shrinkImageToDataUri(file)
+			.then((dataUri) => {
+				setFormValues((current) => ({ ...current, image: dataUri }));
+				setImageError("");
+			})
+			.catch((error) => setImageError(error?.message || "Could not read that file. Please try another."));
 	};
 
 	const handleImageUpload = (event) => {
@@ -1860,7 +1856,7 @@ function AdminMenuManagement() {
 											<ImagePlus size={20} strokeWidth={1.8} />
 										</span>
 										<strong>Click to upload or drag and drop</strong>
-										<small>PNG, JPG, JPEG, WEBP (Max 5MB)</small>
+										<small>PNG, JPG, JPEG, WEBP · resized automatically</small>
 										<span className="menu-builder-dropzone-cta">
 											<FolderOpen size={13} strokeWidth={2} /> Choose File
 										</span>

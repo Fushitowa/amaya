@@ -70,6 +70,13 @@ describe("Phase 2 Hardening Suite (P2-16 .. P2-19)", () => {
       () => validateImageUrl(`data:image/png;base64,${oversizedBase64}`),
       (err) => err.status === 413,
     );
+    // Stored images must fit MariaDB's 1 MB max_allowed_packet (base64 in one row).
+    assert.throws(
+      () => validateImageUrl(`data:image/jpeg;base64,${"A".repeat(900_000)}`),
+      (err) => err.status === 413,
+    );
+    const resizedPhoto = `data:image/webp;base64,${"A".repeat(500_000)}`;
+    assert.equal(validateImageUrl(resizedPhoto), resizedPhoto);
     const tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
     assert.equal(validateImageUrl(tinyPng), tinyPng);
     assert.equal(validateImageUrl("https://cdn.example.com/latte.webp"), "https://cdn.example.com/latte.webp");
