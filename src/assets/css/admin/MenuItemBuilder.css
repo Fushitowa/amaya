@@ -406,3 +406,97 @@
 	.mb-sheet select,
 	.mb-sheet textarea { transition: none; }
 }
+
+/* ---------- Inventory links, refresh notes and price suggestion feedback ---------- */
+
+.mb-help.is-tight { margin: -8px 0 16px; }
+.mb-toolbar + .mb-help.is-tight { margin-top: -8px; }
+.mb-same { padding: 2px 8px; background: #f1e7da; color: var(--mb-muted); font-size: 12px; font-weight: 700; }
+.mb-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; padding: 10px 12px; border: 1px solid; font-size: 13px; font-weight: 600; }
+.mb-notice.is-good { border-color: #cfe3d2; background: #f2f8f2; color: var(--mb-good); }
+
+.recipe-picker-modal .picker-empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: 4px; padding: 32px 16px; color: #6f5a49; text-align: center; }
+.recipe-picker-modal .picker-empty strong { color: #382518; font-size: 16px; }
+.recipe-picker-modal .picker-footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; font-size: 12px; font-weight: 500; }
+.recipe-picker-modal .picker-footer-links a,
+.recipe-picker-modal .picker-footer-links button { padding: 0; border: 0; background: none; color: #7d4e2a; font: 600 12px "DM Sans", sans-serif; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.recipe-picker-modal .picker-footer-links em { color: #6f5a49; font-style: normal; }
+
+/* --------------------------------------------------------------------------
+   Small windows under the Ingredients toolbar (Choose from Inventory,
+   Add a new item). Rendered in <body> so they can float over the receipt.
+   Square corners and a brass top edge, same as the form sheet.
+   -------------------------------------------------------------------------- */
+.mb-pop {
+	position: fixed;
+	z-index: 1300;
+	display: flex;
+	flex-direction: column;
+	border: 1px solid rgba(92, 67, 50, 0.32);
+	border-top: 3px solid var(--mb-brass, #cfa165);
+	background: #fff;
+	box-shadow: 0 18px 44px rgba(37, 27, 21, 0.24), 0 2px 6px rgba(37, 27, 21, 0.08);
+	color: #382518;
+	font: 400 13px "DM Sans", sans-serif;
+	transform-origin: var(--mb-pop-caret) top;
+	animation: mb-pop-in 140ms ease-out;
+}
+/* Caret pointing at the button that opened it */
+.mb-pop::before {
+	content: "";
+	position: absolute;
+	top: -9px;
+	left: calc(var(--mb-pop-caret) - 7px);
+	width: 12px;
+	height: 12px;
+	border-top: 3px solid #cfa165;
+	border-left: 1px solid transparent;
+	background: #fff;
+	transform: rotate(45deg);
+	clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+@keyframes mb-pop-in {
+	from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+	to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mb-pop { animation: none; } }
+
+.mb-pop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 16px 12px; }
+.mb-pop-head h4 { margin: 0; font: 600 16px "DM Sans", sans-serif; color: #382518; }
+.mb-pop-head p { margin: 4px 0 0; color: #6f5a49; font-size: 13px; }
+.mb-pop-close { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border: 1px solid #e3d6c9; border-radius: 0; background: #fff; color: #6f5a49; cursor: pointer; }
+.mb-pop-close:hover { border-color: #9b653c; color: #382518; }
+
+.mb-pop-filters { display: grid; gap: 8px; padding: 0 16px 12px; border-bottom: 1px solid rgba(139, 94, 60, 0.2); }
+.mb-pop-search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid #ddd0c4; background: #fffdf9; color: #6f5a49; }
+.mb-pop-search:focus-within { border-color: #9b653c; box-shadow: 0 0 0 2px rgba(155, 101, 60, 0.15); }
+.mb-pop-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #382518; font: inherit; font-size: 14px; }
+.mb-pop-search button { display: grid; place-items: center; width: 22px; height: 22px; border: 0; background: #f1e6d8; color: #6f5a49; cursor: pointer; }
+.mb-pop-cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.mb-pop-cats button { flex: none; height: 28px; padding: 0 10px; border: 1px solid #e3d6c9; border-radius: 0; background: #fff; color: #6f5a49; font: 600 12px "DM Sans", sans-serif; cursor: pointer; }
+.mb-pop-cats button.is-on { border-color: #382518; background: #382518; color: #fff; }
+
+.mb-pop-list { flex: 1; min-height: 0; margin: 0; padding: 4px 0; overflow-y: auto; list-style: none; scrollbar-width: thin; scrollbar-color: #cfb797 transparent; }
+.mb-pop-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; border: 0; border-left: 3px solid transparent; background: transparent; color: #382518; font: inherit; text-align: left; cursor: pointer; }
+.mb-pop-row:hover { background: #faf3e8; }
+.mb-pop-row.is-on { border-left-color: #9b653c; background: #f8eee2; }
+.mb-pop-row:focus-visible, .mb-pop :is(.mb-pop-close, .mb-pop-cats button, .mb-pop-search button):focus-visible { outline: 2px solid #7d4e2a; outline-offset: -2px; }
+.mb-pop-box { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid #bfa98f; background: #fff; color: #fff; }
+.mb-pop-row.is-on .mb-pop-box { border-color: #9b653c; background: #9b653c; }
+.mb-pop-name { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mb-pop-name small { margin-left: 8px; color: #8a7462; font-size: 12px; font-weight: 400; }
+.mb-pop-stock { color: #6f5a49; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mb-pop-stock.is-out { color: #96392c; font-weight: 600; }
+.mb-pop-empty { display: grid; gap: 4px; padding: 28px 16px; color: #6f5a49; text-align: center; }
+.mb-pop-empty strong { color: #382518; font-size: 14px; }
+
+.mb-pop-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid rgba(139, 94, 60, 0.2); background: #fffdf9; }
+.mb-pop-count { margin-right: auto; color: #6f5a49; }
+.mb-pop-count strong { color: #382518; }
+.mb-pop .mb-btn { min-height: 32px; padding: 0 12px; border: 1px solid #d9cbbd; background: #fff; color: #5c4638; font: 600 12px "DM Sans", sans-serif; cursor: pointer; display: inline-flex; align-items: center; }
+.mb-pop .mb-btn.is-primary { border-color: #9b653c; background: #9b653c; color: #fff; }
+.mb-pop .mb-btn.is-primary:hover { background: #7d4e2a; }
+
+/* Add-new-item window: blank white space for now, the form comes later. */
+.mb-pop.is-add { height: min(340px, 100%); }
+.mb-pop-blank { flex: 1; min-height: 240px; background: #fff; }

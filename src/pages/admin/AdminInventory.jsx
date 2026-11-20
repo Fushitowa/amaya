@@ -495,7 +495,8 @@ function AdminInventory() {
   const [viewMode, setViewMode] = useState("grid");
   const [sortBy, setSortBy] = useState("name");
   const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  // /admin/inventory?new=1 (used by the menu form) opens the Add item form straight away
+  const [showForm, setShowForm] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1");
   const [editingItem, setEditingItem] = useState(null);
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState("");
@@ -525,6 +526,13 @@ function AdminInventory() {
   const [isSaving, setIsSaving] = useState(false);
   const [formValues, setFormValues] = useState(loadInventoryAddDraft);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // The ?new=1 link has done its job once the form is open, so a reload does not reopen the form
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
+  }, []);
 
   // Auto-persist unsaved add-item draft so closing the docket or switching tabs never loses user input
   useEffect(() => {

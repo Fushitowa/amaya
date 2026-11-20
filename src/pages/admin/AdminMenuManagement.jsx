@@ -8,7 +8,8 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { useMenu } from "../../context/MenuContext.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
-import { InventoryRecipePickerModal, MenuArchiveConfirmModal, UnitSelect } from "../../components/admin/menu/MenuCatalogModals.jsx";
+import { MenuArchiveConfirmModal, UnitSelect } from "../../components/admin/menu/MenuCatalogModals.jsx";
+import { AddInventoryItemPopover, InventoryPickerPopover } from "../../components/admin/menu/IngredientPopovers.jsx";
 import {
 	DEFAULT_TARGET_FOOD_COST,
 	safeLower,
@@ -158,6 +159,8 @@ function AdminMenuManagement() {
 	const [recipeError, setRecipeError] = useState("");
 	const [menuActionError, setMenuActionError] = useState("");
 	const [syncNotice, setSyncNotice] = useState("");
+	const [inventoryNote, setInventoryNote] = useState("");
+	const [appliedSuggestion, setAppliedSuggestion] = useState(null);
 	const [isSaving, setIsSaving] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [togglingProductId, setTogglingProductId] = useState(null);
@@ -165,6 +168,9 @@ function AdminMenuManagement() {
 
 	// Multi-select inventory picker state
 	const [showInventoryPicker, setShowInventoryPicker] = useState(false);
+	const [showAddInventoryPop, setShowAddInventoryPop] = useState(false);
+	const pickerAnchorRef = useRef(null);
+	const addInventoryAnchorRef = useRef(null);
 	const [pickerSearch, setPickerSearch] = useState("");
 	const [pickerCategory, setPickerCategory] = useState("all");
 	const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState(new Set());
@@ -678,6 +684,17 @@ function AdminMenuManagement() {
 		});
 	};
 
+	// Items added in the Inventory tab show up on their own when you return here; this button asks again right away.
+	const handleRefreshInventory = async () => {
+		setInventoryNote("Checking Inventory…");
+		try {
+			await refreshInventory?.();
+			setInventoryNote("Inventory is up to date.");
+		} catch {
+			setInventoryNote("Could not reload Inventory. Check your connection and try again.");
+		}
+	};
+
 	const openInventoryPicker = () => {
 		const currentIds = new Set(
 			(formValues.ingredients || []).map((ing) => {
@@ -689,6 +706,7 @@ function AdminMenuManagement() {
 		setSelectedInventoryItemIds(currentIds);
 		setPickerSearch("");
 		setPickerCategory("all");
+		setShowAddInventoryPop(false);
 		setShowInventoryPicker(true);
 	};
 
@@ -2272,13 +2290,31 @@ function AdminMenuManagement() {
 											</header>
 
 											<div className="mb-toolbar">
-												<button type="button" className="mb-btn is-primary" onClick={openInventoryPicker}>
+												<button
+													ref={pickerAnchorRef}
+													type="button"
+													className="mb-btn is-primary"
+													aria-haspopup="dialog"
+													aria-expanded={showInventoryPicker}
+													onClick={() => (showInventoryPicker ? setShowInventoryPicker(false) : openInventoryPicker())}
+												>
 													<Plus size={14} strokeWidth={2.4} aria-hidden="true" /> Choose from Inventory
 												</button>
-												<a href="/admin/inventory" target="_blank" rel="noopener noreferrer" className="mb-btn">
-													<ExternalLink size={14} strokeWidth={2} aria-hidden="true" /> Add a new item in Inventory
-												</a>
+												<button
+													ref={addInventoryAnchorRef}
+													type="button"
+													className="mb-btn"
+													aria-haspopup="dialog"
+													aria-expanded={showAddInventoryPop}
+													onClick={() => { setShowInventoryPicker(false); setShowAddInventoryPop((v) => !v); }}
+												>
+													<Plus size={14} strokeWidth={2.2} aria-hidden="true" /> Add a new item in Inventory
+												</button>
+												<button type="button" className="mb-btn" onClick={handleRefreshInventory}>Refresh list</button>
 											</div>
+											<p className="mb-help is-tight" role="status">
+												{inventoryNote || "Missing an ingredient? Press Add a new item in Inventory. The list updates by itself, or press Refresh list."}
+											</p>
 
 											{formValues.ingredients.length === 0 ? (
 												<div className="mb-empty">
@@ -2428,20 +2464,40 @@ function AdminMenuManagement() {
 																			</span>
 																		</td>
 																		<td className="mb-num">
-																			{row.costing?.suggestedPrice != null ? (
+																			{row.costing?.suggestedPrice == null ? "—" : Number(row.costing.suggestedPrice) === Number(row.price) ? (
 																				<span className="mb-suggest">
 																					₱{row.costing.suggestedPrice}
-																					<button type="button" className="mb-btn is-small" onClick={() => (row.index < 0 ? applySuggestedBasePrice(row.costing?.suggestedPrice) : applySuggestedSizePrice(row.index, row.costing?.suggestedPrice))} aria-label={`Use ₱${row.costing.suggestedPrice} for ${row.label}`}>
+																					<span className="mb-same">Your price</span>
+																				</span>
+																			) : (
+																				<span className="mb-suggest">
+																					₱{row.costing.suggestedPrice}
+																					<button
+																						type="button"
+																						className="mb-btn is-small"
+																						onClick={() => {
+																							if (row.index < 0) applySuggestedBasePrice(row.costing?.suggestedPrice);
+																							else applySuggestedSizePrice(row.index, row.costing?.suggestedPrice);
+																							setAppliedSuggestion({ label: row.label, price: Number(row.costing?.suggestedPrice) });
+																						}}
+																						aria-label={`Use ₱${row.costing.suggestedPrice} for ${row.label}`}
+																					>
 																						Use
 																					</button>
 																				</span>
-																			) : "—"}
+																			)}
 																		</td>
 																	</tr>
 																))}
 															</tbody>
 														</table>
 													</div>
+												)}
+												<p className="mb-help is-tight">Suggested prices are rounded up to the next ₱5 so the cost to make stays at or under your goal. Pressing Use only changes this form. Save the item to keep the new price.</p>
+												{appliedSuggestion && (
+													<p className="mb-notice is-good" role="status">
+														<Check size={14} strokeWidth={2.6} aria-hidden="true" /> The price for {appliedSuggestion.label} is now ₱{appliedSuggestion.price}. It is saved when you press {editingProduct ? "Save changes" : "Add item"}.
+													</p>
 												)}
 											</div>
 										</section>
@@ -2587,7 +2643,14 @@ function AdminMenuManagement() {
 												<p className="mb-help">No add-ons yet.</p>
 											)}
 
-											<p className="mb-help">A new add-on name is added to Inventory with zero stock. Restock it in Inventory before selling.</p>
+											<p className="mb-help">Every add-on must already be an item in Inventory, because each sale takes its stock from there.</p>
+											<div className="mb-toolbar">
+												<a href="/admin/inventory?new=1" target="_blank" rel="noopener noreferrer" className="mb-btn">
+													<ExternalLink size={14} strokeWidth={2} aria-hidden="true" /> Add a new item in Inventory
+												</a>
+												<button type="button" className="mb-btn" onClick={handleRefreshInventory}>Refresh list</button>
+											</div>
+											{inventoryNote && <p className="mb-help is-tight" role="status">{inventoryNote}</p>}
 										</section>
 									)}
 
@@ -2703,9 +2766,10 @@ function AdminMenuManagement() {
 						</form>
 					</div>
 
-				{/* Multi-Select Inventory Picker Modal */}
-				<InventoryRecipePickerModal
-					isOpen={showInventoryPicker}
+				{/* Small windows under the Ingredients toolbar buttons */}
+				<InventoryPickerPopover
+					isOpen={showInventoryPicker && builderChapter === "recipe"}
+					anchorRef={pickerAnchorRef}
 					inventory={inventory}
 					pickerSearch={pickerSearch}
 					setPickerSearch={setPickerSearch}
@@ -2715,6 +2779,11 @@ function AdminMenuManagement() {
 					togglePickerItem={togglePickerItem}
 					applyInventoryPicker={applyInventoryPicker}
 					onClose={() => setShowInventoryPicker(false)}
+				/>
+				<AddInventoryItemPopover
+					isOpen={showAddInventoryPop && builderChapter === "recipe"}
+					anchorRef={addInventoryAnchorRef}
+					onClose={() => setShowAddInventoryPop(false)}
 				/>
 				</ErrorBoundary>
 			)}

@@ -108,9 +108,17 @@ export function InventoryRecipePickerModal({
   selectedInventoryItemIds,
   togglePickerItem,
   applyInventoryPicker,
+  onRefresh,
+  refreshNote,
   onClose,
 }) {
   if (!isOpen) return null;
+  const pickerMatches = (inventory || []).filter((item) => {
+    const name = safeItemName(item);
+    const matchesSearch = !pickerSearch || safeLower(name).includes(safeLower(pickerSearch));
+    const matchesCat = pickerCategory === "all" || item.category === pickerCategory;
+    return matchesSearch && matchesCat;
+  });
   return (
     <div
       className="recipe-picker-backdrop"
@@ -126,8 +134,8 @@ export function InventoryRecipePickerModal({
       >
         <div className="recipe-picker-header">
           <div>
-            <h3 id="recipe-picker-title">Select Recipe Ingredients</h3>
-            <p>Pick items from your inventory to include in this recipe. Quantities can be set in the next step.</p>
+            <h3 id="recipe-picker-title">Choose ingredients</h3>
+            <p>Tick everything this item uses. You set the amounts after you apply.</p>
           </div>
           <button
             type="button"
@@ -177,13 +185,13 @@ export function InventoryRecipePickerModal({
         </div>
 
         <div className="recipe-picker-grid">
-          {(inventory || [])
-            .filter((item) => {
-              const name = safeItemName(item);
-              const matchesSearch = !pickerSearch || safeLower(name).includes(safeLower(pickerSearch));
-              const matchesCat = pickerCategory === "all" || item.category === pickerCategory;
-              return matchesSearch && matchesCat;
-            })
+          {pickerMatches.length === 0 && (
+            <div className="picker-empty" role="status">
+              <strong>{(inventory || []).length === 0 ? "Inventory is empty" : "Nothing matches"}</strong>
+              <span>{(inventory || []).length === 0 ? "Add your ingredients in Inventory first." : "Try other words, or add it as a new item in Inventory."}</span>
+            </div>
+          )}
+          {pickerMatches
             .map((item) => {
               const isSelected = selectedInventoryItemIds.has(item.id);
               const itemName = safeItemName(item);
@@ -231,6 +239,11 @@ export function InventoryRecipePickerModal({
         <div className="recipe-picker-footer">
           <span className="picker-selected-summary">
             <strong>{selectedInventoryItemIds.size}</strong> ingredient{selectedInventoryItemIds.size === 1 ? "" : "s"} selected
+            <span className="picker-footer-links">
+              <a href="/admin/inventory?new=1" target="_blank" rel="noopener noreferrer">Not listed? Add it in Inventory</a>
+              {onRefresh && <button type="button" onClick={onRefresh}>Refresh list</button>}
+              {refreshNote && <em role="status">{refreshNote}</em>}
+            </span>
           </span>
           <div className="picker-footer-actions">
             <button
