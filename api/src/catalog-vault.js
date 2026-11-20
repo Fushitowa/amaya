@@ -1,9 +1,10 @@
 import "dotenv/config";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pool from "./database.js";
+import { vaultSnapshotVerifier, writeVerifiedFile } from "./utils/verifiedWrite.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -379,8 +380,11 @@ async function runArchiveAndClean(force = false, purgeTransactions = false) {
     const timestampedPath = path.join(BACKUPS_DIR, `catalog_vault_${ts}.json`);
     const serialized = JSON.stringify(snapshot, null, 2);
 
-    await writeFile(LATEST_BACKUP_PATH, serialized, "utf8");
-    await writeFile(timestampedPath, serialized, "utf8");
+    // Both files must be fully written, flushed to disk and verified before anything is
+    // deleted below; writeVerifiedFile throws otherwise, which aborts the wipe.
+    const verifySnapshot = vaultSnapshotVerifier({ menu_products: liveMenuCount, inventory_items: liveInventoryCount });
+    await writeVerifiedFile(timestampedPath, serialized, verifySnapshot);
+    await writeVerifiedFile(LATEST_BACKUP_PATH, serialized, verifySnapshot);
 
     console.log(
       `[Catalog Vault] Saved snapshot (${liveMenuCount} Menu Products, ${liveInventoryCount} Inventory Items) to:`,
@@ -488,7 +492,11 @@ async function runRecover(customFilename = null, purgeTransactions = false) {
 
     if (currentMenuCount > 0 || currentInvCount > 0) {
       const preRecPath = path.join(BACKUPS_DIR, `pre_recovery_${formatTimestampForFilename()}.json`);
-      await writeFile(preRecPath, JSON.stringify(currentLive, null, 2), "utf8");
+      await writeVerifiedFile(
+        preRecPath,
+        JSON.stringify(currentLive, null, 2),
+        vaultSnapshotVerifier({ menu_products: currentMenuCount, inventory_items: currentInvCount }),
+      );
       console.log(
         `[Catalog Vault] Saved safety snapshot of current live items (${currentMenuCount} Menu Products, ${currentInvCount} Inventory Items) to ${preRecPath}`,
       );
