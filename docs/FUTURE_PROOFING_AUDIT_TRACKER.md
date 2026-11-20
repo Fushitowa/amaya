@@ -3,7 +3,7 @@
 Audit date: 2026-11-20 · Read-only audit of the admin, staff and customer apps, the API, MariaDB/XAMPP and the control panel.
 Update the **Status** column as findings are fixed, and add the commit that fixed each one.
 
-**Progress:** 11 of 18 findings fixed (F1–F5, F7–F11, F13) · F12 partly fixed (needs the Windows service installed) · F18 also fixed · 6 open (Phase 3) · Test suite: 164 / 164 passing
+**Progress:** 17 of 18 findings fixed · F12 partly fixed (only the owner's Windows service install is left) · F1b and F18 also fixed · Test suite: 174 / 174 passing
 
 Status key: ✅ Fixed · ⏳ Open · 🟡 Partly fixed
 
@@ -22,7 +22,7 @@ Status key: ✅ Fixed · ⏳ Open · 🟡 Partly fixed
 
 | ID | Severity | Finding | Status | Commit |
 |---|---|---|---|---|
-| F1 | 🔴 CRITICAL | Live DB was missing migrations 043–045 (staff expenses, budgets, Net Income PIN all failed with 500s) | ✅ Fixed | Migrations applied to `amaya` and `amaya_test` after backup `database/backups/pre_migrate_043_045_20261120.sql`. Startup check for pending migrations still ⏳ (see Phase 3) |
+| F1 | 🔴 CRITICAL | Live DB was missing migrations 043–045 (staff expenses, budgets, Net Income PIN all failed with 500s) | ✅ Fixed | Migrations applied to `amaya` and `amaya_test` after backup `database/backups/pre_migrate_043_045_20261120.sql`. Startup check for pending migrations added in Phase 3 (F1b) |
 | F2 | 🟠 HIGH | Staff cash expense not linked to the shift, so closing posted a false shortage and credited cash twice | ✅ Fixed | `ff80468` |
 | F3 | 🟠 HIGH | Staff could spend from GCash, Bank or Owner Reserve, and backdate expenses | ✅ Fixed | `ff80468` |
 
@@ -69,16 +69,16 @@ Optional extra backup when the panel isn't open (run once in PowerShell, adjust 
 
 **Known limit of F5:** the Reports page sales analytics still show COGS and gross profit (needed for menu pricing), and the Expenses pages show spending, so someone with the owner's session could still roughly estimate profit by combining those pages. The formal statements themselves stay locked.
 
-## Phase 3: Hardening ⏳
+## Phase 3: Hardening ✅ Done
 
 | ID | Severity | Finding | Where | Fix | Regression test | Status |
 |---|---|---|---|---|---|---|
-| F6 | 🟡 MEDIUM | PIN lockout resets after every lock (about 1 guess/min forever) | `api/src/routes/finances.js:88-92` | Escalating lock (5 min → 1 h → 24 h), 6-digit PIN | 15 wrong PINs gives a lock of 1 h or more | ⏳ |
-| F14 | 🔵 LOW | Vault writes backup JSON without fsync or read-back before wiping | `api/src/catalog-vault.js:382-383` | Temp file, fsync, parse back, rename, then wipe | Corrupt backup aborts the wipe | ⏳ |
-| F15 | 🔵 LOW | Archive auto-purge retries un-deletable items every 60 s forever | `api/src/routes/archive.js:186-207` | Exclude items with order history from the purge query | Purge skips consumed items with no warning | ⏳ |
-| F16 | 🔵 LOW | Control panel port probe floods `mysql_error.log` (15,138 lines, 20 MB) | `scripts/amaya_control_panel.py` (`is_port_open`) | `log_warnings=1` in `my.ini` or probe less often | Error log stops growing while idle | ⏳ |
-| F17 | 🔵 LOW | Control panel log tabs grow without limit | `scripts/amaya_control_panel.py` (`_append_to_text_widget`) | Keep the last 5,000 lines per tab | Log tab stays ≤ 5,000 lines | ⏳ |
-| F1b | 🔵 LOW | API never checks for pending migrations at startup | `api/src/server.js:119` | `/api/health` reports pending migrations | Health shows pending when a migration is unrecorded | ⏳ |
+| F6 | 🟡 MEDIUM | PIN lockout resets after every lock (about 1 guess/min forever) | `api/src/routes/finances.js`, migration `046`, `NetIncomePinModal.jsx` | Lockouts escalate 5 min → 1 h → 24 h and reset after a correct PIN; new PINs must be 6 digits (existing 4–5 digit PINs still unlock) | `tests/netIncomePinLockout.test.js` | ✅ |
+| F14 | 🔵 LOW | Vault writes backup JSON without fsync or read-back before wiping | `api/src/utils/verifiedWrite.js`, `catalog-vault.js` | Temp file, fsync, read back and check row counts, rename; any failure aborts before the wipe | `tests/verifiedWrite.test.js` | ✅ |
+| F15 | 🔵 LOW | Archive auto-purge retries un-deletable items every 60 s forever | `api/src/routes/archive.js` | Purge query skips items with order or stock-movement history (kept on purpose) | `tests/archivePurgeHistory.test.js` | ✅ |
+| F16 | 🔵 LOW | Control panel port probe floods `mysql_error.log` (15,138 lines, 20 MB) | `scripts/amaya_control_panel.py` (`is_port_open`) | MySQL is checked through the listening-socket table instead of a TCP connection | Measured: 20 old probes added 42 log lines, 20 new checks added 0 | ✅ |
+| F17 | 🔵 LOW | Control panel log tabs grow without limit | `scripts/amaya_control_panel.py` (`_append_to_text_widget`) | Keep the newest 5,000 lines per tab | Measured: 5,200 lines appended, 5,000 kept | ✅ |
+| F1b | 🔵 LOW | API never checks for pending migrations at startup | `api/src/migrationList.js`, `utils/migrationStatus.js`, `server.js`, control panel | Shared migration list; API logs a warning at startup, `/api/health` returns `pendingMigrations`, panel shows "migration(s) pending" | `tests/migrationStatus.test.js` | ✅ |
 
 ---
 
@@ -90,7 +90,7 @@ innodb_doublewrite=1               ; already on — keep
 innodb_buffer_pool_size=256M       ; was 16M
 max_allowed_packet=16M             ; was 1M   (F9)
 sql_mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION   ; (F10)
-log_warnings=1                     ; stops probe spam (F16)
+log_warnings=1                     ; optional now: F16 fixed the probe spam in the panel
 ```
 
 ## Recovery runbook (if MySQL won't start again)
