@@ -30,7 +30,7 @@ export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked })
     setBusy(true);
     try {
       if (setting) {
-        if (!/^\d{4,6}$/.test(pin)) throw new Error("PIN must contain 4 to 6 numbers.");
+        if (!/^\d{6}$/.test(pin)) throw new Error("Choose a 6-digit PIN.");
         if (pin !== confirmPin) throw new Error("The PIN entries do not match.");
         const result = await apiRequest("/finances/net-income-pin/set", {
           method: "POST",
@@ -61,11 +61,11 @@ export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked })
           <button type="button" className="fin-modal-close-btn" onClick={closeModal} aria-label="Close"><X size={16} /></button>
         </div>
         <form onSubmit={submit} className="net-income-pin-form">
-          <p>This is a separate 4 to 6 number PIN. It must differ from your Admin login password.</p>
+          <p>This is a separate 6-digit PIN. It must differ from your Admin login password.</p>
           {setting && hasPin && (
             <label>Current PIN<input autoFocus type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={currentPin} onChange={digitsOnly(setCurrentPin)} /></label>
           )}
-          <label>{setting ? "New PIN (4–6 numbers)" : "Owner Numeric PIN"}<input autoFocus={mode === "access"} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={6} value={pin} onChange={digitsOnly(setPin)} /></label>
+          <label>{setting ? "New PIN (6 numbers)" : "Owner Numeric PIN"}<input autoFocus={mode === "access"} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={6} value={pin} onChange={digitsOnly(setPin)} /></label>
           {setting && <label>Confirm new PIN<input type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={6} value={confirmPin} onChange={digitsOnly(setConfirmPin)} /></label>}
           {error && <div className="net-income-pin-error" role="alert">{error}</div>}
           <div className="net-income-pin-actions">

@@ -66,9 +66,32 @@ function parseOwnerPin(value) {
   return pin;
 }
 
+// New PINs must be 6 digits (1,000,000 combinations); existing 4-5 digit PINs still unlock.
+function parseNewOwnerPin(value) {
+  const pin = String(value ?? "");
+  if (!/^\d{6}$/.test(pin)) throw httpError(400, "Choose a 6-digit Owner Numeric PIN.");
+  return pin;
+}
+
+const PIN_ATTEMPTS_PER_LOCK = 5;
+// Each consecutive lockout lasts longer, so guessing stays slow: 5 min, 1 h, then 24 h.
+// The lockout count resets after a correct PIN.
+export function pinLockoutMinutes(lockoutNumber) {
+  if (lockoutNumber <= 1) return 5;
+  if (lockoutNumber === 2) return 60;
+  return 24 * 60;
+}
+
+function describeMinutes(minutes) {
+  if (minutes >= 24 * 60) return "24 hours";
+  if (minutes >= 60) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
+  return `${minutes} minutes`;
+}
+
 async function checkOwnerPin(connection, pin, userId) {
   const [[settings]] = await connection.execute(
     `SELECT owner_net_income_pin_hash, owner_net_income_pin_failed_attempts, owner_net_income_pin_locked_until,
+            owner_net_income_pin_lockouts,
             (owner_net_income_pin_locked_until IS NOT NULL AND owner_net_income_pin_locked_until > NOW()) AS is_locked
        FROM business_settings WHERE id = 1 FOR UPDATE`,
   );
@@ -85,20 +108,29 @@ async function checkOwnerPin(connection, pin, userId) {
   const matches = !isAdminPassword && await bcrypt.compare(pin, settings.owner_net_income_pin_hash);
   if (!matches) {
     const failedAttempts = Number(settings.owner_net_income_pin_failed_attempts || 0) + 1;
-    if (failedAttempts >= 5) {
+    const lockouts = Number(settings.owner_net_income_pin_lockouts || 0);
+    if (failedAttempts >= PIN_ATTEMPTS_PER_LOCK) {
+      const nextLockout = Math.min(lockouts + 1, 255);
+      const minutes = pinLockoutMinutes(nextLockout);
       await connection.execute(
-        "UPDATE business_settings SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_locked_until = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE id = 1",
+        `UPDATE business_settings
+            SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_lockouts = ?,
+                owner_net_income_pin_locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE)
+          WHERE id = 1`,
+        [nextLockout, minutes],
       );
-      throw httpError(429, "Too many incorrect PIN attempts. Net Income is locked for 5 minutes.");
+      throw httpError(429, `Too many incorrect PIN attempts. Net Income is locked for ${describeMinutes(minutes)}.`);
     }
     await connection.execute(
       "UPDATE business_settings SET owner_net_income_pin_failed_attempts = ?, owner_net_income_pin_locked_until = NULL WHERE id = 1",
       [failedAttempts],
     );
-    throw httpError(401, `Incorrect Owner Numeric PIN. ${5 - failedAttempts} attempt${5 - failedAttempts === 1 ? "" : "s"} remaining before a 5-minute lock.`);
+    const remaining = PIN_ATTEMPTS_PER_LOCK - failedAttempts;
+    const nextLockMinutes = pinLockoutMinutes(lockouts + 1);
+    throw httpError(401, `Incorrect Owner Numeric PIN. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining before a ${describeMinutes(nextLockMinutes)} lock.`);
   }
   await connection.execute(
-    "UPDATE business_settings SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_locked_until = NULL WHERE id = 1",
+    "UPDATE business_settings SET owner_net_income_pin_failed_attempts = 0, owner_net_income_pin_lockouts = 0, owner_net_income_pin_locked_until = NULL WHERE id = 1",
   );
 }
 
@@ -129,7 +161,7 @@ router.post("/net-income-pin/verify", requireAuth, requireRole("admin"), async (
 });
 
 router.post("/net-income-pin/set", requireAuth, requireRole("admin"), async (request, response) => {
-  const pin = parseOwnerPin(request.body?.pin);
+  const pin = parseNewOwnerPin(request.body?.pin);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -149,7 +181,7 @@ router.post("/net-income-pin/set", requireAuth, requireRole("admin"), async (req
     await connection.execute(
       `UPDATE business_settings
           SET owner_net_income_pin_hash = ?, owner_net_income_pin_failed_attempts = 0,
-              owner_net_income_pin_locked_until = NULL
+              owner_net_income_pin_lockouts = 0, owner_net_income_pin_locked_until = NULL
         WHERE id = 1`,
       [hash],
     );
