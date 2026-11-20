@@ -26,6 +26,12 @@ function peso(val) {
   return `₱${safe.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Hidden figures arrive as null while the Net Income PIN is locked (profitLocked).
+const LOCKED_TEXT = "₱••••••";
+function lockedPeso(val) {
+  return val == null ? LOCKED_TEXT : peso(val);
+}
+
 function round2(val) {
   const num = Number(val || 0);
   return Number.isFinite(num) ? Number(num.toFixed(2)) : 0;
@@ -368,7 +374,7 @@ export default function FinancialReconciliationCenter() {
       setError(null);
       try {
         if (activeTab === "recon") {
-          const res = await apiRequest(`/finances/reports/daily-reconciliation${buildDateParams({ page: reconPage, limit: 25 })}`);
+          const res = await apiRequest(`/finances/reports/daily-reconciliation${buildDateParams({ page: reconPage, limit: 25 })}`, { headers: netIncomePin.financialHeaders });
           if (!active) return;
           setReconData(res.items || []);
           setReconTotal(Number(res.total || 0));
@@ -1015,7 +1021,7 @@ export default function FinancialReconciliationCenter() {
                           {row.netAssetDelta != null ? `${row.netAssetDelta >= 0 ? "+" : ""}${peso(row.netAssetDelta)}` : "—"}
                         </td>
                         <td>{peso(row.grossSales)}</td>
-                        <td>{peso(row.cogsConsumed)}</td>
+                        <td>{lockedPeso(row.cogsConsumed)}</td>
                         <td style={{ fontWeight: 600 }}>{netIncomePin.unlocked && row.netOperatingProfit != null ? peso(row.netOperatingProfit) : "₱••••••"}</td>
                         <td style={{ color: Number(row.drawerVariance || 0) === 0 ? "#5a4029" : (row.drawerVariance < 0 ? "#c53030" : "#1e7047") }}>
                           {row.drawerVariance != null ? peso(row.drawerVariance) : "—"}
@@ -1042,6 +1048,14 @@ export default function FinancialReconciliationCenter() {
         {/* TAB 2: PROFIT & LOSS WATERFALL */}
         {!loading && activeTab === "pnl" && pnlData && (
           <div className="fin-statement-stack">
+            {pnlData.profitLocked && (
+              <div className="fin-statement-row" role="note" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                <span>🔒 Costs, expenses and profit are hidden until you enter the Net Income PIN.</span>
+                <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>
+                  🔒 View Net Income
+                </button>
+              </div>
+            )}
             <div className="fin-statement-row">
               <span>Gross Sales (4010 — ex-VAT)</span>
               <strong>{peso(pnlData.grossSales)}</strong>
@@ -1060,21 +1074,21 @@ export default function FinancialReconciliationCenter() {
             <div className="fin-statement-card">
               <div className="fin-statement-card-total" style={{ marginTop: 0, paddingTop: 0, borderTop: "none", color: "#b91c1c" }}>
                 <span>Less: Total Cost of Goods Sold (COGS)</span>
-                <span>- {peso(pnlData.cogs)}</span>
+                <span>- {lockedPeso(pnlData.cogs)}</span>
               </div>
               <div className="fin-statement-line" style={{ fontSize: "0.82rem", color: "#6b5847" }}>
                 <span>5010 - Customer Sales (F&amp;B &amp; Ingredients Used)</span>
-                <span>{peso(pnlData.customerSalesCogs ?? pnlData.cogs)}</span>
+                <span>{lockedPeso(pnlData.customerSalesCogs ?? pnlData.cogs)}</span>
               </div>
               <div className="fin-statement-line" style={{ fontSize: "0.82rem", color: "#6b5847" }}>
                 <span>6030 - Waste Cost (Inventory Spoilage)</span>
-                <span>{peso(pnlData.wasteCost ?? pnlData.foodSpoilageCogs ?? 0)}</span>
+                <span>{pnlData.profitLocked ? LOCKED_TEXT : peso(pnlData.wasteCost ?? pnlData.foodSpoilageCogs ?? 0)}</span>
               </div>
             </div>
 
             <div className="fin-statement-row is-profit-band">
-              <span>Gross Profit (Margin: {pnlData.grossMarginPercent}%)</span>
-              <span>{peso(pnlData.grossProfit)}</span>
+              <span>Gross Profit{pnlData.grossMarginPercent != null ? ` (Margin: ${pnlData.grossMarginPercent}%)` : ""}</span>
+              <span>{lockedPeso(pnlData.grossProfit)}</span>
             </div>
 
             <div className="fin-statement-card">
@@ -1082,9 +1096,11 @@ export default function FinancialReconciliationCenter() {
                 <div className="fin-statement-card-total" style={{ marginTop: 0, paddingTop: 0, borderTop: "none", flex: 1 }}>
                   <span>Operating Expenses</span>
                   <span>
-                    {pnlData.totalOperatingExpenses >= 0
-                      ? `- ${peso(pnlData.totalOperatingExpenses)}`
-                      : `+ ${peso(Math.abs(pnlData.totalOperatingExpenses))}`}
+                    {pnlData.totalOperatingExpenses == null
+                      ? LOCKED_TEXT
+                      : pnlData.totalOperatingExpenses >= 0
+                        ? `- ${peso(pnlData.totalOperatingExpenses)}`
+                        : `+ ${peso(Math.abs(pnlData.totalOperatingExpenses))}`}
                   </span>
                 </div>
                 <div className="fin-opex-head-actions">
@@ -1173,7 +1189,7 @@ export default function FinancialReconciliationCenter() {
                   + Record Depreciation
                 </button>
               </span>
-              <span>- {peso(pnlData.depreciation)}</span>
+              <span>- {lockedPeso(pnlData.depreciation)}</span>
             </div>
 
             <div className="fin-statement-row is-subtotal">
@@ -1192,7 +1208,7 @@ export default function FinancialReconciliationCenter() {
                   + Record Income Tax
                 </button>
               </span>
-              <span>- {peso(pnlData.tax)}</span>
+              <span>- {lockedPeso(pnlData.tax)}</span>
             </div>
 
             <div className="fin-summary-hero">

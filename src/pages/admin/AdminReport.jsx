@@ -1545,13 +1545,13 @@ function AdminReport() {
                   <div className="report-income-formula">
                     <span>Total Sales <strong>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</strong></span>
                     <b aria-hidden="true">−</b>
-                    <span>COGS, including Waste Cost <strong>{peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
+                    <span>COGS, including Waste Cost <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
                     <b aria-hidden="true">=</b>
-                    <span>Gross Profit <strong>{peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
+                    <span>Gross Profit <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
                     <b aria-hidden="true">−</b>
-                    <span>Operating Expenses <strong>{peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
+                    <span>Operating Expenses <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
                     <b aria-hidden="true">−</b>
-                    <span>Depreciation &amp; Income Tax <strong>{peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}</strong></span>
+                    <span>Depreciation &amp; Income Tax <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}</strong></span>
                     <b aria-hidden="true">=</b>
                     <span className="report-income-net">Net Income <strong>{netIncomePin.unlocked && incomeStatementSummary?.netIncome != null ? peso(incomeStatementSummary.netIncome) : "₱••••••"}</strong></span>
                   </div>

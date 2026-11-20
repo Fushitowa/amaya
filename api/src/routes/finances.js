@@ -427,7 +427,54 @@ router.all("/journal-entries/:id", requireAuth, requireRole("admin"), (request, 
   next();
 });
 
-router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request, response) => {
+// -------------------------------------------------------------
+// NET INCOME PIN LOCK
+// Until the owner enters the Net Income PIN, every figure from which profit can be
+// worked out stays hidden: COGS, gross profit, operating expenses, depreciation, tax,
+// net income, equity, and revenue/expense account balances. Sales, cash, assets and
+// liabilities stay visible. Each response says `profitLocked: true` while locked.
+// -------------------------------------------------------------
+const LOCKED_SUMMARY_KEYS = [
+  "netIncome", "netProfitAfterSale", "allTimeNetProfit", "baseCapitalMoney",
+  "grossProfit", "grossMarginPercent", "cogs", "customerSalesCogs", "foodSpoilageCogs", "wasteCost",
+  "operatingExpenses", "totalOperatingExpenses", "depreciation", "tax", "totalCogsAndExpenses",
+];
+const PNL_VISIBLE_WHEN_LOCKED = new Set(["grossSales", "discounts", "netSales"]);
+const BALANCE_SHEET_ACCOUNT_CATEGORIES = new Set(["asset", "liability"]);
+
+export function lockAccountsReport(report) {
+  for (const key of LOCKED_SUMMARY_KEYS) {
+    if (key in report.summary) report.summary[key] = null;
+  }
+  report.summary.profitLocked = true;
+  // Keep every account (the expense forms list them) but hide revenue/expense/equity balances.
+  report.accounts = (report.accounts || []).map((account) =>
+    BALANCE_SHEET_ACCOUNT_CATEGORIES.has(String(account.category || "").toLowerCase())
+      ? account
+      : { ...account, balance: null });
+  return report;
+}
+
+export function lockProfitAndLossReport(report) {
+  const locked = Object.fromEntries(
+    Object.entries(report).map(([key, value]) => [key, PNL_VISIBLE_WHEN_LOCKED.has(key) ? value : null]),
+  );
+  locked.operatingExpenses = [];
+  locked.profitLocked = true;
+  return locked;
+}
+
+export function lockBalanceSheetReport(report) {
+  report.equity = Object.fromEntries(Object.keys(report.equity || {}).map((key) => [key, null]));
+  report.totalEquity = null;
+  report.profitLocked = true;
+  return report;
+}
+
+router.get("/trial-balance", requireAuth, requireRole("admin"), async (request, response) => {
+  if (!hasValidNetIncomeAccess(request)) {
+    return response.status(403).json({ message: "Enter the Net Income PIN to view the Trial Balance.", profitLocked: true });
+  }
   response.json(await getTrialBalanceReport());
 });
 
@@ -436,13 +483,7 @@ router.get("/trial-balance", requireAuth, requireRole("admin"), async (_request,
 // -------------------------------------------------------------
 router.get("/accounts", requireAuth, requireRole("admin"), async (request, response) => {
   const report = await getAccountsAndAssetsReport(request.query?.from, request.query?.to);
-  if (!hasValidNetIncomeAccess(request)) {
-    report.summary.netIncome = null;
-    report.summary.netProfitAfterSale = null;
-    report.summary.allTimeNetProfit = null;
-    report.summary.baseCapitalMoney = null;
-  }
-  response.json(report);
+  response.json(hasValidNetIncomeAccess(request) ? report : lockAccountsReport(report));
 });
 
 // -------------------------------------------------------------
@@ -1561,14 +1602,7 @@ router.post("/journal-entries/:id/reverse", requireAuth, requireRole("admin"), a
 // -------------------------------------------------------------
 router.get("/reports/profit-and-loss", requireAuth, requireRole("admin"), async (request, response) => {
   const report = await getProfitAndLossReport(request.query?.from, request.query?.to);
-  if (!hasValidNetIncomeAccess(request)) {
-    report.netIncome = null;
-    report.accountingNetIncome = null;
-    report.netIncomeBeforeTax = null;
-    report.netOperatingProfit = null;
-    report.ebitdaOperatingIncome = null;
-  }
-  response.json(report);
+  response.json(hasValidNetIncomeAccess(request) ? report : lockProfitAndLossReport(report));
 });
 
 // -------------------------------------------------------------
@@ -1584,7 +1618,8 @@ router.get("/reports/cash-flow", requireAuth, requireRole("admin"), async (reque
 router.get("/reports/daily-reconciliation", requireAuth, requireRole("admin"), async (request, response) => {
   const report = await getDailyReconciliationReport(request.query || {});
   if (!hasValidNetIncomeAccess(request)) {
-    report.items = report.items.map((item) => ({ ...item, netOperatingProfit: null }));
+    report.items = report.items.map((item) => ({ ...item, cogsConsumed: null, netOperatingProfit: null }));
+    report.profitLocked = true;
   }
   response.json(report);
 });
@@ -1594,8 +1629,7 @@ router.get("/reports/daily-reconciliation", requireAuth, requireRole("admin"), a
 // -------------------------------------------------------------
 router.get("/reports/balance-sheet", requireAuth, requireRole("admin"), async (request, response) => {
   const report = await getBalanceSheetReport();
-  if (!hasValidNetIncomeAccess(request)) report.equity.retainedEarnings = null;
-  response.json(report);
+  response.json(hasValidNetIncomeAccess(request) ? report : lockBalanceSheetReport(report));
 });
 
 export default router;

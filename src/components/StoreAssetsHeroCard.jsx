@@ -383,7 +383,10 @@ export default function StoreAssetsHeroCard() {
   const totalSales = Number(summary.netSalesRevenue || 0);
   const cogs = Number(summary.cogs !== undefined ? summary.cogs : (totalSales - Number(summary.grossProfit ?? summary.netProfitAfterSale ?? 0)));
   const grossProfit = Number(summary.grossProfit !== undefined ? summary.grossProfit : (totalSales - cogs));
-  const isNegativeProfit = grossProfit < 0;
+  // While the Net Income PIN is locked the API hides COGS, expenses and profit (null).
+  const profitLocked = Boolean(summary.profitLocked);
+  const shownPeso = (value) => (profitLocked ? "₱••••••" : peso(value));
+  const isNegativeProfit = !profitLocked && grossProfit < 0;
 
   return (
     <>
@@ -489,22 +492,22 @@ export default function StoreAssetsHeroCard() {
                   <span className="store-assets-eq-op" aria-hidden="true">−</span>
                   <div className="store-assets-eq-item">
                     <span className="store-assets-eq-label">COGS</span>
-                    <strong className="store-assets-eq-val">{peso(cogs)}</strong>
+                    <strong className="store-assets-eq-val">{shownPeso(cogs)}</strong>
                   </div>
                   <span className="store-assets-eq-op" aria-hidden="true">=</span>
                   <div className={`store-assets-eq-item is-total ${isNegativeProfit ? "is-loss" : "is-profit"}`}>
                     <span className="store-assets-eq-label">Gross Profit</span>
-                    <strong className="store-assets-eq-val">{peso(grossProfit)}</strong>
+                    <strong className="store-assets-eq-val">{shownPeso(grossProfit)}</strong>
                   </div>
                   <span className="store-assets-eq-op" aria-hidden="true">−</span>
                   <div className="store-assets-eq-item">
                     <span className="store-assets-eq-label">Operating Expenses</span>
-                    <strong className="store-assets-eq-val">{peso(summary.totalOperatingExpenses ?? summary.operatingExpenses ?? 0)}</strong>
+                    <strong className="store-assets-eq-val">{shownPeso(summary.totalOperatingExpenses ?? summary.operatingExpenses ?? 0)}</strong>
                   </div>
                   <span className="store-assets-eq-op" aria-hidden="true">−</span>
                   <div className="store-assets-eq-item">
                     <span className="store-assets-eq-label">Depreciation &amp; Income Tax</span>
-                    <strong className="store-assets-eq-val">{peso(Number(summary.depreciation || 0) + Number(summary.tax || 0))}</strong>
+                    <strong className="store-assets-eq-val">{shownPeso(Number(summary.depreciation || 0) + Number(summary.tax || 0))}</strong>
                   </div>
                   <span className="store-assets-eq-op" aria-hidden="true">=</span>
                   <div className="store-assets-eq-item is-total is-profit">

@@ -44,6 +44,49 @@ describe("Net Income PIN gate", () => {
     assert.equal(typeof unlocked.data.netIncome, "number");
   });
 
+  it("hides every figure Net Income could be worked out from while locked (F5)", async () => {
+    const admin = await tracker.createUser({ role: "admin" });
+
+    const pnl = await server.requestJson("/api/finances/reports/profit-and-loss", { token: admin.token });
+    assert.equal(pnl.status, 200);
+    assert.equal(pnl.data.profitLocked, true);
+    assert.equal(typeof pnl.data.netSales, "number", "sales stay visible");
+    for (const key of ["cogs", "grossProfit", "totalOperatingExpenses", "depreciation", "tax", "ebitdaOperatingIncome", "netIncomeBeforeTax"]) {
+      assert.equal(pnl.data[key], null, `P&L ${key} must be hidden while locked`);
+    }
+    assert.deepEqual(pnl.data.operatingExpenses, []);
+
+    const accounts = await server.requestJson("/api/finances/accounts", { token: admin.token });
+    assert.equal(accounts.status, 200);
+    assert.equal(accounts.data.summary.profitLocked, true);
+    for (const key of ["grossProfit", "cogs", "totalOperatingExpenses", "depreciation", "tax", "totalCogsAndExpenses"]) {
+      assert.equal(accounts.data.summary[key], null, `accounts summary ${key} must be hidden while locked`);
+    }
+    assert.equal(typeof accounts.data.summary.totalStoreAssets, "number", "store assets stay visible");
+    assert.ok(accounts.data.accounts.some((account) => account.category === "expense"), "expense accounts stay listed for the expense forms");
+    assert.ok(
+      accounts.data.accounts
+        .filter((account) => !["asset", "liability"].includes(account.category))
+        .every((account) => account.balance === null),
+      "revenue, expense and equity account balances must be hidden while locked",
+    );
+
+    const balanceSheet = await server.requestJson("/api/finances/reports/balance-sheet", { token: admin.token });
+    assert.equal(balanceSheet.status, 200);
+    assert.equal(balanceSheet.data.totalEquity, null);
+    assert.ok(Object.values(balanceSheet.data.equity).every((value) => value === null));
+    assert.equal(typeof balanceSheet.data.totalAssets, "number");
+
+    const trialBalance = await server.requestJson("/api/finances/trial-balance", { token: admin.token });
+    assert.equal(trialBalance.status, 403);
+
+    const unlockedTrialBalance = await server.requestJson("/api/finances/trial-balance", {
+      token: admin.token,
+      headers: { "X-Net-Income-Token": createNetIncomeAccessToken(admin.id) },
+    });
+    assert.equal(unlockedTrialBalance.status, 200);
+  });
+
   it("rejects a PIN token issued to a different user", async () => {
     const admin = await tracker.createUser({ role: "admin" });
     const other = await tracker.createUser({ role: "admin" });

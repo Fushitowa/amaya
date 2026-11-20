@@ -168,11 +168,11 @@ export function BalanceSheetTabView({ bsData, peso, openActionModal, netIncomeUn
           <span className="fin-bs-section-label">Owner&apos;s Equity</span>
           <div className="fin-statement-line">
             <span>3010 Owner&apos;s Capital</span>
-            <strong>{peso(bsData.equity?.capital)}</strong>
+            <strong>{bsData.equity?.capital == null ? "₱••••••" : peso(bsData.equity.capital)}</strong>
           </div>
           <div className="fin-statement-line is-negative">
             <span>Less: 3020 Owner Drawings</span>
-            <span>- {peso(bsData.equity?.drawings)}</span>
+            <span>- {bsData.equity?.drawings == null ? "₱••••••" : peso(bsData.equity.drawings)}</span>
           </div>
           <div className="fin-statement-line">
             <span>Store Earnings</span>
@@ -184,7 +184,7 @@ export function BalanceSheetTabView({ bsData, peso, openActionModal, netIncomeUn
 
           <div className="fin-bs-total-row">
             <span>TOTAL LIABILITIES &amp; EQUITY</span>
-            <span>{peso(Number(bsData.totalLiabilities) + Number(bsData.totalEquity))}</span>
+            <span>{bsData.totalEquity == null ? "₱••••••" : peso(Number(bsData.totalLiabilities) + Number(bsData.totalEquity))}</span>
           </div>
 
           <div className={`fin-bs-status-pill ${bsData.isBalanced ? "is-balanced" : "is-imbalanced"}`}>
