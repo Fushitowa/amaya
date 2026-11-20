@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Circle,
   ClipboardList,
+  Folder,
   Landmark,
   LayoutGrid,
   LogOut,
@@ -27,7 +28,72 @@ import adminAvatar from "../assets/images/icon/admin1.svg";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
 import AdminNotificationNavItem from "./AdminNotificationNavItem.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { EXPENSE_NAV_CATEGORIES } from "../config/expenseNavigation.js";
+import { EXPENSE_NAV_CATEGORIES, getExpenseNavCategory } from "../config/expenseNavigation.js";
+
+const EXPENSES_BASE = "/admin/expenses-payroll";
+
+// How the expense pages are grouped in the sidebar. A node with `children` is a folder that opens
+// to show its pages (it is not a page itself). A node without `children` is a page.
+const EXPENSE_NAV_TREE = [
+  { slug: "labor-and-payroll", children: ["salary", "wages", "overtime", "staff-meals"] },
+  { slug: "utilities", children: ["electricity", "water", "lpg", "internet"] },
+  { slug: "operating-supplies", children: ["kitchen-tools", "sanitation-supplies", "other-operating-supplies"] },
+  { slug: "repairs-and-maintenance", children: ["maintenance-expenses", "labor-for-repairs"] },
+  { slug: "general-and-administrative", children: ["office-expenses", "taxes-and-licenses"] },
+  { slug: "professional-and-bank-fees" },
+  { slug: "transportation" },
+  { slug: "miscellaneous" },
+];
+
+const expenseGroupKey = (slug) => `expense-group-${slug}`;
+
+function expensePageItem(category) {
+  return {
+    key: `expense-${category.slug}`,
+    to: `${EXPENSES_BASE}/${category.slug}`,
+    label: category.label,
+    Icon: Circle,
+  };
+}
+
+function buildExpenseNavItems() {
+  const placed = new Set();
+  const items = EXPENSE_NAV_TREE.flatMap((node) => {
+    const category = getExpenseNavCategory(node.slug);
+    if (!category) return [];
+    placed.add(node.slug);
+    if (!node.children?.length) return [expensePageItem(category)];
+    const pages = node.children.flatMap((childSlug) => {
+      const child = getExpenseNavCategory(childSlug);
+      if (!child) return [];
+      placed.add(childSlug);
+      return [expensePageItem(child)];
+    });
+    return [{ key: expenseGroupKey(node.slug), label: category.label, Icon: Folder, children: pages }];
+  });
+  // Any category not listed above still gets a page link, so a new category never disappears.
+  EXPENSE_NAV_CATEGORIES.forEach((category) => {
+    if (!placed.has(category.slug)) items.push(expensePageItem(category));
+  });
+  return items;
+}
+
+const isNavItemActive = (item, pathname) =>
+  item.to ? pathname === item.to : Boolean(item.children?.some((child) => isNavItemActive(child, pathname)));
+
+// Which folders should be open for the current page.
+function expandedForPath(pathname) {
+  const open = {
+    inventory: pathname.startsWith("/admin/inventory"),
+    expensesPayroll: pathname.startsWith(EXPENSES_BASE),
+  };
+  EXPENSE_NAV_TREE.forEach((node) => {
+    if (node.children?.some((slug) => pathname === `${EXPENSES_BASE}/${slug}`)) {
+      open[expenseGroupKey(node.slug)] = true;
+    }
+  });
+  return open;
+}
 
 const NAV_BY_ROLE = {
   admin: [
@@ -49,13 +115,8 @@ const NAV_BY_ROLE = {
           label: "Expenses and Payroll",
           Icon: Wallet,
           children: [
-            { key: "expense-budget-overview", to: "/admin/expenses-payroll", label: "Budget Overview", Icon: Wallet },
-            ...EXPENSE_NAV_CATEGORIES.map((category) => ({
-              key: `expense-${category.slug}`,
-              to: `/admin/expenses-payroll/${category.slug}`,
-              label: category.label,
-              Icon: Circle,
-            })),
+            { key: "expense-budget-overview", to: EXPENSES_BASE, label: "Budget Overview", Icon: Wallet },
+            ...buildExpenseNavItems(),
           ],
         },
         { key: "menu", to: "/admin/menu", label: "Menu Management", Icon: Utensils },
@@ -104,12 +165,17 @@ function Sidebar({
   const { logout } = useAuth();
   const location = useLocation();
   const [animatedItem, setAnimatedItem] = useState("");
-  const [expandedNav, setExpandedNav] = useState(() => ({
-    inventory: location.pathname.startsWith("/admin/inventory"),
-    expensesPayroll: location.pathname.startsWith("/admin/expenses-payroll"),
-  }));
+  const [expandedNav, setExpandedNav] = useState(() => expandedForPath(location.pathname));
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
+
+  // Opening a page by link, back button or URL opens its folder. It never closes other folders.
+  const [navPath, setNavPath] = useState(location.pathname);
+  if (navPath !== location.pathname) {
+    setNavPath(location.pathname);
+    const open = Object.entries(expandedForPath(location.pathname)).filter(([, isOpen]) => isOpen);
+    if (open.length) setExpandedNav((current) => ({ ...current, ...Object.fromEntries(open) }));
+  }
 
   useEffect(() => {
     if (!accountOpen) return undefined;
@@ -168,7 +234,7 @@ function Sidebar({
                 return <AdminNotificationNavItem key={item.key} active={item.key === activeTab} />;
               }
               if (item.children?.length) {
-                const childIsActive = item.children.some((child) => location.pathname === child.to);
+                const childIsActive = isNavItemActive(item, location.pathname);
                 const isExpanded = Boolean(expandedNav[item.key]);
                 return (
                   <div className={`amaya-sidebar-nav-group amaya-sidebar-nav-group--${item.key}`} key={item.key}>
@@ -190,6 +256,46 @@ function Sidebar({
                     {isExpanded && (
                       <div className="amaya-sidebar-submenu" id={`${item.key}-submenu`}>
                         {item.children.map((child) => {
+                          if (child.children?.length) {
+                            const groupHasActive = isNavItemActive(child, location.pathname);
+                            const groupOpen = Boolean(expandedNav[child.key]);
+                            return (
+                              <div className="amaya-sidebar-subgroup" key={child.key}>
+                                <button
+                                  type="button"
+                                  className={`amaya-sidebar-link amaya-sidebar-sublink amaya-sidebar-group-toggle amaya-sidebar-subgroup-toggle${groupHasActive ? " has-active" : ""}`}
+                                  aria-expanded={groupOpen}
+                                  aria-controls={`${child.key}-submenu`}
+                                  onClick={() => setExpandedNav((current) => ({ ...current, [child.key]: !current[child.key] }))}
+                                  title={child.label}
+                                >
+                                  <child.Icon aria-hidden="true" />
+                                  <span className="amaya-sidebar-link-label">{child.label}</span>
+                                  <ChevronDown className="amaya-sidebar-link-chevron" aria-hidden="true" />
+                                </button>
+                                {groupOpen && (
+                                  <div className="amaya-sidebar-submenu amaya-sidebar-submenu--nested" id={`${child.key}-submenu`}>
+                                    {child.children.map((page) => {
+                                      const pageActive = location.pathname === page.to;
+                                      return (
+                                        <Link
+                                          key={page.key}
+                                          to={page.to}
+                                          className={`amaya-sidebar-link amaya-sidebar-sublink${pageActive ? " active" : ""}${animatedItem === page.key ? " nav-clicked" : ""}`}
+                                          aria-current={pageActive ? "page" : undefined}
+                                          onClick={() => replayNavMotion(page.key)}
+                                          title={page.label}
+                                        >
+                                          <page.Icon aria-hidden="true" />
+                                          <span className="amaya-sidebar-link-label">{page.label}</span>
+                                        </Link>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
                           const childActive = location.pathname === child.to;
                           return (
                             <Link

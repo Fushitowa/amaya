@@ -15,6 +15,13 @@ export const INVENTORY_ALERT_TYPES = new Set([
   "inventory_waste",
 ]);
 
+// Everything a cashier's order flow produces; one switch hides all of it.
+export const ORDER_ALERT_TYPES = new Set([
+  "order_new",
+  "order_completed",
+  "receipt_printed",
+]);
+
 const DEFAULT_PREFERENCES = {
   notifications: true,
   orderAlerts: true,
@@ -35,7 +42,7 @@ function readAlertPreferences(storageKey) {
 
 export function isAlertEnabledForType(type, preferences = DEFAULT_PREFERENCES) {
   if (preferences.notifications === false) return false;
-  if (type === "order_new" && preferences.orderAlerts === false) return false;
+  if (ORDER_ALERT_TYPES.has(type) && preferences.orderAlerts === false) return false;
   if (INVENTORY_ALERT_TYPES.has(type) && preferences.inventoryAlerts === false) return false;
   return true;
 }

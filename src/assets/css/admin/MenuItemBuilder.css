@@ -1,0 +1,408 @@
+/* ==========================================================================
+   Add / edit menu item: a guided form in five steps.
+   Step bar on top, the current step on the left, a live "receipt" of the item
+   on the right, and Back / Next at the bottom. Corners are square everywhere.
+
+   Type scale:  12 / 13 / 14 / 16 / 24 px
+   Spacing:     4 / 8 / 12 / 16 / 24 px
+   Fonts:       Playfair Display for the form title, DM Sans for the rest.
+   ========================================================================== */
+
+.mb-backdrop,
+.mb-sheet {
+	--mb-ink: #382518;
+	--mb-muted: #6f5a49;
+	--mb-line: rgba(139, 94, 60, 0.2);
+	--mb-field: #ddd0c4;
+	--mb-paper: #fffdf9;
+	--mb-band: #faf3e8;
+	--mb-accent: #9b653c;
+	--mb-accent-dark: #7d4e2a;
+	--mb-brass: #cfa165;
+	--mb-good: #2f683b;
+	--mb-good-bg: #e3f0e4;
+	--mb-warn: #7a4d10;
+	--mb-warn-bg: #fbefd4;
+	--mb-bad: #96392c;
+	--mb-bad-bg: #f7e3df;
+}
+
+.mb-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 1200;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: rgba(37, 27, 21, 0.5);
+}
+
+.mb-sheet {
+	width: min(1120px, 100%);
+	height: min(860px, calc(100dvh - 32px));
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid rgba(92, 67, 50, 0.3);
+	border-top: 3px solid var(--mb-brass);
+	background: var(--mb-paper);
+	box-shadow: 0 28px 70px rgba(37, 27, 21, 0.3);
+	color: var(--mb-ink);
+	font: 14px/1.45 "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mb-sheet *,
+.mb-sheet *::before,
+.mb-sheet *::after { box-sizing: border-box; }
+
+/* ---------- Header ---------- */
+
+.mb-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--mb-line); }
+.mb-head-copy { min-width: 0; }
+.mb-head h3 { margin: 0; font: 700 24px/1.2 "Playfair Display", Georgia, serif; letter-spacing: -0.01em; }
+.mb-head p { margin: 4px 0 0; overflow: hidden; color: var(--mb-muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+
+.mb-close { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid var(--mb-field); border-radius: 0; background: #fff; color: var(--mb-muted); cursor: pointer; }
+
+/* ---------- Step bar ---------- */
+
+.mb-steps { flex: 0 0 auto; border-bottom: 1px solid var(--mb-line); background: var(--mb-band); }
+.mb-steps ol { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.mb-steps li + li { border-left: 1px solid var(--mb-line); }
+
+.mb-step {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	border: 0;
+	border-bottom: 3px solid transparent;
+	border-radius: 0;
+	background: transparent;
+	color: var(--mb-muted);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.mb-step-num { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border: 1px solid var(--mb-field); background: #fff; color: var(--mb-muted); font-size: 13px; font-weight: 700; }
+.mb-step-text { display: grid; min-width: 0; }
+.mb-step-text strong { overflow: hidden; color: var(--mb-ink); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mb-step-text small { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.mb-step.is-done .mb-step-num { border-color: var(--mb-good); background: var(--mb-good-bg); color: var(--mb-good); }
+.mb-step.is-warn .mb-step-num { border-color: var(--mb-bad); background: var(--mb-bad-bg); color: var(--mb-bad); }
+.mb-step.is-warn small { color: var(--mb-bad); }
+.mb-step.is-current { border-bottom-color: var(--mb-accent); background: var(--mb-paper); }
+.mb-step.is-current .mb-step-num { border-color: var(--mb-accent); background: var(--mb-accent); color: #fff; }
+.mb-step.is-current strong { font-weight: 800; }
+
+/* ---------- Body: step on the left, receipt on the right ---------- */
+
+.mb-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+.mb-main { min-width: 0; min-height: 0; overflow-y: auto; padding: 24px; scrollbar-width: thin; scrollbar-color: #cfb797 transparent; }
+
+.mb-panel-head { margin-bottom: 16px; }
+.mb-panel-head h4 { margin: 0; font-size: 16px; font-weight: 700; }
+.mb-panel-head p { margin: 4px 0 0; max-width: 64ch; color: var(--mb-muted); font-size: 13px; }
+
+.mb-panel em,
+.mb-label em { margin-left: 8px; padding: 1px 8px; background: #f1e7da; color: var(--mb-muted); font-size: 12px; font-style: normal; font-weight: 600; }
+
+.mb-help { margin: 12px 0 0; max-width: 72ch; color: var(--mb-muted); font-size: 13px; }
+
+/* ---------- Fields ---------- */
+
+.mb-label { display: block; margin-bottom: 4px; color: var(--mb-ink); font-size: 13px; font-weight: 600; }
+.mb-field { display: flex; flex-direction: column; min-width: 0; }
+.mb-field small { margin-top: 4px; color: var(--mb-muted); font-size: 12px; }
+
+.mb-sheet input[type="text"],
+.mb-sheet input[type="number"],
+.mb-sheet input:not([type]),
+.mb-sheet select,
+.mb-sheet textarea {
+	width: 100%;
+	min-height: 40px;
+	margin: 0;
+	padding: 0 12px;
+	border: 1px solid var(--mb-field);
+	border-radius: 0;
+	background: #fff;
+	color: var(--mb-ink);
+	font: 14px "DM Sans", sans-serif;
+	transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.mb-sheet textarea { min-height: 88px; padding: 8px 12px; line-height: 1.5; resize: vertical; }
+.mb-sheet input:focus,
+.mb-sheet select:focus,
+.mb-sheet textarea:focus { border-color: var(--mb-accent); outline: 0; box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.14); }
+.mb-sheet select.is-missing { border-color: var(--mb-bad); }
+
+/* Money and amount boxes: the ₱ or unit sits inside the border */
+.mb-money,
+.mb-amount { display: flex; align-items: stretch; min-width: 0; border: 1px solid var(--mb-field); background: #fff; }
+.mb-money i,
+.mb-amount i { display: grid; place-items: center; min-width: 36px; padding: 0 8px; background: var(--mb-band); color: var(--mb-muted); font-size: 13px; font-style: normal; font-weight: 600; }
+.mb-sheet .mb-money input,
+.mb-sheet .mb-amount input { min-height: 38px; border: 0; box-shadow: none; }
+.mb-money:focus-within,
+.mb-amount:focus-within { border-color: var(--mb-accent); box-shadow: 0 0 0 3px rgba(139, 94, 60, 0.14); }
+
+.mb-sheet input.mb-narrow { width: 96px; }
+.mb-sheet .mb-num input { text-align: right; }
+
+/* Items with sizes take their prices from the Sizes step */
+.mb-price-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px dashed var(--mb-field); background: var(--mb-band); color: var(--mb-muted); font-size: 13px; }
+
+/* ---------- Step 1: Basics ---------- */
+
+.mb-basics-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+.mb-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mb-fields .is-wide { grid-column: 1 / -1; }
+
+.mb-drop {
+	position: relative;
+	display: grid;
+	justify-items: center;
+	align-content: center;
+	gap: 4px;
+	aspect-ratio: 1 / 1;
+	padding: 16px;
+	border: 1px dashed rgba(139, 94, 60, 0.45);
+	background: #fbf5ec;
+	color: var(--mb-muted);
+	text-align: center;
+	cursor: pointer;
+}
+
+.mb-drop strong { color: var(--mb-ink); font-size: 14px; }
+.mb-drop small { font-size: 12px; }
+.mb-drop:focus-within { outline: 2px solid var(--mb-accent-dark); outline-offset: 2px; }
+
+.mb-drop input,
+.mb-photo-actions input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+
+.mb-photo-card img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border: 1px solid var(--mb-line); }
+.mb-photo-actions { display: flex; gap: 8px; margin-top: 8px; }
+.mb-photo-actions > * { flex: 1; }
+.mb-photo-actions label { position: relative; }
+
+.mb-switch-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid var(--mb-line); background: var(--mb-band); }
+.mb-switch-row small { display: block; }
+
+.mb-switch { position: relative; flex: 0 0 48px; width: 48px; height: 26px; border: 1px solid var(--mb-field); border-radius: 0; background: #e8ded4; cursor: pointer; transition: background-color 160ms ease; }
+.mb-switch span { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 160ms ease; }
+.mb-switch.is-on { border-color: var(--mb-good); background: var(--mb-good); }
+.mb-switch.is-on span { transform: translateX(22px); }
+
+.mb-more { border-top: 1px solid var(--mb-line); padding-top: 12px; }
+.mb-more summary { width: fit-content; color: var(--mb-accent-dark); font-size: 13px; font-weight: 700; cursor: pointer; }
+.mb-more[open] summary { margin-bottom: 12px; }
+.mb-more .mb-field { max-width: 360px; }
+
+.mb-alert { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0 0; padding: 12px; border: 1px solid; font-size: 13px; }
+.mb-alert.is-bad { border-color: #e8c4bc; background: #fff6f3; color: var(--mb-bad); }
+.mb-alert a { color: inherit; font-weight: 700; }
+.mb-error { margin: 8px 0 0; color: var(--mb-bad); font-size: 12px; font-weight: 600; }
+
+/* ---------- Buttons ---------- */
+
+.mb-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 38px;
+	padding: 0 16px;
+	border: 1px solid #d9cbbd;
+	border-radius: 0;
+	background: #fff;
+	color: #5c4638;
+	font: 600 13px "DM Sans", sans-serif;
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.mb-btn.is-small { min-height: 32px; padding: 0 12px; font-size: 12px; }
+.mb-btn.is-primary { border-color: var(--mb-accent); background: var(--mb-accent); color: #fff; }
+.mb-btn.is-danger { border-color: #e0b9b0; color: var(--mb-bad); }
+.mb-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.mb-icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 0; background: transparent; color: var(--mb-muted); cursor: pointer; }
+.mb-link { padding: 0; border: 0; background: none; color: var(--mb-accent-dark); font: 600 13px "DM Sans", sans-serif; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+.mb-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.mb-toolbar .mb-label { margin: 0 4px 0 0; }
+.mb-toolbar-spacer { flex: 1; }
+
+/* ---------- Tables (sizes, ingredients, costs, add-ons) ---------- */
+
+.mb-table-wrap { overflow-x: auto; border: 1px solid var(--mb-line); }
+.mb-table { width: 100%; border-collapse: collapse; }
+.mb-table th { padding: 8px 12px; border-bottom: 1px solid var(--mb-line); background: var(--mb-band); color: var(--mb-muted); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; }
+.mb-table td { padding: 8px 12px; border-bottom: 1px solid var(--mb-line); vertical-align: middle; }
+.mb-table tbody tr:last-child td { border-bottom: 0; }
+.mb-table td strong { display: block; font-size: 14px; font-weight: 600; }
+.mb-table td small { display: block; margin-top: 2px; color: var(--mb-muted); font-size: 12px; }
+.mb-table tr.is-warn td { background: #fff8ec; }
+.mb-num { text-align: right; }
+.mb-table th.mb-num { text-align: right; }
+.mb-cell-end { width: 1%; text-align: right; }
+.mb-warn-text { color: var(--mb-warn) !important; font-weight: 600; }
+
+/* ---------- Step 2: cups ---------- */
+
+.mb-cups { margin-bottom: 16px; }
+.mb-cup-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.mb-cup { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border: 1px solid #d9cbbd; border-radius: 0; background: #fff; color: var(--mb-ink); font: 600 13px "DM Sans", sans-serif; cursor: pointer; }
+.mb-cup small { color: var(--mb-muted); font-size: 12px; font-weight: 500; }
+.mb-cup.is-added { border-color: var(--mb-good); background: var(--mb-good-bg); color: var(--mb-good); }
+
+/* ---------- Step 3: ingredients and costs ---------- */
+
+.mb-empty { display: grid; justify-items: center; gap: 8px; padding: 32px 24px; border: 1px dashed rgba(139, 94, 60, 0.4); background: #fbf5ec; color: var(--mb-muted); text-align: center; }
+.mb-empty strong { color: var(--mb-ink); font-size: 16px; }
+.mb-empty p { margin: 0; max-width: 52ch; font-size: 13px; }
+
+.mb-costs { margin-top: 24px; padding-top: 16px; border-top: 2px solid var(--mb-line); }
+.mb-costs-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.mb-costs-head h5 { margin: 0; font-size: 16px; font-weight: 700; }
+.mb-goal { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--mb-muted); font-size: 13px; }
+.mb-chip { min-height: 30px; padding: 0 10px; border: 1px solid #d9cbbd; border-radius: 0; background: #fff; color: #5c4638; font: 600 12px "DM Sans", sans-serif; cursor: pointer; }
+.mb-chip.is-on { border-color: var(--mb-accent); background: var(--mb-accent); color: #fff; }
+
+.mb-profit { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mb-profit.is-good { color: var(--mb-good); }
+.mb-profit.is-warn { color: var(--mb-warn); }
+.mb-profit.is-low { color: var(--mb-bad); }
+.mb-suggest { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.mb-table.is-costs td { font-variant-numeric: tabular-nums; }
+
+/* ---------- Step 4: add-ons ---------- */
+
+.mb-addon-form { margin-bottom: 16px; padding: 16px; border: 1px solid var(--mb-line); background: var(--mb-band); }
+.mb-addon-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.mb-addon-add { min-height: 40px; }
+.mb-addon-form .mb-more { margin-top: 12px; }
+.mb-addon-units { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 12px; }
+
+/* ---------- Step 5: review ---------- */
+
+.mb-checklist { margin: 0; padding: 0; list-style: none; border: 1px solid var(--mb-line); }
+.mb-checklist li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--mb-line); }
+.mb-checklist li:last-child { border-bottom: 0; }
+.mb-checklist strong { display: block; font-size: 14px; }
+.mb-checklist small { display: block; margin-top: 2px; color: var(--mb-muted); font-size: 13px; overflow-wrap: anywhere; }
+.mb-check-icon { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--mb-field); background: #fff; color: var(--mb-muted); font-weight: 700; }
+.mb-checklist .is-ok .mb-check-icon { border-color: var(--mb-good); background: var(--mb-good-bg); color: var(--mb-good); }
+.mb-checklist .is-bad { background: #fff6f3; }
+.mb-checklist .is-bad .mb-check-icon { border-color: var(--mb-bad); background: var(--mb-bad-bg); color: var(--mb-bad); }
+.mb-checklist .is-bad small { color: var(--mb-bad); }
+
+/* ---------- Receipt: how the item reads at the counter ---------- */
+
+.mb-receipt { min-height: 0; overflow-y: auto; padding: 24px; border-left: 1px solid var(--mb-line); background: #f4eadc; }
+
+.mb-receipt-paper {
+	position: relative;
+	display: grid;
+	gap: 4px;
+	padding: 16px 16px 24px;
+	background: #fffefb;
+	box-shadow: 0 6px 16px rgba(60, 42, 30, 0.1);
+}
+
+/* Torn bottom edge, like a printed receipt */
+.mb-receipt-paper::after {
+	content: "";
+	position: absolute;
+	right: 0;
+	bottom: -8px;
+	left: 0;
+	height: 8px;
+	background:
+		linear-gradient(-45deg, transparent 6px, #fffefb 0) 0 0 / 12px 8px repeat-x,
+		linear-gradient(45deg, transparent 6px, #fffefb 0) 0 0 / 12px 8px repeat-x;
+}
+
+.mb-receipt-photo { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 8px; overflow: hidden; border: 1px solid var(--mb-line); background: var(--mb-band); color: var(--mb-muted); }
+.mb-receipt-photo img { width: 100%; height: 100%; object-fit: cover; }
+.mb-receipt-name { font-size: 16px; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+.mb-receipt-meta { color: var(--mb-muted); font-size: 12px; }
+.mb-receipt-rule { margin: 8px 0; border-top: 1px dashed rgba(92, 67, 50, 0.35); }
+
+.mb-receipt-lines { display: grid; gap: 4px; margin: 0; }
+.mb-receipt-lines div { display: flex; align-items: baseline; gap: 8px; }
+.mb-receipt-lines dt { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mb-receipt-lines dd { margin: 0; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mb-receipt-lines.is-muted dt,
+.mb-receipt-lines.is-muted dd { color: var(--mb-muted); font-size: 12px; font-weight: 600; }
+.mb-receipt-note { margin-top: 4px; color: var(--mb-muted); font-size: 12px; }
+.mb-receipt-sub { color: var(--mb-ink); font-size: 12px; font-weight: 700; }
+
+/* ---------- Footer ---------- */
+
+.mb-foot { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 24px; border-top: 1px solid var(--mb-line); background: var(--mb-band); }
+.mb-foot-hint { margin: 0; color: var(--mb-muted); font-size: 13px; }
+.mb-foot-error { display: flex; align-items: flex-start; gap: 8px; margin: 0; max-width: 60ch; color: var(--mb-bad); font-size: 13px; font-weight: 600; }
+.mb-foot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+/* ---------- Keyboard focus and hover ---------- */
+
+.mb-sheet :is(.mb-btn, .mb-icon-btn, .mb-step, .mb-close, .mb-chip, .mb-cup, .mb-switch, .mb-link, summary):focus-visible { outline: 2px solid var(--mb-accent-dark); outline-offset: 2px; }
+
+@media (hover: hover) and (pointer: fine) {
+	.mb-btn:not(.is-primary):not(:disabled):hover,
+	.mb-chip:not(.is-on):hover,
+	.mb-cup:not(.is-added):hover,
+	.mb-close:hover { border-color: var(--mb-accent); background: #fbf6f1; color: var(--mb-accent-dark); }
+	.mb-btn.is-danger:not(:disabled):hover { border-color: var(--mb-bad); background: #fff6f3; color: var(--mb-bad); }
+	.mb-btn.is-primary:not(:disabled):hover { border-color: var(--mb-accent-dark); background: var(--mb-accent-dark); }
+	.mb-icon-btn:hover { border-color: var(--mb-bad); color: var(--mb-bad); }
+	.mb-step:not(.is-current):hover { background: #f6ebdb; }
+}
+
+/* ---------- Smaller screens ---------- */
+
+@media (max-width: 1000px) {
+	.mb-body { grid-template-columns: minmax(0, 1fr); }
+	.mb-receipt { display: none; }
+	.mb-step small { display: none; }
+}
+
+@media (max-width: 720px) {
+	.mb-backdrop { padding: 0; }
+	.mb-sheet { width: 100%; height: 100dvh; border: 0; border-top: 3px solid var(--mb-brass); }
+	.mb-head { padding: 12px 16px; }
+	.mb-main { padding: 16px; }
+	.mb-step { justify-content: center; padding: 8px 4px; }
+	.mb-step-text { display: none; }
+	.mb-step.is-current .mb-step-text { display: grid; }
+	.mb-steps ol { grid-template-columns: repeat(5, auto); justify-content: space-between; }
+	.mb-basics-grid,
+	.mb-fields,
+	.mb-addon-fields,
+	.mb-addon-units { grid-template-columns: minmax(0, 1fr); }
+	.mb-photo { max-width: none; }
+	.mb-drop { aspect-ratio: auto; min-height: 120px; }
+	.mb-photo-card img { max-width: 200px; }
+	.mb-foot { padding: 12px 16px; }
+	.mb-foot-actions { width: 100%; }
+	.mb-foot-actions .mb-btn { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.mb-btn,
+	.mb-switch,
+	.mb-switch span,
+	.mb-sheet input,
+	.mb-sheet select,
+	.mb-sheet textarea { transition: none; }
+}

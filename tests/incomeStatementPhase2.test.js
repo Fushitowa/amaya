@@ -2214,19 +2214,22 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       fs.readFile(heroPath, "utf-8"),
     ]);
 
-    // 1. AdminMenuManagement.css contrast override for Change Image button (light & dark mode)
-    const lightRuleMatch = menuCss.match(
-      /\.admin-menu-modal\.menu-builder\s+\.menu-builder-change-btn\s*\{([^}]*)\}/,
+    // 1. Menu item form: the Change photo button keeps readable contrast.
+    //    The form was rebuilt as a step-by-step form (MenuItemBuilder.css); its Change
+    //    photo control is a .mb-btn, dark brown text on white.
+    void menuCss;
+    const builderCss = await fs.readFile(path.resolve("src/assets/css/admin/MenuItemBuilder.css"), "utf-8");
+    const menuJsx = await fs.readFile(path.resolve("src/pages/admin/AdminMenuManagement.jsx"), "utf-8");
+    const buttonRuleMatch = builderCss.match(/(?:^|\n)\.mb-btn\s*\{([^}]*)\}/);
+    assert.ok(
+      buttonRuleMatch &&
+        /background(?:-color)?:\s*#fff(?:fff)?\b/i.test(buttonRuleMatch[1]) &&
+        /color:\s*#5c4638/i.test(buttonRuleMatch[1]),
+      "MenuItemBuilder.css must define .mb-btn with dark #5c4638 text on a white background",
     );
     assert.ok(
-      lightRuleMatch &&
-        /background(?:-color)?:\s*#603b26/i.test(lightRuleMatch[1]) &&
-        /color:\s*#fff(?:fff)?/i.test(lightRuleMatch[1]),
-      "AdminMenuManagement.css must define .admin-menu-modal.menu-builder .menu-builder-change-btn with #ffffff on #603b26",
-    );
-    assert.ok(
-      /\.admin-menu-page\.dark-mode\s+\.admin-menu-modal\.menu-builder\s+\.menu-builder-change-btn\s*\{/.test(menuCss),
-      "AdminMenuManagement.css must define dark-mode .menu-builder-change-btn specificity override",
+      /<label className="mb-btn is-small">\s*<input[^>]*aria-label="Change product image"/.test(menuJsx),
+      "The Change photo control in AdminMenuManagement.jsx must use the .mb-btn button style",
     );
 
     // 1b. Pixel CSS accessibility & contrast guards in FinancialManagement.css and AdminInventory.css

@@ -319,6 +319,27 @@
   flex-basis: 15px;
 }
 
+/* Folders inside the submenu (for example Utilities > Electricity) */
+.amaya-sidebar-submenu--nested {
+  margin: 0 0 4px 14px;
+  padding-left: 8px;
+}
+
+.amaya-sidebar-subgroup-toggle {
+  width: 100%;
+  text-align: left;
+}
+
+.amaya-sidebar-subgroup-toggle.has-active,
+.amaya-sidebar-subgroup-toggle[aria-expanded="true"] {
+  color: #5a3e2b;
+  font-weight: 700;
+}
+
+.amaya-sidebar-subgroup-toggle.has-active svg {
+  color: #8b5e3c;
+}
+
 .amaya-sidebar .amaya-sidebar-sublink.active {
   background: #efe5dc !important;
   color: #5a3e2b !important;
@@ -636,4 +657,42 @@
 @media (prefers-reduced-motion: reduce) {
   .amaya-sidebar-account-menu { animation: none; }
   .amaya-sidebar-profile-chevron { transition: none; }
+}
+
+/* ==========================================================================
+   Admin sidebar: square and flush. No rounded corners, no floating gap.
+   Colours stay as designed above. Page stylesheets and the collapsed rail
+   also set these properties, so they need !important and a longer selector.
+   ========================================================================== */
+
+.amaya-sidebar.amaya-sidebar--admin-frame {
+  top: 0 !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  border-width: 0 1px 0 0 !important;
+  border-style: solid !important;
+  border-color: #e7d7c7 !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 0 18px rgba(91, 61, 40, 0.06) !important;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav .amaya-sidebar-link,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-nav .amaya-sidebar-sublink,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-bottom .amaya-sidebar-link,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-toggle-btn {
+  border-radius: 0 !important;
+}
+
+/* Folder toggles are buttons: drop the browser button look */
+.amaya-sidebar .amaya-sidebar-group-toggle {
+  width: 100%;
+  border: 0;
+  background-color: transparent;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  text-align: left;
+  cursor: pointer;
 }
