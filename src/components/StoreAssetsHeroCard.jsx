@@ -501,6 +501,11 @@ export default function StoreAssetsHeroCard() {
                     <span className="store-assets-eq-label">Operating Expenses</span>
                     <strong className="store-assets-eq-val">{peso(summary.totalOperatingExpenses ?? summary.operatingExpenses ?? 0)}</strong>
                   </div>
+                  <span className="store-assets-eq-op" aria-hidden="true">−</span>
+                  <div className="store-assets-eq-item">
+                    <span className="store-assets-eq-label">Depreciation &amp; Income Tax</span>
+                    <strong className="store-assets-eq-val">{peso(Number(summary.depreciation || 0) + Number(summary.tax || 0))}</strong>
+                  </div>
                   <span className="store-assets-eq-op" aria-hidden="true">=</span>
                   <div className="store-assets-eq-item is-total is-profit">
                     <span className="store-assets-eq-label">Net Income</span>

@@ -1199,7 +1199,7 @@ export default function FinancialReconciliationCenter() {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.18rem" }}>
                 <span>NET INCOME</span>
                 <small style={{ fontSize: "0.73rem", fontWeight: 500, color: "#e6d7c4" }}>
-                  Gross Profit − Operating Expenses{netIncomePin.unlocked ? ` · Net Margin: ${netMarginPercent}%` : ""}
+                  Gross Profit − Operating Expenses − Depreciation − Income Tax{netIncomePin.unlocked ? ` · Net Margin: ${netMarginPercent}%` : ""}
                 </small>
               </div>
               <span style={{ color: netIncomeValue >= 0 ? "#92e0be" : "#fca5a5" }}>

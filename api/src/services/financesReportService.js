@@ -217,7 +217,6 @@ export async function getAccountsAndAssetsReport(rawFrom, rawTo) {
   const netSalesRevenue = pnl.netSales;
   const totalCogsAndExpenses = round2(pnl.cogs + pnl.totalOperatingExpenses + pnl.depreciation + pnl.tax);
   const netProfitAfterSale = pnl.netIncome;
-  const preparedNetIncome = round2(pnl.grossProfit - pnl.totalOperatingExpenses);
   const baseCapitalMoney = round2(totalStoreAssets - allTimePnl.netIncome);
   const netEquityCapital = round2(ownerCapital - ownerDrawings);
 
@@ -260,7 +259,10 @@ export async function getAccountsAndAssetsReport(rawFrom, rawTo) {
       cogs: pnl.cogs,
       operatingExpenses: pnl.totalOperatingExpenses,
       totalOperatingExpenses: pnl.totalOperatingExpenses,
-      netIncome: preparedNetIncome,
+      depreciation: pnl.depreciation,
+      tax: pnl.tax,
+      // Bottom line: Gross Profit − Operating Expenses − Depreciation − Income Tax.
+      netIncome: pnl.netIncome,
       customerSalesCogs: pnl.customerSalesCogs,
       foodSpoilageCogs: pnl.foodSpoilageCogs,
       wasteCost: pnl.foodSpoilageCogs,
@@ -325,7 +327,8 @@ export async function getProfitAndLossReport(rawFrom, rawTo) {
     tax: pnl.tax,
     ebitdaOperatingIncome: pnl.ebitdaOperatingIncome,
     netIncomeBeforeTax: pnl.netIncomeBeforeTax,
-    netIncome: round2(pnl.grossProfit - pnl.totalOperatingExpenses),
+    // Bottom line: Gross Profit − Operating Expenses − Depreciation − Income Tax.
+    netIncome: pnl.netIncome,
     accountingNetIncome: pnl.netIncome,
     netOperatingProfit: pnl.netOperatingProfit,
   };
