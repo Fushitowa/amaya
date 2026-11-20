@@ -651,34 +651,15 @@ describe("Tala TDD Suite: Zero-Guesswork Waste & Spoilage Logging", () => {
           note: "Gross weight lower than empty container tare",
         },
       },
+      // Notes became optional in f78f6db ("Notes (optional)" in LogWasteModal); only the 450-char cap remains.
       {
-        label: "missing note",
+        label: "note over 450 characters",
         body: {
           measurementMethod: "direct_measure",
           measuredQuantity: 50,
           measuredUnit: "g",
           wasteReason: "spill_accident",
-          note: "",
-        },
-      },
-      {
-        label: "short note under 5 chars ('tiny')",
-        body: {
-          measurementMethod: "direct_measure",
-          measuredQuantity: 50,
-          measuredUnit: "g",
-          wasteReason: "spill_accident",
-          note: "tiny",
-        },
-      },
-      {
-        label: "whitespace-only note",
-        body: {
-          measurementMethod: "direct_measure",
-          measuredQuantity: 50,
-          measuredUnit: "g",
-          wasteReason: "spill_accident",
-          note: "     ",
+          note: "x".repeat(451),
         },
       },
       {

@@ -30,7 +30,7 @@ describe("Tala Suite: Cashier Sales Remittance & Owner Confirmation Gate on Stor
   const tracker = createCleanupTracker();
 
   before(async () => {
-    server = await startTestServer();
+    server = await startTestServer({ unlockNetIncome: true });
     const tag = makeUniqueTag("OwnerConfirm");
 
     adminUser = await tracker.createUser({

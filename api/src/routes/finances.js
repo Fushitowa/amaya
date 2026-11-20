@@ -37,7 +37,7 @@ function netIncomeTokenSecret() {
   return secret;
 }
 
-function createNetIncomeAccessToken(userId) {
+export function createNetIncomeAccessToken(userId) {
   return jwt.sign(
     { sub: String(userId), purpose: "view_net_income" },
     netIncomeTokenSecret(),

@@ -22,7 +22,7 @@ describe("Tala Suite: Amaya Double-Entry Financial Management & Asset Reconcilia
   const createdSnapshotDates = new Set();
 
   before(async () => {
-    server = await startTestServer();
+    server = await startTestServer({ unlockNetIncome: true });
     adminUser = await tracker.createUser({
       role: "admin",
       displayName: "Tala Financial Admin",

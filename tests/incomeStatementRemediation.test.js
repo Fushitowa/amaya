@@ -136,7 +136,7 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
       createdSnapshotDates.add(today);
     }
 
-    server = await startTestServer();
+    server = await startTestServer({ unlockNetIncome: true });
     adminUser = await tracker.createUser({
       role: "admin",
       displayName: makeUniqueTag("Tala Rem Admin"),
@@ -988,7 +988,9 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
     assert.equal(round2(afterSummary.discountTotal - beforeSummary.discountTotal), 20.0);
     assert.equal(round2(afterSummary.taxCollected - beforeSummary.taxCollected), 21.6);
     assert.equal(round2(afterSummary.netSales - beforeSummary.netSales), 180.0);
-    assert.equal(round2(afterSummary.cogs - beforeSummary.cogs), 40.0);
+    // Since 87ec98d/044, `cogs` is total COGS including Waste Cost; sold-item COGS is `salesCogs`.
+    assert.equal(round2(afterSummary.salesCogs - beforeSummary.salesCogs), 40.0);
+    assert.equal(round2(afterSummary.cogs - beforeSummary.cogs), 60.0);
     assert.equal(round2(afterSummary.spoilageCost - beforeSummary.spoilageCost), 20.0);
     assert.equal(round2(afterSummary.totalCogs - beforeSummary.totalCogs), 60.0);
 
@@ -1004,10 +1006,11 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
       "financial-summary netSales must match P&L netSales (ex-VAT)",
     );
     assert.equal(
-      round2(afterSummary.cogs + afterSummary.spoilageCost),
+      round2(afterSummary.salesCogs + afterSummary.spoilageCost),
       round2(afterSummary.totalCogs),
-      "financial-summary totalCogs must equal cogs + spoilageCost",
+      "financial-summary totalCogs must equal salesCogs + spoilageCost",
     );
+    assert.equal(round2(afterSummary.cogs), round2(afterSummary.totalCogs), "cogs is total COGS including Waste Cost");
     assert.equal(
       round2(afterSummary.totalCogs),
       round2(pnlAfter.cogs),

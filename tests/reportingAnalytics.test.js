@@ -347,7 +347,7 @@ describe("Tala Suite: Reporting Analytics, Manila TZ, >500-Order Pagination & CS
       token: admin.token,
     });
     assert.equal(res.status, 200);
-    assert.match(res.data.kpiNote, /does not represent staff wages/i);
+    assert.match(res.data.kpiNote, /excludes wages and commissions/i);
 
     const sellerRow = res.data.staff.find((s) => s.userId === seller.id);
     const zeroRow = res.data.staff.find((s) => s.userId === zeroSaleActive.id);

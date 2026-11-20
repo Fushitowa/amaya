@@ -11,7 +11,8 @@ import inventoryRoutes from "../../api/src/routes/inventory.js";
 import sessionRoutes from "../../api/src/routes/sessions.js";
 import reportRoutes from "../../api/src/routes/reports.js";
 import settingsRoutes from "../../api/src/routes/settings.js";
-import financesRoutes from "../../api/src/routes/finances.js";
+import financesRoutes, { createNetIncomeAccessToken } from "../../api/src/routes/finances.js";
+import jwt from "../../api/node_modules/jsonwebtoken/index.js";
 import archiveRoutes from "../../api/src/routes/archive.js";
 import notificationsRoutes from "../../api/src/routes/notifications.js";
 import decisionRoutes from "../../api/src/routes/decisions.js";
@@ -55,16 +56,26 @@ export function createTestApp() {
   return app;
 }
 
-export async function startTestServer() {
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.unlockNetIncome] Suites that assert Net Income figures opt in here:
+ *   every request carrying a bearer token also gets a valid X-Net-Income-Token for that user,
+ *   as if the owner had entered the Net Income PIN. Suites without it see the PIN-locked view.
+ */
+export async function startTestServer({ unlockNetIncome = false } = {}) {
   const app = createTestApp();
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
-  async function requestRaw(pathname, { method = "GET", token = null, body = undefined } = {}) {
-    const headers = {};
+  async function requestRaw(pathname, { method = "GET", token = null, body = undefined, headers: extraHeaders = {} } = {}) {
+    const headers = { ...extraHeaders };
     if (token) headers.Authorization = `Bearer ${token}`;
+    if (token && unlockNetIncome && !headers["X-Net-Income-Token"]) {
+      const sub = jwt.decode(token)?.sub;
+      if (sub) headers["X-Net-Income-Token"] = createNetIncomeAccessToken(sub);
+    }
     if (body !== undefined) headers["Content-Type"] = "application/json";
 
     const response = await fetch(`${baseUrl}${pathname}`, {

@@ -161,7 +161,7 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       createdSnapshotDates.add(today);
     }
 
-    server = await startTestServer();
+    server = await startTestServer({ unlockNetIncome: true });
     adminUser = await tracker.createUser({
       role: "admin",
       displayName: makeUniqueTag("Tala P2 Admin"),
