@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings2,
   Trash2,
   Warehouse,
   X,
@@ -39,6 +40,8 @@ import {
   InventoryRestockModal,
 } from "../../components/admin/inventory/InventoryActionModals.jsx";
 import "../../assets/css/admin/AdminInventory.css";
+import "../../assets/css/admin/MenuNotebook.css";
+import "../../assets/css/admin/InventoryNotebook.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -208,7 +211,6 @@ function FieldHelpTooltip({ title, text, align = "left" }) {
 
 const InventoryGridCard = memo(function InventoryGridCard({
   row,
-  idx,
   onHistory,
   onEdit,
   onRestock,
@@ -216,133 +218,92 @@ const InventoryGridCard = memo(function InventoryGridCard({
   onWaste,
   onArchive,
 }) {
+  const noStock = Number(row.quantity || 0) <= 0;
   return (
-    <article className={`admin-inventory-card inventory-pinned-card ${row.cardStatusKey}`}>
-      {/* 3D Pushpin / Thumbtack pinning each inventory card */}
-      <div className={`inventory-card-pin ${row.cardStatusKey}`} aria-hidden="true">
-        <span className="inventory-pin-shadow" />
-        <span className="inventory-pin-needle" />
-        <span className="inventory-pin-collar" />
-        <span className="inventory-pin-head">
-          <i className="inventory-pin-glint" />
-        </span>
-      </div>
-
-      {/* Numbered Ledger Index Stamp */}
-      <span className="inventory-card-index-tag" aria-hidden="true">
-        #{String(idx + 1).padStart(2, "0")}
-      </span>
-
-      <div className="admin-inventory-card-media">
+    <article
+      className={`nb-card nbi-card ${row.cardStatusKey}`}
+      style={{ cursor: "pointer" }}
+      tabIndex={0}
+      onClick={(e) => {
+        if (e.target.closest("button, a, input, select, textarea")) return;
+        onEdit(row);
+      }}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit(row);
+        }
+      }}
+    >
+      <span className="nb-tape" aria-hidden="true" />
+      <div className="nb-photo nbi-photo">
         {row.image ? (
-          <img
-            src={row.image}
-            alt={row.item}
-            className="admin-inventory-card-thumbnail"
-            loading="lazy"
-            decoding="async"
-          />
+          <img src={row.image} alt={row.item} loading="lazy" decoding="async" />
         ) : (
-          <div className="admin-inventory-card-placeholder" aria-hidden="true">
-            <Package size={30} strokeWidth={1.5} />
-          </div>
+          <span className="nbi-photo-empty" aria-hidden="true"><Package size={30} strokeWidth={1.5} /></span>
         )}
-        <div className="admin-inventory-card-overlay-top">
-          <span className="admin-inventory-card-category">{row.category}</span>
-          <div className="admin-inventory-card-badges">
-            {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
-            <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
-          </div>
-        </div>
+        <span className="nbi-cat">{row.category}</span>
+        <span className={`nbi-status ${row.cardStatusKey}`}>{row.cardStatus}</span>
+        {row.addedFromMenu && <span className="nbi-recipe">Recipe</span>}
       </div>
 
-      <div className="admin-inventory-card-body">
-        <div className="admin-inventory-card-title">
-          <h4 title={row.item}>{row.item}</h4>
-          <div className="admin-inventory-card-submeta">
-            <span title="Calculated unit cost">₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
-            {row.packageQuantity && row.contentsPerPackage ? (
-              <>
-                <span className="meta-dot" aria-hidden="true">·</span>
-                <span title="Package specification">{row.packageSpec}</span>
-              </>
-            ) : null}
-          </div>
-        </div>
+      <div className="nb-card-body">
+        <h3 className="nbi-name" title={row.item}>{row.item}</h3>
+        <p className="nbi-sub">
+          <span title="Calculated unit cost">₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
+          {row.packageQuantity && row.contentsPerPackage ? (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span title="Package specification">{row.packageSpec}</span>
+            </>
+          ) : null}
+        </p>
 
-        <div className="admin-inventory-card-stock">
-          <div className="admin-inventory-card-stock-row">
-            <div>
-              <span className="admin-inventory-card-label">Available Stock</span>
-              <p className="admin-inventory-card-qty">
-                {row.quantity}
-                <span>{row.unit}</span>
-              </p>
-            </div>
-            <div className="admin-inventory-card-max">
-              <span className="admin-inventory-card-label">Value · Max</span>
-              <p className="admin-inventory-card-value">₱{Number(row.inventoryValue || 0).toFixed(2)}</p>
-              <small className="admin-inventory-card-cap">
-                {row.maximumStock == null ? "No max set" : `of ${row.maximumStock} ${row.unit}`}
-              </small>
-            </div>
+        <div className="nbi-stock">
+          <div className="nbi-stock-row">
+            <p className="nbi-qty">{row.quantity}<span>{row.unit}</span></p>
+            <p className="nbi-value">
+              <strong>₱{Number(row.inventoryValue || 0).toFixed(2)}</strong>
+              <small>{row.maximumStock == null ? "No max set" : `of ${row.maximumStock} ${row.unit}`}</small>
+            </p>
           </div>
-
           <div
-            className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
+            className={`nbi-gauge${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
             role="progressbar"
             aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
             aria-valuetext={row.stockRatio == null ? "No maximum set" : `${row.stockRatio}% of maximum stock${row.isLowStock ? ", low stock" : ""}`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-label={`${row.item} stock level`}
-            title={row.stockRatio == null ? "Set maximum stock to track this level" : `${row.stockRatio}% of maximum stock${row.isLowStock ? " · Low stock" : ""}`}
+            title={row.stockRatio == null ? "Set maximum stock to track this level" : `${row.stockRatio}% of maximum stock`}
           >
-            {row.stockRatio == null
-              ? null
-              : <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />}
+            {row.stockRatio == null ? null : <span style={{ width: `${row.stockRatio}%` }} />}
           </div>
         </div>
-      </div>
 
-      <div className="admin-inventory-card-actions is-two-row">
-        <div className="ai-actions-row-primary">
-          <button type="button" className="restock" onClick={() => onRestock(row)} title={`Restock ${row.item}`}>
-            <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
-            <span>Restock</span>
+        <div className="nbi-actions">
+          <button type="button" className="nbi-act primary" onClick={() => onRestock(row)} title={`Restock ${row.item}`}>
+            <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} /><span>Restock</span>
           </button>
-          <button
-            type="button"
-            className="internal-use"
-            onClick={() => onInternalUse(row)}
-            disabled={Number(row.quantity || 0) <= 0}
-            title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Record internal store use for ${row.item}`}
-          >
-            <PackageMinus aria-hidden="true" size={14} strokeWidth={2.1} />
-            <span>Use</span>
+          <button type="button" className="nbi-act icon" onClick={() => onInternalUse(row)} disabled={noStock}
+            aria-label={`Use ${row.item}`}
+            title={noStock ? `${row.item} is out of stock` : `Use: record internal store use of ${row.item}`}>
+            <PackageMinus aria-hidden="true" size={15} strokeWidth={2.1} />
           </button>
-          <button
-            type="button"
-            className="waste"
-            onClick={() => onWaste(row)}
-            disabled={Number(row.quantity || 0) <= 0}
-            title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Log waste / spoilage on ${row.item}`}
-          >
-            <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
-            <span>Waste</span>
+          <button type="button" className="nbi-act icon warn" onClick={() => onWaste(row)} disabled={noStock}
+            aria-label={`Log waste for ${row.item}`}
+            title={noStock ? `${row.item} is out of stock` : `Waste: log spoilage of ${row.item}`}>
+            <Trash2 aria-hidden="true" size={15} strokeWidth={2.1} />
           </button>
-        </div>
-        <div className="ai-actions-row-secondary">
-          <button type="button" onClick={() => onHistory(row)} title={`View ${row.item} stock history`}>
-            <History aria-hidden="true" size={14} strokeWidth={2.1} />
-            <span>History</span>
+          <button type="button" className="nbi-act icon" onClick={() => onHistory(row)} aria-label={`Stock history for ${row.item}`} title="History">
+            <History aria-hidden="true" size={15} strokeWidth={2.1} />
           </button>
-          <button type="button" onClick={() => onEdit(row)} title={`Edit ${row.item}`}>
-            <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
-            <span>Edit</span>
+          <button type="button" className="nbi-act icon" onClick={() => onEdit(row)} aria-label={`Edit ${row.item}`} title="Edit">
+            <Pencil aria-hidden="true" size={15} strokeWidth={2.1} />
           </button>
-          <button type="button" className="danger" onClick={() => onArchive(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
-            <Archive aria-hidden="true" size={14} strokeWidth={2.1} />
+          <button type="button" className="nbi-act icon danger" onClick={() => onArchive(row.id)} aria-label={`Archive ${row.item}`} title="Archive">
+            <Archive aria-hidden="true" size={15} strokeWidth={2.1} />
           </button>
         </div>
       </div>
@@ -352,7 +313,6 @@ const InventoryGridCard = memo(function InventoryGridCard({
 
 const InventoryListRow = memo(function InventoryListRow({
   row,
-  idx,
   onHistory,
   onEdit,
   onRestock,
@@ -360,110 +320,70 @@ const InventoryListRow = memo(function InventoryListRow({
   onWaste,
   onArchive,
 }) {
+  const noStock = Number(row.quantity || 0) <= 0;
   return (
-    <article className="admin-inventory-bar-row inventory-ledger-bar-row" role="listitem">
-      <div className="admin-inventory-bar-identity">
-        <span className="inventory-bar-index-num" aria-hidden="true">
-          #{String(idx + 1).padStart(2, "0")}
-        </span>
+    <article className={`nbi-row ${row.cardStatusKey}`} role="listitem">
+      <div className="nbi-row-id">
         {row.image ? (
-          <img
-            src={row.image}
-            alt={row.item}
-            className="admin-inventory-table-thumbnail"
-            loading="lazy"
-            decoding="async"
-            width={52}
-            height={52}
-          />
+          <img src={row.image} alt={row.item} className="nbi-thumb" loading="lazy" decoding="async" width={52} height={52} />
         ) : (
-          <div className="admin-inventory-table-placeholder" aria-hidden="true">
-            <Package size={20} strokeWidth={1.6} />
-          </div>
+          <span className="nbi-thumb nbi-thumb-empty" aria-hidden="true"><Package size={20} strokeWidth={1.6} /></span>
         )}
-        <div className="admin-inventory-table-item-meta">
-          <div className="admin-inventory-bar-title-line">
+        <div className="nbi-row-name">
+          <div className="nbi-row-title">
             <strong title={row.item}>{row.item}</strong>
-            <span className="admin-inventory-bar-cat">{row.category}</span>
-            {row.addedFromMenu && <span className="inventory-source-badge">Recipe</span>}
+            <span className="nbi-cat-inline">{row.category}</span>
+            {row.addedFromMenu && <span className="nbi-recipe-inline">Recipe</span>}
           </div>
-          <div className="admin-inventory-bar-subline">
-            <span>₱{formatUnitCost(row.unitCost)} / {row.unit}</span>
-            {row.packageSpec && row.packageSpec !== "—" ? (
-              <>
-                <span className="meta-dot" aria-hidden="true">·</span>
-                <span>{row.packageSpec}</span>
-              </>
-            ) : null}
-          </div>
+          <span className="nbi-sub">
+            ₱{formatUnitCost(row.unitCost)} / {row.unit}
+            {row.packageSpec && row.packageSpec !== "—" ? ` · ${row.packageSpec}` : ""}
+          </span>
         </div>
       </div>
 
-      <div className="admin-inventory-bar-stock">
-        <div className="admin-inventory-bar-stock-top">
-          <span className="admin-inventory-bar-qty">
-            <strong>{row.quantity}</strong> {row.unit}
-          </span>
-          <span className="admin-inventory-bar-max">
-            {row.maximumStock == null ? "No max" : `/ ${row.maximumStock} ${row.unit}`}
-          </span>
+      <div className="nbi-row-stock">
+        <div className="nbi-row-qty">
+          <strong>{row.quantity}</strong> {row.unit}
+          <span>{row.maximumStock == null ? "No max" : `/ ${row.maximumStock} ${row.unit}`}</span>
         </div>
         <div
-          className={`admin-inventory-progress${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
+          className={`nbi-gauge${row.stockRatio == null ? " no-maximum" : ""} ${row.stockLevelKey}`}
           role="progressbar"
           aria-valuenow={row.stockRatio == null ? undefined : row.stockRatio}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label={`${row.item} stock level`}
         >
-          {row.stockRatio == null ? null : (
-            <span className={row.stockLevelKey} style={{ width: `${row.stockRatio}%` }} />
-          )}
+          {row.stockRatio == null ? null : <span style={{ width: `${row.stockRatio}%` }} />}
         </div>
       </div>
 
-      <div className="admin-inventory-bar-metrics">
-        <div className="admin-inventory-bar-val">
-          <span className="admin-inventory-bar-label">Asset Value</span>
-          <strong>₱{Number(row.inventoryValue || 0).toFixed(2)}</strong>
-        </div>
-        <span className={`admin-inventory-badge ${row.cardStatusKey}`}>{row.cardStatus}</span>
+      <div className="nbi-row-value">
+        <span className="nbi-label">Worth</span>
+        <strong>₱{Number(row.inventoryValue || 0).toFixed(2)}</strong>
       </div>
+      <span className={`nbi-status inline ${row.cardStatusKey}`}>{row.cardStatus}</span>
 
-      <div className="admin-inventory-bar-actions">
-        <button type="button" onClick={() => onHistory(row)} title={`View ${row.item} stock history`}>
-          <History aria-hidden="true" size={14} strokeWidth={2.1} />
-          <span>History</span>
+      <div className="nbi-actions row">
+        <button type="button" className="nbi-act primary" onClick={() => onRestock(row)} title={`Restock ${row.item}`}>
+          <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} /><span>Restock</span>
         </button>
-        <button type="button" onClick={() => onEdit(row)} title={`Edit ${row.item}`}>
-          <Pencil aria-hidden="true" size={14} strokeWidth={2.1} />
-          <span>Edit</span>
+        <button type="button" className="nbi-act" onClick={() => onInternalUse(row)} disabled={noStock}
+          title={noStock ? `${row.item} is out of stock` : `Record internal store use for ${row.item}`}>
+          <PackageMinus aria-hidden="true" size={14} strokeWidth={2.1} /><span>Use</span>
         </button>
-        <button type="button" className="restock" onClick={() => onRestock(row)} title={`Restock ${row.item}`}>
-          <Warehouse aria-hidden="true" size={14} strokeWidth={2.1} />
-          <span>Restock</span>
+        <button type="button" className="nbi-act warn" onClick={() => onWaste(row)} disabled={noStock}
+          title={noStock ? `${row.item} is out of stock` : `Log waste or spoilage on ${row.item}`}>
+          <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} /><span>Waste</span>
         </button>
-        <button
-          type="button"
-          className="internal-use"
-          onClick={() => onInternalUse(row)}
-          disabled={Number(row.quantity || 0) <= 0}
-          title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Record internal store use for ${row.item}`}
-        >
-          <PackageMinus aria-hidden="true" size={14} strokeWidth={2.1} />
-          <span>Use</span>
+        <button type="button" className="nbi-act" onClick={() => onHistory(row)} title={`View ${row.item} stock history`}>
+          <History aria-hidden="true" size={14} strokeWidth={2.1} /><span>History</span>
         </button>
-        <button
-          type="button"
-          className="waste"
-          onClick={() => onWaste(row)}
-          disabled={Number(row.quantity || 0) <= 0}
-          title={Number(row.quantity || 0) <= 0 ? `${row.item} is out of stock` : `Log waste / spoilage on ${row.item}`}
-        >
-          <Trash2 aria-hidden="true" size={14} strokeWidth={2.1} />
-          <span>Waste</span>
+        <button type="button" className="nbi-act" onClick={() => onEdit(row)} title={`Edit ${row.item}`}>
+          <Pencil aria-hidden="true" size={14} strokeWidth={2.1} /><span>Edit</span>
         </button>
-        <button type="button" className="danger" onClick={() => onArchive(row.id)} title={`Archive ${row.item}`} aria-label={`Archive ${row.item}`}>
+        <button type="button" className="nbi-act icon danger" onClick={() => onArchive(row.id)} title="Archive" aria-label={`Archive ${row.item}`}>
           <Archive aria-hidden="true" size={14} strokeWidth={2.1} />
         </button>
       </div>
@@ -1304,87 +1224,104 @@ function AdminInventory() {
           )}
         </main>
       ) : (
-      <main className="admin-inventory-main">
-        <header className="admin-inventory-topbar">
-          <div className="admin-inventory-head-main">
-            <span className="admin-inventory-eyebrow">Stock Overview</span>
-            <h1>Inventory management</h1>
-            <p>Track ingredients, packaging, and supplies needed for your daily operations.</p>
-          </div>
-          <div className="admin-inventory-topbar-actions">
-            {inventoryAlertsEnabled && overMaximumCount + outOfStockCount > 0 && (
-              <div className="admin-inventory-stock-alert" role="status">
-                <AlertTriangle size={15} aria-hidden="true" />
-                <span>
-                  <strong>{outOfStockCount + overMaximumCount} item{outOfStockCount + overMaximumCount === 1 ? "" : "s"} need attention.</strong>
-                  {outOfStockCount > 0 && ` ${outOfStockCount} out of stock.`}
-                  {overMaximumCount > 0 && ` ${overMaximumCount} above maximum stock.`}
+      <main className="admin-inventory-main nb-main">
+        <div className="nb-desk">
+          <section className="nb-notebook" aria-label="Inventory ingredients">
+            <div className="nb-spiral" aria-hidden="true" />
+
+            <div className="nb-page">
+              <header className="nb-head">
+                <span className="nb-crest" aria-hidden="true">
+                  <Warehouse size={20} strokeWidth={2} />
                 </span>
-                <Link to="/admin/reports">Review stock report <span aria-hidden="true">→</span></Link>
-              </div>
-            )}
-            <Link
-              to="/admin/archive"
-              className="admin-inventory-archive-button"
-            >
-              <Archive size={16} /> View Archive
-            </Link>
-            <button
-              type="button"
-              className="admin-inventory-add-button"
-              onClick={handleOpenAddForm}
-            >
-              <Plus size={16} strokeWidth={2.6} aria-hidden="true" />
-              <span>Add inventory item</span>
-            </button>
-          </div>
-        </header>
-
-        <div className="admin-inventory-content">
-          {notice && (
-            <div className="admin-inventory-notice" role="status">
-              <CheckCircle2 size={16} aria-hidden="true" />
-              <span>{notice}</span>
-              <button type="button" onClick={() => setNotice("")} aria-label="Dismiss message">×</button>
-            </div>
-          )}
-          {inventoryError && inventory.length > 0 && (
-            <div className="admin-inventory-sync-warning" role="status">
-              <AlertTriangle size={16} aria-hidden="true" />
-              <span>Showing saved inventory. The latest refresh failed: {inventoryError}</span>
-              <button type="button" onClick={() => refreshInventory?.().catch(() => {})}>
-                <RefreshCw size={13} aria-hidden="true" /> Retry
-              </button>
-            </div>
-          )}
-
-          <div className="admin-inventory-workspace">
-            <div
-              className="admin-inventory-main-pane"
-              tabIndex={0}
-              role="region"
-              aria-label="Inventory management workspace"
-            >
-              <section className="admin-inventory-toolbar">
-                <label className="admin-inventory-search">
-                  <Search aria-hidden="true" size={16} strokeWidth={2.2} />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search inventory items…"
-                    aria-label="Search inventory"
-                  />
-                </label>
-
-                <div className="admin-inventory-toolbar-center">
-                  <label className="admin-inventory-filter">
-                    <span className="admin-inventory-filter-label">
-                      <span>Category</span>
-                      <Link to="/admin/categories" className="admin-inventory-manage-category-link" title="Manage Categories">
-                        ⚙ Manage
-                      </Link>
+                <div className="nb-head-copy">
+                  <h1>Inventory management</h1>
+                  <p>
+                    Track ingredients, packaging, and supplies needed for your daily operations.
+                    <span className="nb-live"><span className="nb-live-dot" aria-hidden="true" />{inStockCount} of {totalItems} in stock</span>
+                  </p>
+                </div>
+                <div className="nb-head-actions">
+                  {inventoryAlertsEnabled && overMaximumCount + outOfStockCount > 0 && (
+                    <span className="nb-chip nb-chip-alert" role="status">
+                      <AlertTriangle size={14} strokeWidth={2.2} aria-hidden="true" />
+                      {outOfStockCount + overMaximumCount} need attention
+                      <Link to="/admin/reports" className="nbi-chip-link">Review report</Link>
                     </span>
+                  )}
+                  <Link to="/admin/archive" className="nb-btn">
+                    <Archive size={15} strokeWidth={2.1} aria-hidden="true" />
+                    View archive
+                  </Link>
+                  <button type="button" className="nb-btn nb-btn-primary" onClick={handleOpenAddForm}>
+                    <Plus size={16} strokeWidth={2.4} aria-hidden="true" />
+                    Add inventory item
+                  </button>
+                </div>
+              </header>
+
+              {notice && (
+                <div className="nbi-banner ok" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  <span>{notice}</span>
+                  <button type="button" onClick={() => setNotice("")} aria-label="Dismiss message">×</button>
+                </div>
+              )}
+              {inventoryError && inventory.length > 0 && (
+                <div className="nbi-banner warn" role="status">
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <span>Showing saved inventory. The latest refresh failed: {inventoryError}</span>
+                  <button type="button" onClick={() => refreshInventory?.().catch(() => {})}>
+                    <RefreshCw size={13} aria-hidden="true" /> Retry
+                  </button>
+                </div>
+              )}
+
+              <div className="nb-toolbar">
+                <div className="nb-tabs" role="group" aria-label="View mode">
+                  <button
+                    type="button"
+                    className={`nb-tab ${viewMode === "grid" ? "is-active" : ""}`}
+                    onClick={() => setViewMode("grid")}
+                    aria-pressed={viewMode === "grid"}
+                    title="Grid view"
+                  >
+                    <LayoutGrid aria-hidden="true" size={15} strokeWidth={2.2} />
+                    Cards
+                  </button>
+                  <button
+                    type="button"
+                    className={`nb-tab ${viewMode === "list" ? "is-active" : ""}`}
+                    onClick={() => setViewMode("list")}
+                    aria-pressed={viewMode === "list"}
+                    title="List view"
+                  >
+                    <List aria-hidden="true" size={15} strokeWidth={2.2} />
+                    List
+                  </button>
+                  <Link to="/admin/categories" className="nb-tab nb-tab-manage" title="Manage categories">
+                    <Settings2 size={13} strokeWidth={2.1} aria-hidden="true" />
+                    Manage categories
+                  </Link>
+                </div>
+                <div className="nb-tools">
+                  <label className="nb-field nb-search">
+                    <Search aria-hidden="true" size={14} strokeWidth={2.2} />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search inventory items"
+                      aria-label="Search inventory"
+                    />
+                    {search && (
+                      <button type="button" className="nb-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+                        <X size={13} strokeWidth={2.2} aria-hidden="true" />
+                      </button>
+                    )}
+                  </label>
+                  <label className="nb-field nb-sort">
+                    <span className="nbi-field-label">Category</span>
                     <select
                       value={activeCategory}
                       onChange={(event) => setActiveCategory(event.target.value)}
@@ -1394,17 +1331,14 @@ function AdminInventory() {
                         const count = categoryCounts[category] || 0;
                         return (
                           <option key={category} value={category}>
-                            {category === "All" ? "All Categories" : category} ({count})
+                            {category === "All" ? "All categories" : category} ({count})
                           </option>
                         );
                       })}
                     </select>
                   </label>
-
-                  <label className="admin-inventory-sort">
-                    <span className="admin-inventory-sort-label">
-                      <span>Sort</span>
-                    </span>
+                  <label className="nb-field nb-sort">
+                    <span className="nbi-field-label">Sort</span>
                     <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort inventory">
                       <option value="name">Name A–Z</option>
                       <option value="quantity-asc">Quantity: Low to high</option>
@@ -1413,280 +1347,124 @@ function AdminInventory() {
                     </select>
                   </label>
                 </div>
+              </div>
 
-                <div className="admin-inventory-toolbar-right">
-                  <div className="admin-inventory-viewtoggle" role="group" aria-label="View mode">
-                    <button
-                      type="button"
-                      className={viewMode === "grid" ? "active" : ""}
-                      onClick={() => setViewMode("grid")}
-                      aria-pressed={viewMode === "grid"}
-                      title="Grid view"
-                    >
-                      <LayoutGrid aria-hidden="true" size={16} strokeWidth={2.2} />
-                      <span>Grid</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={viewMode === "list" ? "active" : ""}
-                      onClick={() => setViewMode("list")}
-                      aria-pressed={viewMode === "list"}
-                      title="List view"
-                    >
-                      <List aria-hidden="true" size={16} strokeWidth={2.2} />
-                      <span>List</span>
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-          <section className="admin-inventory-panel">
-            {inventoryLoading && inventory.length === 0 ? (
-              <div className="admin-inventory-blank" role="status">
-                <div className="admin-inventory-blank-icon" aria-hidden="true"><RefreshCw size={21} /></div>
-                <p className="admin-inventory-blank-title">Loading inventory</p>
-                <p className="admin-inventory-blank-text">Fetching the latest stock levels.</p>
-              </div>
-            ) : inventoryError && inventory.length === 0 ? (
-              <div className="admin-inventory-blank" role="alert">
-                <div className="admin-inventory-blank-icon" aria-hidden="true"><AlertTriangle size={22} /></div>
-                <p className="admin-inventory-blank-title">Inventory couldn’t load</p>
-                <p className="admin-inventory-blank-text">{inventoryError}</p>
-                <button type="button" className="inventory-retry-button" onClick={() => refreshInventory?.().catch(() => {})}>
-                  <RefreshCw size={14} aria-hidden="true" /> Try again
-                </button>
-              </div>
-            ) : inventory.length === 0 ? (
-              <div className="admin-inventory-blank">
-                <div className="admin-inventory-blank-icon" aria-hidden="true">
-                  <Package size={24} strokeWidth={1.8} />
-                </div>
-                <p className="admin-inventory-blank-title">No inventory items found</p>
-                <p className="admin-inventory-blank-text">
-                  Click &ldquo;+ Add inventory&rdquo; above to start adding ingredients and packaging stock.
-                </p>
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="admin-inventory-blank">
-                <div className="admin-inventory-blank-icon" aria-hidden="true">
-                  <Search size={22} strokeWidth={1.8} />
-                </div>
-                <p className="admin-inventory-blank-title">Nothing matches this view</p>
-                <p className="admin-inventory-blank-text">
-                  {search
-                    ? `No items matching "${search}" in ${activeCategory === "All" ? "the catalog" : activeCategory}.`
-                    : `No items in ${activeCategory}.`}
-                </p>
-              </div>
-            ) : viewMode === "grid" ? (
               <div
-                className="admin-inventory-grid-wrap custom-inventory-scrollbar inventory-binder-folio"
+                className="nb-sheet"
                 role="region"
                 aria-label="Inventory items"
                 tabIndex={0}
               >
-                {/* 3D Animated Leather Binder Cover that slowly opens on mount */}
-                <div className="inventory-binder-cover" aria-hidden="true">
-                  <div className="inventory-binder-cover-inner">
-                    <span className="inventory-binder-crest">AMAYA CAFE</span>
-                    <strong className="inventory-binder-title">INVENTORY BINDER</strong>
-                    <span className="inventory-binder-sub">Pinned Stock &amp; Supply Catalog</span>
+                {inventoryLoading && inventory.length === 0 ? (
+                  <div className="nb-empty" role="status">
+                    <RefreshCw size={24} aria-hidden="true" />
+                    <strong>Loading inventory</strong>
+                    <span>Fetching the latest stock levels.</span>
                   </div>
-                </div>
-
-                {/* Left Spiral Wire Binding Spine */}
-                <div className="inventory-binder-spine" aria-hidden="true">
-                  {Array.from({ length: 12 }).map((_, idx) => (
-                    <span key={idx} className="inventory-binder-ring">
-                      <i className="inventory-binder-hole" />
-                      <b className="inventory-binder-wire" />
+                ) : inventoryError && inventory.length === 0 ? (
+                  <div className="nb-empty" role="alert">
+                    <AlertTriangle size={26} aria-hidden="true" />
+                    <strong>Inventory couldn’t load</strong>
+                    <span>{inventoryError}</span>
+                    <button type="button" className="nb-btn" onClick={() => refreshInventory?.().catch(() => {})}>
+                      <RefreshCw size={14} aria-hidden="true" /> Try again
+                    </button>
+                  </div>
+                ) : inventory.length === 0 ? (
+                  <div className="nb-empty">
+                    <Package size={26} strokeWidth={1.8} aria-hidden="true" />
+                    <strong>No inventory items yet</strong>
+                    <span>Choose “Add inventory item” to start tracking ingredients and packaging.</span>
+                  </div>
+                ) : rows.length === 0 ? (
+                  <div className="nb-empty">
+                    <Search size={24} strokeWidth={1.8} aria-hidden="true" />
+                    <strong>Nothing matches this view</strong>
+                    <span>
+                      {search
+                        ? `No items matching "${search}" in ${activeCategory === "All" ? "the catalog" : activeCategory}.`
+                        : `No items in ${activeCategory}.`}
                     </span>
-                  ))}
-                </div>
-
-                {/* Top-Right Crimson Bookmark Ribbon */}
-                <div className="inventory-binder-ribbon" aria-hidden="true">
-                  <span className="inventory-ribbon-hole" />
-                  <span className="inventory-ribbon-label">
-                    {activeCategory === "All" ? "ALL STOCK" : activeCategory.toUpperCase()}
-                  </span>
-                </div>
-
-                {/* Ruled Binder Page Interior */}
-                <div className="inventory-binder-page">
-                  <div className="inventory-binder-page-header" aria-hidden="true">
-                    <div className="inventory-binder-page-meta">
-                      <span className="inventory-binder-eyebrow">PINNED INGREDIENT FOLIO</span>
-                      <span className="inventory-binder-stamp">
-                        {rows.length} {rows.length === 1 ? "ITEM" : "ITEMS"} PINNED
+                  </div>
+                ) : (
+                  <>
+                    <div className="nb-sheet-title">
+                      <h2>{activeCategory === "All" ? "All categories" : activeCategory}</h2>
+                      <span className="nb-sheet-note">
+                        {rows.length} {rows.length === 1 ? "item" : "items"} pinned
                       </span>
                     </div>
-                    <span className="inventory-binder-cat-tag">
-                      SECTION: {activeCategory === "All" ? "ALL CATEGORIES" : activeCategory.toUpperCase()}
-                    </span>
-                  </div>
 
-                  <div className="inventory-binder-scroll custom-inventory-scrollbar">
-                    <div className="admin-inventory-grid">
-                      {rows.map((row, idx) => (
-                        <InventoryGridCard
-                          key={row.id}
-                          row={row}
-                          idx={idx}
-                          onHistory={openMovementHistory}
-                          onEdit={handleEdit}
-                          onRestock={openRestock}
-                          onInternalUse={openInternalUse}
-                          onWaste={openWaste}
-                          onArchive={requestDelete}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                    {viewMode === "grid" ? (
+                      <div className="nb-grid nbi-grid">
+                        {rows.map((row) => (
+                          <InventoryGridCard
+                            key={row.id}
+                            row={row}
+                            onHistory={openMovementHistory}
+                            onEdit={handleEdit}
+                            onRestock={openRestock}
+                            onInternalUse={openInternalUse}
+                            onWaste={openWaste}
+                            onArchive={requestDelete}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="nbi-rows" role="list">
+                        {rows.map((row) => (
+                          <InventoryListRow
+                            key={row.id}
+                            row={row}
+                            onHistory={openMovementHistory}
+                            onEdit={handleEdit}
+                            onRestock={openRestock}
+                            onInternalUse={openInternalUse}
+                            onWaste={openWaste}
+                            onArchive={requestDelete}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
-            ) : (
-              <div
-                className="admin-inventory-table-wrap custom-inventory-scrollbar inventory-binder-folio inventory-binder-list-mode"
-                role="region"
-                aria-label="Inventory items list"
-                tabIndex={0}
-              >
-                {/* Left Spiral Wire Binding Spine */}
-                <div className="inventory-binder-spine" aria-hidden="true">
-                  {Array.from({ length: 12 }).map((_, idx) => (
-                    <span key={idx} className="inventory-binder-ring">
-                      <i className="inventory-binder-hole" />
-                      <b className="inventory-binder-wire" />
-                    </span>
-                  ))}
-                </div>
-
-                {/* Top-Right Crimson Bookmark Ribbon */}
-                <div className="inventory-binder-ribbon" aria-hidden="true">
-                  <span className="inventory-ribbon-hole" />
-                  <span className="inventory-ribbon-label">
-                    {activeCategory === "All" ? "ALL STOCK" : activeCategory.toUpperCase()}
-                  </span>
-                </div>
-
-                <div className="inventory-binder-page">
-                  <div className="inventory-binder-page-header" aria-hidden="true">
-                    <div className="inventory-binder-page-meta">
-                      <span className="inventory-binder-eyebrow">LEDGER STOCK REGISTER</span>
-                      <span className="inventory-binder-stamp">
-                        {rows.length} {rows.length === 1 ? "ITEM" : "ITEMS"} RECORDED
-                      </span>
-                    </div>
-                    <span className="inventory-binder-cat-tag">
-                      SECTION: {activeCategory === "All" ? "ALL CATEGORIES" : activeCategory.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="inventory-binder-scroll custom-inventory-scrollbar">
-                    <div className="admin-inventory-table" role="list">
-                      {rows.map((row, idx) => (
-                        <InventoryListRow
-                          key={row.id}
-                          row={row}
-                          idx={idx}
-                          onHistory={openMovementHistory}
-                          onEdit={handleEdit}
-                          onRestock={openRestock}
-                          onInternalUse={openInternalUse}
-                          onWaste={openWaste}
-                          onArchive={requestDelete}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </section>
-        </div>
 
-        <aside className="admin-inventory-side-rail" aria-label="Inventory statistics and overview">
-          <div className="admin-inventory-side-rail-sticky">
-            <div className="admin-inventory-side-rail-title">
-              <Warehouse size={15} aria-hidden="true" />
-              <span>Inventory Overview</span>
-            </div>
-
-            <div className="admin-inventory-metrics">
-              <article className="metric-card">
-                <div className="metric-card-head">
-                  <span className="metric-icon amber">
-                    <Package size={17} strokeWidth={1.9} aria-hidden="true" />
-                  </span>
-                  <span className="metric-badge neutral">Total</span>
-                </div>
-                <div className="metric-body">
-                  <span className="metric-label">Total Items</span>
-                  <strong className="metric-value">{totalItems}</strong>
-                  <span className="metric-hint">Tracked inventory</span>
-                </div>
-              </article>
-
-              <article className="metric-card">
-                <div className="metric-card-head">
-                  <span className="metric-icon emerald">
-                    <CheckCircle2 size={17} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                  <span className="metric-badge emerald">Ready</span>
-                </div>
-                <div className="metric-body">
-                  <span className="metric-label">In Stock</span>
-                  <strong className="metric-value">{inStockCount}</strong>
-                  <span className="metric-hint">Ready to use</span>
-                </div>
-              </article>
-
-              <article className="metric-card">
-                <div className="metric-card-head">
-                  <span className="metric-icon amber">
-                    <Clock size={17} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                  <span className="metric-badge amber">Review</span>
-                </div>
-                <div className="metric-body">
-                  <span className="metric-label">Above Maximum</span>
-                  <strong className="metric-value">{overMaximumCount}</strong>
-                  <span className="metric-hint">Review stock levels</span>
-                </div>
-              </article>
-
-              <article className="metric-card">
-                <div className="metric-card-head">
-                  <span className="metric-icon rose">
-                    <AlertTriangle size={17} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                  <span className="metric-badge rose">Critical</span>
-                </div>
-                <div className="metric-body">
-                  <span className="metric-label">Out of Stock</span>
-                  <strong className="metric-value critical">{outOfStockCount}</strong>
-                  <span className="metric-hint">Needs ordering</span>
-                </div>
-              </article>
-
-              <article className="metric-card">
-                <div className="metric-card-head">
-                  <span className="metric-icon blue">
-                    <Warehouse size={17} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                  <span className="metric-badge blue">Valuation</span>
-                </div>
-                <div className="metric-body">
-                  <span className="metric-label">Inventory Asset Value</span>
-                  <strong className="metric-value">₱{totalInventoryAssetValue.toFixed(2)}</strong>
-                  <span className="metric-hint">{totalItems} active supplies & ingredients</span>
-                </div>
-              </article>
-            </div>
-          </div>
-        </aside>
-      </div>
+          <aside className="nb-notes" aria-label="Inventory overview">
+            <h2 className="nb-notes-title">Inventory overview</h2>
+            <article className="nb-note nb-note-butter">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Package size={16} strokeWidth={1.9} aria-hidden="true" /><span>Total items</span></div>
+              <strong>{totalItems}</strong>
+              <small>Tracked inventory</small>
+            </article>
+            <article className="nb-note nb-note-sage">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><CheckCircle2 size={16} strokeWidth={2} aria-hidden="true" /><span>In stock</span></div>
+              <strong>{inStockCount}</strong>
+              <small>Ready to use</small>
+            </article>
+            <article className="nb-note nb-note-peach">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Clock size={16} strokeWidth={2} aria-hidden="true" /><span>Above maximum</span></div>
+              <strong>{overMaximumCount}</strong>
+              <small>Review stock levels</small>
+            </article>
+            <article className="nb-note nb-note-rose">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><AlertTriangle size={16} strokeWidth={2} aria-hidden="true" /><span>Out of stock</span></div>
+              <strong>{outOfStockCount}</strong>
+              <small>Needs ordering</small>
+            </article>
+            <article className="nb-note nb-note-butter nbi-note-wide">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Warehouse size={16} strokeWidth={2} aria-hidden="true" /><span>Inventory asset value</span></div>
+              <strong>₱{totalInventoryAssetValue.toFixed(2)}</strong>
+              <small>{totalItems} active supplies &amp; ingredients</small>
+            </article>
+          </aside>
         </div>
       </main>
       )}

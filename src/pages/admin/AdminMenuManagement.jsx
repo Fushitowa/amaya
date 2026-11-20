@@ -31,6 +31,7 @@ import {
 import { shrinkImageToDataUri } from "../../utils/imageResize.js";
 import "../../assets/css/admin/AdminMenuManagement.css";
 import "../../assets/css/admin/MenuItemBuilder.css";
+import "../../assets/css/admin/MenuNotebook.css";
 import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
@@ -1536,332 +1537,256 @@ function AdminMenuManagement() {
 					)}
 				</main>
 			) : (
-			<main className="admin-menu-main">
-				<header className="admin-menu-topbar storefront-topbar">
-					<div className="admin-menu-topbar-brand">
-						<span className="admin-menu-topbar-crest" aria-hidden="true">
-							<Utensils size={20} strokeWidth={2} />
-						</span>
-						<div className="admin-menu-topbar-copy">
-							<div className="admin-menu-topbar-eyebrow">
-								<span className="admin-menu-section-label">Storefront Catalog</span>
-								<span className="admin-menu-topbar-live-pill">
-									<span className="topbar-live-dot" aria-hidden="true" />
-									{availableCount} of {products.length} Live
+			<main className="admin-menu-main nb-main">
+				<div className="nb-desk">
+					<section className="nb-notebook" aria-label="Menu catalog">
+						<div className="nb-spiral" aria-hidden="true" />
+
+						<div className="nb-page">
+							<header className="nb-head">
+								<span className="nb-crest" aria-hidden="true">
+									<Utensils size={20} strokeWidth={2} />
 								</span>
-							</div>
-							<h1>Menu Management</h1>
-							<p className="admin-menu-topbar-sub">Organize counter items, plated pricing, and live recipe availability.</p>
-						</div>
-					</div>
-					<div className="admin-menu-topbar-actions">
-						{outOfStockCount > 0 ? (
-							<span className="admin-menu-status-chip alert" role="status">
-								<AlertTriangle size={14} strokeWidth={2.2} aria-hidden="true" />
-								<span>{outOfStockCount} out of stock</span>
-							</span>
-						) : lowStockCount > 0 ? (
-							<span className="admin-menu-status-chip warn" role="status">
-								<Clock size={14} strokeWidth={2.2} aria-hidden="true" />
-								<span>{lowStockCount} low stock</span>
-							</span>
-						) : (
-							<span className="admin-menu-status-chip ready" role="status">
-								<CheckCircle2 size={14} strokeWidth={2.2} aria-hidden="true" />
-								<span>Board ready</span>
-							</span>
-						)}
-						<Link to="/admin/archive" className="admin-menu-archive-button">
-							<Archive size={15} strokeWidth={2.1} aria-hidden="true" />
-							<span>View Archive</span>
-						</Link>
-						<button type="button" className="admin-menu-add-button" onClick={openAddForm}>
-							<Plus size={16} strokeWidth={2.4} aria-hidden="true" />
-							<span>Add new item</span>
-						</button>
-					</div>
-				</header>
-
-				<div className="admin-menu-content custom-menu-scrollbar">
-					<div className="admin-menu-workspace">
-						<div className="admin-menu-main-pane">
-							<section className="admin-menu-panel menu-storefront-board">
-								<div className="menu-board-curtain" aria-hidden="true">
-									<div className="menu-board-curtain-seal">
-										<Utensils size={18} strokeWidth={2} />
-										<span>AMAYA STOREFRONT MENU</span>
-									</div>
+								<div className="nb-head-copy">
+									<h1>Menu Management</h1>
+									<p>
+										Organize counter items, plated pricing, and live recipe availability.
+										<span className="nb-live"><span className="nb-live-dot" aria-hidden="true" />{availableCount} of {products.length} live</span>
+									</p>
 								</div>
-
-								<div className="menu-board-marquee">
-									<div className="menu-board-marquee-left">
-										<span className="menu-board-marquee-badge">
-											<Utensils size={12} strokeWidth={2.2} aria-hidden="true" />
-											<span>AMAYA CAFÉ · IN-STORE MENU BOARD</span>
+								<div className="nb-head-actions">
+									{outOfStockCount > 0 ? (
+										<span className="nb-chip nb-chip-alert" role="status">
+											<AlertTriangle size={14} strokeWidth={2.2} aria-hidden="true" />
+											{outOfStockCount} out of stock
 										</span>
-									</div>
-									<div className="menu-board-marquee-meta" aria-hidden="true">
-										<span>{availableCount} On Board</span>
-										<span className="menu-board-meta-dot" />
-										<span>{featuredCount} Featured</span>
-									</div>
-								</div>
-
-								<div className="admin-menu-toolbar">
-									<div className="admin-menu-tabs">
-										<div className="admin-menu-tabs-scroll" role="tablist" aria-label="Menu categories">
-											{categories.map((category) => (
-												<button
-													type="button"
-													role="tab"
-													aria-selected={activeCategory === category}
-													key={category}
-													className={activeCategory === category ? "active" : ""}
-													onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
-												>
-													{category}
-													<span>{categoryCounts.get(category) || 0}</span>
-												</button>
-											))}
-										</div>
-										<Link
-											to="/admin/categories"
-											className="admin-menu-manage-link"
-											title="Manage Categories in Database"
-										>
-											<Settings2 size={13} strokeWidth={2.1} aria-hidden="true" />
-											<span>Manage</span>
-										</Link>
-									</div>
-									<div className="admin-menu-toolbar-actions">
-										<label className="admin-menu-search">
-											<Search size={14} strokeWidth={2.1} aria-hidden="true" />
-											<input
-												value={search}
-												onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }}
-												placeholder="Search menu items"
-												aria-label="Search menu items"
-											/>
-											{search && (
-												<button
-													type="button"
-													className="admin-menu-search-clear"
-													onClick={() => { setSearch(""); setCurrentPage(1); }}
-													aria-label="Clear search"
-												>
-													<X size={13} strokeWidth={2.2} aria-hidden="true" />
-												</button>
-											)}
-										</label>
-										<div className="admin-menu-sort-wrap">
-											<ArrowUpDown size={13} strokeWidth={2.1} className="admin-menu-sort-icon" aria-hidden="true" />
-											<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
-												<option value="popular">Sort: Featured first</option>
-												<option value="name">Sort: Name A–Z</option>
-												<option value="price">Sort: Price low to high</option>
-											</select>
-										</div>
-									</div>
-								</div>
-
-								<div className="admin-menu-grid-wrap custom-menu-scrollbar">
-									<div className="menu-board-section-banner">
-										<div className="menu-board-section-title">
-											<span className="menu-board-eyebrow">
-												{search.trim() ? "Filtered Store Listing" : "Current Store Listing"}
-											</span>
-											<div className="menu-board-heading-row">
-												<h3>{activeCategory}</h3>
-												<span className="menu-board-count-pill">
-													{visibleProducts.length} {visibleProducts.length === 1 ? "listing" : "listings"}
-												</span>
-											</div>
-										</div>
-										<div className="menu-board-ribbon">
-											<span>{visibleProducts.filter((item) => item?.available).length} Live in Store</span>
-										</div>
-									</div>
-
-									{menuActionError && (
-										<div className="admin-menu-action-error" role="alert">
-											<span>{menuActionError}</span>
-											<button type="button" onClick={() => setMenuActionError("")} aria-label="Dismiss error">×</button>
-										</div>
+									) : lowStockCount > 0 ? (
+										<span className="nb-chip nb-chip-warn" role="status">
+											<Clock size={14} strokeWidth={2.2} aria-hidden="true" />
+											{lowStockCount} low stock
+										</span>
+									) : (
+										<span className="nb-chip nb-chip-ok" role="status">
+											<CheckCircle2 size={14} strokeWidth={2.2} aria-hidden="true" />
+											Menu ready
+										</span>
 									)}
+									<Link to="/admin/archive" className="nb-btn">
+										<Archive size={15} strokeWidth={2.1} aria-hidden="true" />
+										View archive
+									</Link>
+									<button type="button" className="nb-btn nb-btn-primary" onClick={openAddForm}>
+										<Plus size={16} strokeWidth={2.4} aria-hidden="true" />
+										Add new item
+									</button>
+								</div>
+							</header>
 
-									<div className="admin-menu-grid" key={`${activeCategory}-${safePage}-${sortBy}`}>
-										{pageProducts.map((product, index) => (
-											<article
-												className={`admin-product-card store-menu-card ${!product.available ? "unavailable" : ""}`}
-												key={product.id}
-												style={{ "--card-index": Math.min(index, 11) }}
+							<div className="nb-toolbar">
+								<div className="nb-tabs" role="tablist" aria-label="Menu categories">
+									{categories.map((category) => (
+										<button
+											type="button"
+											role="tab"
+											aria-selected={activeCategory === category}
+											key={category}
+											className={`nb-tab ${activeCategory === category ? "is-active" : ""}`}
+											onClick={() => { setActiveCategory(category); setCurrentPage(1); }}
+										>
+											{category}
+											<span className="nb-tab-count">{categoryCounts.get(category) || 0}</span>
+										</button>
+									))}
+									<Link to="/admin/categories" className="nb-tab nb-tab-manage" title="Manage categories">
+										<Settings2 size={13} strokeWidth={2.1} aria-hidden="true" />
+										Manage
+									</Link>
+								</div>
+								<div className="nb-tools">
+									<label className="nb-field nb-search">
+										<Search size={14} strokeWidth={2.1} aria-hidden="true" />
+										<input
+											value={search}
+											onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }}
+											placeholder="Search menu items"
+											aria-label="Search menu items"
+										/>
+										{search && (
+											<button
+												type="button"
+												className="nb-search-clear"
+												onClick={() => { setSearch(""); setCurrentPage(1); }}
+												aria-label="Clear search"
 											>
-												<div
-													className={`admin-product-image ${!product.image ? "image-unavailable" : ""}`}
-													onClick={() => openEditForm(product)}
-													role="button"
-													tabIndex={0}
-													onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditForm(product); } }}
-													title={`Click to edit ${product.name}`}
-												>
-													{product.image && (
-														<img
-															src={product.image}
-															alt={product.name}
-															loading="lazy"
-															onError={(event) => {
-																event.currentTarget.style.display = "none";
-																event.currentTarget.parentElement.classList.add("image-unavailable");
-															}}
-														/>
-													)}
-													<span className="store-menu-img-fallback" aria-hidden="true">
-														<Coffee size={24} strokeWidth={1.75} />
+												<X size={13} strokeWidth={2.2} aria-hidden="true" />
+											</button>
+										)}
+									</label>
+									<label className="nb-field nb-sort">
+										<ArrowUpDown size={13} strokeWidth={2.1} aria-hidden="true" />
+										<select aria-label="Sort menu items" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
+											<option value="popular">Sort: Featured first</option>
+											<option value="name">Sort: Name A–Z</option>
+											<option value="price">Sort: Price low to high</option>
+										</select>
+									</label>
+								</div>
+							</div>
+
+							<div className="nb-sheet">
+								<div className="nb-sheet-title">
+									<h2>{activeCategory}</h2>
+									<span className="nb-sheet-note">
+										{search.trim() ? `${visibleProducts.length} found` : `${visibleProducts.length} ${visibleProducts.length === 1 ? "listing" : "listings"}`}
+										{" · "}
+										{visibleProducts.filter((item) => item?.available).length} live in store
+									</span>
+								</div>
+
+								{menuActionError && (
+									<div className="nb-error" role="alert">
+										<span>{menuActionError}</span>
+										<button type="button" onClick={() => setMenuActionError("")} aria-label="Dismiss error">×</button>
+									</div>
+								)}
+
+								<div className="nb-grid" key={`${activeCategory}-${safePage}-${sortBy}`}>
+									{pageProducts.map((product) => (
+										<article className={`nb-card ${!product.available ? "is-hidden" : ""}`} key={product.id}>
+											<span className="nb-tape" aria-hidden="true" />
+											<div
+												className={`nb-photo ${!product.image ? "no-image" : ""}`}
+												onClick={() => openEditForm(product)}
+												role="button"
+												tabIndex={0}
+												onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditForm(product); } }}
+												title={`Edit ${product.name}`}
+											>
+												{product.image && (
+													<img
+														src={product.image}
+														alt={product.name}
+														loading="lazy"
+														onError={(event) => {
+															event.currentTarget.style.display = "none";
+															event.currentTarget.parentElement.classList.add("no-image");
+														}}
+													/>
+												)}
+												<span className="nb-photo-fallback" aria-hidden="true">
+													<Coffee size={26} strokeWidth={1.6} />
+												</span>
+												{product.featured && (
+													<span className="nb-featured">
+														<Star size={10} fill="currentColor" strokeWidth={2.2} aria-hidden="true" />
+														Featured
 													</span>
-													{product.featured && (
-														<span className="featured-label">
-															<Star size={10} fill="currentColor" strokeWidth={2.2} aria-hidden="true" />
-															<span>Featured</span>
-														</span>
+												)}
+												{!product.available && <span className="nb-stamp">Hidden</span>}
+												<button
+													type="button"
+													className="nb-edit"
+													aria-label={`Edit ${product.name}`}
+													onClick={(e) => { e.stopPropagation(); openEditForm(product); }}
+												>
+													<Pencil size={13} strokeWidth={2.1} aria-hidden="true" />
+												</button>
+											</div>
+											<div className="nb-card-body">
+												<div className="nb-meta">
+													<span>{product.category}</span>
+													{Array.isArray(product.sizes) && product.sizes.length > 0 && (
+														<small>{product.sizes.length} {product.sizes.length === 1 ? "size" : "sizes"}</small>
 													)}
+												</div>
+												<div className="nb-line">
+													<h3 title={product.name}>{product.name}</h3>
+													<strong className="nb-price">{product.price}</strong>
+												</div>
+												<div className="nb-card-foot">
+													<span className={`nb-stock ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
+														{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
+													</span>
+													<label className="nb-switch">
+														<input type="checkbox" checked={product.available} disabled={togglingProductId === product.id} onChange={() => toggleAvailability(product.id)} />
+														<span aria-hidden="true" />
+														<em>{product.available ? "Available" : "Hidden"}</em>
+													</label>
 													<button
 														type="button"
-														className="product-menu-button"
-														aria-label={`Edit ${product.name}`}
-														onClick={(e) => { e.stopPropagation(); openEditForm(product); }}
+														className="nb-trash"
+														onClick={() => handleDelete(product)}
+														aria-label={`Delete ${product.name}`}
+														title={`Delete ${product.name}`}
 													>
-														<Pencil size={13} strokeWidth={2.1} aria-hidden="true" />
+														<Trash2 size={13} strokeWidth={2.1} aria-hidden="true" />
 													</button>
-													{!product.available && (
-														<span className="store-menu-hidden-stamp">Hidden</span>
-													)}
 												</div>
-												<div className="admin-product-body">
-													<div className="admin-product-meta store-menu-card-eyebrow">
-														<span>{product.category}</span>
-														{Array.isArray(product.sizes) && product.sizes.length > 0 && (
-															<small className="store-menu-size-count">
-																{product.sizes.length} {product.sizes.length === 1 ? "size" : "sizes"}
-															</small>
-														)}
-													</div>
-													<div className="store-menu-leader-row">
-														<h4 title={product.name}>{product.name}</h4>
-														<span className="store-menu-leader-dots" aria-hidden="true" />
-														<strong className="store-menu-price">{product.price}</strong>
-													</div>
-													<div className="admin-product-footer">
-														<span className={`stock-label ${product.stock === 0 ? "out" : product.stock <= 7 ? "low" : ""}`}>
-															{product.stock === 0 ? "Out of stock" : `${product.stock} in stock`}
-														</span>
-														<label className="availability-toggle">
-															<input type="checkbox" checked={product.available} disabled={togglingProductId === product.id} onChange={() => toggleAvailability(product.id)} />
-															<span></span>
-															<small>{product.available ? "Available" : "Hidden"}</small>
-														</label>
-														<button
-															type="button"
-															className="product-delete-button"
-															onClick={() => handleDelete(product)}
-															aria-label={`Delete ${product.name}`}
-															title={`Delete ${product.name}`}
-														>
-															<Trash2 size={13} strokeWidth={2.1} aria-hidden="true" />
-														</button>
-													</div>
-												</div>
-											</article>
-										))}
-										{!visibleProducts.length && (
-											<div className="admin-menu-empty" role={menuError ? "alert" : undefined}>
-												<Coffee size={28} strokeWidth={1.7} aria-hidden="true" />
-												<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
-												<span>{menuError || "Try another category or search term."}</span>
 											</div>
-										)}
-									</div>
-								</div>
-
-								{visibleProducts.length > 0 && (
-									<nav className="admin-menu-pagination" aria-label="Menu catalog pages">
-										<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
-										<div>
-											<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
-											<span>Page {safePage} of {pageCount}</span>
-											<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+										</article>
+									))}
+									{!visibleProducts.length && (
+										<div className="nb-empty" role={menuError ? "alert" : undefined}>
+											<Coffee size={28} strokeWidth={1.7} aria-hidden="true" />
+											<strong>{menuError ? "Could not load menu items" : "No menu items found"}</strong>
+											<span>{menuError || "Try another category or search term."}</span>
 										</div>
-									</nav>
-								)}
-							</section>
-						</div>
-
-						<aside className="admin-menu-side-rail" aria-label="Menu overview and statistics">
-							<div className="admin-menu-side-rail-sticky">
-								<div className="admin-menu-side-rail-title">
-									<Utensils size={15} aria-hidden="true" />
-									<span>Menu Overview</span>
-								</div>
-
-								<div className="admin-menu-metrics">
-									<article className="metric-card">
-										<div className="metric-card-head">
-											<span className="metric-icon amber">
-												<Package size={17} strokeWidth={1.9} aria-hidden="true" />
-											</span>
-											<span className="metric-badge neutral">Total</span>
-										</div>
-										<div className="metric-body">
-											<span className="metric-label">Total Items</span>
-											<strong className="metric-value">{products.length}</strong>
-											<span className="metric-hint">Across {categories.length - 1} categories</span>
-										</div>
-									</article>
-
-									<article className="metric-card">
-										<div className="metric-card-head">
-											<span className="metric-icon emerald">
-												<CheckCircle2 size={17} strokeWidth={2} aria-hidden="true" />
-											</span>
-											<span className="metric-badge emerald">Ready</span>
-										</div>
-										<div className="metric-body">
-											<span className="metric-label">Available Now</span>
-											<strong className="metric-value">{availableCount}</strong>
-											<span className="metric-hint">Ready to order</span>
-										</div>
-									</article>
-
-									<article className="metric-card">
-										<div className="metric-card-head">
-											<span className="metric-icon orange">
-												<Clock size={17} strokeWidth={2} aria-hidden="true" />
-											</span>
-											<span className="metric-badge amber">Review</span>
-										</div>
-										<div className="metric-body">
-											<span className="metric-label">Low Stock</span>
-											<strong className="metric-value">{lowStockCount}</strong>
-											<span className="metric-hint">Needs restocking</span>
-										</div>
-									</article>
-
-									<article className="metric-card">
-										<div className="metric-card-head">
-											<span className="metric-icon plum">
-												<Sparkles size={17} strokeWidth={2} aria-hidden="true" />
-											</span>
-											<span className="metric-badge plum">Featured</span>
-										</div>
-										<div className="metric-body">
-											<span className="metric-label">Featured Items</span>
-											<strong className="metric-value">{featuredCount}</strong>
-											<span className="metric-hint">Shown on homepage</span>
-										</div>
-									</article>
+									)}
 								</div>
 							</div>
-						</aside>
-					</div>
+
+							{visibleProducts.length > 0 && (
+								<nav className="nb-pager" aria-label="Menu catalog pages">
+									<span>Showing {(safePage - 1) * MENU_PAGE_SIZE + 1}–{Math.min(safePage * MENU_PAGE_SIZE, visibleProducts.length)} of {visibleProducts.length} items</span>
+									<div>
+										<button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Previous</button>
+										<span>Page {safePage} of {pageCount}</span>
+										<button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount}>Next</button>
+									</div>
+								</nav>
+							)}
+						</div>
+					</section>
+
+					<aside className="nb-notes" aria-label="Menu overview">
+						<h2 className="nb-notes-title">Menu overview</h2>
+						<article className="nb-note nb-note-butter">
+							<span className="nb-pin" aria-hidden="true" />
+							<div className="nb-note-top">
+								<Package size={16} strokeWidth={1.9} aria-hidden="true" />
+								<span>Total items</span>
+							</div>
+							<strong>{products.length}</strong>
+							<small>Across {categories.length - 1} categories</small>
+						</article>
+						<article className="nb-note nb-note-sage">
+							<span className="nb-pin" aria-hidden="true" />
+							<div className="nb-note-top">
+								<CheckCircle2 size={16} strokeWidth={2} aria-hidden="true" />
+								<span>Available now</span>
+							</div>
+							<strong>{availableCount}</strong>
+							<small>Ready to order</small>
+						</article>
+						<article className="nb-note nb-note-peach">
+							<span className="nb-pin" aria-hidden="true" />
+							<div className="nb-note-top">
+								<Clock size={16} strokeWidth={2} aria-hidden="true" />
+								<span>Low stock</span>
+							</div>
+							<strong>{lowStockCount}</strong>
+							<small>Needs restocking</small>
+						</article>
+						<article className="nb-note nb-note-rose">
+							<span className="nb-pin" aria-hidden="true" />
+							<div className="nb-note-top">
+								<Sparkles size={16} strokeWidth={2} aria-hidden="true" />
+								<span>Featured items</span>
+							</div>
+							<strong>{featuredCount}</strong>
+							<small>Shown on homepage</small>
+						</article>
+					</aside>
 				</div>
 			</main>
 			)}

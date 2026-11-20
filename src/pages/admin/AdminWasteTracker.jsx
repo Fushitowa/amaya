@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, CircleDollarSign, ClipboardList, Clock3, Menu, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Menu, RefreshCw, Search, Trash2, Undo2, X } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import LogWasteModal from "../../components/LogWasteModal.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useInventory } from "../../context/InventoryContext.jsx";
-import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
-import { formatManilaDate } from "../../../shared/manilaDate.js";
+import { WASTE_REASONS, formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
+import "../../assets/css/admin/MenuNotebook.css";
+import "../../assets/css/admin/WasteNotebook.css";
 import "../../assets/css/admin/AdminWasteTracker.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
 const WASTE_SCOPES = [
-  { key: "today", label: "Today" },
-  { key: "shift", label: "Active Shift" },
-  { key: "all", label: "All History" },
+  { key: "today", label: "Today", when: "today", empty: "today" },
+  { key: "shift", label: "This shift", when: "during this shift", empty: "during this shift" },
+  { key: "all", label: "All time", when: "in total", empty: "yet" },
 ];
 
 function formatWasteDateTime(value) {
@@ -31,19 +32,24 @@ function AdminWasteTracker() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const {
     wasteLogs = [],
-    wasteSummary = {},
     wasteLogsLoading = false,
     wasteLogsError = "",
     fetchWasteLogs,
+    reverseWasteLog,
   } = useInventory() || {};
   const [scope, setScope] = useState("today");
   const [search, setSearch] = useState("");
+  const [reasonFilter, setReasonFilter] = useState("all");
   const [showWasteModal, setShowWasteModal] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches,
   );
   const [successMessage, setSuccessMessage] = useState("");
+  const [undoTarget, setUndoTarget] = useState(null);
+  const [undoReason, setUndoReason] = useState("");
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState("");
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 800px)");
@@ -89,26 +95,76 @@ function AdminWasteTracker() {
   }, [activeWasteLogs]);
   const filteredLogs = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return wasteLogs;
-    return wasteLogs.filter((entry) => [
+    const byReason = reasonFilter === "all"
+      ? wasteLogs
+      : wasteLogs.filter((entry) => entry.wasteReason === reasonFilter);
+    if (!query) return byReason;
+    return byReason.filter((entry) => [
       entry.itemName,
       entry.actor,
       entry.note,
       getWasteReasonMeta(entry.wasteReason).label,
     ].some((value) => String(value || "").toLowerCase().includes(query)));
-  }, [search, wasteLogs]);
+  }, [search, reasonFilter, wasteLogs]);
+
+  const reversedCount = wasteLogs.length - activeWasteLogs.length;
+  const scopeMeta = WASTE_SCOPES.find((entry) => entry.key === scope) || WASTE_SCOPES[0];
+  const isFiltering = Boolean(search.trim()) || reasonFilter !== "all";
 
   const handleWasteSuccess = () => {
-    setSuccessMessage("Waste recorded. The tracker now reflects the inventory deduction.");
+    setSuccessMessage("Waste logged. The amount was taken out of stock.");
     refreshLogs();
   };
 
-  const currentDate = formatManilaDate(new Date(), {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const openUndo = (entry) => {
+    setUndoTarget(entry.id);
+    setUndoReason("");
+    setUndoError("");
+  };
+  const closeUndo = () => {
+    setUndoTarget(null);
+    setUndoReason("");
+    setUndoError("");
+  };
+  const submitUndo = async (event, entry) => {
+    event.preventDefault();
+    const reason = undoReason.trim();
+    if (reason.length < 3) {
+      setUndoError("Write a short reason (at least 3 characters).");
+      return;
+    }
+    if (!reverseWasteLog) {
+      setUndoError("Undo is not available right now. Refresh the page and try again.");
+      return;
+    }
+    setUndoBusy(true);
+    setUndoError("");
+    try {
+      await reverseWasteLog(entry.id, reason);
+      setSuccessMessage(`Undone. ${formatWasteQty(entry.deductedQuantity, entry.unit)} of ${entry.itemName || "the ingredient"} went back into stock.`);
+      closeUndo();
+      await refreshLogs();
+    } catch (error) {
+      setUndoError(error?.message || "Could not undo this entry. Please try again.");
+    } finally {
+      setUndoBusy(false);
+    }
+  };
+
+  const emptyTitle = wasteLogsError
+    ? "Could not load the waste log"
+    : wasteLogsLoading
+      ? "Loading entries…"
+      : isFiltering
+        ? "No entries match"
+        : scope === "all" ? "Nothing has been logged yet" : `Nothing logged ${scopeMeta.empty}`;
+  const emptyHelp = wasteLogsError
+    ? "Check your connection, then press Refresh."
+    : isFiltering
+      ? "Clear the search or pick another reason."
+      : "Use Log waste when something is spilled, expires or gets spoiled. Staff entries show up here too.";
+  const EmptyIcon = wasteLogsError ? AlertTriangle : wasteLogsLoading ? RefreshCw : ClipboardList;
+  const topItem = topWastedItems[0];
 
   return (
     <div className={`admin-waste-tracker-page${sidebarCollapsed ? " sidebar-collapsed" : ""}${isMobile ? " is-mobile" : ""}${mobileNavOpen ? " mobile-nav-open" : ""}`}>
@@ -120,146 +176,208 @@ function AdminWasteTracker() {
         onToggle={() => (isMobile ? setMobileNavOpen(false) : toggleSidebar())}
       />
 
-      <main className="awt-main">
-        <header className="awt-page-header">
-          <button type="button" className="awt-mobile-menu" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
-            <Menu size={22} aria-hidden="true" />
-          </button>
-          <div className="awt-heading-copy">
-            <span className="awt-eyebrow"><ClipboardList size={14} aria-hidden="true" /> INVENTORY RECORDS</span>
-            <h1>Waste &amp; Spoilage Tracker</h1>
-            <p>Review ingredient waste and its actual inventory cost. Each unreversed waste record posts to COGS.</p>
-            <span className="awt-date"><CalendarDays size={15} aria-hidden="true" /> {currentDate}</span>
-          </div>
-          <div className="awt-header-actions">
-            <button type="button" className="awt-button awt-button-secondary" onClick={refreshLogs} disabled={wasteLogsLoading}>
-              <RefreshCw size={16} aria-hidden="true" className={wasteLogsLoading ? "is-spinning" : ""} />
-              Refresh
-            </button>
-            <button type="button" className="awt-button awt-button-primary" onClick={() => setShowWasteModal(true)}>
-              <Trash2 size={16} aria-hidden="true" />
-              Log Waste / Spoilage
-            </button>
-          </div>
-        </header>
+      <main className="awt-main nb-main">
+        <div className="nb-desk">
+          <section className="nb-notebook" aria-label="Waste and spoilage log">
+            <div className="nb-spiral" aria-hidden="true" />
 
-        {successMessage && <div className="awt-feedback" role="status">{successMessage}</div>}
-        {wasteLogsError && <div className="awt-error" role="alert">{wasteLogsError}</div>}
+            <div className="nb-page">
+              <header className="nb-head">
+                <button type="button" className="nbw-menu" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+                  <Menu size={20} aria-hidden="true" />
+                </button>
+                <span className="nb-crest" aria-hidden="true">
+                  <Trash2 size={20} strokeWidth={2} />
+                </span>
+                <div className="nb-head-copy">
+                  <h1>Waste and spoilage</h1>
+                  <p>
+                    Everything thrown away or spoiled, and what it cost you.
+                    <span className="nb-live">
+                      <span className="nb-live-dot" aria-hidden="true" />
+                      {activeWasteLogs.length} {activeWasteLogs.length === 1 ? "entry" : "entries"} {scopeMeta.when}
+                    </span>
+                  </p>
+                </div>
+                <div className="nb-head-actions">
+                  <button type="button" className="nb-btn" onClick={refreshLogs} disabled={wasteLogsLoading}>
+                    <RefreshCw size={15} aria-hidden="true" className={wasteLogsLoading ? "is-spinning" : ""} />
+                    Refresh
+                  </button>
+                  <button type="button" className="nb-btn nb-btn-primary" onClick={() => setShowWasteModal(true)}>
+                    <Trash2 size={15} aria-hidden="true" />
+                    Log waste
+                  </button>
+                </div>
+              </header>
 
-        <section className="awt-kpis" aria-label="Waste overview">
-          <article className="awt-kpi-card">
-            <span><ClipboardList size={16} aria-hidden="true" /> Recorded events</span>
-            <strong>{Number(wasteSummary.total ?? wasteLogs.length).toLocaleString()}</strong>
-            <small>{WASTE_SCOPES.find((entry) => entry.key === scope)?.label} records</small>
-          </article>
-          <article className="awt-kpi-card is-loss">
-            <span><CircleDollarSign size={16} aria-hidden="true" /> Waste Cost (COGS)</span>
-            <strong>₱{totalLoss.toFixed(2)}</strong>
-            <small>Quantity wasted × ingredient unit cost · posted to account 6030</small>
-          </article>
-          <article className="awt-kpi-card">
-            <span><Clock3 size={16} aria-hidden="true" /> Most frequent waste</span>
-            <strong>{topWastedItems[0]?.name || "None recorded"}</strong>
-            <small>{topWastedItems[0] ? `${topWastedItems[0].events} recorded event${topWastedItems[0].events === 1 ? "" : "s"}` : "No unreversed waste in this range"}</small>
-          </article>
-        </section>
+              {successMessage && (
+                <div className="nbw-banner ok" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  <span>{successMessage}</span>
+                  <button type="button" onClick={() => setSuccessMessage("")} aria-label="Dismiss message"><X size={15} aria-hidden="true" /></button>
+                </div>
+              )}
+              {wasteLogsError && wasteLogs.length > 0 && (
+                <div className="nbw-banner warn" role="alert">
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <span>Showing the last saved list. The latest refresh failed: {wasteLogsError}</span>
+                  <button type="button" onClick={refreshLogs}><RefreshCw size={13} aria-hidden="true" /> Try again</button>
+                </div>
+              )}
 
-        {topWastedItems.length > 0 && (
-          <section className="awt-top-items" aria-label="Frequently wasted ingredients">
-            <div className="awt-section-heading">
-              <div>
-                <h2>Frequently Wasted Ingredients</h2>
-                <p>Ranked by number of waste events in the selected range.</p>
+              <div className="nb-toolbar">
+                <div className="nb-tabs" role="group" aria-label="Show entries from">
+                  {WASTE_SCOPES.map((entry) => (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      className={`nb-tab${scope === entry.key ? " is-active" : ""}`}
+                      aria-pressed={scope === entry.key}
+                      onClick={() => setScope(entry.key)}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="nb-tools">
+                  <label className="nb-field nb-search">
+                    <Search aria-hidden="true" size={14} strokeWidth={2.2} />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search ingredient, person or note"
+                      aria-label="Search waste entries"
+                    />
+                    {search && (
+                      <button type="button" className="nb-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+                        <X size={13} strokeWidth={2.2} aria-hidden="true" />
+                      </button>
+                    )}
+                  </label>
+                  <label className="nb-field nb-sort">
+                    <span className="nbw-field-label">Reason</span>
+                    <select value={reasonFilter} onChange={(event) => setReasonFilter(event.target.value)} aria-label="Filter by reason">
+                      <option value="all">All reasons</option>
+                      {WASTE_REASONS.map((reason) => (
+                        <option key={reason.value} value={reason.value}>{reason.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
-            </div>
-            <div className="awt-top-list">
-              {topWastedItems.map((item, index) => (
-                <article className="awt-top-item" key={item.name}>
-                  <span className="awt-top-rank">{String(index + 1).padStart(2, "0")}</span>
-                  <div className="awt-top-item-copy">
-                    <strong>{item.name}</strong>
-                    <small>{item.events} event{item.events === 1 ? "" : "s"} · {formatWasteQty(item.quantity, item.unit)}</small>
+
+              <div className="nb-sheet">
+                <div className="nb-sheet-title">
+                  <h2>Waste log</h2>
+                  <span className="nb-sheet-note">{filteredLogs.length} {filteredLogs.length === 1 ? "entry" : "entries"}</span>
+                </div>
+
+                {filteredLogs.length === 0 ? (
+                  <div className="nb-empty" role={wasteLogsError ? "alert" : "status"}>
+                    <EmptyIcon size={30} aria-hidden="true" className={wasteLogsLoading && !wasteLogsError ? "is-spinning" : ""} />
+                    <strong>{emptyTitle}</strong>
+                    <span>{emptyHelp}</span>
                   </div>
-                  <span className="awt-top-item-cost">₱{item.value.toFixed(2)}</span>
-                </article>
-              ))}
+                ) : (
+                  <ul className="nbw-rows">
+                    {filteredLogs.map((entry) => {
+                      const reason = getWasteReasonMeta(entry.wasteReason);
+                      const isUndoing = undoTarget === entry.id;
+                      return (
+                        <li key={entry.id} className={`nbw-row${entry.isReversed ? " is-undone" : ""}`}>
+                          <div className="nbw-main">
+                            <strong className="nbw-name" title={entry.itemName}>{entry.itemName || "Unknown ingredient"}</strong>
+                            <span className="nbw-chips">
+                              <span className="nbw-chip">{reason.label}</span>
+                              {entry.isReversed && <span className="nbw-chip nbw-chip-undone">Undone</span>}
+                            </span>
+                            {entry.note && <span className="nbw-note" title={entry.note}>{entry.note}</span>}
+                          </div>
+                          <div className="nbw-qty">
+                            <strong>{formatWasteQty(entry.deductedQuantity, entry.unit)}</strong>
+                            <span>wasted</span>
+                          </div>
+                          <div className="nbw-cost">
+                            <strong>₱{Number(entry.wasteValue || 0).toFixed(2)}</strong>
+                            <span>cost</span>
+                          </div>
+                          <div className="nbw-who">
+                            <strong>{formatWasteDateTime(entry.timestamp)}</strong>
+                            <span>by {entry.actor || "Staff"}</span>
+                          </div>
+                          <div className="nbw-act">
+                            {!entry.isReversed && (
+                              <button
+                                type="button"
+                                className="nbw-undo"
+                                onClick={() => openUndo(entry)}
+                                aria-expanded={isUndoing}
+                                title="Undo this entry and put the stock back"
+                                aria-label={`Undo waste entry for ${entry.itemName || "ingredient"}`}
+                              >
+                                <Undo2 size={14} aria-hidden="true" /> Undo
+                              </button>
+                            )}
+                          </div>
+                          {isUndoing && (
+                            <form className="nbw-undo-form" onSubmit={(event) => submitUndo(event, entry)}>
+                              <label>
+                                <span>Why are you undoing this? The stock goes back in and the cost is reversed.</span>
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={undoReason}
+                                  maxLength={255}
+                                  onChange={(event) => setUndoReason(event.target.value)}
+                                  placeholder="For example: logged the wrong item"
+                                />
+                              </label>
+                              <div className="nbw-undo-actions">
+                                <button type="submit" className="nb-btn nb-btn-primary" disabled={undoBusy}>{undoBusy ? "Undoing…" : "Undo entry"}</button>
+                                <button type="button" className="nb-btn" onClick={closeUndo} disabled={undoBusy}>Keep it</button>
+                              </div>
+                              {undoError && <p className="nbw-undo-error" role="alert">{undoError}</p>}
+                            </form>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
           </section>
-        )}
 
-        <section className="awt-log-panel" aria-label="Waste and spoilage records">
-          <div className="awt-log-header">
-            <div className="awt-section-heading">
-              <div>
-                <h2>Waste Records</h2>
-                <p>Quantity deductions, reason, cost, and staff audit trail.</p>
-              </div>
+          <aside className="nb-notes" aria-label="Waste summary">
+            <h2 className="nb-notes-title">At a glance</h2>
+            <div className="nb-note nb-note-butter">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><ClipboardList size={15} aria-hidden="true" /> Entries logged</div>
+              <strong>{activeWasteLogs.length.toLocaleString()}</strong>
+              <small>{scope === "all" ? "Across all time" : scope === "shift" ? "During this shift" : "Today"}</small>
             </div>
-            <div className="awt-log-controls">
-              <div className="awt-scope-tabs" role="group" aria-label="Waste record date range">
-                {WASTE_SCOPES.map((entry) => (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    className={scope === entry.key ? "is-active" : ""}
-                    aria-pressed={scope === entry.key}
-                    onClick={() => setScope(entry.key)}
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-              </div>
-              <label className="awt-search">
-                <Search size={16} aria-hidden="true" />
-                <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item, staff, reason..." aria-label="Search waste records" />
-              </label>
+            <div className="nb-note nb-note-rose">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Trash2 size={15} aria-hidden="true" /> Money lost</div>
+              <strong>₱{totalLoss.toFixed(2)}</strong>
+              <small>What the wasted stock cost you</small>
             </div>
-          </div>
-
-          <div className="awt-table-scroll">
-            <table className="awt-table">
-              <thead>
-                <tr>
-                  <th>Ingredient</th>
-                  <th>Quantity Wasted</th>
-                  <th>Cost</th>
-                  <th>Reason</th>
-                  <th>Date &amp; Time</th>
-                  <th>Recorded By</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLogs.map((entry) => {
-                  const reason = getWasteReasonMeta(entry.wasteReason);
-                  return (
-                    <tr key={entry.id} className={entry.isReversed ? "is-reversed" : ""}>
-                      <td><strong>{entry.itemName || "Unknown ingredient"}</strong>{entry.isReversed && <small className="awt-reversed-tag">Reversed</small>}</td>
-                      <td className="awt-quantity">-{formatWasteQty(entry.deductedQuantity, entry.unit)}</td>
-                      <td className="awt-cost">₱{Number(entry.wasteValue || 0).toFixed(2)}</td>
-                      <td><span className="awt-reason-pill">{reason.label}</span></td>
-                      <td className="awt-date-cell">{formatWasteDateTime(entry.timestamp)}</td>
-                      <td><span className="awt-recorded-by"><UserRound size={14} aria-hidden="true" /> {entry.actor || "Staff"}</span></td>
-                      <td className="awt-note-cell">{entry.note || "—"}</td>
-                    </tr>
-                  );
-                })}
-                {!filteredLogs.length && (
-                  <tr>
-                    <td colSpan={7} className="awt-empty-cell">
-                      <strong>{wasteLogsLoading ? "Loading waste records..." : search ? "No matching waste records" : "No waste records in this range"}</strong>
-                      <span>{search ? "Try another ingredient, staff name, or reason." : "Waste logged from the Staff Dashboard will appear here automatically."}</span>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <footer className="awt-table-footer">
-            <span>{filteredLogs.length} displayed record{filteredLogs.length === 1 ? "" : "s"}</span>
-            <span>Amounts and costs use the values saved with each waste record.</span>
-          </footer>
-        </section>
+            <div className="nb-note nb-note-peach">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><AlertTriangle size={15} aria-hidden="true" /> Wasted most</div>
+              <strong className="nbw-note-text">{topItem?.name || "Nothing yet"}</strong>
+              <small>{topItem ? `${topItem.events} ${topItem.events === 1 ? "time" : "times"} · ${formatWasteQty(topItem.quantity, topItem.unit)}` : "Entries will rank here"}</small>
+            </div>
+            <div className="nb-note nb-note-sage">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Undo2 size={15} aria-hidden="true" /> Undone</div>
+              <strong>{reversedCount.toLocaleString()}</strong>
+              <small>Entries taken back, stock returned</small>
+            </div>
+          </aside>
+        </div>
       </main>
 
       <LogWasteModal
