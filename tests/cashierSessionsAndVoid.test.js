@@ -147,7 +147,9 @@ describe("Tala Suite: Cashier Auth, RBAC, Shared Consumptions, Non-Destructive V
     assert.equal(inactiveCollision.status, 409);
     assert.match(inactiveCollision.data.message, /already assigned to/i);
 
-    // 3. POST /api/auth/change-password for staff (6-char min, 72-byte cap, collision 409) & admin (8-char min)
+    // 3. Cashiers cannot change their own password (F7): a self-service change would reveal
+    // whether a guess is a coworker's password, because cashier passwords must be unique.
+    // Only the owner sets cashier passwords. Admin keeps change-password (8-char min).
     const loginA = await server.requestJson("/api/auth/login", {
       method: "POST",
       body: { username: "staff", password: passA },
@@ -155,37 +157,33 @@ describe("Tala Suite: Cashier Auth, RBAC, Shared Consumptions, Non-Destructive V
     assert.equal(loginA.status, 200);
     const tokenABefore = loginA.data.token;
 
-    const staffTooShort = await server.requestJson("/api/auth/change-password", {
-      method: "POST",
-      token: tokenABefore,
-      body: { currentPassword: passA, newPassword: "12345" },
-    });
-    assert.equal(staffTooShort.status, 400);
-    assert.match(staffTooShort.data.message, /at least 6 characters/i);
-
-    const staffTooLong = await server.requestJson("/api/auth/change-password", {
-      method: "POST",
-      token: tokenABefore,
-      body: { currentPassword: passA, newPassword: "z".repeat(73) },
-    });
-    assert.equal(staffTooLong.status, 400);
-    assert.match(staffTooLong.data.message, /72 bytes/i);
-
-    const staffCollision = await server.requestJson("/api/auth/change-password", {
+    const staffGuessPeer = await server.requestJson("/api/auth/change-password", {
       method: "POST",
       token: tokenABefore,
       body: { currentPassword: passA, newPassword: passB },
     });
-    assert.equal(staffCollision.status, 409);
-    assert.match(staffCollision.data.message, /already assigned to/i);
-
-    const nextPassA = `NextA_${tag}`;
-    const staffChanged = await server.requestJson("/api/auth/change-password", {
+    const staffGuessOther = await server.requestJson("/api/auth/change-password", {
       method: "POST",
       token: tokenABefore,
-      body: { currentPassword: passA, newPassword: nextPassA },
+      body: { currentPassword: passA, newPassword: `NotAPeer_${tag}` },
     });
-    assert.equal(staffChanged.status, 200);
+    assert.equal(staffGuessPeer.status, 403);
+    assert.equal(staffGuessOther.status, 403);
+    assert.equal(
+      staffGuessPeer.data.message,
+      staffGuessOther.data.message,
+      "a peer's password and a random guess must get the same answer (no password oracle)",
+    );
+    const stillLoggedIn = await server.requestJson("/api/auth/me", { token: tokenABefore });
+    assert.equal(stillLoggedIn.status, 200, "a rejected self-service change must not alter the cashier's session");
+
+    const nextPassA = `NextA_${tag}`;
+    const ownerSetA = await server.requestJson(`/api/auth/cashiers/${cashierAId}/password`, {
+      method: "PUT",
+      token: admin.token,
+      body: { password: nextPassA },
+    });
+    assert.equal(ownerSetA.status, 200);
 
     // Token version incremented -> old token must be rejected with 401
     const oldTokenCheck = await server.requestJson("/api/auth/me", { token: tokenABefore });

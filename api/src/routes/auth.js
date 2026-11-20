@@ -201,6 +201,13 @@ router.post("/logout", requireAuth, async (request, response) => {
 });
 
 router.post("/change-password", requireAuth, async (request, response) => {
+  // Cashiers are identified by password alone (login and Switch Cashier), so cashier
+  // passwords must stay unique. Letting a cashier choose their own password would
+  // reveal whether a guess belongs to a coworker. Only the owner sets cashier passwords
+  // (PUT /api/auth/cashiers/:id/password or the control panel's account manager).
+  if (request.authUser.role !== "admin") {
+    return response.status(403).json({ message: "Ask the owner to change your cashier password." });
+  }
   const currentPassword = String(request.body?.currentPassword || "");
   const newPassword = String(request.body?.newPassword || "");
 
@@ -224,7 +231,7 @@ router.post("/change-password", requireAuth, async (request, response) => {
       return response.status(401).json({ message: "Account not found." });
     }
 
-    const minLen = user.role === "staff" ? 6 : 8;
+    const minLen = 8; // only the owner (admin) can reach this point
     if (newPassword.length < minLen) {
       await connection.rollback();
       return response.status(400).json({
@@ -235,21 +242,6 @@ router.post("/change-password", requireAuth, async (request, response) => {
     if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
       await connection.rollback();
       return response.status(400).json({ message: "Your current password is incorrect." });
-    }
-
-    if (user.role === "staff") {
-      const [otherStaff] = await connection.execute(
-        "SELECT id, display_name, password_hash FROM users WHERE role = 'staff' AND id != ? FOR UPDATE",
-        [user.id]
-      );
-      for (const peer of otherStaff) {
-        if (await bcrypt.compare(newPassword, peer.password_hash)) {
-          await connection.rollback();
-          return response.status(409).json({
-            message: "That password is already assigned to another cashier. Please choose a different password.",
-          });
-        }
-      }
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
