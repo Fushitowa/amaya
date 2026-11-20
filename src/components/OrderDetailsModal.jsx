@@ -45,6 +45,10 @@ import { usePrefersReducedMotion } from "../utils/usePrefersReducedMotion.js";
 
 import "../assets/css/order-details-modal.css";
 
+const SELF_REVERT_GRACE_MS = 5 * 60 * 1000;
+// Called only from the revert button's click handler, never during render.
+const currentTimeMs = () => Date.now();
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -89,6 +93,7 @@ function OrderDetailsModal({
   const [revertReason, setRevertReason] = useState("");
   const [revertStockAction, setRevertStockAction] = useState(() => getDefaultVoidStockAction(order?.status));
   const [authorizationPassword, setAuthorizationPassword] = useState("");
+  const [revertOpenedAt, setRevertOpenedAt] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
@@ -315,6 +320,7 @@ function OrderDetailsModal({
     setRevertQty(Math.max(1, Number(item.quantity || 1)));
     setRevertReason("");
     setAuthorizationPassword("");
+    setRevertOpenedAt(currentTimeMs());
     setRevertStockAction(
       getDefaultVoidStockAction(
         displayOrder.status,
@@ -330,11 +336,19 @@ function OrderDetailsModal({
     displayOrder.createdById != null &&
     currentUser?.id != null &&
     Number(displayOrder.createdById) !== Number(currentUser.id);
+  // Mirrors SELF_REVERT_GRACE_SECONDS (api/src/services/ordersReversalService.js). Asks for the
+  // password 30 s early so a slightly fast/slow tablet clock never blocks the revert.
+  const createdAtMs = displayOrder.createdAt ? new Date(displayOrder.createdAt).getTime() : NaN;
+  const isOwnPendingPastGrace =
+    displayOrder.status === "Pending" &&
+    !isCrossCashierPending &&
+    Number.isFinite(createdAtMs) &&
+    revertOpenedAt - createdAtMs > SELF_REVERT_GRACE_MS - 30_000;
   const needsAdminOnlyForRevert = portal !== "admin" && isOwnerConfirmed;
   const needsPeerOrAdminForRevert =
     portal !== "admin" &&
     !isOwnerConfirmed &&
-    (displayOrder.status !== "Pending" || isCrossCashierPending);
+    (displayOrder.status !== "Pending" || isCrossCashierPending || isOwnPendingPastGrace);
   const needsAuthorizationPasswordForRevert = needsAdminOnlyForRevert || needsPeerOrAdminForRevert;
   const maxRevertQty = Math.max(1, Number(revertTargetItem?.quantity || 1));
   const willCancelFullOrderOnRevert =
@@ -737,7 +751,7 @@ function OrderDetailsModal({
                       <strong>
                         {needsAdminOnlyForRevert
                           ? "Admin Password Required (Owner-Confirmed Order)"
-                          : `Peer Staff or Admin Password Required (${isCrossCashierPending ? "Cross-Cashier Pending" : displayOrder.status} Order)`}
+                          : `Peer Staff or Admin Password Required (${isCrossCashierPending ? "Cross-Cashier Pending" : isOwnPendingPastGrace ? "Placed over 5 minutes ago" : displayOrder.status} Order)`}
                       </strong>
                     </div>
                     <p className="odm-admin-auth-note">

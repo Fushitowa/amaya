@@ -8,6 +8,9 @@ import {
 } from "../utils/ledgerService.js";
 import { loadOrderByNumber } from "./ordersQueryService.js";
 
+/** A cashier may revert items on their own Pending order without approval for this long. */
+export const SELF_REVERT_GRACE_SECONDS = 5 * 60;
+
 export async function findAuthorizingUser(connection, authPassword, { includeStaff = false, excludeUserId = null } = {}) {
   if (!authPassword) return null;
   const roleClause = includeStaff ? "role IN ('admin', 'staff')" : "role = 'admin'";
@@ -314,7 +317,8 @@ export async function executeOrderItemRevert({
     await connection.beginTransaction();
     txOpen = true;
     const [[order]] = await connection.execute(
-      `SELECT id, order_number, order_status, payment_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due, owner_confirmed_at, created_by, session_id
+      `SELECT id, order_number, order_status, payment_status, payment_method, subtotal, discount_amount, tax_amount, total, cash_tendered, change_due, owner_confirmed_at, created_by, session_id,
+              TIMESTAMPDIFF(SECOND, created_at, NOW()) AS age_seconds
          FROM orders
         WHERE order_number = ?
           FOR UPDATE`,
@@ -366,6 +370,24 @@ export async function executeOrderItemRevert({
         throw httpError(
           403,
           "Only the cashier who created this Pending order or an authorizing peer/admin may revert its items.",
+        );
+      }
+    } else if (
+      actorRole !== "admin" &&
+      order.order_status === "Pending" &&
+      Number(order.age_seconds) > SELF_REVERT_GRACE_SECONDS
+    ) {
+      // Orders are paid at creation, so an unapproved self-revert later on would let a
+      // cashier keep the cash. The grace window covers fixing a mistake while the
+      // customer is still at the counter.
+      authorizingUser = await findAuthorizingUser(connection, authPassword, {
+        includeStaff: true,
+        excludeUserId: actorId,
+      });
+      if (!authorizingUser) {
+        throw httpError(
+          403,
+          "More than 5 minutes have passed since this order was placed. Enter a coworker's or the owner's password to revert it.",
         );
       }
     }
