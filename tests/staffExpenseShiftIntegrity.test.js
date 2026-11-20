@@ -101,6 +101,39 @@ describe("Staff expense recording: shift cash integrity and channel/date restric
     assert.equal(Number(varianceEntries.n), 0, "no cash shortage entry may be posted for a correctly counted drawer");
   });
 
+  it("records an expense once when the same clientRequestId is retried, and rejects a changed payload", async () => {
+    const staff = await tracker.createUser({ role: "staff" });
+    const openRes = await server.requestJson("/api/sessions/open", {
+      method: "POST",
+      token: staff.token,
+      body: { openingFloat: 500, terminalLabel: "Retry Counter" },
+    });
+    assert.equal(openRes.status, 201);
+    tracker.sessionIds.add(Number(openRes.data.session.id));
+
+    const clientRequestId = `expense-retry-${Date.now()}-abcdef`;
+    const body = expense({ amount: 120, clientRequestId });
+    const first = await server.requestJson("/api/finances/expense-records", { method: "POST", token: staff.token, body });
+    const retry = await server.requestJson("/api/finances/expense-records", { method: "POST", token: staff.token, body });
+    assert.equal(first.status, 201);
+    assert.equal(retry.status, 200);
+    assert.equal(retry.data.replayed, true);
+    assert.equal(retry.data.entryId, first.data.entryId);
+
+    const [[count]] = await pool.execute(
+      "SELECT COUNT(*) AS n FROM journal_entries WHERE idempotency_key = ?",
+      [`expense:${staff.id}:${clientRequestId}`],
+    );
+    assert.equal(Number(count.n), 1, "retry must not create a second journal entry");
+
+    const changed = await server.requestJson("/api/finances/expense-records", {
+      method: "POST",
+      token: staff.token,
+      body: { ...body, amount: 999 },
+    });
+    assert.equal(changed.status, 409);
+  });
+
   it("still lets the owner record bank-paid and backdated expenses", async () => {
     const admin = await tracker.createUser({ role: "admin" });
     const res = await server.requestJson("/api/finances/expense-records", {

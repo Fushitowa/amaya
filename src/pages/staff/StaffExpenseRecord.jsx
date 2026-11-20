@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Menu, ReceiptText } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { createClientRequestId } from "../../utils/clientRequestId.js";
 import { EXPENSE_NAV_CATEGORIES } from "../../config/expenseNavigation.js";
 import { currentBudgetMonth } from "../../utils/expenseBudget.js";
 import "../../assets/css/admin/AdminReport.css";
@@ -33,6 +34,9 @@ function StaffExpenseRecord() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  // One ID per expense: reused on retries so a double-tap or flaky Wi-Fi can't post it twice,
+  // replaced only after the expense is saved.
+  const clientRequestIdRef = useRef(null);
   const month = useMemo(() => (date ? date.slice(0, 7) : currentBudgetMonth()), [date]);
 
   useEffect(() => {
@@ -58,12 +62,14 @@ function StaffExpenseRecord() {
     }
     const recordDate = manilaToday();
     setDate(recordDate);
+    if (!clientRequestIdRef.current) clientRequestIdRef.current = createClientRequestId("expense");
     setSaving(true);
     try {
       const result = await apiRequest("/finances/expense-records", {
         method: "POST",
-        body: JSON.stringify({ category, description, amount: value, date: recordDate, channel: STAFF_CHANNEL, receiptReference, notes }),
+        body: JSON.stringify({ category, description, amount: value, date: recordDate, channel: STAFF_CHANNEL, receiptReference, notes, clientRequestId: clientRequestIdRef.current }),
       });
+      clientRequestIdRef.current = null;
       try {
         const updatedHealth = await apiRequest(`/finances/expense-budgets/health?month=${encodeURIComponent(month)}`);
         setHealth(updatedHealth?.items?.find((item) => item.category === category) || null);

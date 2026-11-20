@@ -281,6 +281,23 @@ router.post("/expense-records", requireAuth, requireRole("admin", "staff"), asyn
   const notes = String(request.body?.notes || "").trim().slice(0, 150);
   const receiptReference = String(request.body?.receiptReference || "").trim().slice(0, 100);
   const memo = `${description}${notes ? ` · ${notes}` : ""}`.slice(0, 255);
+  // 64 chars max so "expense:<userId>:<id>" fits journal_entries.idempotency_key (VARCHAR 96).
+  const cleanClientRequestId = parseOptionalClientRequestId(request.body?.clientRequestId, { maxLength: 64 });
+  // Retries (double-tap, slow Wi-Fi) with the same clientRequestId return the first
+  // entry instead of posting the expense twice.
+  const idempotencyKey = cleanClientRequestId ? `expense:${request.authUser.sub}:${cleanClientRequestId}` : null;
+  const lines = [
+    { accountCode: category.accountCodes[0], debit: amount, credit: 0, lineMemo: description },
+    { accountCode: creditAccountCode, debit: 0, credit: amount, lineMemo: "Expense payment" },
+  ];
+  const replayResponse = async (entryId) => {
+    await assertJournalReplayMatches(pool, entryId, "operating_expense", lines);
+    return response.status(200).json({ message: "Expense already recorded.", entryId, amount, category: category.slug, replayed: true });
+  };
+  if (idempotencyKey) {
+    const [[existing]] = await pool.execute("SELECT id FROM journal_entries WHERE idempotency_key = ? LIMIT 1", [idempotencyKey]);
+    if (existing) return replayResponse(Number(existing.id));
+  }
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -304,12 +321,16 @@ router.post("/expense-records", requireAuth, requireRole("admin", "staff"), asyn
       referenceNumber: receiptReference || null,
       entryDate: `${date} 12:00:00`,
       sessionId,
+      idempotencyKey,
       createdBy: request.authUser.sub,
-      lines: [
-        { accountCode: category.accountCodes[0], debit: amount, credit: 0, lineMemo: description },
-        { accountCode: creditAccountCode, debit: 0, credit: amount, lineMemo: "Expense payment" },
-      ],
+      lines,
     });
+    if (result.skipped) {
+      // A concurrent request with the same clientRequestId won the race.
+      await connection.rollback();
+      if (result.entryId) return replayResponse(result.entryId);
+      throw httpError(409, "This expense is already being recorded. Please refresh.");
+    }
     await connection.execute(
       `UPDATE journal_entries je JOIN expense_categories ec ON ec.slug = ?
           SET je.expense_category_id = ec.id WHERE je.id = ?`,
