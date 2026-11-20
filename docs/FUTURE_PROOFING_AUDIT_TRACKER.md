@@ -3,7 +3,7 @@
 Audit date: 2026-11-20 · Read-only audit of the admin, staff and customer apps, the API, MariaDB/XAMPP and the control panel.
 Update the **Status** column as findings are fixed, and add the commit that fixed each one.
 
-**Progress:** 3 of 18 findings fixed (F1, F2, F3) · F18 also fixed · 15 open · Test suite: 159 / 159 passing
+**Progress:** 7 of 18 findings fixed (F1, F2, F3, F4, F7, F9, F11) · F12 partly fixed (needs the Windows service installed) · F18 also fixed · 10 open · Test suite: 160 / 160 passing
 
 Status key: ✅ Fixed · ⏳ Open · 🟡 Partly fixed
 
@@ -36,15 +36,27 @@ Extra fixes done alongside Phase 0:
 
 ---
 
-## Phase 1: Money & database safety ⏳ Next
+## Phase 1: Money & database safety ✅ Done (F12 waits on the owner installing the MySQL service)
 
 | ID | Severity | Finding | Where | Fix | Regression test | Status |
 |---|---|---|---|---|---|---|
-| F11 | 🟠 HIGH | No automated backups (last dump was Nov 13) | whole system | Daily `mysqldump --single-transaction`, keep 14 days, plus a dump before every migrate or Vault run | Backup file exists after the scheduled run | ⏳ |
-| F12 | 🟠 HIGH | MySQL runs as a child of the control panel, so a Windows shutdown or update can hard-kill it | `scripts/amaya_control_panel.py` | Install XAMPP MySQL as a Windows service | Reboot, then the error log shows no crash recovery | ⏳ |
-| F9 | 🟠 HIGH | UI allows 5 MB images but MariaDB `max_allowed_packet` is 1 MB | `src/pages/admin/AdminMenuManagement.jsx:36`, `my.ini` | Resize images to ≤ 300 KB before upload; optionally raise packet to 16M | A 2 MB photo saves; stored length ≤ 400 KB | ⏳ |
-| F4 | 🟡 MEDIUM | Staff expenses have no idempotency key, so a retry double-posts | `api/src/routes/finances.js` (`/expense-records`) | `clientRequestId` + `idempotencyKey` | Same `clientRequestId` twice gives 1 journal entry | ⏳ |
-| F7 | 🟠 HIGH | Change-password `409` reveals coworkers' passwords; staff login is password-only | `api/src/routes/auth.js:62-87, 240-252` | Login picks the cashier first, then drop the uniqueness check | Changing to a peer's password gives no distinguishable answer | ⏳ |
+| F11 | 🟠 HIGH | No automated backups (last dump was Nov 13) | whole system | `api/src/backup-db.js` (`npm run db:backup`): verified `mysqldump --single-transaction` into `database/backups/auto/`, rotated (14 daily, 10 per other reason). Control panel takes a daily backup (checked every 30 min), one before every migrate and Vault run (aborts if it fails), and has a 💾 Backup Now button | Tested live: dump verified, daily skip works, panel helper works | ✅ |
+| F12 | 🟠 HIGH | MySQL runs as a child of the control panel, so a Windows shutdown or update can hard-kill it | `scripts/amaya_control_panel.py` | Panel now starts MySQL through the `mysql` Windows service when it exists. **Owner action still needed:** install the service (see "How to install MySQL as a Windows service" below) | Reboot, then the error log shows no crash recovery | 🟡 |
+| F9 | 🟠 HIGH | UI allows 5 MB images but MariaDB `max_allowed_packet` is 1 MB | `src/utils/imageResize.js`, `api/src/utils/validation.js` | Photos are resized in the browser (≤ 1024 px, WebP/JPEG, ≤ ~370 KB); API rejects data URIs over 850,000 chars with a clear 413 | 11 MB test photo → 419 KB WebP in the browser; 900 KB data URI → 413 | ✅ |
+| F4 | 🟡 MEDIUM | Staff expenses have no idempotency key, so a retry double-posts | `api/src/routes/finances.js` (`/expense-records`), `StaffExpenseRecord.jsx` | One `clientRequestId` per expense, reused on retry; server returns the first entry (200, `replayed`) and 409s on a changed payload | Same `clientRequestId` twice gives 1 journal entry | ✅ |
+| F7 | 🟠 HIGH | Change-password `409` reveals coworkers' passwords; staff login is password-only | `api/src/routes/auth.js` (`/change-password`) | Owner decision: **the owner sets cashier passwords**. Cashiers get a 403 from self-service change-password (no staff screen used it); login and Switch Cashier stay password-only and fast | A peer's password and a random guess get the same 403 | ✅ |
+
+### How to install MySQL as a Windows service (F12, owner action)
+
+1. Stop MySQL from the Amaya Control Panel and wait for "MySQL shut down cleanly".
+2. Close the Amaya Control Panel.
+3. Right-click **XAMPP Control Panel** → **Run as administrator**.
+4. In the MySQL row, click the red ❌ in the **Service** column → **Yes**. It turns into a green ✔.
+5. Open the Amaya Control Panel again and press Start All. Its log should say "Starting MySQL Windows service 'mysql'".
+6. Optional: in Windows **Services**, set MySQL's startup type to **Automatic** so it starts with the PC.
+
+Optional extra backup when the panel isn't open (run once in PowerShell, adjust the path):
+`schtasks /Create /SC DAILY /ST 22:00 /TN "Amaya DB Backup" /TR "cmd /c cd /d \"%USERPROFILE%\Desktop\SCHOOL CODING\AMAYA\api\" && node src/backup-db.js --reason daily --if-older-than-hours 20"`
 
 ## Phase 2: Reliability ⏳
 
