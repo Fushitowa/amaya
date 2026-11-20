@@ -240,6 +240,11 @@ def resolve_npm_executable() -> str:
 
 def is_port_open(port: int, timeout: float = 0.25) -> bool:
     """Check both IPv4 (127.0.0.1) and IPv6 (::1) loopback interfaces."""
+    if port == 3306 and os.name == "nt":
+        # Never open a TCP connection to MySQL just to see if it is up: every probe that
+        # connects and hangs up makes MariaDB log an "Aborted connection" warning, which
+        # flooded mysql_error.log (15,000+ lines). Read the listening-socket table instead.
+        return bool(find_pids_on_port(port))
     targets = [
         (socket.AF_INET, "127.0.0.1"),
         (socket.AF_INET6, "::1"),
@@ -318,6 +323,7 @@ def find_mysqld_pids() -> list[int]:
         return []
 
 
+MAX_LOG_LINES_PER_TAB = 5000
 MYSQL_SERVICE_NAME = "mysql"  # name XAMPP uses when MySQL is installed as a Windows service
 
 
@@ -383,6 +389,9 @@ def check_api_health(timeout: float = 0.6) -> tuple[str, str]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
             if resp.status == 200 and data.get("status") == "ok":
+                pending = data.get("pendingMigrations") or []
+                if pending:
+                    return "warn", f"{len(pending)} migration(s) pending: run Setup / Migrate"
                 return "ok", "DB Connected (200 OK)"
             return "warn", f"HTTP {resp.status}"
     except urllib.error.HTTPError as http_err:
@@ -3484,6 +3493,10 @@ class AmayaControlPanel:
         if tab_id == "all":
             widget.insert(tk.END, prefix, prefix_tag)
         widget.insert(tk.END, text + "\n", body_tag)
+        # Keep only the newest lines so a panel left open for days doesn't grow without limit.
+        line_count = int(widget.index("end-1c").split(".")[0])
+        if line_count > MAX_LOG_LINES_PER_TAB:
+            widget.delete("1.0", f"{line_count - MAX_LOG_LINES_PER_TAB + 1}.0")
         if self.auto_scroll_var.get():
             widget.see(tk.END)
         widget.configure(state=tk.DISABLED)
