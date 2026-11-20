@@ -3,7 +3,7 @@
 Audit date: 2026-11-20 · Read-only audit of the admin, staff and customer apps, the API, MariaDB/XAMPP and the control panel.
 Update the **Status** column as findings are fixed, and add the commit that fixed each one.
 
-**Progress:** 7 of 18 findings fixed (F1, F2, F3, F4, F7, F9, F11) · F12 partly fixed (needs the Windows service installed) · F18 also fixed · 10 open · Test suite: 160 / 160 passing
+**Progress:** 11 of 18 findings fixed (F1–F5, F7–F11, F13) · F12 partly fixed (needs the Windows service installed) · F18 also fixed · 6 open (Phase 3) · Test suite: 164 / 164 passing
 
 Status key: ✅ Fixed · ⏳ Open · 🟡 Partly fixed
 
@@ -58,14 +58,16 @@ Extra fixes done alongside Phase 0:
 Optional extra backup when the panel isn't open (run once in PowerShell, adjust the path):
 `schtasks /Create /SC DAILY /ST 22:00 /TN "Amaya DB Backup" /TR "cmd /c cd /d \"%USERPROFILE%\Desktop\SCHOOL CODING\AMAYA\api\" && node src/backup-db.js --reason daily --if-older-than-hours 20"`
 
-## Phase 2: Reliability ⏳
+## Phase 2: Reliability ✅ Done
 
 | ID | Severity | Finding | Where | Fix | Regression test | Status |
 |---|---|---|---|---|---|---|
-| F5 | 🟡 MEDIUM | Net Income PIN can be bypassed by subtraction; Trial Balance not gated | `api/src/routes/finances.js` (trial-balance, P&L, balance sheet) | Require the PIN token for the whole P&L, Trial Balance and Balance Sheet | No field lets Net Income be derived without a token | ⏳ |
-| F8 | 🟡 MEDIUM | Cashier can revert their own paid Pending order without approval | `api/src/services/ordersReversalService.js:342-371` | Require peer/admin approval for reverts on Paid orders | Staff self-revert without password gives 403 | ⏳ |
-| F13 | 🟡 MEDIUM | Vault Archive & Clean resets AUTO_INCREMENT, so new items reuse old IDs and history points to the wrong items | `api/src/catalog-vault.js:396-433` | Never reset AUTO_INCREMENT; archive instead of delete | New item ID is greater than every historical ID | ⏳ |
-| F10 | 🟡 MEDIUM | `sql_mode` not strict, so bad values are silently clamped or truncated | `C:\xampp\mysql\bin\my.ini` | Add `STRICT_TRANS_TABLES` (test on `amaya_test` first) | Full suite passes under strict mode | ⏳ |
+| F5 | 🟡 MEDIUM | Net Income PIN can be bypassed by subtraction; Trial Balance not gated | `api/src/routes/finances.js`, finance screens | Owner decision: **lock the profit statements**. While locked, the API hides COGS, gross profit, expenses, depreciation, tax, net income, equity and revenue/expense account balances (`profitLocked: true`); Trial Balance returns 403. Sales, cash, assets and liabilities stay visible. Screens show ₱•••••• and a "View Net Income" button | `tests/netIncomePinGate.test.js` checks every field | ✅ |
+| F8 | 🟡 MEDIUM | Cashier can revert their own paid Pending order without approval | `api/src/services/ordersReversalService.js`, `OrderDetailsModal.jsx` | Owner decision: **5-minute grace, then approval**. After 5 minutes a coworker's or the owner's password is required (own password doesn't count) | `tests/orderRevertGraceWindow.test.js` | ✅ |
+| F13 | 🟡 MEDIUM | Vault Archive & Clean resets AUTO_INCREMENT, so new items reuse old IDs and history points to the wrong items | `api/src/catalog-vault.js` | Removed the AUTO_INCREMENT reset (archive-instead-of-delete not done) | `tests/catalogVaultIdSafety.test.js` (source guard; a live run would wipe the shared test DB) | ✅ |
+| F10 | 🟡 MEDIUM | `sql_mode` not strict, so bad values are silently clamped or truncated | `api/src/database.js` | Every API connection sets `STRICT_TRANS_TABLES` (no `my.ini` change or restart needed). It immediately caught 2 tests inserting an invalid category type | `tests/dbStrictMode.test.js` + full suite under strict mode | ✅ |
+
+**Known limit of F5:** the Reports page sales analytics still show COGS and gross profit (needed for menu pricing), and the Expenses pages show spending, so someone with the owner's session could still roughly estimate profit by combining those pages. The formal statements themselves stay locked.
 
 ## Phase 3: Hardening ⏳
 
