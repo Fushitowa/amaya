@@ -183,12 +183,16 @@ export async function runArchivePurgeCheck() {
       }
     }
 
-    // 2. Purge expired inventory items (if not consumed in customer orders or linked to remaining products)
+    // 2. Purge expired inventory items (if not consumed in customer orders or linked to remaining products).
+    // Items with order or stock-movement history can never be deleted (that history must be kept),
+    // so skip them here instead of retrying and logging a warning every minute forever.
     const [expiredInventory] = await lockConn.execute(
-      `SELECT id, name FROM inventory_items
-        WHERE is_archived = TRUE
-          AND archived_at IS NOT NULL
-          AND archived_at <= DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      `SELECT i.id, i.name FROM inventory_items i
+        WHERE i.is_archived = TRUE
+          AND i.archived_at IS NOT NULL
+          AND i.archived_at <= DATE_SUB(NOW(), INTERVAL ? DAY)
+          AND NOT EXISTS (SELECT 1 FROM order_inventory_consumptions c WHERE c.inventory_item_id = i.id)
+          AND NOT EXISTS (SELECT 1 FROM inventory_movements m WHERE m.inventory_item_id = i.id)`,
       [retentionDays],
     );
     for (const item of expiredInventory) {
