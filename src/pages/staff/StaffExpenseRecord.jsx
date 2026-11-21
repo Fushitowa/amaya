@@ -6,7 +6,11 @@ import { useSidebar } from "../../context/useSidebar.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
 import { apiRequest } from "../../utils/api.js";
 import { createClientRequestId } from "../../utils/clientRequestId.js";
-import { EXPENSE_NAV_CATEGORIES } from "../../config/expenseNavigation.js";
+import { EXPENSE_NAV_CATEGORIES, PAYROLL_EXPENSE_ACCOUNT_CODES } from "../../config/expenseNavigation.js";
+
+// Salary, wages, overtime, contributions and 13th month are recorded through Payroll Runs only.
+// Cash over/short is posted by shift close, never by hand.
+const RECORDABLE_CATEGORIES = EXPENSE_NAV_CATEGORIES.filter((item) => !item.readOnly && !PAYROLL_EXPENSE_ACCOUNT_CODES.includes(item.accountCodes[0]));
 import { currentBudgetMonth } from "../../utils/expenseBudget.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/admin/AdminExpenseCategory.css";
@@ -24,7 +28,7 @@ function StaffExpenseRecord() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
   const { darkMode } = useTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [category, setCategory] = useState(EXPENSE_NAV_CATEGORIES.at(-1)?.slug || "miscellaneous");
+  const [category, setCategory] = useState(RECORDABLE_CATEGORIES.at(-1)?.slug || "miscellaneous");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(manilaToday);
@@ -106,7 +110,7 @@ function StaffExpenseRecord() {
             <form className="staff-expense-form" onSubmit={submit}>
               <label>Item or description<input required maxLength={180} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="e.g. Faucet replacement parts" /></label>
               <div className="staff-expense-form-row">
-                <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}>{EXPENSE_NAV_CATEGORIES.map((item) => <option value={item.slug} key={item.slug}>{item.label}</option>)}</select></label>
+                <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}>{RECORDABLE_CATEGORIES.map((item) => <option value={item.slug} key={item.slug}>{item.label}</option>)}</select></label>
                 <label>Amount (₱)<input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /></label>
               </div>
               <div className="staff-expense-form-row">

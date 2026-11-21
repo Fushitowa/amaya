@@ -17,6 +17,7 @@ import archiveRoutes from "../../api/src/routes/archive.js";
 import notificationsRoutes from "../../api/src/routes/notifications.js";
 import decisionRoutes from "../../api/src/routes/decisions.js";
 import mediaRoutes from "../../api/src/routes/media.js";
+import payrollRoutes from "../../api/src/routes/payroll.js";
 
 export function makeUniqueTag(prefix = "Tala") {
   const rand = Math.floor(Math.random() * 1_000_000);
@@ -39,6 +40,7 @@ export function createTestApp() {
   app.use("/api/notifications", notificationsRoutes);
   app.use("/api/decisions", decisionRoutes);
   app.use("/api/media", mediaRoutes);
+  app.use("/api/payroll", payrollRoutes);
 
   app.use((request, response) => {
     response.status(404).json({ message: `Route not found: ${request.method} ${request.path}` });

@@ -46,11 +46,12 @@ import "../../assets/css/portal-user.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 import { shrinkImageToDataUri } from "../../utils/imageResize.js";
+import { isWholeNumberUnit } from "../../../shared/units.js";
 
 const inventoryUnitGroups = [
   { label: "Weight", options: [["mg", "Milligrams (mg)"], ["g", "Grams (g)"], ["hg", "Hectograms (hg)"], ["kg", "Kilograms (kg)"], ["oz", "Ounces (oz)"], ["lb", "Pounds (lb)"]] },
-  { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
-  { label: "Count", options: [["pcs", "Pieces (pcs)"], ["can", "Cans (can)"], ["pair", "Pairs"], ["dozen", "Dozen"]] },
+  { label: "Volume", options: [["ml", "Milliliters (ml)"], ["cl", "Centiliters (cl)"], ["dl", "Deciliters (dl)"], ["l", "Liters (L)"], ["tsp", "Teaspoons (tsp)"], ["tbsp", "Tablespoons (tbsp)"], ["fl oz", "Fluid ounces (fl oz)"], ["cup", "Cups (measuring cup)"], ["pt", "Pints (pt)"], ["qt", "Quarts (qt)"], ["gal", "Gallons (gal)"], ["cc", "Cubic centimeters (cc)"]] },
+  { label: "Count (whole items)", options: [["pcs", "Pieces (pcs)"], ["can", "Cans (can)"], ["pair", "Pairs"], ["dozen", "Dozen (12 pieces)"]] },
 ];
 const INTERNAL_USE_QUICK_PICKS = [
   { code: "6113", title: "Staff Meals", subtitle: "Crew food & drinks" },
@@ -138,75 +139,6 @@ function readInventoryAlertPreference() {
   } catch {
     return true;
   }
-}
-
-function FieldHelpTooltip({ title, text, align = "left" }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleDocumentClick = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (e) => {
-      if (e.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handleDocumentClick);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDocumentClick);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <span
-      className="inventory-field-help-wrap"
-      ref={containerRef}
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <button
-        type="button"
-        className={`inventory-field-help-btn ${isOpen ? "is-active" : ""}`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsOpen((prev) => !prev);
-        }}
-        onFocus={() => setIsOpen(true)}
-        onBlur={(e) => {
-          if (!containerRef.current?.contains(e.relatedTarget)) {
-            setIsOpen(false);
-          }
-        }}
-        aria-label={`Help: ${title}`}
-        aria-expanded={isOpen}
-      >
-        !
-      </button>
-
-      {isOpen && (
-        <span
-          className={`inventory-field-help-popover align-${align}`}
-          role="tooltip"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-        >
-          <span className="inventory-field-help-title">
-            <span className="inventory-field-help-badge-icon">!</span>
-            {title}
-          </span>
-          <span className="inventory-field-help-body">{text}</span>
-        </span>
-      )}
-    </span>
-  );
 }
 
 const InventoryGridCard = memo(function InventoryGridCard({
@@ -487,6 +419,22 @@ function AdminInventory() {
   const parsedLiveStockQty = Number(formValues.quantity || 0);
   const liveStockQty = Number.isFinite(parsedLiveStockQty) ? Math.max(0, parsedLiveStockQty) : 0;
   const liveInventoryValue = liveStockQty * liveUnitCost;
+  // The six boxes people must fill in; the form book shows how many are done.
+  const bookFilled = [
+    formValues.item,
+    formValues.category,
+    formValues.quantity,
+    formValues.purchasePrice,
+    formValues.packageQuantity,
+    formValues.contentsPerPackage,
+  ].filter((value) => String(value ?? "").trim() !== "").length;
+  const bookTotal = 6;
+  // Items you count one by one (pieces, cans, pairs) can only be whole numbers.
+  const wholeUnit = isWholeNumberUnit(formValues.unit);
+  const wholeOnly = (value) => (wholeUnit ? String(value).replace(/\D/g, "") : value);
+  const blockDecimals = (event) => {
+    if (wholeUnit && [".", ",", "e", "E", "-", "+"].includes(event.key)) event.preventDefault();
+  };
 
   // Detect whether there is active unsaved content in the Add Item draft
   const hasAddDraft = Boolean(
@@ -942,6 +890,12 @@ function AdminInventory() {
     if (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0)) {
       setActionError("Maximum stock must be greater than zero, or leave it blank.");
       return;
+    }
+    if (isWholeNumberUnit(unit)) {
+      if (!Number.isInteger(quantity) || (maximumStock !== null && !Number.isInteger(maximumStock)) || !Number.isInteger(contentsPerPackage)) {
+        setActionError("Pieces, cans and pairs are counted one by one. Use whole numbers like 10, not 10.5, for the stock and the amount in each pack.");
+        return;
+      }
     }
 
     const prevQty = Number(editingItem?.quantity ?? 0);
@@ -1472,128 +1426,98 @@ function AdminInventory() {
       {showForm && (
         <div className="admin-inventory-modal-backdrop" role="presentation" onClick={resetForm}>
           <form
-            className="admin-inventory-modal admin-inventory-item-modal clipboard-docket-board"
+            className="item-book"
             onSubmit={handleSave}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="inventory-docket-title"
+            aria-labelledby="item-book-title"
             onClick={(event) => event.stopPropagation()}
           >
-            {/* Top Mechanical Brass Spring-Clip */}
-            <div className="clipboard-top-clip" aria-hidden="true">
-              <span className="clipboard-clip-rivet rivet-left" />
-              <div className="clipboard-clip-plate">
-                <span className="clipboard-clip-hole" />
-                <span className="clipboard-clip-stamp">AMAYA WORKSHOP · REQUISITION DOCKET</span>
-                <span className="clipboard-clip-screw" />
-              </div>
-              <span className="clipboard-clip-rivet rivet-right" />
-            </div>
-
-            {/* List Board Header Bar */}
-            <div className="admin-inventory-modal-header clipboard-header">
-              <div className="clipboard-header-info">
-                <div className="clipboard-header-tags">
-                  <span className="clipboard-tag-amber">
-                    <span className="clipboard-tag-pip" />
-                    REQUISITION DOCKET
-                  </span>
-                  <span className="clipboard-tag-num">
-                    {editingItem ? `#${editingItem.id || "EDIT"}` : "#NEW"}
-                  </span>
-                  {hasAddDraft && (
-                    <span
-                      className="clipboard-tag-amber"
-                      style={{ background: "#eef8f2", color: "#1e7047", borderColor: "#c6e7d2" }}
-                      title="Your draft is automatically saved and preserved"
-                    >
-                      <span className="clipboard-tag-pip" style={{ background: "#1e7047" }} />
-                      DRAFT PRESERVED
-                    </span>
-                  )}
-                </div>
-                <h3 id="inventory-docket-title" className="clipboard-title">
-                  {editingItem ? "Edit Inventory Item Spec" : "Add Inventory Item"}
-                </h3>
-                <p className="clipboard-subtitle">
-                  Workshop master sheet for raw ingredient tracking, recipe conversions, and storage floors.
+            <header className="item-book-top">
+              <div>
+                <h3 id="item-book-title">{editingItem ? "Edit inventory item" : "Add inventory item"}</h3>
+                <p>
+                  Fill in the highlighted boxes. The cost per {formValues.unit || "unit"} is worked out for you.
+                  {hasAddDraft && <span className="item-book-saved"> Your draft is saved.</span>}
                 </p>
               </div>
-
-              <button
-                type="button"
-                className="clipboard-close-btn"
-                onClick={resetForm}
-                aria-label="Close form"
-                title="Close docket (Draft is preserved)"
-              >
+              <button type="button" className="item-book-close" onClick={resetForm} aria-label="Close" title="Close (your draft is saved)">
                 <X size={18} strokeWidth={2.4} />
               </button>
-            </div>
+            </header>
 
-            {/* List Board Body holding Two Clipped Docket Papers */}
-            <div className="admin-inventory-modal-body clipboard-body">
-              <div className="clipboard-dockets-grid">
+            <div className="item-book-spread">
+              {/* LEFT PAGE: what the item is and how much is in stock */}
+              <section className="item-page item-page-left" aria-labelledby="item-page-1">
+                <h4 id="item-page-1" className="item-page-title"><span>1</span> What is this item?</h4>
 
-                {/* DOCKET SHEET 1: Item Identity & Storage Floor */}
-                <article className="clipboard-sheet sheet-identity">
-                  <div className="docket-sheet-pin-bar">
-                    <span className="docket-pin-badge">
-                      <span className="docket-pin-dot" />
-                      #1 ITEM SPEC & STORAGE
-                    </span>
-                    <span className="docket-sheet-folio">DOC-01 / MASTER ID</span>
+                <div className="item-identity">
+                  <div className="item-photo-col">
+                    {formValues.image ? (
+                      <>
+                        <div className="item-photo"><img src={formValues.image} alt={formValues.item || "Inventory item"} /></div>
+                        <div className="item-photo-actions">
+                          <label className="item-chip-btn" title="Choose a different photo">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageFile(file);
+                              }}
+                              aria-label="Change photo"
+                              style={{ display: "none" }}
+                            />
+                            <FolderOpen size={13} strokeWidth={2.2} /> Change
+                          </label>
+                          <button type="button" className="item-chip-btn is-remove" onClick={() => setFormValues((prev) => ({ ...prev, image: "" }))} title="Remove this photo">
+                            <Trash2 size={13} strokeWidth={2} /> Remove
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <label className="item-photo is-empty" onDragOver={(event) => event.preventDefault()} onDrop={handleImageDrop}>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageFile(file);
+                          }}
+                          aria-label="Add a photo"
+                          style={{ display: "none" }}
+                        />
+                        <ImagePlus size={26} strokeWidth={1.7} aria-hidden="true" />
+                        <strong>Add a photo</strong>
+                        <small>Optional. Click or drop a picture here.</small>
+                      </label>
+                    )}
                   </div>
 
-                  <div className="docket-sheet-content">
-                    <div className="clipboard-field-group">
-                      <label htmlFor="inventory-item-name" className="clipboard-label">
-                        <span className="inventory-field-label-text">
-                          Inventory Item Name
-                          <FieldHelpTooltip
-                            title="Item Name"
-                            text="Exact ingredient or packaging name (e.g. Non-Dairy Milk Powder, 22oz Cups, Assam Black Tea). Keep it specific so recipes attach to the right stock!"
-                            align="left"
-                          />
-                        </span>
-                      </label>
+                  <div className="item-identity-fields">
+                    <div className={`item-field ${formValues.item.trim() ? "is-done" : "is-todo"}`}>
+                      <label htmlFor="inventory-item-name">Item name</label>
                       <input
                         id="inventory-item-name"
                         type="text"
-                        className="clipboard-input"
                         value={formValues.item}
                         autoFocus
                         onChange={(event) => setFormValues({ ...formValues, item: event.target.value })}
-                        placeholder="e.g. Non-Dairy Creamer, Assam Black Tea, 22oz Cups"
+                        placeholder="Example: Milk powder"
                         required
                       />
                     </div>
-
-                    <div className="clipboard-field-group">
-                      <label htmlFor="inventory-category-select" className="clipboard-label">
-                        <span className="inventory-field-label-text">
-                          Warehouse Category
-                          <Link
-                            to="/admin/categories"
-                            className="clipboard-manage-link"
-                            title="Manage Categories"
-                          >
-                            ⚙ Manage
-                          </Link>
-                          <FieldHelpTooltip
-                            title="Category"
-                            text="Operational grouping for recipe & stock control. E.g., Black Tea = 'Tea Bases' | Milk = 'Dairy & Creamers' | Cups = 'Cups' | Straws/Bags = 'Packaging & Disposables' | Pearls = 'Toppings & Add-ons'!"
-                            align="right"
-                          />
-                        </span>
+                    <div className={`item-field ${formValues.category ? "is-done" : "is-todo"}`}>
+                      <label htmlFor="inventory-category-select">
+                        Category
+                        <Link to="/admin/categories" className="item-link" title="Add or rename categories">Edit categories</Link>
                       </label>
                       <select
                         id="inventory-category-select"
-                        className="clipboard-select"
                         value={formValues.category}
                         onChange={(event) => setFormValues({ ...formValues, category: event.target.value })}
                       >
-                        <option value="">-- Choose Category --</option>
+                        <option value="">Choose a category</option>
                         {formValues.category && !categories.includes(formValues.category) && (
                           <option value={formValues.category}>{formValues.category} (current)</option>
                         )}
@@ -1602,392 +1526,232 @@ function AdminInventory() {
                         ))}
                       </select>
                     </div>
-
-                    {/* Photo Specimen Frame */}
-                    <div className="clipboard-field-group">
-                      <span className="inventory-field-label-text">
-                        Item Photo (Optional)
-                        <FieldHelpTooltip
-                          title="Item Photo"
-                          text="Upload a picture of the ingredient or packaging. Displays on inventory cards, tables, and recipe pickers."
-                          align="right"
-                        />
-                      </span>
-
-                      {formValues.image ? (
-                        <div className="inventory-form-image-preview clipboard-image-preview">
-                          <img
-                            src={formValues.image}
-                            alt={formValues.item || "Inventory item"}
-                            className="inventory-form-image-img"
-                          />
-                          <div className="inventory-form-image-controls">
-                            <label className="inventory-img-btn change" title="Choose a new file to replace this image">
-                              <input
-                                type="file"
-                                accept="image/png,image/jpeg,image/webp"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handleImageFile(file);
-                                }}
-                                aria-label="Change inventory image"
-                                style={{ display: "none" }}
-                              />
-                              <FolderOpen size={13} strokeWidth={2.2} />
-                              <span>Change Photo</span>
-                            </label>
-                            <button
-                              type="button"
-                              className="inventory-img-btn remove"
-                              onClick={() => setFormValues((prev) => ({ ...prev, image: "" }))}
-                              title="Remove this image"
-                            >
-                              <Trash2 size={13} strokeWidth={2} />
-                              <span>Remove</span>
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <label
-                          className="inventory-dropzone clipboard-dropzone"
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={handleImageDrop}
-                        >
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleImageFile(file);
-                            }}
-                            aria-label="Upload inventory item image"
-                            style={{ display: "none" }}
-                          />
-                          <span className="inventory-dropzone-icon" aria-hidden="true">
-                            <ImagePlus size={22} strokeWidth={1.8} />
-                          </span>
-                          <span className="inventory-dropzone-text">
-                            <strong>Click to upload</strong> or drag photo here
-                          </span>
-                          <small>PNG, JPG, WEBP · resized automatically</small>
-                        </label>
-                      )}
-                    </div>
-
-                    {/* Storage Floor Sub-section */}
-                    <div className="docket-subheading-divider">
-                      <span className="docket-subheading-label">STORAGE FLOOR LEVELS</span>
-                      <span className="docket-subheading-line" />
-                    </div>
-
-                    <div className="clipboard-row-2col">
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-current-stock" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Current Stock
-                            <FieldHelpTooltip
-                              title="Current Stock"
-                              text="Actual measurable amount in your cafe right now (e.g. 25,000g or 500 pcs). POS automatically subtracts from this every time a drink is sold!"
-                              align="left"
-                            />
-                          </span>
-                        </label>
-                        <div className="clipboard-input-with-dock">
-                          <input
-                            id="inventory-current-stock"
-                            type="number"
-                            className="clipboard-input"
-                            value={formValues.quantity}
-                            onChange={(event) => setFormValues({ ...formValues, quantity: event.target.value })}
-                            min="0"
-                            step="any"
-                            placeholder="0"
-                            required
-                          />
-                          <span className="clipboard-dock-badge">{formValues.unit || "unit"}</span>
-                        </div>
-                      </div>
-
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-max-stock" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Target Max
-                            <FieldHelpTooltip
-                              title="Maximum Stock"
-                              text="Optional upper target for the amount you want to keep. The system flags this item when its quantity goes above this level."
-                              align="right"
-                            />
-                          </span>
-                        </label>
-                        <div className="clipboard-input-with-dock">
-                          <input
-                            id="inventory-max-stock"
-                            type="number"
-                            className="clipboard-input"
-                            value={formValues.maximumStock}
-                            onChange={(event) => setFormValues({ ...formValues, maximumStock: event.target.value })}
-                            min="0.000001"
-                            step="0.000001"
-                            placeholder="Optional ceiling"
-                          />
-                          <span className="clipboard-dock-badge">{formValues.unit || "unit"}</span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
-                </article>
+                </div>
 
-                {/* DOCKET SHEET 2: Procurement & Live Costing Receipt */}
-                <article className="clipboard-sheet sheet-procurement">
-                  <div className="docket-sheet-pin-bar">
-                    <span className="docket-pin-badge">
-                      <span className="docket-pin-dot" />
-                      #2 PROCUREMENT & UNIT COST
-                    </span>
-                    <span className="docket-sheet-folio">DOC-02 / BATCH SPEC</span>
+                <h5 className="item-subtitle">How much do you have?</h5>
+                <div className="item-pair">
+                  <div className={`item-field ${String(formValues.quantity ?? "").trim() ? "is-done" : "is-todo"}`}>
+                    <label htmlFor="inventory-current-stock">In stock now</label>
+                    <div className="item-unit-box">
+                      <input
+                        id="inventory-current-stock"
+                        type="number"
+                        value={formValues.quantity}
+                        onChange={(event) => setFormValues({ ...formValues, quantity: wholeOnly(event.target.value) })}
+                        onKeyDown={blockDecimals}
+                        inputMode={wholeUnit ? "numeric" : "decimal"}
+                        min="0"
+                        step={wholeUnit ? 1 : "any"}
+                        placeholder="0"
+                        required
+                      />
+                      <span>{formValues.unit || "unit"}</span>
+                    </div>
+                    <small>{wholeUnit ? "On the shelf today. Whole numbers only." : "On the shelf today."}</small>
                   </div>
-
-                  <div className="docket-sheet-content">
-                    <div className="clipboard-row-2col">
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-purchase-price" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Purchase Price (₱)
-                            <FieldHelpTooltip
-                              title="Purchase Price"
-                              text="Total money paid for this batch (e.g. ₱3,300 for a 25kg sack of powder). System divides this by total quantity to get your true cost per cup!"
-                              align="left"
-                            />
-                          </span>
-                        </label>
-                        <div className="clipboard-input-with-prefix">
-                          <span className="clipboard-prefix-symbol">₱</span>
-                          <input
-                            id="inventory-purchase-price"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            className="clipboard-input"
-                            value={formValues.purchasePrice}
-                            onChange={(event) => setFormValues({ ...formValues, purchasePrice: event.target.value })}
-                            placeholder="0.00"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-pkg-qty" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Package Qty
-                            <FieldHelpTooltip
-                              title="Package Quantity"
-                              text="Number of containers, sacks, or boxes bought (e.g. 1 sack of powder, 5 boxes of cups). Multiplied by package contents to auto-calculate your total stock!"
-                              align="right"
-                            />
-                          </span>
-                        </label>
-                        <input
-                          id="inventory-pkg-qty"
-                          type="number"
-                          min="0.001"
-                          step="any"
-                          className="clipboard-input"
-                          value={formValues.packageQuantity}
-                          onChange={(event) => {
-                            const newPkgQty = event.target.value;
-                            const parsedPkg = newPkgQty.trim() === "" ? 0 : Number(newPkgQty);
-                            const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
-                              ? parsedPkg * Number(formValues.contentsPerPackage || 0)
-                              : 0;
-                            setFormValues((prev) => ({
-                              ...prev,
-                              packageQuantity: newPkgQty,
-                              quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
-                            }));
-                          }}
-                          placeholder="e.g. 1, 5"
-                        />
-                      </div>
+                  <div className="item-field is-optional">
+                    <label htmlFor="inventory-max-stock">Most you want to keep</label>
+                    <div className="item-unit-box">
+                      <input
+                        id="inventory-max-stock"
+                        type="number"
+                        value={formValues.maximumStock}
+                        onChange={(event) => setFormValues({ ...formValues, maximumStock: wholeOnly(event.target.value) })}
+                        onKeyDown={blockDecimals}
+                        inputMode={wholeUnit ? "numeric" : "decimal"}
+                        min={wholeUnit ? 1 : 0.000001}
+                        step={wholeUnit ? 1 : 0.000001}
+                        placeholder="Optional"
+                      />
+                      <span>{formValues.unit || "unit"}</span>
                     </div>
+                    <small>We warn you above this.</small>
+                  </div>
+                </div>
 
-                    <div className="clipboard-row-2col">
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-pkg-unit" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Container Type
-                            <FieldHelpTooltip
-                              title="Package Container"
-                              text="Container packaging medium (sack, box, bottle, bag, pack). Gives staff a clear audit specification label on inventory cards!"
-                              align="left"
-                            />
-                          </span>
-                        </label>
-                        <select
-                          id="inventory-pkg-unit"
-                          className="clipboard-select"
-                          value={formValues.packageUnit}
-                          onChange={(event) => setFormValues({ ...formValues, packageUnit: event.target.value })}
-                        >
-                          {!packageUnitOptions.includes(formValues.packageUnit) && (
-                            <option value={formValues.packageUnit}>{formValues.packageUnit} (current)</option>
-                          )}
-                          {packageUnitOptions.map((option) => (
-                            <option key={option} value={option}>{option}</option>
-                          ))}
-                        </select>
-                      </div>
 
-                      <div className="clipboard-field-group">
-                        <label htmlFor="inventory-contents-pkg" className="clipboard-label">
-                          <span className="inventory-field-label-text">
-                            Contents / Pack
-                            <FieldHelpTooltip
-                              title="Contents per Package"
-                              text="Measurable amount inside ONE package (e.g. 25000g for a 25kg sack, 1000pcs for a box of cups, 2500ml for syrup). Critical for calculating cost per cup!"
-                              align="right"
-                            />
-                          </span>
-                        </label>
-                        <input
-                          id="inventory-contents-pkg"
-                          type="number"
-                          min="0.001"
-                          step="any"
-                          className="clipboard-input"
-                          value={formValues.contentsPerPackage}
-                          onChange={(event) => {
-                            const newContents = event.target.value;
-                            const parsedPkg = formValues.packageQuantity.trim() === "" ? 0 : Number(formValues.packageQuantity);
-                            const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
-                              ? parsedPkg * Number(newContents || 0)
-                              : 0;
-                            setFormValues((prev) => ({
-                              ...prev,
-                              contentsPerPackage: newContents,
-                              quantity: !editingItem && nextTotal > 0 ? String(nextTotal) : prev.quantity,
-                            }));
-                          }}
-                          placeholder="e.g. 25000"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="clipboard-field-group">
-                      <label htmlFor="inventory-recipe-unit" className="clipboard-label">
-                        <span className="inventory-field-label-text">
-                          Recipe Dispensing Unit
-                          <FieldHelpTooltip
-                            title="Stock Unit"
-                            text="Recipe dispensing unit: 'g' for powders/tea/pearls, 'ml' for syrups/liquids, 'pcs' for cups/lids/straws. Must match your menu recipe unit!"
-                            align="left"
-                          />
-                        </span>
-                      </label>
-                      <select
-                        id="inventory-recipe-unit"
-                        className="clipboard-select"
-                        value={formValues.unit}
-                        onChange={(event) => setFormValues({ ...formValues, unit: event.target.value })}
-                      >
-                        {!inventoryUnitGroups.some((group) => group.options.some(([value]) => value === formValues.unit)) && (
-                          <option value={formValues.unit}>{formValues.unit} (current)</option>
-                        )}
-                        {inventoryUnitGroups.map((group) => (
-                          <optgroup label={group.label} key={group.label}>
-                            {group.options.map(([value, label]) => (
-                              <option value={value} key={value}>{label}</option>
-                            ))}
-                          </optgroup>
+                <div className="item-field is-optional">
+                  <label htmlFor="inventory-recipe-unit">Unit used in recipes</label>
+                  <select
+                    id="inventory-recipe-unit"
+                    value={formValues.unit}
+                    onChange={(event) => {
+                      const nextUnit = event.target.value;
+                      setFormValues((prev) => {
+                        if (!isWholeNumberUnit(nextUnit)) return { ...prev, unit: nextUnit };
+                        // Switching to a counted unit: drop any decimals already typed.
+                        const whole = (value) => (String(value ?? "").trim() === "" ? value : String(Math.max(0, Math.round(Number(value) || 0))));
+                        return { ...prev, unit: nextUnit, quantity: whole(prev.quantity), maximumStock: whole(prev.maximumStock), contentsPerPackage: whole(prev.contentsPerPackage) };
+                      });
+                    }}
+                  >
+                    {!inventoryUnitGroups.some((group) => group.options.some(([value]) => value === formValues.unit)) && (
+                      <option value={formValues.unit}>{formValues.unit} (current)</option>
+                    )}
+                    {inventoryUnitGroups.map((group) => (
+                      <optgroup label={group.label} key={group.label}>
+                        {group.options.map(([value, label]) => (
+                          <option value={value} key={value}>{label}</option>
                         ))}
-                      </select>
+                      </optgroup>
+                    ))}
+                  </select>
+                  <small>{wholeUnit ? "Counted one by one, so amounts must be whole numbers like 10, not 10.5." : "How recipes count it: g for powders, ml for liquids, pcs for things you count."}</small>
+                </div>
+              </section>
+
+              <div className="item-book-spine" aria-hidden="true" />
+
+              {/* RIGHT PAGE: what was bought, and what it costs */}
+              <section className="item-page item-page-right" aria-labelledby="item-page-2">
+                <h4 id="item-page-2" className="item-page-title"><span>2</span> What did you buy?</h4>
+
+                <div className="item-pair">
+                  <div className={`item-field ${String(formValues.purchasePrice ?? "").trim() ? "is-done" : "is-todo"}`}>
+                    <label htmlFor="inventory-purchase-price">Price you paid</label>
+                    <div className="item-unit-box is-prefix">
+                      <span>₱</span>
+                      <input
+                        id="inventory-purchase-price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formValues.purchasePrice}
+                        onChange={(event) => setFormValues({ ...formValues, purchasePrice: event.target.value })}
+                        placeholder="0.00"
+                      />
                     </div>
-
-                    {/* PINNED COSTING AUDIT RECEIPT */}
-                    <div className="clipboard-costing-receipt">
-                      <div className="costing-receipt-pinned-tab">
-                        <span className="costing-pin-rivet" />
-                        <span className="costing-receipt-badge-title">COSTING & VALUE AUDIT</span>
-                      </div>
-
-                      <div className="costing-receipt-hero">
-                        <div className="costing-receipt-hero-lead">
-                          <span className="costing-receipt-caption">CALCULATED UNIT COST</span>
-                          <strong className="costing-receipt-price">
-                            ₱{formatUnitCost(liveUnitCost)}
-                            <span className="costing-receipt-unit"> / {formValues.unit || "unit"}</span>
-                          </strong>
-                        </div>
-                        <span className="costing-receipt-status-pill">
-                          {liveUnitCost > 0 ? "Cost Verified" : "Awaiting Data"}
-                        </span>
-                      </div>
-
-                      <div className="costing-receipt-metrics-grid">
-                        <div className="costing-receipt-metric-cell">
-                          <span className="receipt-cell-label">BATCH INFLOW</span>
-                          <strong className="receipt-cell-value">
-                            {liveTotalMeasurable > 0 ? liveTotalMeasurable.toLocaleString() : "0"} {formValues.unit}
-                          </strong>
-                        </div>
-                        <div className="costing-receipt-metric-cell">
-                          <span className="receipt-cell-label">PURCHASE OUTLAY</span>
-                          <strong className="receipt-cell-value">₱{livePurchasePrice.toFixed(2)}</strong>
-                        </div>
-                        <div className="costing-receipt-metric-cell">
-                          <span className="receipt-cell-label">TOTAL VALUATION</span>
-                          <strong className="receipt-cell-value">₱{liveInventoryValue.toFixed(2)}</strong>
-                        </div>
-                      </div>
-
-                      <div className="costing-receipt-formula-box">
-                        <span className="costing-formula-icon">∑</span>
-                        <p className="costing-formula-text">
-                          {livePurchasePrice > 0 && liveContents <= 0
-                            ? "Enter the measurable contents in each package to calculate an accurate unit cost."
-                            : `Unit Cost = Purchase Price (₱${livePurchasePrice.toFixed(2)}) ÷ (${livePkgQty} ${formValues.packageUnit} × ${liveContents || 1} ${formValues.unit}) = ₱${formatUnitCost(liveUnitCost)} per ${formValues.unit}`}
-                        </p>
-                      </div>
-                    </div>
+                    <small>Total for all you bought.</small>
                   </div>
-                </article>
+                  <div className={`item-field ${String(formValues.packageQuantity ?? "").trim() ? "is-done" : "is-todo"}`}>
+                    <label htmlFor="inventory-pkg-qty">How many packs</label>
+                    <input
+                      id="inventory-pkg-qty"
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={formValues.packageQuantity}
+                      onChange={(event) => {
+                        const newPkgQty = event.target.value;
+                        const parsedPkg = newPkgQty.trim() === "" ? 0 : Number(newPkgQty);
+                        const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
+                          ? parsedPkg * Number(formValues.contentsPerPackage || 0)
+                          : 0;
+                        setFormValues((prev) => ({
+                          ...prev,
+                          packageQuantity: newPkgQty,
+                          quantity: !editingItem && nextTotal > 0 ? String(wholeUnit ? Math.round(nextTotal) : nextTotal) : prev.quantity,
+                        }));
+                      }}
+                      placeholder="Example: 2"
+                    />
+                    <small>Sacks, boxes or bags.</small>
+                  </div>
+                </div>
 
-              </div>
+                <div className="item-pair">
+                  <div className="item-field is-optional">
+                    <label htmlFor="inventory-pkg-unit">Pack type</label>
+                    <select
+                      id="inventory-pkg-unit"
+                      value={formValues.packageUnit}
+                      onChange={(event) => setFormValues({ ...formValues, packageUnit: event.target.value })}
+                    >
+                      {!packageUnitOptions.includes(formValues.packageUnit) && (
+                        <option value={formValues.packageUnit}>{formValues.packageUnit} (current)</option>
+                      )}
+                      {packageUnitOptions.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                    <small>How it is packed.</small>
+                  </div>
+                  <div className={`item-field ${String(formValues.contentsPerPackage ?? "").trim() ? "is-done" : "is-todo"}`}>
+                    <label htmlFor="inventory-contents-pkg">Amount in each pack</label>
+                    <div className="item-unit-box">
+                      <input
+                        id="inventory-contents-pkg"
+                        type="number"
+                        min={wholeUnit ? 1 : 0.001}
+                        step={wholeUnit ? 1 : "any"}
+                        inputMode={wholeUnit ? "numeric" : "decimal"}
+                        onKeyDown={blockDecimals}
+                        value={formValues.contentsPerPackage}
+                        onChange={(event) => {
+                          const newContents = wholeOnly(event.target.value);
+                          const parsedPkg = formValues.packageQuantity.trim() === "" ? 0 : Number(formValues.packageQuantity);
+                          const nextTotal = Number.isFinite(parsedPkg) && parsedPkg > 0
+                            ? parsedPkg * Number(newContents || 0)
+                            : 0;
+                          setFormValues((prev) => ({
+                            ...prev,
+                            contentsPerPackage: newContents,
+                            quantity: !editingItem && nextTotal > 0 ? String(wholeUnit ? Math.round(nextTotal) : nextTotal) : prev.quantity,
+                          }));
+                        }}
+                        placeholder="Example: 25000"
+                      />
+                      <span>{formValues.unit || "unit"}</span>
+                    </div>
+                    <small>{wholeUnit ? "Inside one pack. Whole numbers only." : "Inside one pack."}</small>
+                  </div>
+                </div>
 
-              {actionError && <p className="inventory-form-error" role="alert">{actionError}</p>}
+                <div className={`item-answer ${liveUnitCost > 0 ? "is-ready" : ""}`} aria-live="polite">
+                  <p className="item-answer-label">Each {formValues.unit || "unit"} costs you</p>
+                  <p className="item-answer-price">
+                    {liveUnitCost > 0 ? `₱${formatUnitCost(liveUnitCost)}` : "₱0.00"}
+                    <span> per {formValues.unit || "unit"}</span>
+                  </p>
+                  <p className="item-answer-math">
+                    {livePurchasePrice > 0 && liveTotalMeasurable > 0
+                      ? `₱${livePurchasePrice.toFixed(2)} paid ÷ ${liveTotalMeasurable.toLocaleString()} ${formValues.unit} (${livePkgQty} ${formValues.packageUnit} × ${liveContents} ${formValues.unit} each)`
+                      : "Fill in the price, how many packs and the amount in each pack. We will do the math."}
+                  </p>
+                  <dl className="item-answer-facts">
+                    <div><dt>You bought</dt><dd>{liveTotalMeasurable > 0 ? liveTotalMeasurable.toLocaleString() : "0"} {formValues.unit}</dd></div>
+                    <div><dt>You paid</dt><dd>₱{livePurchasePrice.toFixed(2)}</dd></div>
+                    <div><dt>Your stock is worth</dt><dd>₱{liveInventoryValue.toFixed(2)}</dd></div>
+                  </dl>
+                </div>
+              </section>
             </div>
 
-            {/* List Board Bottom Rail / Actions */}
-            <div className="admin-inventory-modal-actions clipboard-actions">
-              <div className="clipboard-actions-status">
-                <span className="clipboard-status-dot" />
-                <span>Auto-calculates POS recipe deduction rates & batch valuation</span>
+            {actionError && <p className="inventory-form-error item-book-error" role="alert">{actionError}</p>}
+
+            <footer className="item-book-foot">
+              <div className="item-progress" aria-live="polite">
+                <div className="item-progress-text">
+                  {bookFilled === bookTotal ? "All filled in. Ready to save." : `${bookFilled} of ${bookTotal} boxes filled in`}
+                </div>
+                <div className="item-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax={bookTotal} aria-valuenow={bookFilled} aria-label="Boxes filled in">
+                  <span style={{ width: `${(bookFilled / bookTotal) * 100}%` }} />
+                </div>
               </div>
-              <div className="clipboard-actions-btns">
+              <div className="item-book-buttons">
                 {hasAddDraft && (
                   <button
                     type="button"
-                    className="clipboard-btn-cancel"
-                    style={{ color: "#8b5e3c", borderColor: "#e8dfd5" }}
+                    className="item-btn is-quiet"
                     onClick={() => {
-                      if (window.confirm("Discard your saved draft and reset the form?")) {
+                      if (window.confirm("Discard your saved draft and start over?")) {
                         clearInventoryAddDraft();
                         setFormValues(createEmptyInventoryForm());
                       }
                     }}
-                    title="Clear current unsaved draft"
+                    title="Delete the saved draft"
                   >
-                    Clear Draft
+                    Discard draft
                   </button>
                 )}
-                <button type="button" className="clipboard-btn-cancel" onClick={resetForm} disabled={isSaving}>
-                  Cancel
-                </button>
-                <button type="submit" className="clipboard-btn-save" disabled={isSaving}>
+                <button type="button" className="item-btn" onClick={resetForm} disabled={isSaving}>Cancel</button>
+                <button type="submit" className="item-btn is-primary" disabled={isSaving}>
                   <Check size={16} strokeWidth={2.4} />
-                  <span>{isSaving ? "Saving…" : editingItem ? "Save Changes" : "Save Item"}</span>
+                  <span>{isSaving ? "Saving…" : editingItem ? "Save changes" : "Save item"}</span>
                 </button>
               </div>
-            </div>
+            </footer>
           </form>
         </div>
       )}

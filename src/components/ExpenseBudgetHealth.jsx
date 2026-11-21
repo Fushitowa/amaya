@@ -111,7 +111,7 @@ export default function ExpenseBudgetHealth({ month, onMonthChange, categorySlug
                   <button className="expense-budget-change" type="button" onClick={() => { setEditing(item.category); setAmount(String(item.budget)); }}>Change Budget</button>
                 </>
               )}
-              {item.accountNote && <p className="expense-budget-account-note">{item.accountNote} Older records without a category assignment are matched by this ledger account and may appear in each matching category.</p>}
+              {item.accountNote && <p className="expense-budget-account-note">{item.accountNote}</p>}
               {editing === item.category && (
                 <form className="expense-budget-edit" onSubmit={(event) => saveBudget(event, item)}>
                   <label>Budget for {monthLabel(month)} <span><b>₱</b><input autoFocus type="number" min="0" step="0.01" required value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label>

@@ -1,4 +1,6 @@
+import { isWholeNumberUnit } from "../../../shared/units.js";
 import { Router } from "express";
+import { getIngredientCostFlow } from "../services/ingredientCostFlowService.js";
 import pool from "../database.js";
 import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { escapeLikePattern, parseOptionalClientRequestId, parsePositiveIntId, validateImageUrl } from "../utils/validation.js";
@@ -368,6 +370,11 @@ router.get("/", requireAuth, requireRole("admin", "staff"), async (request, resp
   response.json(rows.map((row) => mapItem(row, includeCost, mediaMode)));
 });
 
+// Where the ingredient money went (actual vs theoretical food cost, waste and shrinkage). Admin only.
+router.get("/cost-flow", requireAuth, requireRole("admin"), async (request, response) => {
+  response.json(await getIngredientCostFlow({ from: request.query?.from, to: request.query?.to }));
+});
+
 router.get("/waste-logs", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const includeCost = request.authUser.role === "admin";
   const { from, to, itemId, reason, scope, includeOrderSpoilage } = request.query || {};
@@ -585,7 +592,13 @@ router.post("/", requireAuth, requireRole("admin"), async (request, response) =>
   if (!name || name.length > 160 || !cleanCategory || !cleanUnit || !Number.isFinite(quantity) || quantity < 0 || (maximumStock !== null && (!Number.isFinite(maximumStock) || maximumStock <= 0))) {
     throw httpError(400, "Enter a valid inventory name, category, unit, and quantity. Maximum stock must be above zero or omitted.");
   }
+  if (isWholeNumberUnit(cleanUnit) && [quantity, maximumStock].some((value) => value !== null && !Number.isInteger(value))) {
+    throw httpError(400, "Items counted in pieces, cans or pairs must be whole numbers. Use a whole number for the stock amounts.");
+  }
   const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body);
+  if (isWholeNumberUnit(cleanUnit) && !Number.isInteger(contentsPerPackage)) {
+    throw httpError(400, "The amount in each pack must be a whole number when the item is counted in pieces, cans or pairs.");
+  }
   // Blank maximum on create falls back to the starting quantity (only when there is stock).
   const effectiveMaximumStock = maximumStock === null && quantity > 0 ? quantity : maximumStock;
   const actorName = request.authUser?.displayName || request.authUser?.username || "Admin";
@@ -739,7 +752,13 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
       }
     }
 
+    if (isWholeNumberUnit(cleanUnit) && [quantity, maximumStock].some((value) => value !== null && !Number.isInteger(value))) {
+      throw httpError(400, "Items counted in pieces, cans or pairs must be whole numbers. Use a whole number for the stock amounts.");
+    }
     const { purchasePrice, packageQuantity, packageUnit, contentsPerPackage, unitCost } = resolveCosting(request.body, current);
+    if (isWholeNumberUnit(cleanUnit) && !Number.isInteger(contentsPerPackage)) {
+      throw httpError(400, "The amount in each pack must be a whole number when the item is counted in pieces, cans or pairs.");
+    }
     const isSelfMediaProxyUrl = typeof imageUrl === "string" && imageUrl.startsWith(`/api/media/inventory/${id}`);
     const effectiveImage = isSelfMediaProxyUrl
       ? current.image_url
@@ -763,7 +782,7 @@ router.put("/:id", requireAuth, requireRole("admin"), async (request, response) 
     const oldUnitCost = Number(current.unit_cost || 0);
     const delta = Math.round((quantity - oldQty) * 1000000) / 1000000;
     const costChanged = Math.abs(unitCost - oldUnitCost) > 1e-6;
-    const adjOffsetAccount = ["6030", "3010", "6010"].includes(String(request.body?.adjustmentAccountCode || "").trim())
+    const adjOffsetAccount = ["6031", "6030", "3010", "6010"].includes(String(request.body?.adjustmentAccountCode || "").trim())
       ? String(request.body.adjustmentAccountCode).trim()
       : null;
     if (delta !== 0 || costChanged) {

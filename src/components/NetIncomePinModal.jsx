@@ -3,7 +3,8 @@ import { LockKeyhole, X } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
 import "../assets/css/admin/NetIncomePin.css";
 
-export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked }) {
+// `purpose` names what the PIN unlocks on this screen (e.g. "Pay Rates"); defaults to Net Income.
+export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked, purpose = "Net Income" }) {
   const [mode, setMode] = useState("access");
   const [currentPin, setCurrentPin] = useState("");
   const [pin, setPin] = useState("");
@@ -57,7 +58,7 @@ export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked })
     <div className="fin-modal-overlay net-income-pin-overlay" role="dialog" aria-modal="true" aria-labelledby="net-income-pin-title">
       <div className="fin-modal-box net-income-pin-dialog">
         <div className="fin-modal-header">
-          <h3 id="net-income-pin-title"><LockKeyhole size={17} /> {setting ? (hasPin ? "Change Owner Numeric PIN" : "Set Owner Numeric PIN") : "Enter Owner Numeric PIN to View Net Income"}</h3>
+          <h3 id="net-income-pin-title"><LockKeyhole size={17} /> {setting ? (hasPin ? "Change Owner Numeric PIN" : "Set Owner Numeric PIN") : `Enter Owner Numeric PIN to View ${purpose}`}</h3>
           <button type="button" className="fin-modal-close-btn" onClick={closeModal} aria-label="Close"><X size={16} /></button>
         </div>
         <form onSubmit={submit} className="net-income-pin-form">
@@ -72,7 +73,7 @@ export default function NetIncomePinModal({ open, hasPin, onClose, onUnlocked })
             {hasPin && mode === "access" && <button type="button" className="fin-inline-cta" onClick={() => { setMode("change"); setPin(""); setError(""); }}>Change PIN</button>}
             {mode === "change" && <button type="button" className="fin-inline-cta" onClick={() => { setMode("access"); setCurrentPin(""); setPin(""); setConfirmPin(""); setError(""); }}>Back</button>}
             <button type="button" className="fin-action-btn" onClick={closeModal}>Cancel</button>
-            <button type="submit" className="fin-action-btn fin-action-primary" disabled={busy}>{busy ? "Please wait…" : setting ? "Save PIN & View" : "Unlock Net Income"}</button>
+            <button type="submit" className="fin-action-btn fin-action-primary" disabled={busy}>{busy ? "Please wait…" : setting ? "Save PIN & View" : `Unlock ${purpose}`}</button>
           </div>
         </form>
       </div>

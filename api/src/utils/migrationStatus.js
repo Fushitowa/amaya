@@ -10,3 +10,14 @@ export async function findPendingMigrations(executor) {
   const applied = new Set(rows.map((row) => row.version));
   return MIGRATIONS.filter((version) => !applied.has(version));
 }
+
+// MySQL/MariaDB errors raised when code reads a column or table a pending migration would add.
+const SCHEMA_BEHIND_ERRNOS = new Set([1054, 1146]); // ER_BAD_FIELD_ERROR, ER_NO_SUCH_TABLE
+
+export const DB_UPDATE_REQUIRED_MESSAGE =
+  "The database needs an update before this works. In the control panel, press 'Update the database' (it backs up first).";
+
+/** True when `error` means the database schema is older than the code. */
+export function isSchemaBehindError(error) {
+  return Boolean(error) && SCHEMA_BEHIND_ERRNOS.has(Number(error.errno));
+}

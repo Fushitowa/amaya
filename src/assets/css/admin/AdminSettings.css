@@ -159,6 +159,7 @@
 }
 
 .st-group > h3 { margin: 0; padding: 16px 0 4px; color: var(--settings-accent-dark); font: 700 13px "DM Sans", sans-serif; }
+.st-group-note { margin: 0 0 6px; max-width: 64ch; color: var(--settings-muted); font-size: 12.5px; line-height: 1.5; }
 .st-count { margin-left: 6px; color: var(--settings-muted); font-size: 12px; font-weight: 500; }
 
 /* ---------- Rows ---------- */

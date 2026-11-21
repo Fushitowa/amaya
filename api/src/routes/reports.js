@@ -5,6 +5,8 @@ import { normalizeTargetFoodCost } from "../utils/costing.js";
 import { loadBusinessSettings } from "./settings.js";
 import { round2 } from "../../../shared/units.js";
 import { getManilaTodayDateStr } from "../../../shared/manilaDate.js";
+import { hasValidNetIncomeAccess, lockLaborKeys } from "./finances.js";
+import { loadPayrollLinesInRange, queryLaborMetrics } from "../services/laborMetricsService.js";
 import {
   addDaysIsoDate,
   buildCsvDocument,
@@ -38,21 +40,28 @@ router.get("/financial-summary", requireAuth, requireRole("admin"), async (reque
   const range = resolveRange(request.query);
   const filters = parseOrderFilters(request.query);
 
-  const [summary, previousSummary, invSnapshotRow, settingsRow] = await Promise.all([
+  const [summary, previousSummary, invSnapshotRow, settingsRow, laborMetrics] = await Promise.all([
     queryPeriodFinancialMetrics(range.from ? range : null, filters),
     range.previous ? queryPeriodFinancialMetrics(range.previous, filters) : Promise.resolve(null),
     pool.execute("SELECT COALESCE(SUM(quantity * unit_cost), 0) AS total_value FROM inventory_items WHERE is_archived = FALSE"),
     pool.execute("SELECT target_food_cost FROM business_settings WHERE id = 1 LIMIT 1"),
+    queryLaborMetrics(range.from, range.to),
   ]);
 
   const inventoryAssetValue = round2(invSnapshotRow[0]?.[0]?.total_value);
   const targetFoodCost = normalizeTargetFoodCost(settingsRow[0]?.[0]?.target_food_cost);
 
+  // Labor and running-cost ratios (payroll plan P3.2 / O3.8) come from the ledger P&L for the same
+  // dates and ignore the order filters (staff, payment, type). They hide behind the Owner PIN.
+  const laborLocked = !hasValidNetIncomeAccess(request);
   const fullSummary = {
     ...summary,
     inventoryAssetValue,
     targetFoodCost,
+    ...laborMetrics,
+    laborLocked,
   };
+  if (laborLocked) lockLaborKeys(fullSummary);
 
   const deltas = previousSummary
     ? {
@@ -556,14 +565,51 @@ async function queryStaffPerformanceData(range, query = {}) {
 
 router.get("/staff-performance", requireAuth, requireRole("admin"), async (request, response) => {
   const range = resolveRange(request.query);
-  const { staff, totals } = await queryStaffPerformanceData(range, request.query);
+  const [{ staff, totals }, payrollLines] = await Promise.all([
+    queryStaffPerformanceData(range, request.query),
+    loadPayrollLinesInRange(range.from, range.to),
+  ]);
+  // Labor (payroll plan P3.4): employer cost and paid hours from approved / paid payroll runs whose
+  // cut-off ends in the range, for employees linked to a POS login. Private: hidden without the PIN.
+  const laborLocked = !hasValidNetIncomeAccess(request);
+  const laborByUser = new Map();
+  for (const line of payrollLines) {
+    if (line.userId == null) continue;
+    const entry = laborByUser.get(line.userId) || { cost: 0, hours: 0 };
+    entry.cost += line.cost;
+    entry.hours += line.hours;
+    laborByUser.set(line.userId, entry);
+  }
+  let linkedLaborCost = 0;
+  let linkedLaborHours = 0;
+  for (const row of staff) {
+    const labor = laborByUser.get(row.userId);
+    row.hasPayroll = Boolean(labor);
+    if (laborLocked || !labor) {
+      row.laborCost = null;
+      row.laborHours = null;
+      row.salesPerLaborHour = null;
+      row.profitAfterWages = null;
+      continue;
+    }
+    row.laborCost = round2(labor.cost);
+    row.laborHours = round2(labor.hours);
+    row.salesPerLaborHour = labor.hours > 0 ? round2(row.grossSales / labor.hours) : null;
+    row.profitAfterWages = round2(row.attributedGrossProfit - labor.cost);
+    linkedLaborCost += labor.cost;
+    linkedLaborHours += labor.hours;
+  }
+  totals.laborCost = laborLocked ? null : round2(linkedLaborCost);
+  totals.laborHours = laborLocked ? null : round2(linkedLaborHours);
+  totals.profitAfterWages = laborLocked ? null : round2(totals.attributedGrossProfit - linkedLaborCost);
   response.json({
     range: {
       rangeKey: range.rangeKey,
       from: range.from,
       to: range.to,
     },
-    kpiNote: "Attributed Gross Profit subtracts sold-item COGS and inventory Waste Cost recorded by the staff member; it excludes wages and commissions.",
+    kpiNote: "Attributed Gross Profit subtracts sold-item COGS and inventory Waste Cost recorded by the staff member; it excludes wages and commissions. Profit after wages also subtracts the employer cost of payroll runs ending in this range (staff linked to a POS login only).",
+    laborLocked,
     staff,
     totals,
   });

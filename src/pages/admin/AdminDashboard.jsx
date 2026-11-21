@@ -23,6 +23,7 @@ import OrderDetailsModal from "../../components/OrderDetailsModal.jsx";
 import StaffActivityModal from "../../components/StaffActivityModal.jsx";
 import LogWasteModal from "../../components/LogWasteModal.jsx";
 import StoreAssetsHeroCard from "../../components/StoreAssetsHeroCard.jsx";
+import CostRatioTiles from "../../components/CostRatioTiles.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { isOrderPaid, isToday, useOrders } from "../../context/OrdersContext.jsx";
 import { getInventoryStatus, useInventory } from "../../context/InventoryContext.jsx";
@@ -30,6 +31,7 @@ import { parseMenuPrice, useMenu } from "../../context/MenuContext.jsx";
 import { useBusiness } from "../../context/BusinessContext.jsx";
 import { formatManilaDate, getManilaDateString } from "../../../shared/manilaDate.js";
 import { apiRequest } from "../../utils/api.js";
+import IngredientCostFlowCard from "../../components/IngredientCostFlowCard.jsx";
 import { getStockHealth } from "../../utils/stockHealth.js";
 import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
 import "../../assets/css/admin/AdminDashboard.css";
@@ -945,6 +947,8 @@ function AdminDashboard() {
             ))}
           </section>
 
+          <CostRatioTiles />
+
           <section className="ad-card">
             <div className="ad-card-head"><h2>Sales trend</h2><strong>₱{periodSales.toFixed(0)}</strong></div>
             <div className="ad-chips" role="tablist" aria-label="Sales range">
@@ -1037,6 +1041,8 @@ function AdminDashboard() {
               </ul>
             ) : <p className="ad-empty">All inventory items are well stocked.</p>}
           </section>
+
+          <IngredientCostFlowCard />
 
           <section className="ad-card ad-waste-card" aria-label="Waste and spoilage tracker">
             <div className="ad-card-head">
@@ -1186,6 +1192,8 @@ function AdminDashboard() {
               </div>
             </div>
           </section>
+
+          <CostRatioTiles />
 
           <section className="admin-panel admin-cashier-confirm-panel" aria-label="Cashier Sales and Owner Confirmation">
             <div className="admin-cashier-confirm-head">

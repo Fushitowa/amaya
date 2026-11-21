@@ -5,6 +5,7 @@ import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
 import { defaultBusinessSettings, formatBusinessTime, useBusiness } from "../../context/BusinessContext.jsx";
 import { apiRequest } from "../../utils/api.js";
+import { COST_TARGETS, PRIME_COST_GOAL, normalizeContributionSplit } from "../../../shared/costTargets.js";
 import { formatManilaTime, MANILA_TIMEZONE } from "../../../shared/manilaDate.js";
 import {
 	DEFAULT_TARGET_FOOD_COST,
@@ -69,6 +70,8 @@ function AdminSettings() {
 		targetFoodCost: normalizeTargetFoodCost(businessSettings?.targetFoodCost, DEFAULT_TARGET_FOOD_COST),
 	};
 	const settings = { ...baseSettings, ...settingsDraft };
+	// Cost targets are stored as ratios but typed as percents; the typed text is kept as a draft.
+	const costTargetPct = (key) => settings[`${key}Pct`] ?? String(Number(((settings[key] ?? COST_TARGETS[key].fallback) * 100).toFixed(2)));
 	const [newDiscountLabel, setNewDiscountLabel] = useState("");
 	const [newDiscountPct, setNewDiscountPct] = useState("");
 	const notifications = Boolean(settings.notifyAllEnabled);
@@ -376,6 +379,18 @@ function AdminSettings() {
 			return false;
 		}
 
+		const costTargetPayload = {};
+		for (const [key, def] of Object.entries(COST_TARGETS)) {
+			const pct = Number(costTargetPct(key));
+			if (!Number.isFinite(pct) || pct < def.min * 100 || pct > def.max * 100) {
+				const message = `${def.label} must be between ${Math.round(def.min * 100)}% and ${Math.round(def.max * 100)}%.`;
+				setSaveState("error");
+				setSaveError(message);
+				return false;
+			}
+			costTargetPayload[key] = Number((pct / 100).toFixed(4));
+		}
+
 		clearSaveTimers();
 		setSaveState("saving");
 		setSaveError("");
@@ -394,8 +409,12 @@ function AdminSettings() {
 			if (!Number.isInteger(criticalThreshold) || criticalThreshold < 1 || criticalThreshold >= lowThreshold) {
 				throw new Error("Critical stock threshold must be a whole number below the low stock threshold.");
 			}
+			// Drop the typed-percent drafts; the ratios go in costTargetPayload.
+			const settingsWithoutDrafts = Object.fromEntries(Object.entries(settings).filter(([key]) => !key.endsWith("CostPct")));
 			await saveBusinessSettings({
-				...settings,
+				...settingsWithoutDrafts,
+				...costTargetPayload,
+				contributionSplit: normalizeContributionSplit(settings.contributionSplit),
 				targetFoodCost: normalizedFoodCost,
 				isTemporarilyClosed: Boolean(settings.isTemporarilyClosed),
 				lowStockThresholdPercent: lowThreshold,
@@ -854,6 +873,30 @@ function AdminSettings() {
 													</span>
 												</div>
 											</div>
+										</div>
+
+										<div className="st-group">
+											<h3>Running cost targets</h3>
+											<p className="st-group-note">Share of sales you aim to spend. The dashboard compares each month against these. Prime cost (ingredients + labor) should stay under {Math.round(PRIME_COST_GOAL * 100)}%.</p>
+											<SettingRow id="settings-target-labor" label="Target labor cost" description="Salaries, wages, overtime, contributions and 13th month. Also caps the labor budget fill (5% to 60%).">
+												<UnitInput id="settings-target-labor" unit="%" min="5" max="60" step="0.5" value={costTargetPct("targetLaborCost")} onChange={(e) => setRuleField("targetLaborCostPct", e.target.value)} />
+											</SettingRow>
+											<SettingRow id="settings-target-utilities" label="Target utilities cost" description="Electricity, water, LPG and trash collection. Restaurants usually spend 3% to 5% (1% to 30%).">
+												<UnitInput id="settings-target-utilities" unit="%" min="1" max="30" step="0.5" value={costTargetPct("targetUtilitiesCost")} onChange={(e) => setRuleField("targetUtilitiesCostPct", e.target.value)} />
+											</SettingRow>
+											<SettingRow id="settings-target-occupancy" label="Target occupancy cost" description="Rent, building insurance and property tax. Cafés usually spend 6% to 10% (1% to 40%).">
+												<UnitInput id="settings-target-occupancy" unit="%" min="1" max="40" step="0.5" value={costTargetPct("targetOccupancyCost")} onChange={(e) => setRuleField("targetOccupancyCostPct", e.target.value)} />
+											</SettingRow>
+										</div>
+
+										<div className="st-group">
+											<h3>Payroll</h3>
+											<SettingRow id="settings-contribution-split" label="SSS, PhilHealth and Pag-IBIG deduction" description="When each month's employee share is taken from pay. Applies to new and draft payroll runs only.">
+												<select id="settings-contribution-split" className="st-select" value={normalizeContributionSplit(settings.contributionSplit)} onChange={(e) => setRuleField("contributionSplit", e.target.value)}>
+													<option value="per_cutoff">Half each cut-off (1–15 and 16–end)</option>
+													<option value="monthly">Whole month in the 2nd cut-off</option>
+												</select>
+											</SettingRow>
 										</div>
 
 										<div className="st-group">

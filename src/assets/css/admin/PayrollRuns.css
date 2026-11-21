@@ -1,0 +1,100 @@
+/* Payroll runs, 13th month, owner's pay and payslip. Builds on ExpenseCategoryPage.css (ec-)
+   and StaffRoster.css (sr-). Prefix pr- / payslip- */
+
+.payroll-page .ec-card { overflow-x: hidden; overflow-y: auto; }
+/* The card scrolls as a whole here, so the table keeps its natural height instead of shrinking. */
+.payroll-page .sr-table-wrap { flex: 0 0 auto; min-height: auto; overflow-x: auto; overflow-y: visible; }
+.payroll-page .sr-table th { position: static; }
+.pr-main-tabs { width: fit-content; margin-top: 12px; }
+.pr-back { border: 0; background: transparent; padding: 0; cursor: pointer; }
+.pr-loading { padding: 40px 0; color: var(--ec-muted); text-align: center; }
+
+.pr-locked { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; flex: 1; padding: 60px 20px; color: var(--ec-ink); text-align: center; }
+.pr-locked svg { color: var(--ec-brass); }
+.pr-locked h2 { margin: 0; font: 700 26px/1.2 var(--ec-serif); }
+.pr-locked p { max-width: 420px; margin: 0 0 6px; color: var(--ec-muted); font-size: 13.5px; }
+
+.pr-start { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; padding: 14px 0 12px; border-bottom: 1px solid var(--ec-line); }
+.pr-start label { display: flex; flex-direction: column; gap: 4px; color: var(--ec-muted); font-size: 12px; font-weight: 600; }
+.pr-start input, .pr-start select, .pr-paybar select { min-height: 34px; padding: 4px 2px; border: 0; border-bottom: 1px solid #cdb999; background: transparent; color: var(--ec-ink); font: 14px var(--ec-sans); }
+.pr-start .sr-help { flex: 1 1 100%; }
+
+.pr-status { display: inline-block; padding: 1px 8px; border: 1px solid currentColor; font-size: 11px; font-weight: 700; font-style: normal; white-space: nowrap; }
+.pr-status.tone-draft { color: var(--ec-brown); }
+.pr-status.tone-warn { color: var(--ec-warn); }
+.pr-status.tone-ok { color: var(--ec-ok); }
+.pr-status.tone-void { color: var(--ec-muted); text-decoration: line-through; }
+.ec-note .pr-status { margin-right: 6px; }
+
+.pr-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; margin: 12px 0 0; border-top: 1px solid var(--ec-line); border-bottom: 1px solid var(--ec-line); }
+.pr-totals div { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--ec-line-soft); }
+.pr-totals dt { color: var(--ec-muted); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.pr-totals dd { margin: 3px 0 0; font: 700 16px var(--ec-sans); white-space: nowrap; }
+.pr-totals .is-strong dd { color: var(--ec-deep); font-family: var(--ec-serif); font-size: 19px; }
+
+.pr-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--ec-brass); background: #fbf3e4; font-size: 13px; }
+.pr-confirm p { flex: 1 1 320px; margin: 0; }
+.pr-confirm > div { display: flex; gap: 8px; }
+.pr-confirm label { display: flex; flex-direction: column; gap: 3px; flex: 1 1 240px; color: var(--ec-muted); font-size: 12px; font-weight: 600; }
+.pr-confirm input { min-height: 32px; border: 0; border-bottom: 1px solid #cdb999; background: transparent; font: 14px var(--ec-sans); }
+
+.pr-paybar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 18px; margin-top: 12px; padding: 10px 14px; background: #f4eadb; font-size: 13px; }
+.pr-paybar > span { flex: 1 1 260px; align-self: center; }
+.pr-paybar label { display: flex; flex-direction: column; gap: 2px; color: var(--ec-muted); font-size: 12px; font-weight: 600; }
+
+.pr-lines td { vertical-align: middle; }
+.pr-num-input { width: 64px; padding: 4px 2px; border: 0; border-bottom: 1px dashed #b89a72; background: #fffaf1; color: var(--ec-ink); font: 600 13px var(--ec-sans); text-align: right; }
+.pr-num-input:focus { border-bottom: 1px solid var(--ec-deep); outline: none; }
+.pr-paid { color: var(--ec-ok) !important; font-weight: 700; }
+
+.pr-payables { padding: 14px 0 6px; }
+.pr-payables h4 { margin: 0 0 6px; color: var(--ec-brown); font: 700 11px var(--ec-sans); letter-spacing: .08em; text-transform: uppercase; }
+.pr-payables ul { margin: 0; padding: 0; list-style: none; }
+.pr-payables li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 7px 0; border-bottom: 1px dotted var(--ec-line); font-size: 13px; }
+.pr-payables li > span { flex: 1 1 220px; }
+.pr-payables li small { flex-basis: 100%; color: var(--ec-muted); font-size: 11.5px; }
+
+.pr-owner-explain { margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--ec-brass); background: #fbf3e4; font-size: 13px; line-height: 1.5; }
+.pr-owner-explain p { margin: 0; }
+.pr-owner-form { padding: 0; max-width: 640px; }
+
+/* Payslip */
+.payslip-head-actions { display: flex; align-items: center; gap: 6px; }
+.payslip { padding: 20px 24px 24px; color: #2d1f1a; font-family: "DM Sans", system-ui, sans-serif; }
+.payslip-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 3px double #b8864f; }
+.payslip-top > div { display: flex; flex-direction: column; }
+.payslip-biz { font: 700 22px/1.2 "Playfair Display", Georgia, serif; }
+.payslip-top > div span { color: #8b5e3c; font-size: 11px; font-weight: 700; letter-spacing: .2em; }
+.payslip-top dl { margin: 0; font-size: 12.5px; }
+.payslip-top dl div { display: flex; gap: 8px; justify-content: flex-end; }
+.payslip-top dt { color: #75655a; }
+.payslip-top dd { margin: 0; font-weight: 600; }
+.payslip-who { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; padding: 12px 0; border-bottom: 1px solid #e3d6c1; }
+.payslip-who div { display: flex; flex-direction: column; font-size: 13px; }
+.payslip-who span { color: #75655a; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.payslip-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 24px; padding: 12px 0; }
+.payslip-cols table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.payslip-cols caption { padding-bottom: 6px; color: #8b5e3c; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+.payslip-cols td { padding: 5px 0; border-bottom: 1px dotted #e3d6c1; }
+.payslip-cols td:last-child { text-align: right; white-space: nowrap; }
+.payslip-cols td small { display: block; color: #75655a; font-size: 11px; }
+.payslip-cols tfoot td { border-top: 1px solid #b8864f; border-bottom: 0; font-weight: 700; }
+.payslip-net { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 14px; background: #3b2619; color: #fdf1de; }
+.payslip-net span { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.payslip-net strong { font: 700 24px "Playfair Display", Georgia, serif; }
+.payslip-foot { padding-top: 12px; color: #5f4a38; font-size: 11.5px; line-height: 1.5; }
+.payslip-foot p { margin: 0 0 4px; }
+.payslip-sign { display: flex; gap: 40px; margin-top: 28px; }
+.payslip-sign span { flex: 1; padding-top: 4px; border-top: 1px solid #75655a; text-align: center; }
+
+@media (max-width: 560px) {
+  .payslip-who, .payslip-cols { grid-template-columns: 1fr; }
+}
+
+@media print {
+  body.printing-payslip * { visibility: hidden; }
+  body.printing-payslip #payslip-print, body.printing-payslip #payslip-print * { visibility: visible; }
+  body.printing-payslip #payslip-print { position: absolute; inset: 0 auto auto 0; width: 100%; }
+  body.printing-payslip .payslip-overlay { position: static; background: none; }
+  body.printing-payslip .payslip-modal { box-shadow: none; max-height: none; overflow: visible; border: 0; }
+}

@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Circle,
   ClipboardList,
+  HandCoins,
   Folder,
   Landmark,
   LayoutGrid,
@@ -19,6 +20,7 @@ import {
   ShoppingBag,
   Tags,
   Trash2,
+  Users,
   Utensils,
   Wallet,
 } from "lucide-react";
@@ -28,24 +30,24 @@ import adminAvatar from "../assets/images/icon/admin1.svg";
 import SidebarLogoButton from "./SidebarLogoButton.jsx";
 import AdminNotificationNavItem from "./AdminNotificationNavItem.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { EXPENSE_NAV_CATEGORIES, getExpenseNavCategory } from "../config/expenseNavigation.js";
+import { EXPENSE_NAV_CATEGORIES, EXPENSE_NAV_TREE, getExpenseNavCategory } from "../config/expenseNavigation.js";
 
 const EXPENSES_BASE = "/admin/expenses-payroll";
 
-// How the expense pages are grouped in the sidebar. A node with `children` is a folder that opens
-// to show its pages (it is not a page itself). A node without `children` is a page.
-const EXPENSE_NAV_TREE = [
-  { slug: "labor-and-payroll", children: ["salary", "wages", "overtime", "staff-meals"] },
-  { slug: "utilities", children: ["electricity", "water", "lpg", "internet"] },
-  { slug: "operating-supplies", children: ["kitchen-tools", "sanitation-supplies", "other-operating-supplies"] },
-  { slug: "repairs-and-maintenance", children: ["maintenance-expenses", "labor-for-repairs"] },
-  { slug: "general-and-administrative", children: ["office-expenses", "taxes-and-licenses"] },
-  { slug: "professional-and-bank-fees" },
-  { slug: "transportation" },
-  { slug: "miscellaneous" },
-];
+// How the expense pages are grouped comes from the shared EXPENSE_NAV_TREE. A node with children
+// is a folder that opens to show its pages (it is not a page itself).
 
 const expenseGroupKey = (slug) => `expense-group-${slug}`;
+
+// Where payroll is done (staff list, payroll runs) sits at the top of the Labor and Payroll folder,
+// above the expense pages that show what it cost. `matchPrefix` keeps Payroll highlighted on a run.
+const LABOR_TOOL_PAGES = [
+  { key: "payroll-staff", to: `${EXPENSES_BASE}/staff`, label: "Staff", Icon: Users },
+  { key: "payroll-runs", to: `${EXPENSES_BASE}/payroll`, label: "Payroll", Icon: HandCoins, matchPrefix: true },
+];
+
+const pathMatches = (item, pathname) =>
+  pathname === item.to || Boolean(item.matchPrefix && pathname.startsWith(`${item.to}/`));
 
 function expensePageItem(category) {
   return {
@@ -69,7 +71,8 @@ function buildExpenseNavItems() {
       placed.add(childSlug);
       return [expensePageItem(child)];
     });
-    return [{ key: expenseGroupKey(node.slug), label: category.label, Icon: Folder, children: pages }];
+    const tools = node.slug === "labor-and-payroll" ? LABOR_TOOL_PAGES : [];
+    return [{ key: expenseGroupKey(node.slug), label: category.label, Icon: Folder, children: [...tools, ...pages] }];
   });
   // Any category not listed above still gets a page link, so a new category never disappears.
   EXPENSE_NAV_CATEGORIES.forEach((category) => {
@@ -79,7 +82,7 @@ function buildExpenseNavItems() {
 }
 
 const isNavItemActive = (item, pathname) =>
-  item.to ? pathname === item.to : Boolean(item.children?.some((child) => isNavItemActive(child, pathname)));
+  item.to ? pathMatches(item, pathname) : Boolean(item.children?.some((child) => isNavItemActive(child, pathname)));
 
 // Which folders should be open for the current page.
 function expandedForPath(pathname) {
@@ -92,6 +95,9 @@ function expandedForPath(pathname) {
       open[expenseGroupKey(node.slug)] = true;
     }
   });
+  if (LABOR_TOOL_PAGES.some((page) => pathMatches(page, pathname))) {
+    open[expenseGroupKey("labor-and-payroll")] = true;
+  }
   return open;
 }
 
@@ -276,7 +282,7 @@ function Sidebar({
                                 {groupOpen && (
                                   <div className="amaya-sidebar-submenu amaya-sidebar-submenu--nested" id={`${child.key}-submenu`}>
                                     {child.children.map((page) => {
-                                      const pageActive = location.pathname === page.to;
+                                      const pageActive = pathMatches(page, location.pathname);
                                       return (
                                         <Link
                                           key={page.key}
@@ -296,7 +302,7 @@ function Sidebar({
                               </div>
                             );
                           }
-                          const childActive = location.pathname === child.to;
+                          const childActive = pathMatches(child, location.pathname);
                           return (
                             <Link
                               key={child.key}

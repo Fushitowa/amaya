@@ -50,4 +50,12 @@ export const MIGRATIONS = [
   "044_rename_inventory_waste_cogs_account.sql",
   "045_owner_net_income_pin.sql",
   "046_net_income_pin_escalating_lockout.sql",
+  "047_payroll_accounts.sql",
+  "048_employees.sql",
+  "049_payroll_runs.sql",
+  "050_cost_targets_and_payroll_settings.sql",
+  "051_operating_costs_usar.sql",
+  "052_inventory_shrinkage_account.sql",
+  "053_period_closures.sql",
+  "054_drawer_variance_thresholds.sql",
 ];

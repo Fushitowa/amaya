@@ -7,6 +7,12 @@ import {
   MAX_TARGET_FOOD_COST,
   normalizeTargetFoodCost,
 } from "../utils/costing.js";
+import {
+  COST_TARGETS,
+  CONTRIBUTION_SPLITS,
+  normalizeContributionSplit,
+  normalizeCostTarget,
+} from "../../../shared/costTargets.js";
 
 const router = Router();
 const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
@@ -28,6 +34,11 @@ export const DEFAULT_BUSINESS_SETTINGS = {
   isTemporarilyClosed: false,
   receiptFooter: "Thank you for supporting local craft!",
   targetFoodCost: DEFAULT_TARGET_FOOD_COST,
+  targetLaborCost: COST_TARGETS.targetLaborCost.fallback,
+  targetUtilitiesCost: COST_TARGETS.targetUtilitiesCost.fallback,
+  targetOccupancyCost: COST_TARGETS.targetOccupancyCost.fallback,
+  payrollFrequency: "semi_monthly",
+  contributionSplit: "per_cutoff",
   lowStockThresholdPercent: 40,
   criticalStockThresholdPercent: 20,
   inactivityAlertDays: 30,
@@ -95,6 +106,18 @@ function parseBoolStrict(raw, fallback, fieldLabel) {
   return raw;
 }
 
+// A cost target arrives as a ratio (0.30 = 30%), bounded per shared/costTargets.js.
+function parseCostTarget(raw, fallback, def) {
+  if (raw === undefined) return fallback;
+  const message = `${def.label} must be between ${Math.round(def.min * 100)}% and ${Math.round(def.max * 100)}% (send it as a ratio, e.g. 0.30).`;
+  if (raw === null || typeof raw === "boolean" || typeof raw === "object" || String(raw).trim() === "") {
+    throw new Error(message);
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < def.min || num > def.max) throw new Error(message);
+  return Number(num.toFixed(4));
+}
+
 function mapSettings(row, role = null) {
   const mapped = row
     ? {
@@ -137,6 +160,11 @@ function mapSettings(row, role = null) {
 
   if (role === "admin") {
     mapped.targetFoodCost = normalizeTargetFoodCost(row?.target_food_cost);
+    for (const [key, def] of Object.entries(COST_TARGETS)) {
+      mapped[key] = normalizeCostTarget(key, row?.[def.column]);
+    }
+    mapped.payrollFrequency = "semi_monthly";
+    mapped.contributionSplit = normalizeContributionSplit(row?.contribution_split);
     mapped.inactivityAlertDays = Number(row?.inactivity_alert_days ?? DEFAULT_BUSINESS_SETTINGS.inactivityAlertDays);
     mapped.archiveRetentionDays = Number(row?.archive_retention_days ?? DEFAULT_BUSINESS_SETTINGS.archiveRetentionDays);
     mapped.maxInventoryAdjustmentPct = Number(row?.max_inventory_adjustment_pct ?? DEFAULT_BUSINESS_SETTINGS.maxInventoryAdjustmentPct);
@@ -360,7 +388,24 @@ router.put("/", requireAuth, requireRole("admin"), async (request, response) => 
       "Inventory alerts toggle",
     );
 
+    const costTargets = {};
+    for (const [key, def] of Object.entries(COST_TARGETS)) {
+      costTargets[key] = parseCostTarget(body[key], current[key], def);
+    }
+    let contributionSplit = current.contributionSplit;
+    if (body.contributionSplit !== undefined) {
+      if (!CONTRIBUTION_SPLITS.includes(body.contributionSplit)) {
+        throw new Error("Contribution deduction must be 'per_cutoff' (half each cut-off) or 'monthly' (whole month in the 2nd cut-off).");
+      }
+      contributionSplit = body.contributionSplit;
+    }
+    if (body.payrollFrequency !== undefined && body.payrollFrequency !== "semi_monthly") {
+      throw new Error("Only semi-monthly payroll (1–15 and 16–end of month) is supported.");
+    }
+
     next = {
+      costTargets,
+      contributionSplit,
       isTemporarilyClosed,
       lowStockThresholdPercent,
       criticalStockThresholdPercent,
@@ -451,6 +496,18 @@ router.put("/", requireAuth, requireRole("admin"), async (request, response) => 
       next.notifyOrderAlerts ? 1 : 0,
       next.notifyInventoryAlerts ? 1 : 0,
       targetFoodCost,
+    ],
+  );
+  await pool.execute(
+    `UPDATE business_settings
+        SET target_labor_cost = ?, target_utilities_cost = ?, target_occupancy_cost = ?,
+            payroll_frequency = 'semi_monthly', contribution_split = ?
+      WHERE id = 1`,
+    [
+      next.costTargets.targetLaborCost,
+      next.costTargets.targetUtilitiesCost,
+      next.costTargets.targetOccupancyCost,
+      next.contributionSplit,
     ],
   );
   const [[row]] = await pool.execute("SELECT * FROM business_settings WHERE id = 1");

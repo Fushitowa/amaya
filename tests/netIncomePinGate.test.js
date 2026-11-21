@@ -97,4 +97,33 @@ describe("Net Income PIN gate", () => {
     assert.equal(res.status, 200);
     assert.equal(res.data.netIncome, null);
   });
+
+  it("hides labor and USAR figures while locked (payroll plan P3.5 / O3.7)", async () => {
+    const admin = await tracker.createUser({ role: "admin" });
+
+    const pnl = await server.requestJson("/api/finances/reports/profit-and-loss", { token: admin.token });
+    assert.equal(pnl.status, 200);
+    for (const key of ["laborCost", "laborPercent", "primeCost", "primeCostPercent", "controllableExpenses", "controllableIncome", "controllableIncomePercent", "utilitiesCost", "totalOccupancy", "occupancyPercent", "restaurantOperatingIncome"]) {
+      assert.equal(pnl.data[key], null, `P&L ${key} must be hidden while locked`);
+    }
+    assert.deepEqual(pnl.data.usarGroups, []);
+    assert.deepEqual(pnl.data.utilityEstimates, []);
+
+    const summary = await server.requestJson("/api/reports/financial-summary?rangeKey=30d", { token: admin.token });
+    assert.equal(summary.status, 200);
+    assert.equal(summary.data.summary.laborLocked, true);
+    for (const key of ["laborCost", "laborPercent", "primeCost", "primeCostPercent", "salesPerLaborHour", "laborHours", "utilitiesPercent", "occupancyPercent", "controllableIncome", "controllableIncomePercent"]) {
+      assert.equal(summary.data.summary[key], null, `financial-summary ${key} must be hidden while locked`);
+    }
+
+    const staff = await server.requestJson("/api/reports/staff-performance?rangeKey=30d", { token: admin.token });
+    assert.equal(staff.data.laborLocked, true);
+    assert.ok(staff.data.staff.every((row) => row.laborCost === null && row.profitAfterWages === null));
+
+    const cashFlow = await server.requestJson("/api/finances/reports/cash-flow", { token: admin.token });
+    assert.equal(cashFlow.data.operatingActivities.payrollCashOutflow, null);
+
+    const plan = await server.requestJson("/api/finances/expense-budgets/labor-plan", { token: admin.token });
+    assert.equal(plan.status, 403);
+  });
 });

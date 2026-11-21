@@ -1,0 +1,39 @@
+/* Running cost ratios on the admin dashboard (payroll plan P3.3 / O3.8). */
+.crt-panel {
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(92, 67, 50, 0.14);
+  border-radius: 18px;
+  background: #fffaf3;
+  box-shadow: 0 6px 18px rgba(60, 42, 30, 0.05);
+  color: #3a2618;
+}
+.crt-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.crt-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #9a6c35; }
+.crt-head h3 { margin: 2px 0 4px; font-size: 18px; }
+.crt-head p { margin: 0; font-size: 12.5px; color: #6b5847; }
+.crt-head a { color: #8f5a22; }
+.crt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.crt-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px; background: #f3e6d3; font-size: 12.5px; font-weight: 600; }
+.crt-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid rgba(92, 67, 50, 0.2); border-radius: 10px; background: #fff; color: #3a2618; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.crt-btn:disabled { opacity: 0.6; cursor: default; }
+.crt-error { margin: 12px 0 0; color: #b91c1c; font-size: 13px; }
+.crt-locked { margin: 14px 0 2px; font-size: 13.5px; color: #6b5847; }
+.crt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 14px; }
+.crt-tile { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border-radius: 14px; background: #fff; border: 1px solid rgba(92, 67, 50, 0.12); }
+.crt-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: #f3e6d3; }
+.crt-label { font-size: 12.5px; font-weight: 600; color: #6b5847; }
+.crt-tile strong { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.crt-tile small { font-size: 11.5px; color: #6b5847; line-height: 1.4; }
+.crt-meter { position: relative; height: 6px; margin: 4px 0 2px; border-radius: 99px; background: #efe4d6; overflow: visible; }
+.crt-meter i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: currentColor; }
+.crt-meter b { position: absolute; top: -3px; width: 2px; height: 12px; background: #3a2618; }
+.crt-tile.tone-ok { color: #13693a; }
+.crt-tile.tone-warn { color: #9a5b00; }
+.crt-tile.tone-over { color: #b91c1c; }
+.crt-tile.tone-none { color: #6b5847; }
+.crt-tile .crt-label, .crt-tile small { color: #6b5847; }
+.crt-tile.tone-ok .crt-icon { background: #ddf1e4; }
+.crt-tile.tone-warn .crt-icon { background: #fdeccb; }
+.crt-tile.tone-over .crt-icon { background: #fde2e2; }
+.admin-dashboard.is-mobile .crt-panel { margin: 0; border-radius: 28px; }

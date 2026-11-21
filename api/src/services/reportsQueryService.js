@@ -377,7 +377,7 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
   const hasOrderSliceFilter = Boolean(
     filters.paymentMethod || filters.orderType || filters.status || filters.search,
   );
-  const spoilConditions = ["coa.account_code = '6030'"];
+  const spoilConditions = ["coa.account_code IN ('6030', '6031')"];
   const spoilParams = [];
   let spoilOrderJoin = "";
   if (bounds?.start && bounds?.end) {
@@ -397,7 +397,8 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
     spoilParams.push(filters.staffId);
   }
   const [[spoilAgg]] = await pool.execute(
-    `SELECT COALESCE(SUM(jel.debit - jel.credit), 0) AS spoilage_cost
+    `SELECT COALESCE(SUM(CASE WHEN coa.account_code = '6030' THEN jel.debit - jel.credit ELSE 0 END), 0) AS spoilage_cost,
+            COALESCE(SUM(CASE WHEN coa.account_code = '6031' THEN jel.debit - jel.credit ELSE 0 END), 0) AS shrinkage_cost
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN chart_of_accounts coa ON coa.id = jel.account_id
@@ -413,7 +414,8 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
   const netSales = round2(grossSales - discountTotal);
   const salesCogs = round2(perOrderCogsAgg?.cogs);
   const spoilageCost = round2(Math.max(0, spoilAgg?.spoilage_cost));
-  const totalCogs = round2(salesCogs + spoilageCost);
+  const inventoryShrinkage = round2(spoilAgg?.shrinkage_cost);
+  const totalCogs = round2(salesCogs + spoilageCost + inventoryShrinkage);
   const grossProfit = round2(netSales - totalCogs);
   const reconciledGrossProfit = grossProfit;
   const paidOrdersCount = Number(orderAgg?.paid_orders_count || 0);
@@ -427,6 +429,7 @@ export async function queryPeriodFinancialMetrics(bounds, filters) {
     cogs: totalCogs,
     salesCogs,
     spoilageCost,
+    inventoryShrinkage,
     wasteCost: spoilageCost,
     totalCogs,
     grossProfit,

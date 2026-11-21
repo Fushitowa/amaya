@@ -17,6 +17,7 @@ export const WASTE_LOG_REASONS = Object.freeze([
   { value: "expired", label: "Expired", shortLabel: "Expired", description: "The item is past its expiration date." },
   { value: "damaged", label: "Damaged", shortLabel: "Damaged", description: "Packaging or ingredient was damaged." },
   { value: "spilled", label: "Spilled", shortLabel: "Spilled", description: "The item was spilled or dropped." },
+  { value: "prep_trim", label: "Prep or trimming", shortLabel: "Prep trim", description: "Normal loss while preparing, such as peels, trimmings or leftover batch.", kind: "normal" },
   { value: "other", label: "Other", shortLabel: "Other", description: "Another specific waste reason." },
 ]);
 
@@ -54,6 +55,15 @@ const LEGACY_WASTE_REASONS = Object.freeze([
 ]);
 
 export const WASTE_REASONS = Object.freeze([...WASTE_LOG_REASONS, ...LEGACY_WASTE_REASONS]);
+
+/**
+ * IAS 2 splits waste in two: "normal" loss that is part of making the product, and "abnormal"
+ * loss (spoiled, expired, spilled, damaged) that should have been avoided. Only prep trimming is
+ * treated as normal; every other reason counts as avoidable.
+ */
+export function getWasteKind(reason) {
+  return WASTE_REASON_MAP[reason]?.kind === "normal" ? "normal" : "avoidable";
+}
 export const WASTE_REASON_VALUES = Object.freeze(WASTE_REASONS.map((r) => r.value));
 export const WASTE_REASON_MAP = Object.freeze(
   Object.fromEntries(WASTE_REASONS.map((r) => [r.value, r])),

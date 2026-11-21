@@ -100,6 +100,38 @@ export function assertValidDateRange(from, to) {
   return { from: cleanFrom || null, to: cleanTo || null };
 }
 
+/** YYYY-MM of a date, Date object or datetime string, in Manila time. */
+export function manilaMonthOf(value) {
+  if (value instanceof Date) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit" }).format(value);
+  }
+  return String(value || getManilaDateString()).slice(0, 7);
+}
+
+/**
+ * Nothing may be dated inside a month the owner has closed. A database that has not run migration
+ * 053 yet has no table to check, so posting carries on rather than failing everywhere.
+ */
+export async function assertPeriodOpen(executor, dateValue = null) {
+  const month = manilaMonthOf(dateValue);
+  let rows;
+  try {
+    [rows] = await executor.query(
+      "SELECT 1 FROM period_closures WHERE period_month = ? AND reopened_at IS NULL LIMIT 1",
+      [month],
+    );
+  } catch (error) {
+    if (Number(error?.errno) === 1146) return;
+    throw error;
+  }
+  if (rows.length) {
+    throw httpError(
+      409,
+      `The month ${month} is closed, so nothing can be dated in it. Record the correction in the current month, or ask the owner to reopen ${month}.`,
+    );
+  }
+}
+
 export function parseBoundedPositiveInt(raw, fallback, min, max, label = "Parameter") {
   if (raw === undefined || raw === null || String(raw).trim() === "") {
     return fallback;
@@ -192,6 +224,8 @@ export async function postBalancedEntry(connection, {
       return { skipped: true, entryId: Number(existing.id) };
     }
   }
+
+  await assertPeriodOpen(connection, entryDate);
 
   const codes = [...new Set(normalizedLines.map((l) => l.accountCode))];
   const [accRows] = await connection.query(
@@ -678,7 +712,8 @@ export async function postInventoryValuationDelta(connection, {
 
   const absVal = round2(Math.abs(cleanDelta));
   const isIncrease = cleanDelta > 0;
-  const resolvedOffset = offsetAccountCode || (isIncrease ? "3010" : "6030");
+  // A recount difference is inventory shrinkage / overage (6031), never owner capital or logged waste.
+  const resolvedOffset = offsetAccountCode || "6031";
   const lines = isIncrease
     ? [
         { accountCode: "1050", debit: absVal, credit: 0, lineMemo: `Increase 1050 for ${itemName}` },
@@ -701,6 +736,40 @@ export async function postInventoryValuationDelta(connection, {
   });
 }
 
+// Uniform System of Accounts for Restaurants (USAR) groups, in statement order. `section` places a
+// group above prime cost (labor), between prime cost and controllable income (controllable), or
+// below it (occupancy, non-controllable).
+export const USAR_GROUPS = Object.freeze([
+  { key: "labor", label: "Labor (salaries, wages & benefits)", section: "labor" },
+  { key: "direct-operating", label: "Direct operating (supplies)", section: "controllable" },
+  { key: "marketing", label: "Marketing", section: "controllable" },
+  { key: "utilities", label: "Utilities", section: "controllable" },
+  { key: "general-administrative", label: "General & administrative", section: "controllable" },
+  { key: "repairs-maintenance", label: "Repairs & maintenance", section: "controllable" },
+  { key: "other-controllable", label: "Other operating expenses", section: "controllable" },
+  { key: "occupancy", label: "Occupancy (rent, building insurance & property tax)", section: "occupancy" },
+]);
+
+const USAR_GROUP_BY_EXPENSE_GROUP = {
+  "Labor & Payroll": "labor",
+  "Operating Supplies": "direct-operating",
+  "Marketing": "marketing",
+  "Advertising & Marketing": "marketing",
+  "Utilities": "utilities",
+  "Utilities & Rent (Legacy)": "utilities",
+  "General & Administrative (G&A)": "general-administrative",
+  "Repairs & Maintenance": "repairs-maintenance",
+  "Occupancy": "occupancy",
+  "Rent & Occupancy": "occupancy",
+};
+
+function usarGroupFor(item) {
+  const key = item.reportSection === "occupancy"
+    ? "occupancy"
+    : USAR_GROUP_BY_EXPENSE_GROUP[item.expenseGroup] || "other-controllable";
+  return USAR_GROUPS.find((group) => group.key === key);
+}
+
 /**
  * Summarize journal or account-balance rows into Income Statement sections using
  * database-driven `report_section` and `expense_group` metadata.
@@ -710,6 +779,7 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
   let discounts = 0;
   let customerSalesCogs = 0;
   let foodSpoilageCogs = 0;
+  let inventoryShrinkage = 0;
   let depreciation = 0;
   let tax = 0;
   const opexMap = new Map();
@@ -745,14 +815,17 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
     } else if (section === "cogs") {
       if (code === "6030") {
         foodSpoilageCogs += amount;
+      } else if (code === "6031") {
+        inventoryShrinkage += amount;
       } else {
         customerSalesCogs += amount;
       }
-    } else if (section === "opex") {
+    } else if (section === "opex" || section === "occupancy") {
       const existing = opexMap.get(code) || {
         accountCode: code,
         accountName: row.account_name || row.accountName || code,
         expenseGroup: row.expense_group || row.expenseGroup || "Others",
+        reportSection: section,
         amount: 0,
       };
       existing.amount += amount;
@@ -771,7 +844,9 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
   );
   const roundedCustomerSalesCogs = round2(clampSections ? Math.max(0, customerSalesCogs) : customerSalesCogs);
   const roundedFoodSpoilageCogs = round2(clampSections ? Math.max(0, foodSpoilageCogs) : foodSpoilageCogs);
-  const cogs = round2(roundedCustomerSalesCogs + roundedFoodSpoilageCogs);
+  // Shrinkage can be negative (an overage found at a recount), so it is never clamped.
+  const roundedInventoryShrinkage = round2(inventoryShrinkage);
+  const cogs = round2(roundedCustomerSalesCogs + roundedFoodSpoilageCogs + roundedInventoryShrinkage);
   const grossProfit = round2(netSales - cogs);
   const grossMarginPercent = netSales > 0 ? round2((grossProfit / netSales) * 100) : 0.0;
 
@@ -780,10 +855,13 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
   for (const item of [...opexMap.values()].sort((a, b) => a.accountCode.localeCompare(b.accountCode))) {
     const cleanAmount = round2(item.amount);
     if (cleanAmount !== 0) {
+      const usar = usarGroupFor(item);
       operatingExpenses.push({
         accountCode: item.accountCode,
         accountName: item.accountName,
         expenseGroup: item.expenseGroup,
+        usarSection: usar.section,
+        usarGroup: usar.key,
         amount: cleanAmount,
       });
       totalOpexRaw += cleanAmount;
@@ -798,12 +876,28 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
   const netIncome = round2(netIncomeBeforeTax - roundedTax);
   const netOperatingProfit = netIncome;
 
+  // USAR view of the same expenses: Labor → Prime cost → Controllable → Controllable income →
+  // Occupancy. Totals and net income are unchanged.
+  const usarGroups = USAR_GROUPS.map((group) => {
+    const accounts = operatingExpenses.filter((item) => item.usarGroup === group.key);
+    return { ...group, amount: round2(accounts.reduce((sum, item) => sum + item.amount, 0)), accounts };
+  });
+  const sectionTotal = (section) => round2(usarGroups.filter((g) => g.section === section).reduce((sum, g) => sum + g.amount, 0));
+  const laborCost = sectionTotal("labor");
+  const controllableExpenses = sectionTotal("controllable");
+  const totalOccupancy = sectionTotal("occupancy");
+  const utilitiesCost = usarGroups.find((g) => g.key === "utilities")?.amount || 0;
+  const primeCost = round2(cogs + laborCost);
+  const controllableIncome = round2(grossProfit - laborCost - controllableExpenses);
+  const percentOfSales = (value) => (netSales > 0 ? round2((value / netSales) * 100) : null);
+
   return {
     grossSales: roundedGrossSales,
     discounts: roundedDiscounts,
     netSales,
     customerSalesCogs: roundedCustomerSalesCogs,
     foodSpoilageCogs: roundedFoodSpoilageCogs,
+    inventoryShrinkage: roundedInventoryShrinkage,
     cogs,
     grossProfit,
     grossMarginPercent,
@@ -815,5 +909,18 @@ export function summarizeIncomeStatementLines(rows = [], { clampSections = true 
     netIncomeBeforeTax,
     netIncome,
     netOperatingProfit,
+    usarGroups,
+    laborCost,
+    laborPercent: percentOfSales(laborCost),
+    primeCost,
+    primeCostPercent: percentOfSales(primeCost),
+    controllableExpenses,
+    controllableIncome,
+    controllableIncomePercent: percentOfSales(controllableIncome),
+    utilitiesCost,
+    utilitiesPercent: percentOfSales(utilitiesCost),
+    totalOccupancy,
+    occupancyPercent: percentOfSales(totalOccupancy),
+    restaurantOperatingIncome: netIncomeBeforeTax,
   };
 }

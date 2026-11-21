@@ -382,7 +382,8 @@ function AdminReport() {
 
     Promise.all([
       apiRequest(`/reports/financial-summary?${summaryParams.toString()}`),
-      apiRequest(`/reports/staff-performance?${staffParams.toString()}`),
+      // Labor columns (payroll plan P3.4) need the Owner PIN; without it they come back empty.
+      apiRequest(`/reports/staff-performance?${staffParams.toString()}`, { headers: netIncomePin.financialHeaders }),
       apiRequest(`/reports/products?${productParams.toString()}`),
       isHourlyDay
         ? apiRequest(`/reports/hourly-sales?${summaryParams.toString()}`)
@@ -411,7 +412,7 @@ function AdminReport() {
     return () => {
       active = false;
     };
-  }, [coreQueryKey, customEnd, customRangeInvalid, customStart, rangeKey, staffFilterId]);
+  }, [coreQueryKey, customEnd, customRangeInvalid, customStart, rangeKey, staffFilterId, netIncomePin.financialHeaders]);
 
   // Load Period Inventory Activity Ledger
   useEffect(() => {
@@ -1846,6 +1847,16 @@ function AdminReport() {
                   <p className="cashier-panel-description">
                     Click any team member to see their shifts, sales, cost to make, orders, and stock changes.
                   </p>
+                  {coreState.staffPerf?.laborLocked ? (
+                    <p className="cashier-panel-description">
+                      🔒 Wages, sales per labor hour and profit after wages are hidden.{" "}
+                      <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Show with Owner PIN</button>
+                    </p>
+                  ) : coreState.staffPerf?.totals?.laborCost != null && (
+                    <p className="cashier-panel-description">
+                      Wages of staff linked to a POS login: {peso(coreState.staffPerf.totals.laborCost)} · profit after wages {peso(coreState.staffPerf.totals.profitAfterWages)}.
+                    </p>
+                  )}
                 </div>
                 <span className="cashier-active-note">
                   {staffRosterTotals.activeWithSales} {staffRosterTotals.activeWithSales === 1 ? "member" : "members"} with sales
@@ -1974,6 +1985,20 @@ function AdminReport() {
                                   <span title="Average amount per order">Average order {peso(cashier.averageTicket)}</span>
                                   <span className="cashier-meta-dot" aria-hidden="true">·</span>
                                   <span>Profit {peso(cashier.attributedGrossProfit)} ({Number(cashier.marginPercent || 0).toFixed(1)}%)</span>
+                                  {cashier.laborCost != null && (
+                                    <>
+                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                      <span title="Employer cost of payroll runs ending in this range: gross pay, employer contributions and 13th month">Wages {peso(cashier.laborCost)}</span>
+                                      {cashier.salesPerLaborHour != null && (
+                                        <>
+                                          <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                          <span title="Sales on this person's orders divided by the hours paid">{peso(cashier.salesPerLaborHour)} per labor hour</span>
+                                        </>
+                                      )}
+                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
+                                      <span title="Profit on this person's orders minus their wages" style={{ color: cashier.profitAfterWages < 0 ? "#b91c1c" : undefined }}>After wages {peso(cashier.profitAfterWages)}</span>
+                                    </>
+                                  )}
                                   {cashier.voidedOrdersCount > 0 && (
                                     <>
                                       <span className="cashier-meta-dot" aria-hidden="true">·</span>

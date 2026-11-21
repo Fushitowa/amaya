@@ -15,4 +15,11 @@ export const BS_LABELS = {
   "2010": "Accounts Payable (Suppliers)",
   "2020": "2020 - Sales Tax / VAT Payable (Collected on Orders)",
   "2030": "Income Tax Payable",
+  "2040": "Salaries & Wages Payable",
+  "2045": "13th Month Pay Payable",
+  "2050": "SSS / PhilHealth / Pag-IBIG Payable",
+  "2060": "Withholding Tax on Compensation Payable",
 };
+
+// Liabilities owned by Payroll Runs. Manual journal entries may not post to them.
+export const PAYROLL_LIABILITY_ACCOUNT_CODES = Object.freeze(["2040", "2045", "2050", "2060"]);

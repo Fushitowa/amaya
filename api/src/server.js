@@ -15,8 +15,9 @@ import decisionRoutes from "./routes/decisions.js";
 import sessionRoutes from "./routes/sessions.js";
 import reportRoutes from "./routes/reports.js";
 import financesRoutes from "./routes/finances.js";
+import payrollRoutes from "./routes/payroll.js";
 import mediaRoutes from "./routes/media.js";
-import { findPendingMigrations } from "./utils/migrationStatus.js";
+import { DB_UPDATE_REQUIRED_MESSAGE, findPendingMigrations, isSchemaBehindError } from "./utils/migrationStatus.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -52,6 +53,8 @@ app.get("/api/health", async (_request, response) => {
       status: "ok",
       connected: Boolean(rows[0]?.connected),
       pendingMigrations,
+      // The API answers, but features built on pending migrations will fail until they are applied.
+      migrationsCurrent: pendingMigrations.length === 0,
     });
   } catch (error) {
     console.error("Database health check failed:", error.message);
@@ -106,6 +109,7 @@ app.use("/api/decisions", decisionRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/finances", financesRoutes);
+app.use("/api/payroll", payrollRoutes);
 app.use("/api/media", mediaRoutes);
 
 app.use((request, response) => {
@@ -113,6 +117,12 @@ app.use((request, response) => {
 });
 
 app.use((error, _request, response, _next) => {
+  // Code newer than the database (a migration not applied yet): say so plainly instead of a generic
+  // 500, so the owner knows to run Setup / Migrate rather than restarting.
+  if (isSchemaBehindError(error)) {
+    console.error(`API request failed: database is behind the code (${error.code}: ${error.sqlMessage || error.message}). Run 'npm run db:migrate'.`);
+    return response.status(503).json({ message: DB_UPDATE_REQUIRED_MESSAGE, code: "DB_UPDATE_REQUIRED" });
+  }
   const status = Number(error.status) || 500;
   if (status >= 500) console.error("API request failed:", error);
   response.status(status).json({ message: status < 500 ? error.message : "An unexpected server error occurred." });
@@ -126,7 +136,7 @@ const server = app.listen(port, () => {
       if (pending.length) {
         console.warn(
           `WARNING: ${pending.length} database migration(s) not applied: ${pending.join(", ")}. ` +
-            "Features that depend on them will fail. Run 'npm run db:migrate' or Setup / Migrate in the control panel.",
+            "Features that depend on them will fail. Run 'npm run db:migrate' or press 'Update the database' in the control panel.",
         );
       }
     })

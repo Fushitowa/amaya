@@ -400,7 +400,10 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
     assert.equal(res.status, 200, `GET /api/finances/accounts failed: ${res.text}`);
 
     const accounts = res.data?.accounts || [];
-    assert.equal(accounts.length, 42, `Expected 42 active COA accounts, got ${accounts.length}`);
+    // 42 Phase 2 accounts + 7 payroll accounts from migration 047 (2040, 2045, 2050, 2060, 6114, 6115, 6116)
+    // + 2 USAR accounts from migration 051 (6125 Building Insurance & Property Tax, 6135 Trash Collection)
+    // + 1 inventory shrinkage account from migration 052 (6031).
+    assert.equal(accounts.length, 52, `Expected 52 active COA accounts, got ${accounts.length}`);
 
     const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
     const existingCodes = [
@@ -425,11 +428,12 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       ["6131", "expense", "debit", "opex", "Utilities"],
       ["6132", "expense", "debit", "opex", "Utilities"],
       ["6133", "expense", "debit", "opex", "Utilities"],
-      ["6134", "expense", "debit", "opex", "Utilities"],
+      // Migration 051 (USAR): telephone & internet is G&A communications, not a utility.
+      ["6134", "expense", "debit", "opex", "General & Administrative (G&A)"],
       ["6141", "expense", "debit", "opex", "Operating Supplies"],
       ["6142", "expense", "debit", "opex", "Operating Supplies"],
       ["6143", "expense", "debit", "opex", "Operating Supplies"],
-      ["6150", "expense", "debit", "opex", "Advertising & Marketing"],
+      ["6150", "expense", "debit", "opex", "Marketing"],
       ["6160", "expense", "debit", "opex", "Repairs & Maintenance"],
       ["6171", "expense", "debit", "opex", "General & Administrative (G&A)"],
       ["6173", "expense", "debit", "opex", "General & Administrative (G&A)"],
@@ -437,6 +441,14 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       ["6179", "expense", "debit", "opex", "General & Administrative (G&A)"],
       ["6210", "expense", "debit", "depreciation", null],
       ["6310", "expense", "debit", "tax", null],
+      // Payroll (migration 047)
+      ["2040", "liability", "credit", "balance_sheet", null],
+      ["2045", "liability", "credit", "balance_sheet", null],
+      ["2050", "liability", "credit", "balance_sheet", null],
+      ["2060", "liability", "credit", "balance_sheet", null],
+      ["6114", "expense", "debit", "opex", "Labor & Payroll"],
+      ["6115", "expense", "debit", "opex", "Labor & Payroll"],
+      ["6116", "expense", "debit", "opex", "Labor & Payroll"],
     ];
 
     for (const [code, category, normalBalance, reportSection, expenseGroup] of phase2Expectations) {
@@ -1704,6 +1716,36 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
   // P2-6: CASH FLOW COUNTERPART PARITY (-2X 1510 BUG) & SHIFT EXPECTED CASH ON 1010 PAYOUTS
   // --------------------------------------------------------------------------
   it("P2-6 (Cash Flow Counterpart Parity & Shift expectedCash): fixes -2X 1510 bug, keeps account_transfer cash-neutral, routes capital_injection reversal to financing, preserves netCashFlow === liquid delta, and deducts 1010 payouts from shift expectedCash", async () => {
+    // Transfers may not overdraw the source account, so fund the drawer before the baseline reading.
+    const seedRes = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "capital_injection",
+        amount: 5000.0,
+        debitAccountCode: "1010",
+        creditAccountCode: "3010",
+        memo: "Seed drawer before P2-6 transfer",
+        clientRequestId: randomUUID(),
+      },
+    });
+    assert.equal(seedRes.status, 201, `P2-6 seed failed: ${seedRes.text}`);
+    createdJournalEntryIds.add(Number(seedRes.data.entryId));
+    const seedBankRes = await server.requestJson("/api/finances/journal-entries", {
+      method: "POST",
+      token: adminUser.token,
+      body: {
+        entryType: "capital_injection",
+        amount: 5000.0,
+        debitAccountCode: "1030",
+        creditAccountCode: "3010",
+        memo: "Seed bank before P2-6 capital reversal",
+        clientRequestId: randomUUID(),
+      },
+    });
+    assert.equal(seedBankRes.status, 201, `P2-6 bank seed failed: ${seedBankRes.text}`);
+    createdJournalEntryIds.add(Number(seedBankRes.data.entryId));
+
     const cfBefore = (
       await server.requestJson(`/api/finances/reports/cash-flow?from=${today}&to=${today}`, { token: adminUser.token })
     ).data;
@@ -2209,7 +2251,13 @@ describe("Tala TDD Suite: Phase 2 Income Statement Missing Items (22 Items, Paya
       fs.readFile(cssPath, "utf-8"),
       fs.readFile(finCssPath, "utf-8"),
       fs.readFile(invCssPath, "utf-8"),
-      fs.readFile(finPath, "utf-8"),
+      // The page's wording lives in the label dictionary, so read both files as one source.
+      Promise.all([
+        fs.readFile(finPath, "utf-8"),
+        fs.readFile(path.resolve("src/config/financeLabels.js"), "utf-8"),
+        fs.readFile(path.resolve("src/components/admin/finances/FinDialog.jsx"), "utf-8"),
+        fs.readFile(path.resolve("src/components/admin/finances/ProfitReportTabView.jsx"), "utf-8"),
+      ]).then((parts) => parts.join("\n")),
       fs.readFile(invPath, "utf-8"),
       fs.readFile(heroPath, "utf-8"),
     ]);

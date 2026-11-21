@@ -1,0 +1,187 @@
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&display=swap");
+/* Expense category page: a formal ledger sheet in the Amaya cream and brass theme.
+   Square corners, ruled lines instead of boxes, and the whole page fits one screen. Prefix ec- */
+
+/* The page itself never scrolls on desktop: only the list of expenses does, if it is long. */
+.expense-category-page .admin-report-main { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.expense-category-page .admin-report-topbar { flex: 0 0 auto; }
+.ec-content { flex: 1 1 auto; min-height: 0; width: 100%; max-width: 1480px; margin: 0 auto; padding: 16px 22px 20px 20px; display: flex; gap: 14px; }
+
+.ec-card {
+  --ec-line: #e3d6c1; --ec-line-soft: #efe5d3; --ec-ink: #2d1f1a; --ec-muted: #75655a; --ec-brown: #8b5e3c;
+  --ec-deep: #3b2619; --ec-brass: #b8864f; --ec-ok: #4f9a63; --ec-warn: #d98b3a; --ec-high: #c4523f; --ec-over: #a4372b;
+  --ec-serif: "Playfair Display", Georgia, serif; --ec-sans: "DM Sans", system-ui, sans-serif;
+  position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  padding: 18px 30px 14px 46px; color: var(--ec-ink); font-family: var(--ec-sans);
+}
+/* Faint rose margin line, as on the other notebook pages */
+.ec-card::before { content: ""; position: absolute; top: 0; bottom: 0; left: 24px; width: 1px; background: #e0a99a; opacity: .7; pointer-events: none; }
+.ec-card *, .ec-card *::before, .ec-card *::after { box-sizing: border-box; border-radius: 0; }
+.ec-card :focus-visible { outline: 2px solid var(--ec-brown); outline-offset: 2px; }
+
+/* Title block, closed by a double brass rule */
+.ec-hero { flex: 0 0 auto; padding-bottom: 12px; border-bottom: 3px double var(--ec-brass); }
+.ec-back { display: inline-flex; align-items: center; gap: 6px; color: var(--ec-muted); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.ec-back:hover { color: var(--ec-deep); }
+.ec-hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-top: 6px; }
+.ec-hero-copy { min-width: 0; }
+.ec-hero h2 { margin: 0; font: 700 clamp(24px, 2.6vw, 30px)/1.1 var(--ec-serif); letter-spacing: -.3px; }
+.ec-hero p { margin: 3px 0 0; color: var(--ec-muted); font-size: 13px; line-height: 1.45; }
+.ec-hero .ec-hero-copy > p:first-of-type { color: #7a5a3c; font: 600 20px/1.2 "Caveat", "Segoe Print", cursive; }
+.ec-kinds { display: flex; flex-wrap: wrap; margin: 8px 0 0; padding: 0; list-style: none; color: #5f4a38; font-size: 12.5px; }
+.ec-kinds li { padding: 0 12px; border-left: 1px solid var(--ec-line); }
+.ec-kinds li:first-child { padding-left: 0; border-left: 0; }
+.ec-kinds-label { color: var(--ec-muted); font-weight: 600; }
+.ec-hero .ec-note { margin-top: 6px; color: #8a623d; font-size: 12.5px; }
+
+/* Buttons: square and plain */
+.ec-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 14px; border: 1px solid #d3c1a8; background: transparent; color: var(--ec-ink); font: 600 12.5px var(--ec-sans); text-decoration: none; cursor: pointer; transition: background .15s; }
+.ec-btn:hover:not(:disabled) { background: #f4eadb; }
+.ec-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ec-btn-solid { background: var(--ec-deep); border-color: var(--ec-deep); color: #fdf1de; }
+.ec-btn-solid:hover:not(:disabled) { background: #523421; }
+.ec-btn-lg { min-height: 38px; padding: 0 18px; font-size: 13px; }
+
+/* Underlined fields instead of boxed ones */
+.ec-month input, .ec-dates input { height: 32px; padding: 0 2px; border: 0; border-bottom: 1px solid #c9b79d; background: transparent; color: var(--ec-ink); font: 500 13px var(--ec-sans); }
+.ec-month input:focus, .ec-dates input:focus, .ec-money:focus-within, .ec-search:focus-within { border-bottom-color: var(--ec-brown); }
+
+/* Budget: one ruled line across the page */
+.ec-budget { flex: 0 0 auto; border-bottom: 1px solid var(--ec-line); }
+.ec-envelope { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0 36px; padding: 12px 0 14px; }
+.ec-envelope-label { display: block; color: var(--ec-muted); font-size: 12.5px; font-weight: 600; }
+.ec-envelope-figure { display: block; margin-top: 2px; font: 700 clamp(26px, 3vw, 34px)/1.05 var(--ec-serif); letter-spacing: -.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ec-envelope-mid { min-width: 0; padding-left: 36px; border-left: 1px solid var(--ec-line); display: grid; gap: 9px; }
+.ec-envelope-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ec-envelope-sentence { color: #5f4f42; font-size: 13.5px; line-height: 1.4; }
+.ec-status { display: inline-flex; align-items: center; gap: 7px; color: #5f5145; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.ec-status i { width: 8px; height: 8px; background: #b9a897; }
+.ec-status.tone-ok { color: #2c6a40; } .ec-status.tone-ok i { background: var(--ec-ok); }
+.ec-status.tone-warn { color: #85500f; } .ec-status.tone-warn i { background: var(--ec-warn); }
+.ec-status.tone-high { color: #9c3a29; } .ec-status.tone-high i { background: var(--ec-high); }
+.ec-status.tone-over { color: #832a1f; } .ec-status.tone-over i { background: var(--ec-over); }
+
+.ec-track { height: 6px; background: #e8dcc6; overflow: hidden; }
+.ec-track span { display: block; height: 100%; background: var(--ec-brown); transform-origin: left center; animation: ec-fill .9s cubic-bezier(.22, 1, .36, 1) backwards; }
+.tone-ok .ec-track span { background: var(--ec-ok); }
+.tone-warn .ec-track span { background: var(--ec-warn); }
+.tone-high .ec-track span { background: var(--ec-high); }
+.tone-over .ec-track span { background: var(--ec-over); }
+.ec-track.is-empty { height: 1px; background: repeating-linear-gradient(90deg, #cdb99b 0 5px, transparent 5px 10px); }
+@keyframes ec-fill { from { transform: scaleX(0); } }
+
+.ec-envelope-side { display: flex; align-items: flex-end; gap: 18px; }
+.ec-month { display: grid; gap: 1px; color: var(--ec-muted); font-size: 12px; font-weight: 600; }
+
+.ec-edit { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--ec-line); }
+.ec-edit label { display: grid; gap: 3px; flex: 0 1 260px; color: var(--ec-muted); font-size: 12px; font-weight: 600; }
+.ec-money { display: flex; align-items: center; height: 32px; border-bottom: 1px solid #c9b79d; }
+.ec-money b { padding-right: 8px; color: var(--ec-brown); }
+.ec-money input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--ec-ink); font: 500 14px var(--ec-sans); }
+
+/* Filters */
+.ec-toolbar { flex: 0 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 10px 0; }
+.ec-dates { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px 16px; }
+.ec-dates label { display: flex; align-items: flex-end; gap: 8px; color: var(--ec-muted); font-size: 12.5px; font-weight: 600; }
+.ec-search { display: flex; align-items: center; gap: 8px; width: min(280px, 100%); height: 32px; border-bottom: 1px solid #c9b79d; color: var(--ec-muted); }
+.ec-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ec-ink); font: 13px var(--ec-sans); }
+
+.ec-alert { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 8px 0 8px 12px; border-left: 3px solid var(--ec-over); color: #8f3322; font-size: 13px; }
+.ec-alert-inset { flex: 0 0 auto; margin: 0 0 8px; }
+
+/* Ledger table: ruled, not boxed. Only this list scrolls when it is long. */
+.ec-table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border-top: 1px solid var(--ec-ink); }
+.ec-table { width: 100%; min-width: 780px; border-collapse: collapse; text-align: left; }
+.ec-table th { position: sticky; top: 0; z-index: 1; padding: 9px 12px; background: #f9f1e3; border-bottom: 1px solid var(--ec-line); color: var(--ec-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.ec-table td { padding: 10px 12px; border-bottom: 1px solid var(--ec-line-soft); color: #4d3b2f; font-size: 13px; vertical-align: middle; }
+.ec-table th:first-child, .ec-table td:first-child { padding-left: 0; }
+.ec-table tbody tr:hover { background: rgba(255, 250, 240, .8); }
+.ec-right { text-align: right !important; }
+.ec-table td strong { display: block; color: var(--ec-ink); font-weight: 600; }
+.ec-table td small { display: block; margin-top: 2px; color: var(--ec-muted); font-size: 12px; }
+.ec-ref { color: #6d4c33; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.ec-kind { display: block; color: #6b533f; font-size: 13px; }
+.ec-amount { color: var(--ec-deep); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.ec-table td.ec-empty { padding: 36px 16px; border-bottom: 0; text-align: center; }
+.ec-empty > strong { font: 700 17px var(--ec-serif); }
+.ec-empty > span:not(.ec-empty-mark) { display: block; margin-top: 5px; color: var(--ec-muted); font-size: 13px; }
+.ec-empty-mark { display: block; width: 9px; height: 9px; margin: 0 auto 12px; transform: rotate(45deg); border: 1px solid var(--ec-brass); }
+
+/* Footer */
+.ec-footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 3px double var(--ec-brass); color: var(--ec-muted); font-size: 12.5px; }
+.ec-footer > div { display: flex; align-items: center; gap: 10px; }
+
+/* Smaller screens: let the page scroll normally */
+@media (max-width: 1000px) {
+  .expense-category-page .admin-report-main { height: auto; min-height: 100vh; overflow: visible; }
+  .ec-content { padding: 14px 18px 24px; }
+  .ec-envelope { grid-template-columns: 1fr; gap: 12px; }
+  .ec-envelope-mid { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--ec-line); }
+  .ec-envelope-side { flex-wrap: wrap; align-items: center; }
+  .ec-table-wrap { overflow-x: auto; }
+}
+@media (max-width: 600px) {
+  .ec-hero-row { flex-direction: column; align-items: stretch; }
+  .ec-search { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ec-track span { animation: none; }
+  .ec-btn { transition: none; }
+}
+
+/* Dark mode */
+body.dark-mode .ec-card { --ec-line: #4a382c; --ec-line-soft: #3d2d23; --ec-ink: #f2e6d8; --ec-muted: #c8b6a3; }
+body.dark-mode .ec-btn:not(.ec-btn-solid) { border-color: #5a4637; color: #f2e6d8; }
+body.dark-mode .ec-btn:hover:not(:disabled):not(.ec-btn-solid) { background: #35261e; }
+body.dark-mode .ec-btn-solid { background: #8b5e3c; border-color: #8b5e3c; color: #fff7ec; }
+body.dark-mode .ec-table th { background: #33251d; }
+body.dark-mode .ec-table td, body.dark-mode .ec-envelope-sentence, body.dark-mode .ec-kind, body.dark-mode .ec-kinds { color: #d8c8ba; }
+body.dark-mode .ec-table td strong, body.dark-mode .ec-amount { color: #f2e6d8; }
+body.dark-mode .ec-track { background: #4a3a30; }
+
+/* ---------- Notebook: sewn spine, paper, and a pen resting on the desk ---------- */
+.ec-notebook {
+  position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: flex;
+  background: #fffaf2; border: 1px solid #e8d9c2; border-radius: 3px 6px 6px 3px;
+  box-shadow: 0 1px 0 #fff inset, 3px 3px 0 -1px #f8f0e4, 5px 5px 0 -1px #efe2d0, 0 18px 34px -16px rgba(59, 38, 25, .35);
+}
+/* A soft shade on the paper next to the stitching */
+.ec-notebook::after { content: ""; position: absolute; top: 0; bottom: 0; left: 46px; width: 26px; background: linear-gradient(90deg, rgba(120, 84, 48, .09), transparent); pointer-events: none; z-index: 2; }
+
+.ec-spine {
+  position: relative; flex: 0 0 46px; overflow: hidden;
+  background: linear-gradient(90deg, #e7d7bf 0%, #f3e8d6 62%, #ecdfca 100%);
+  border-right: 1px solid #dcc9ab; border-radius: 3px 0 0 3px;
+  box-shadow: inset -7px 0 9px -7px rgba(59, 38, 25, .22);
+}
+/* punched holes every 36px */
+.ec-spine::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 50% 24px, #4a3223 0 3.3px, #2b1a10 3.3px 4.2px, transparent 4.8px) 0 0 / 100% 36px repeat-y; }
+/* the thread: brass, passing in and out between the holes */
+.ec-spine::after {
+  content: ""; position: absolute; left: 50%; top: 24px; bottom: 50px; width: 3px; transform: translateX(-50%);
+  background: linear-gradient(90deg, #946531, #e2c48b 48%, #9a6b36);
+  -webkit-mask-image: repeating-linear-gradient(to bottom, transparent 0 7px, #000 7px 29px, transparent 29px 36px);
+  mask-image: repeating-linear-gradient(to bottom, transparent 0 7px, #000 7px 29px, transparent 29px 36px);
+}
+.ec-spine-tail { position: absolute; left: 0; bottom: 4px; width: 46px; height: 44px; z-index: 1; filter: drop-shadow(1px 2px 1px rgba(59, 38, 25, .3)); }
+
+/* The pen lies on the desk to the right of the notebook */
+.ec-pen { flex: 0 0 64px; display: flex; align-items: center; justify-content: center; }
+.ec-pen-art { width: 38px; height: auto; max-height: 78%; transform: rotate(16deg); filter: drop-shadow(7px 9px 5px rgba(59, 38, 25, .28)); }
+
+@media (max-width: 1100px) {
+  .ec-pen { display: none; }
+}
+@media (max-width: 1000px) {
+  .ec-content { padding: 12px 12px 22px 10px; }
+  .ec-card { padding: 16px 16px 14px 32px; }
+  .ec-card::before { left: 18px; }
+  .ec-notebook::after { left: 30px; }
+  .ec-spine { flex-basis: 30px; }
+  .ec-spine-tail { display: none; }
+  .ec-spine::before { background-position: -8px 0; }
+  .ec-spine::after { left: 15px; }
+}
+body.dark-mode .ec-notebook { background: #2c2019; border-color: #4a382c; }
+body.dark-mode .ec-spine { background: linear-gradient(90deg, #3b2c22, #33251d); border-color: #4a382c; }

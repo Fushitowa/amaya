@@ -236,3 +236,12 @@ export function toInventoryQuantity(quantity, recipeUnit, stockUnit) {
   const fineRounded = Number(converted.toFixed(12));
   return fineRounded > 0 ? fineRounded : null;
 }
+
+/**
+ * Things you count one by one can never be split: 10.21 pieces does not exist.
+ * (Dozen is left out on purpose: half a dozen is a real amount.)
+ */
+export function isWholeNumberUnit(unit) {
+  const norm = normalizeUnit(unit);
+  return norm === "pc" || norm === "can" || norm === "pair";
+}

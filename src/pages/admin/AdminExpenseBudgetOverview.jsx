@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Menu } from "lucide-react";
 import Sidebar from "../../components/Sidebar.jsx";
 import { useSidebar } from "../../context/useSidebar.jsx";
-import ExpenseBudgetHealth from "../../components/ExpenseBudgetHealth.jsx";
+import ExpenseBudgetBoard from "../../components/ExpenseBudgetBoard.jsx";
 import { currentBudgetMonth } from "../../utils/expenseBudget.js";
 import "../../assets/css/admin/AdminReport.css";
 import "../../assets/css/admin/FinancialManagement.css";
 import "../../assets/css/admin/AdminExpenseCategory.css";
+import "../../assets/css/admin/ExpenseBudgetBoard.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
 
@@ -16,7 +17,7 @@ export default function AdminExpenseBudgetOverview() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [month, setMonth] = useState(currentBudgetMonth);
   return (
-    <div className={`admin-report-page expense-category-page${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileNavOpen ? " mobile-nav-open" : ""}`}>
+    <div className={`admin-report-page expense-budget-overview-page${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileNavOpen ? " mobile-nav-open" : ""}`}>
       {mobileNavOpen && <button type="button" className="report-mobile-backdrop" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" />}
       <Sidebar role="admin" activeTab="expensesPayroll" sidebarCollapsed={mobileNavOpen ? false : sidebarCollapsed} onToggle={() => (mobileNavOpen ? setMobileNavOpen(false) : toggleSidebar())} />
       <main className="admin-report-main">
@@ -24,10 +25,9 @@ export default function AdminExpenseBudgetOverview() {
         <div className="admin-report-content admin-finances-content expense-category-content">
           <div className="expense-budget-overview-intro">
             <Link className="expense-back-link" to="/admin/finances"><ArrowLeft size={15} aria-hidden="true" /> Financial Center</Link>
-            <h2>Monthly budget overview</h2>
-            <p>Compare actual operating expense spending with each category’s monthly budget. Waste Cost is tracked under COGS and is excluded from these operating expense budgets.</p>
+            <p>Waste Cost is tracked under COGS and is excluded from these operating expense budgets.</p>
           </div>
-          <ExpenseBudgetHealth month={month} onMonthChange={setMonth} />
+          <ExpenseBudgetBoard month={month} onMonthChange={setMonth} />
         </div>
       </main>
     </div>

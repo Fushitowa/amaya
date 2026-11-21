@@ -392,14 +392,15 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
     const accountsByCode = new Map(accountsRes.data.accounts.map((a) => [a.accountCode, a]));
 
     const expectedMeta = [
-      ["6120", "opex", "Rent & Occupancy"],
+      // Migration 051 (USAR): rent is non-controllable occupancy; 6040 is G&A cash over/short.
+      ["6120", "occupancy", "Occupancy"],
       ["6130", "opex", "Utilities"],
       ["6140", "opex", "Operating Supplies"],
       ["6144", "opex", "Operating Supplies"],
       ["6172", "opex", "General & Administrative (G&A)"],
       ["6030", "cogs", null],
       ["6010", "opex", "Others"],
-      ["6040", "opex", "Others"],
+      ["6040", "opex", "General & Administrative (G&A)"],
     ];
 
     for (const [code, expectedSection, expectedGroup] of expectedMeta) {
@@ -427,7 +428,7 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
     const pnlBefore = pnlBeforeRes.data;
 
     const postings = [
-      { code: "6120", amount: 500.0, group: "Rent & Occupancy", memo: "Tala monthly rent" },
+      { code: "6120", amount: 500.0, group: "Occupancy", memo: "Tala monthly rent" },
       { code: "6130", amount: 200.0, group: "Utilities", memo: "Tala electricity bill" },
       { code: "6144", amount: 150.0, group: "Operating Supplies", memo: "Tala sanitizer stock" },
       { code: "6172", amount: 100.0, group: "General & Administrative (G&A)", memo: "Tala mayor permit" },
@@ -583,7 +584,7 @@ describe("Tala TDD Suite: Phase 1 Income Statement Remediation (13 Partial & Mis
     const pnlAfterShort = pnlAfterShortRes.data;
     const row6040 = (pnlAfterShort.operatingExpenses || []).find((r) => r.accountCode === "6040");
     assert.ok(row6040, "P&L operatingExpenses must include 6040 after cash shortage");
-    assert.equal(row6040.expenseGroup, "Others", "6040 expenseGroup must be 'Others'");
+    assert.equal(row6040.expenseGroup, "General & Administrative (G&A)", "6040 (Cash Over/Short) expenseGroup must be G&A");
     assert.equal(round2(row6040.amount), 50.0);
     assert.equal(
       round2(pnlAfterShort.totalOperatingExpenses - opexBefore),

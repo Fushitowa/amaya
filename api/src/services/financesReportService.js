@@ -5,7 +5,9 @@ import {
   assertValidDateRange,
   parseBoundedPositiveInt,
   summarizeIncomeStatementLines,
+  isValidIsoDateOnly,
 } from "../utils/ledgerService.js";
+import { httpError } from "../middleware/auth.js";
 import { LIQUID_ACCOUNT_CODES, BS_LABELS } from "../utils/coaConstants.js";
 import { formatDbDateOnly } from "../../../shared/manilaDate.js";
 
@@ -265,6 +267,7 @@ export async function getAccountsAndAssetsReport(rawFrom, rawTo) {
       netIncome: pnl.netIncome,
       customerSalesCogs: pnl.customerSalesCogs,
       foodSpoilageCogs: pnl.foodSpoilageCogs,
+      inventoryShrinkage: pnl.inventoryShrinkage,
       wasteCost: pnl.foodSpoilageCogs,
       grossProfit: pnl.grossProfit,
       grossMarginPercent: pnl.grossMarginPercent,
@@ -317,6 +320,7 @@ export async function getProfitAndLossReport(rawFrom, rawTo) {
     netSales: pnl.netSales,
     customerSalesCogs: pnl.customerSalesCogs,
     foodSpoilageCogs: pnl.foodSpoilageCogs,
+    inventoryShrinkage: pnl.inventoryShrinkage,
     wasteCost: pnl.foodSpoilageCogs,
     cogs: pnl.cogs,
     grossProfit: pnl.grossProfit,
@@ -331,6 +335,20 @@ export async function getProfitAndLossReport(rawFrom, rawTo) {
     netIncome: pnl.netIncome,
     accountingNetIncome: pnl.netIncome,
     netOperatingProfit: pnl.netOperatingProfit,
+    // USAR layout (Phase 3B O3.7): Labor → Prime cost → Controllable → Occupancy.
+    usarGroups: pnl.usarGroups,
+    laborCost: pnl.laborCost,
+    laborPercent: pnl.laborPercent,
+    primeCost: pnl.primeCost,
+    primeCostPercent: pnl.primeCostPercent,
+    controllableExpenses: pnl.controllableExpenses,
+    controllableIncome: pnl.controllableIncome,
+    controllableIncomePercent: pnl.controllableIncomePercent,
+    utilitiesCost: pnl.utilitiesCost,
+    utilitiesPercent: pnl.utilitiesPercent,
+    totalOccupancy: pnl.totalOccupancy,
+    occupancyPercent: pnl.occupancyPercent,
+    restaurantOperatingIncome: pnl.restaurantOperatingIncome,
   };
 }
 
@@ -381,6 +399,10 @@ export async function getCashFlowReport(rawFrom, rawTo) {
          WHEN e.effective_type = 'ap_settlement' AND e.payable_bill_category = 'inventory_restock' THEN -e.liquid_net
          ELSE 0
        END), 0.00) AS restock_cash_outflow,
+       COALESCE(SUM(CASE
+         WHEN e.effective_type = 'ap_settlement' AND (e.has_2040 = 1 OR e.has_2045 = 1) THEN -e.liquid_net
+         ELSE 0
+       END), 0.00) AS payroll_cash_outflow,
        COALESCE(SUM(CASE
          WHEN e.effective_type <> 'opening_balance' AND e.has_1510 = 1 AND e.has_1050 = 0 AND e.has_3010 = 0 AND e.has_3020 = 0 THEN 0
          WHEN e.effective_type = 'income_tax' THEN -e.liquid_net
@@ -434,6 +456,8 @@ export async function getCashFlowReport(rawFrom, rawTo) {
               MAX(CASE WHEN coa.account_code = '4010' THEN 1 ELSE 0 END) AS has_4010,
               MAX(CASE WHEN coa.account_code = '5010' THEN 1 ELSE 0 END) AS has_5010,
               MAX(CASE WHEN coa.account_code = '2030' THEN 1 ELSE 0 END) AS has_2030,
+              MAX(CASE WHEN coa.account_code = '2040' THEN 1 ELSE 0 END) AS has_2040,
+              MAX(CASE WHEN coa.account_code = '2045' THEN 1 ELSE 0 END) AS has_2045,
               MAX(CASE WHEN coa.account_code = '6310' THEN 1 ELSE 0 END) AS has_6310
          FROM journal_entries je
          JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
@@ -451,6 +475,9 @@ export async function getCashFlowReport(rawFrom, rawTo) {
   const opexCashOutflow = round2(aggRow?.opex_cash_outflow || 0);
   const restockCashOutflow = round2(aggRow?.restock_cash_outflow || 0);
   const taxCashOutflow = round2(aggRow?.tax_cash_outflow || 0);
+  // Staff net pay and 13th month paid out (Dr 2040 / 2045). Already inside opexCashOutflow; shown
+  // as its own line so the owner sees how much of the operating outflow was payroll.
+  const payrollCashOutflow = round2(aggRow?.payroll_cash_outflow || 0);
   const otherOperatingCashNet = round2(aggRow?.other_operating_cash_net || 0);
   const investingNet = round2(aggRow?.investing_net || 0);
   const capitalInflow = round2(aggRow?.capital_inflow || 0);
@@ -469,6 +496,7 @@ export async function getCashFlowReport(rawFrom, rawTo) {
       cashSalesInflow: round2(cashSalesInflow),
       otherOperatingCashNet: round2(otherOperatingCashNet),
       opexCashOutflow: round2(opexCashOutflow),
+      payrollCashOutflow,
       restockCashOutflow: round2(restockCashOutflow),
       taxCashOutflow: round2(taxCashOutflow),
       netOperatingCashFlow: operatingCashFlow,
@@ -558,16 +586,66 @@ export async function getDailyReconciliationReport({ from: rawFrom, to: rawTo, p
   };
 }
 
-export async function getBalanceSheetReport() {
-  const [accounts] = await pool.query(ACTIVE_COA_VIEW_SQL);
-  const [[invRow]] = await pool.query(
-    "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS live_inventory_value FROM inventory_items WHERE is_archived = FALSE",
-  );
-  const liveInventoryValue = round2(invRow?.live_inventory_value);
+// Same shape as ACTIVE_COA_VIEW_SQL, but only counting journal lines dated up to the end of `asOf`.
+const ACCOUNTS_AS_OF_SQL = `
+  SELECT coa.id,
+         coa.account_code,
+         coa.account_name,
+         coa.account_category,
+         coa.normal_balance,
+         coa.report_section,
+         coa.expense_group,
+         COALESCE(SUM(jel.debit), 0.00) AS total_debits,
+         COALESCE(SUM(jel.credit), 0.00) AS total_credits,
+         CASE WHEN coa.normal_balance = 'debit'
+              THEN COALESCE(SUM(jel.debit), 0.00) - COALESCE(SUM(jel.credit), 0.00)
+              ELSE COALESCE(SUM(jel.credit), 0.00) - COALESCE(SUM(jel.debit), 0.00)
+         END AS current_balance
+    FROM chart_of_accounts coa
+    LEFT JOIN (
+         SELECT l.account_id, l.debit, l.credit
+           FROM journal_entry_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id
+          WHERE e.entry_date < ?
+    ) jel ON jel.account_id = coa.id
+   WHERE coa.is_active = TRUE
+   GROUP BY coa.id, coa.account_code, coa.account_name, coa.account_category, coa.normal_balance,
+            coa.report_section, coa.expense_group
+   ORDER BY coa.account_code ASC`;
+
+/**
+ * Balance sheet today (no `asOf`) or at the end of a past Manila day (`asOf` = YYYY-MM-DD).
+ * The live stock-count comparison only exists for today, so it is left out of past dates.
+ */
+export async function getBalanceSheetReport(asOf = null) {
+  const today = getManilaDateString();
+  const cleanAsOf = asOf ? String(asOf).trim() : "";
+  if (cleanAsOf && !isValidIsoDateOnly(cleanAsOf)) {
+    throw httpError(400, "Invalid 'asOf' date. Expected YYYY-MM-DD.");
+  }
+  if (cleanAsOf && cleanAsOf > today) {
+    throw httpError(400, "The 'asOf' date cannot be in the future.");
+  }
+  const isHistoric = Boolean(cleanAsOf) && cleanAsOf < today;
+  let accounts;
+  if (isHistoric) {
+    const nextDay = new Date(`${cleanAsOf}T00:00:00Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    [accounts] = await pool.query(ACCOUNTS_AS_OF_SQL, [`${nextDay.toISOString().slice(0, 10)} 00:00:00`]);
+  } else {
+    [accounts] = await pool.query(ACTIVE_COA_VIEW_SQL);
+  }
+  let liveInventoryValue = null;
+  if (!isHistoric) {
+    const [[invRow]] = await pool.query(
+      "SELECT COALESCE(SUM(quantity * unit_cost), 0.00) AS live_inventory_value FROM inventory_items WHERE is_archived = FALSE",
+    );
+    liveInventoryValue = round2(invRow?.live_inventory_value);
+  }
 
   const bs = summarizeBalanceSheetAccounts(accounts);
   const ledgerInventoryValue = bs.accountMap.get("1050") || 0.00;
-  const inventoryValuationVariance = round2(liveInventoryValue - ledgerInventoryValue);
+  const inventoryValuationVariance = liveInventoryValue == null ? null : round2(liveInventoryValue - ledgerInventoryValue);
 
   const retainedEarnings = summarizeIncomeStatementLines(accounts, { clampSections: false }).netIncome;
   const totalEquity = round2(bs.ownerCapital - bs.ownerDrawings + retainedEarnings);
@@ -575,7 +653,8 @@ export async function getBalanceSheetReport() {
   const isBalanced = Math.abs(balanceDifference) < 0.005;
 
   return {
-    asOfDate: getManilaDateString(),
+    asOfDate: isHistoric ? cleanAsOf : today,
+    isHistoric,
     assets: {
       current: bs.currentAssets,
       nonCurrent: bs.nonCurrentAssets,

@@ -14,6 +14,8 @@ import AdminInventory from "../pages/admin/AdminInventory.jsx";
 import AdminWasteTracker from "../pages/admin/AdminWasteTracker.jsx";
 import AdminExpenseCategory from "../pages/admin/AdminExpenseCategory.jsx";
 import AdminExpenseBudgetOverview from "../pages/admin/AdminExpenseBudgetOverview.jsx";
+import AdminStaff from "../pages/admin/AdminStaff.jsx";
+import AdminPayroll from "../pages/admin/AdminPayroll.jsx";
 import StaffExpenseRecord from "../pages/staff/StaffExpenseRecord.jsx";
 import AdminMenuManagement from "../pages/admin/AdminMenuManagement.jsx";
 import AdminCategories from "../pages/admin/AdminCategories.jsx";
@@ -48,6 +50,8 @@ export default function PortalApp() {
             <Route path="/admin/inventory" element={<AdminInventory />} />
             <Route path="/admin/inventory/waste-tracker" element={<AdminWasteTracker />} />
             <Route path="/admin/expenses-payroll" element={<AdminExpenseBudgetOverview />} />
+            <Route path="/admin/expenses-payroll/staff" element={<AdminStaff />} />
+            <Route path="/admin/expenses-payroll/payroll/:runId?" element={<AdminPayroll />} />
             <Route path="/admin/expenses-payroll/:category" element={<AdminExpenseCategory />} />
             <Route path="/admin/menu" element={<AdminMenuManagement />} />
             <Route path="/admin/categories" element={<AdminCategories />} />

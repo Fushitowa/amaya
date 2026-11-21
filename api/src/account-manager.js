@@ -21,10 +21,23 @@ export async function listAccounts() {
   }));
 }
 
-export async function setAdminPassword(newPassword) {
+export async function setAdminPassword(newPassword, currentPassword) {
   const pass = String(newPassword || "");
   if (pass.length < 8 || Buffer.byteLength(pass, "utf8") > 72) {
     throw statusError(400, "Admin password must be at least 8 characters and at most 72 bytes.");
+  }
+  // Changing an existing owner password requires proving the current one.
+  const [adminRows] = await pool.execute(
+    "SELECT password_hash FROM users WHERE role = 'admin' LIMIT 1"
+  );
+  if (adminRows[0]) {
+    const current = String(currentPassword || "");
+    if (!current || Buffer.byteLength(current, "utf8") > 72 || !(await bcrypt.compare(current, adminRows[0].password_hash))) {
+      throw statusError(403, "Current password is incorrect.");
+    }
+    if (current === pass) {
+      throw statusError(400, "The new password must be different from the current one.");
+    }
   }
   const passwordHash = await bcrypt.hash(pass, 12);
   const [res] = await pool.execute(
@@ -38,6 +51,18 @@ export async function setAdminPassword(newPassword) {
     );
   }
   return { success: true, message: "Admin (Owner) password updated successfully." };
+}
+
+export async function verifyAdminPassword(password) {
+  const pass = String(password || "");
+  const [rows] = await pool.execute(
+    "SELECT password_hash FROM users WHERE role = 'admin' AND is_active = 1 LIMIT 1"
+  );
+  const hash = rows[0] && rows[0].password_hash;
+  if (!pass || Buffer.byteLength(pass, "utf8") > 72 || !hash || !(await bcrypt.compare(pass, hash))) {
+    throw statusError(403, "Incorrect password.");
+  }
+  return { success: true };
 }
 
 export async function addCashier(displayName, password) {
@@ -251,9 +276,22 @@ if (isDirectRun) {
     if (command === "list") {
       const accounts = await listAccounts();
       console.log("ACCOUNTS_JSON:" + JSON.stringify(accounts));
-    } else if (command === "set-admin-password") {
+    } else if (command === "verify-admin-password") {
       const pwd = useStdin ? await readStdinPassword() : args[0];
-      const res = await setAdminPassword(pwd);
+      const res = await verifyAdminPassword(pwd);
+      console.log(JSON.stringify(res));
+    } else if (command === "set-admin-password") {
+      // stdin carries two lines: current password, then new password.
+      let current;
+      let pwd;
+      if (useStdin) {
+        const lines = (await readStdinPassword()).split(/\r?\n/);
+        current = lines[0];
+        pwd = lines[1];
+      } else {
+        [current, pwd] = args;
+      }
+      const res = await setAdminPassword(pwd, current);
       console.log(JSON.stringify(res));
     } else if (command === "add-cashier") {
       const name = args[0];

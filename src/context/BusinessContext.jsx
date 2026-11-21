@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from "./AuthContext.jsx";
 import { apiRequest } from "../utils/api.js";
 import { DEFAULT_TARGET_FOOD_COST, normalizeTargetFoodCost } from "../utils/menuCosting.js";
+import { COST_TARGETS, normalizeContributionSplit, normalizeCostTarget } from "../../shared/costTargets.js";
 
 export const DEFAULT_DISCOUNT_PRESETS = [
   { label: "Senior Citizen (20%)", pct: 20 },
@@ -90,6 +91,9 @@ function normalizeBusinessSettings(saved, isAdmin = false) {
     targetFoodCost: isAdmin
       ? normalizeTargetFoodCost(source.targetFoodCost, DEFAULT_TARGET_FOOD_COST)
       : null,
+    // Labor / utilities / occupancy targets and payroll options are owner-only.
+    ...Object.fromEntries(Object.keys(COST_TARGETS).map((key) => [key, isAdmin ? normalizeCostTarget(key, source[key]) : null])),
+    contributionSplit: isAdmin ? normalizeContributionSplit(source.contributionSplit) : null,
     lowStockThresholdPercent: normalizeInt(source.lowStockThresholdPercent, defaultBusinessSettings.lowStockThresholdPercent, 5, 90),
     criticalStockThresholdPercent: normalizeInt(source.criticalStockThresholdPercent, defaultBusinessSettings.criticalStockThresholdPercent, 1, 85),
     inactivityAlertDays: normalizeInt(source.inactivityAlertDays, defaultBusinessSettings.inactivityAlertDays, 1, 365),

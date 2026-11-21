@@ -91,6 +91,13 @@ COLOR_NEUTRAL_TEXT = "#9E8D81"
 COLOR_TERMINAL_BG = "#100A07"     # Dark Roasted Espresso Terminal
 COLOR_TERMINAL_FG = "#E8DDD4"     # Warm Ivory Terminal Text
 
+# Start-up progress colours (grey = waiting, amber = working, green = ready, red = problem)
+STEP_PENDING = "#3E2B20"
+STEP_WORKING = "#F59E0B"
+STEP_READY = "#4ADE80"
+STEP_ERROR = "#EF4444"
+WARN_GRACE_SECONDS = 90  # a "warning" that lasts longer than this is treated as a failure
+
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 SERVICES_CONFIG = [
@@ -170,6 +177,19 @@ SERVICES_CONFIG = [
         "pill_fg": "#BFDBFE",
     },
 ]
+
+
+def friendly_error(res) -> str:
+    """Turn a failed account-manager run into a short sentence for the owner."""
+    text = (res.stderr or res.stdout or "").strip()
+    if "ECONNREFUSED" in text or "ETIMEDOUT" in text or "ENOTFOUND" in text:
+        return "The database is off. Turn on the shop system first, then try again."
+    for line in text.splitlines():
+        if line.startswith("ERROR:"):
+            return line[len("ERROR:"):].strip()
+    if "ECONNREFUSED" in text or "connect" in text.lower():
+        return "The database is off. Turn on the shop system first."
+    return "Something went wrong. Please try again."
 
 
 def strip_ansi(text: str) -> str:
@@ -382,33 +402,42 @@ def kill_process_tree(pid: int) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def check_api_health(timeout: float = 0.6) -> tuple[str, str]:
-    """Query http://127.0.0.1:3001/api/health ONLY when MySQL (:3306) is reachable."""
+def check_api_health(timeout: float = 2.0) -> tuple[str, str, list[str]]:
+    """Query http://127.0.0.1:3001/api/health ONLY when MySQL (:3306) is reachable.
+
+    Returns (state, detail, pending_migrations). States:
+      ok          the API answers and the database matches the code
+      migrations  the API answers, but the database is missing updates ("Update the database" fixes it;
+                  Restart does not)
+      db_error    the API answers but cannot reach the database
+      down        no answer within `timeout` (a cold start or a node --watch reload takes ~1 s,
+                  so the timeout must be well above that or a healthy server reads as down)
+    """
     req = urllib.request.Request("http://127.0.0.1:3001/api/health", method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
             if resp.status == 200 and data.get("status") == "ok":
-                pending = data.get("pendingMigrations") or []
+                pending = [str(name) for name in (data.get("pendingMigrations") or [])]
                 if pending:
-                    return "warn", f"{len(pending)} migration(s) pending: run Setup / Migrate"
-                return "ok", "DB Connected (200 OK)"
-            return "warn", f"HTTP {resp.status}"
+                    return "migrations", f"{len(pending)} database update(s) waiting", pending
+                return "ok", "DB Connected (200 OK)", []
+            return "db_error", f"HTTP {resp.status}", []
     except urllib.error.HTTPError as http_err:
         try:
             body = json.loads(http_err.read().decode("utf-8", errors="replace"))
             msg = body.get("message") or f"HTTP {http_err.code}"
         except Exception:
             msg = f"HTTP {http_err.code}"
-        return "db_error", msg
+        return "db_error", msg, []
     except Exception:
-        return "down", "Offline"
+        return "down", "Offline", []
 
 
 class AmayaControlPanel:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Amaya Atelier — POS, Web & MySQL Service Control Panel")
+        self.root.title("Amaya's Drinks and Bites — Shop control panel")
         self.root.geometry("1280x820")
         self.root.minsize(1040, 680)
         self.root.configure(bg=COLOR_CANVAS_BG)
@@ -425,7 +454,10 @@ class AmayaControlPanel:
 
         # Throttle /api/health HTTP requests so we never spam the Express console
         self._last_api_health_time: float = 0.0
-        self._cached_api_health: tuple[str, str] = ("ok", "Listening (:3001)")
+        self._cached_api_health: tuple[str, str, list[str]] = ("ok", "Listening (:3001)", [])
+        # Pending database updates: offer Setup / Migrate once per distinct set, never while one runs.
+        self._migration_running = False
+        self._migration_offered_for: tuple[str, ...] | None = None
 
         # Runtime state per service (protected by RLock for concurrent worker threads)
         self._state_lock = threading.RLock()
@@ -534,7 +566,8 @@ class AmayaControlPanel:
 
         tk.Label(
             brand_titles,
-            text="AMAYA ATELIER",
+            text="Amaya's Drinks\nand Bites",
+            justify=tk.LEFT,
             font=("Georgia", 11, "bold"),
             fg=COLOR_TEXT_PRIMARY,
             bg=COLOR_PANEL_WARM,
@@ -542,7 +575,7 @@ class AmayaControlPanel:
 
         tk.Label(
             brand_titles,
-            text="Service Dispatcher",
+            text="Shop control panel",
             font=("Segoe UI", 8),
             fg=COLOR_ACCENT_LEATHER,
             bg=COLOR_PANEL_WARM,
@@ -551,15 +584,6 @@ class AmayaControlPanel:
         # Hairline Divider
         tk.Frame(self.sidebar, height=1, bg=COLOR_HAIRLINE).pack(fill=tk.X, padx=12, pady=(4, 14))
 
-        # Navigation Label
-        tk.Label(
-            self.sidebar,
-            text="NAVIGATION SETTINGS",
-            font=("Segoe UI", 7, "bold"),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_PANEL_WARM,
-            padx=14,
-        ).pack(anchor="w", pady=(0, 6))
 
         # Nav Buttons
         nav_container = tk.Frame(self.sidebar, bg=COLOR_PANEL_WARM, padx=10)
@@ -568,17 +592,17 @@ class AmayaControlPanel:
         self.nav_btn_main = self._make_nav_button(
             nav_container,
             icon="🏠",
-            title="Main Control Panel",
-            sub="Quick Launch & Accounts",
+            title="Home",
+            sub="Turn on, open, your team",
             target_page="main",
         )
         self.nav_btn_main.pack(fill=tk.X, pady=(0, 8))
 
         self.nav_btn_adv = self._make_nav_button(
             nav_container,
-            icon="⚡",
-            title="Advanced Panel",
-            sub="Telemetry, 4 Boxes & DB",
+            icon="🛠",
+            title="Technical tools",
+            sub="For IT help only",
             target_page="advanced",
         )
         self.nav_btn_adv.pack(fill=tk.X, pady=(0, 8))
@@ -611,7 +635,7 @@ class AmayaControlPanel:
 
         tk.Label(
             bot_hdr,
-            text="PORT GUARDIAN",
+            text="System check",
             font=("Segoe UI", 8, "bold"),
             fg=COLOR_TEXT_SECONDARY,
             bg=COLOR_RECESSED,
@@ -619,27 +643,27 @@ class AmayaControlPanel:
 
         self.sidebar_services_count_lbl = tk.Label(
             bot_hdr,
-            text="0/4 On",
+            text="0 of 4 ready",
             font=("Consolas", 8, "bold"),
             fg=COLOR_TEXT_MUTED,
             bg=COLOR_RECESSED,
         )
         self.sidebar_services_count_lbl.pack(side=tk.RIGHT)
 
-        # Micro Port Grid
+        # Labelled status rows (plain names instead of port numbers)
         p_row = tk.Frame(bot_frame, bg=COLOR_RECESSED)
         p_row.pack(fill=tk.X, pady=(0, 6))
-        for p in (3306, 3001, 5173, 5174):
-            chip = tk.Frame(p_row, bg=COLOR_PANEL_WARM, padx=3, pady=2, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-            chip.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-            tk.Label(chip, text=f":{p}", font=("Consolas", 7), fg=COLOR_TEXT_MUTED, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT)
-            dot = tk.Label(chip, text="●", font=("Segoe UI", 6), fg="#665245", bg=COLOR_PANEL_WARM)
-            dot.pack(side=tk.RIGHT)
+        for p, label in ((3306, "Database"), (3001, "Server"), (5173, "Customer site"), (5174, "Register site")):
+            line = tk.Frame(p_row, bg=COLOR_RECESSED)
+            line.pack(fill=tk.X, pady=1)
+            dot = tk.Label(line, text="●", font=("Segoe UI", 8), fg="#665245", bg=COLOR_RECESSED)
+            dot.pack(side=tk.LEFT, padx=(0, 6))
+            tk.Label(line, text=label, font=("Segoe UI", 9), fg=COLOR_TEXT_SECONDARY, bg=COLOR_RECESSED).pack(side=tk.LEFT)
             self.sidebar_port_dots[p] = dot
 
         tk.Label(
             bot_frame,
-            text="Amaya Atelier v2.5",
+            text="Amaya's Drinks and Bites",
             font=("Consolas", 7),
             fg=COLOR_TEXT_MUTED,
             bg=COLOR_RECESSED,
@@ -691,6 +715,23 @@ class AmayaControlPanel:
         return card
 
     def show_page(self, page_name: str) -> None:
+        if page_name == "main":
+            self._tech_unlocked = False  # leaving Technical tools locks it again
+        elif page_name == "advanced" and not getattr(self, "_tech_unlocked", False):
+            self._admin_gate(
+                title="Owner password needed",
+                headline="Technical tools are for the owner only",
+                warnings=[
+                    "This page can stop the shop system and clear your menu and stock list.",
+                    "Only open it if you need to save a backup or fix a problem.",
+                    "If you are not the owner, press Cancel.",
+                ],
+                confirm_label="Open Technical tools",
+                on_success=self._unlock_tech_tools,
+                require_ack=False,
+                danger=False,
+            )
+            return
         self.current_page = page_name
         if page_name == "main":
             self.page_advanced.pack_forget()
@@ -712,6 +753,10 @@ class AmayaControlPanel:
             self.root.after(40, self._redraw_ram_meter)
             self.root.after(40, self._redraw_cpu_meter)
 
+    def _unlock_tech_tools(self) -> None:
+        self._tech_unlocked = True
+        self.show_page("advanced")
+
     def _set_nav_active(self, btn_frame: tk.Frame, is_active: bool) -> None:
         bg_col = COLOR_CARD_DARK if is_active else COLOR_PANEL_WARM
         border_col = COLOR_BRASS if is_active else COLOR_CARD_BORDER
@@ -726,321 +771,209 @@ class AmayaControlPanel:
     # MAIN (BASIC) PANEL — SHOWS ONLY WHAT MATTERS
     # ------------------------------------------------------------------
     def _build_main_panel(self, parent: tk.Widget) -> None:
-        # Header Bar
-        header = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=16,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        header.pack(fill=tk.X, pady=(0, 10))
-
-        title_frame = tk.Frame(header, bg=COLOR_PANEL_WARM)
-        title_frame.pack(side=tk.LEFT, fill=tk.Y)
-
-        kicker_frame = tk.Frame(title_frame, bg=COLOR_PANEL_WARM)
-        kicker_frame.pack(anchor="w")
-
-        tk.Label(kicker_frame, text="●", font=("Segoe UI", 7), fg=COLOR_BRASS, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
+        """Home page for the shop owner: one status, one big button, then open-links and team."""
+        # ---- Greeting ----------------------------------------------------
+        head = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        head.pack(fill=tk.X, pady=(4, 14))
         tk.Label(
-            kicker_frame,
-            text="AMAYA ATELIER • DAILY OPERATIONS & PRIMARY DISPATCH",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_ACCENT_LEATHER,
-            bg=COLOR_PANEL_WARM,
-        ).pack(side=tk.LEFT)
-
-        tk.Label(
-            title_frame,
-            text="Main Control Panel",
-            font=("Georgia", 15, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_PANEL_WARM,
-        ).pack(anchor="w", pady=(1, 0))
-
-        tk.Label(
-            title_frame,
-            text="Start system services and manage authenticated staff & cashier accounts on duty.",
-            font=("Segoe UI", 8),
-            fg=COLOR_TEXT_WALNUT,
-            bg=COLOR_PANEL_WARM,
+            head, text="Welcome back", font=("Georgia", 22, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
         ).pack(anchor="w")
+        tk.Label(
+            head,
+            text="Turn the shop system on before you open. Turn it off after closing.",
+            font=("Segoe UI", 11), fg=COLOR_TEXT_WALNUT, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w", pady=(2, 0))
 
-        # 1. SERVICE OPERATIONS & QUICK DISPATCH CARD (Sticky Note)
-        dispatch_card = tk.Frame(
-            parent,
-            bg=COLOR_CARD_DARK,
-            padx=16,
-            pady=12,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
+        # ---- 1. Shop system power card ------------------------------------
+        power = tk.Frame(
+            parent, bg=COLOR_CARD_DARK, padx=22, pady=18,
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
         )
-        dispatch_card.pack(fill=tk.X, pady=(0, 10))
+        power.pack(fill=tk.X, pady=(0, 12))
+        self.main_power_card = power
 
-        # Washi tape header
-        tk.Frame(dispatch_card, height=4, bg=COLOR_SUCCESS_BTN).pack(fill=tk.X, pady=(0, 8))
+        power_top = tk.Frame(power, bg=COLOR_CARD_DARK)
+        power_top.pack(fill=tk.X)
 
-        top_row = tk.Frame(dispatch_card, bg=COLOR_CARD_DARK)
-        top_row.pack(fill=tk.X, pady=(0, 8))
+        left = tk.Frame(power_top, bg=COLOR_CARD_DARK)
+        left.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Pinned pill
-        tag_f = tk.Frame(top_row, bg="#062E17", padx=8, pady=2, highlightthickness=1, highlightbackground=COLOR_SUCCESS_BORDER)
-        tag_f.pack(side=tk.LEFT)
-        tk.Label(tag_f, text="●", font=("Segoe UI", 7), fg=COLOR_BRASS, bg="#062E17").pack(side=tk.LEFT, padx=(0, 4))
-        tk.Label(tag_f, text="01  SERVICE OPERATIONS HUB", font=("Segoe UI", 8, "bold"), fg="#BBF7D0", bg="#062E17").pack(side=tk.LEFT)
-
-        # Status Banner
+        status_row = tk.Frame(left, bg=COLOR_CARD_DARK)
+        status_row.pack(anchor="w")
+        self.main_status_dot = tk.Label(
+            status_row, text="●", font=("Segoe UI", 20),
+            fg=COLOR_DANGER_TEXT, bg=COLOR_CARD_DARK,
+        )
+        self.main_status_dot.pack(side=tk.LEFT, padx=(0, 10))
+        # Kept under the old attribute name so other code that touches it still works.
         self.main_system_status_banner = tk.Label(
-            dispatch_card,
-            text="● ALL SERVICES OFFLINE (Click 'Start All Services' below to launch)",
-            font=("Segoe UI", 9, "bold"),
-            fg=COLOR_DANGER_TEXT,
-            bg=COLOR_DANGER_BG,
-            padx=12,
-            pady=8,
-            highlightthickness=1,
-            highlightbackground=COLOR_DANGER_BORDER,
+            status_row, text="The shop system is off", font=("Georgia", 18, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK,
         )
-        self.main_system_status_banner.pack(fill=tk.X, pady=(0, 10))
+        self.main_system_status_banner.pack(side=tk.LEFT)
 
-        # Action Buttons Row (Prominent, fixed dimensions)
-        actions_row = tk.Frame(dispatch_card, bg=COLOR_CARD_DARK)
-        actions_row.pack(fill=tk.X, pady=(0, 10))
-
-        self._make_button(
-            actions_row,
-            text="▶ Start All Services",
-            bg=COLOR_SUCCESS_BTN,
-            fg="#FFFFFF",
-            command=self.start_all_services,
-            padx=14,
-            pady=7,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-
-        self._make_button(
-            actions_row,
-            text="⏹ Stop All Services",
-            bg=COLOR_DANGER_BTN,
-            fg="#FFFFFF",
-            command=self.stop_all_services,
-            padx=14,
-            pady=7,
-        ).pack(side=tk.LEFT, padx=6)
-
-        self._make_button(
-            actions_row,
-            text="🔄 Restart All",
-            bg=COLOR_PANEL_WARM,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.restart_all_services,
-            padx=12,
-            pady=7,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=6)
-
-        # Quick Portal Launch Row
-        portals_row = tk.Frame(dispatch_card, bg=COLOR_CARD_DARK)
-        portals_row.pack(fill=tk.X)
-
-        tk.Label(
-            portals_row,
-            text="Quick Launch:",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_WALNUT,
-            bg=COLOR_CARD_DARK,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-
-        self._make_button(
-            portals_row,
-            text="🌐 Customer Menu (:5173)",
-            bg="#261D13",
-            fg="#FDE68A",
-            command=lambda: webbrowser.open("http://localhost:5173"),
-            padx=10,
-            pady=4,
-            border_color="#D97706",
-        ).pack(side=tk.LEFT, padx=3)
-
-        self._make_button(
-            portals_row,
-            text="🖥️ Staff POS & Admin (:5174)",
-            bg="#141D2B",
-            fg="#BFDBFE",
-            command=lambda: webbrowser.open("http://localhost:5174/login"),
-            padx=10,
-            pady=4,
-            border_color="#2563EB",
-        ).pack(side=tk.LEFT, padx=3)
-
-        self._make_button(
-            portals_row,
-            text="💾 phpMyAdmin (:3306)",
-            bg="#281911",
-            fg="#FED7AA",
-            command=lambda: webbrowser.open("http://localhost/phpmyadmin"),
-            padx=10,
-            pady=4,
-            border_color="#C2410C",
-        ).pack(side=tk.LEFT, padx=3)
-
-        # 2. AVAILABLE ACCOUNTS & TEAM CREDENTIALS SECTION
-        accounts_outer = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=16,
-            pady=12,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
+        self.main_status_sub = tk.Label(
+            left, text="Customers cannot order and cashiers cannot sign in yet.",
+            font=("Segoe UI", 11), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+            wraplength=520, justify=tk.LEFT,
         )
-        accounts_outer.pack(fill=tk.BOTH, expand=True)
+        self.main_status_sub.pack(anchor="w", pady=(4, 0))
 
-        acc_header = tk.Frame(accounts_outer, bg=COLOR_PANEL_WARM)
-        acc_header.pack(fill=tk.X, pady=(0, 8))
+        right = tk.Frame(power_top, bg=COLOR_CARD_DARK)
+        right.pack(side=tk.RIGHT)
+        self.main_power_btn = tk.Button(
+            right, text="Turn on shop system", font=("Segoe UI", 13, "bold"),
+            bg=COLOR_SUCCESS_BTN, fg="#FFFFFF", activebackground=COLOR_SUCCESS_BTN_HOVER,
+            activeforeground="#FFFFFF", relief=tk.FLAT, cursor="hand2",
+            padx=26, pady=12, command=self._on_power_clicked,
+        )
+        self.main_power_btn.pack()
+        restart_link = tk.Label(
+            right, text="Something wrong? Restart", font=("Segoe UI", 9, "underline"),
+            fg=COLOR_TEXT_MUTED, bg=COLOR_CARD_DARK, cursor="hand2",
+        )
+        restart_link.pack(pady=(8, 0))
+        restart_link.bind("<Button-1>", lambda _e: self._confirm_restart())
 
-        acc_hdr_left = tk.Frame(acc_header, bg=COLOR_PANEL_WARM)
-        acc_hdr_left.pack(side=tk.LEFT)
+        # Start-up progress: four steps, shown only while the system is starting or running.
+        self.main_steps_frame = tk.Frame(power, bg=COLOR_CARD_DARK)
+        self._step_order = ("mysql", "api", "customer", "portal")
+        self._step_names = {
+            "mysql": "Database", "api": "Server",
+            "customer": "Customer site", "portal": "Register site",
+        }
+        self._step_bars: dict[str, tk.Frame] = {}
+        self._step_state_lbls: dict[str, tk.Label] = {}
+        for i, sid in enumerate(self._step_order):
+            self.main_steps_frame.columnconfigure(i, weight=1, uniform="steps")
+            col = tk.Frame(self.main_steps_frame, bg=COLOR_CARD_DARK)
+            col.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 4, 0 if i == 3 else 4))
+            bar = tk.Frame(col, height=10, bg=STEP_PENDING)
+            bar.pack(fill=tk.X)
+            tk.Label(col, text=self._step_names[sid], font=("Segoe UI", 10, "bold"),
+                     fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK).pack(anchor="w", pady=(6, 0))
+            st = tk.Label(col, text="Waiting", font=("Segoe UI", 9), fg=COLOR_TEXT_MUTED, bg=COLOR_CARD_DARK)
+            st.pack(anchor="w")
+            self._step_bars[sid] = bar
+            self._step_state_lbls[sid] = st
 
-        tk.Label(acc_hdr_left, text="●", font=("Segoe UI", 7), fg=COLOR_BRASS, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 5))
+        # ---- 2. Open the shop's websites ----------------------------------
         tk.Label(
-            acc_hdr_left,
-            text="AVAILABLE ACCOUNTS & TEAM CREDENTIALS (ADMIN & CASHIERS)",
-            font=("Segoe UI", 9, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_PANEL_WARM,
+            parent, text="Open", font=("Georgia", 13, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w", pady=(4, 6))
+
+        tiles = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        tiles.pack(fill=tk.X, pady=(0, 12))
+        tiles.columnconfigure(0, weight=1, uniform="tiles")
+        tiles.columnconfigure(1, weight=1, uniform="tiles")
+
+        self.main_tile_subs: list[tk.Label] = []
+        self._make_launch_tile(
+            tiles, 0, "Customer menu",
+            "What customers see when they order.",
+            "http://localhost:5173", "#F59E0B",
+        ).grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self._make_launch_tile(
+            tiles, 1, "Register and admin",
+            "For you and your cashiers: sales, stock, reports.",
+            "http://localhost:5174/login", "#3B82F6",
+        ).grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+
+        # ---- 3. Your team --------------------------------------------------
+        team_head = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        team_head.pack(fill=tk.X, pady=(4, 6))
+        tk.Label(
+            team_head, text="Your team", font=("Georgia", 13, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
         ).pack(side=tk.LEFT)
-
-        self._make_button(
-            acc_header,
-            text="🔄 Refresh Accounts",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.load_main_accounts,
-            padx=10,
-            pady=3,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.RIGHT)
-
-        # 2-Column Responsive Shelf (Owner Card & Cashiers Card)
-        shelf = tk.Frame(accounts_outer, bg=COLOR_PANEL_WARM)
-        shelf.pack(fill=tk.BOTH, expand=True)
-        shelf.columnconfigure(0, weight=1, uniform="accounts_cols")
-        shelf.columnconfigure(1, weight=1, uniform="accounts_cols")
-
-        # --- Card A: Admin / Owner ---
-        owner_card = tk.Frame(
-            shelf,
-            bg="#261D13",
-            padx=14,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground="#D97706",
+        refresh = tk.Label(
+            team_head, text="Refresh list", font=("Segoe UI", 9, "underline"),
+            fg=COLOR_TEXT_MUTED, bg=COLOR_CANVAS_BG, cursor="hand2",
         )
-        owner_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=4)
+        refresh.pack(side=tk.RIGHT)
+        refresh.bind("<Button-1>", lambda _e: self.load_main_accounts())
 
-        tk.Frame(owner_card, height=4, bg="#D97706").pack(fill=tk.X, pady=(0, 8))
+        shelf = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        shelf.pack(fill=tk.BOTH, expand=True)
+        shelf.columnconfigure(0, weight=1, uniform="team")
+        shelf.columnconfigure(1, weight=1, uniform="team")
+        shelf.rowconfigure(0, weight=1)
 
-        owner_top = tk.Frame(owner_card, bg="#261D13")
-        owner_top.pack(fill=tk.X, pady=(0, 6))
+        # --- Owner -----------------------------------------------------------
+        owner_card = tk.Frame(
+            shelf, bg=COLOR_CARD_DARK, padx=18, pady=14,
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+        )
+        owner_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
-        owner_pill = tk.Frame(owner_top, bg="#3D270A", padx=7, pady=2, highlightthickness=1, highlightbackground="#D97706")
-        owner_pill.pack(side=tk.LEFT)
-        tk.Label(owner_pill, text="👑  #OWNER", font=("Segoe UI", 8, "bold"), fg="#FDE68A", bg="#3D270A").pack(side=tk.LEFT)
-
+        o_top = tk.Frame(owner_card, bg=COLOR_CARD_DARK)
+        o_top.pack(fill=tk.X)
+        tk.Label(
+            o_top, text="You (owner)", font=("Segoe UI", 12, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK,
+        ).pack(side=tk.LEFT)
         self.admin_status_badge = tk.Label(
-            owner_top,
-            text="● ACTIVE",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_SUCCESS_TEXT,
-            bg=COLOR_SUCCESS_BG,
-            padx=8,
-            pady=2,
-            highlightthickness=1,
-            highlightbackground=COLOR_SUCCESS_BORDER,
+            o_top, text="Checking…", font=("Segoe UI", 9, "bold"),
+            fg=COLOR_TEXT_MUTED, bg=COLOR_RECESSED, padx=8, pady=2,
         )
         self.admin_status_badge.pack(side=tk.RIGHT)
 
         tk.Label(
             owner_card,
-            text="Store Owner & Administrator",
-            font=("Georgia", 12, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg="#261D13",
-        ).pack(anchor="w", pady=(2, 6))
-
-        # Shelf info
-        owner_info = tk.Frame(owner_card, bg=COLOR_RECESSED, padx=10, pady=8, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-        owner_info.pack(fill=tk.X, pady=(0, 10))
-
-        tk.Label(owner_info, text="Username: admin (Fixed)", font=("Consolas", 9, "bold"), fg=COLOR_BRASS_LIGHT, bg=COLOR_RECESSED).pack(anchor="w")
-        tk.Label(owner_info, text="Role: Full Store & Financial Authority", font=("Segoe UI", 8), fg=COLOR_TEXT_WALNUT, bg=COLOR_RECESSED).pack(anchor="w", pady=(2, 0))
-        tk.Label(owner_info, text="Access: Catalog Vault, Price Matrix, Audit Logs, Users", font=("Segoe UI", 8), fg=COLOR_TEXT_MUTED, bg=COLOR_RECESSED).pack(anchor="w", pady=(1, 0))
-
-        owner_btn_row = tk.Frame(owner_card, bg="#261D13")
-        owner_btn_row.pack(fill=tk.X, pady=(4, 0))
+            text="Sign in with the username  admin  and your password. You can see everything in the store.",
+            font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+            wraplength=380, justify=tk.LEFT,
+        ).pack(anchor="w", pady=(8, 14))
 
         self._make_button(
-            owner_btn_row,
-            text="🔑 Change Owner Password",
-            bg="#38251C",
-            fg="#FFFFFF",
-            command=self.prompt_change_admin_password,
-            padx=10,
-            pady=4,
-            border_color="#D97706",
-        ).pack(side=tk.LEFT)
+            owner_card, text="Change my password", bg=COLOR_ACCENT_MOCHA, fg="#FFFFFF",
+            command=self.prompt_change_admin_password, padx=14, pady=7,
+            border_color=COLOR_BRASS,
+        ).pack(anchor="w", side=tk.BOTTOM)
 
-        # --- Card B: Counter Cashiers ---
+        # --- Cashiers -------------------------------------------------------
         cashier_card = tk.Frame(
-            shelf,
-            bg="#141D2B",
-            padx=14,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground="#2563EB",
+            shelf, bg=COLOR_CARD_DARK, padx=18, pady=14,
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
         )
-        cashier_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=4)
+        cashier_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
-        tk.Frame(cashier_card, height=4, bg="#2563EB").pack(fill=tk.X, pady=(0, 8))
-
-        c_top = tk.Frame(cashier_card, bg="#141D2B")
-        c_top.pack(fill=tk.X, pady=(0, 6))
-
-        c_pill = tk.Frame(c_top, bg="#0E182A", padx=7, pady=2, highlightthickness=1, highlightbackground="#2563EB")
-        c_pill.pack(side=tk.LEFT)
-        tk.Label(c_pill, text="👥  #CASHIERS", font=("Segoe UI", 8, "bold"), fg="#BFDBFE", bg="#0E182A").pack(side=tk.LEFT)
-
+        c_top = tk.Frame(cashier_card, bg=COLOR_CARD_DARK)
+        c_top.pack(fill=tk.X)
+        tk.Label(
+            c_top, text="Cashiers", font=("Segoe UI", 12, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK,
+        ).pack(side=tk.LEFT)
         self.cashier_status_label = tk.Label(
-            c_top,
-            text="Checking DB...",
-            font=("Consolas", 8),
-            fg=COLOR_TEXT_MUTED,
-            bg="#141D2B",
+            c_top, text="Loading…", font=("Segoe UI", 9),
+            fg=COLOR_TEXT_MUTED, bg=COLOR_CARD_DARK,
         )
         self.cashier_status_label.pack(side=tk.RIGHT)
 
         tk.Label(
             cashier_card,
-            text="Counter Cashiers (Staff Accounts)",
-            font=("Georgia", 12, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg="#141D2B",
-        ).pack(anchor="w", pady=(2, 2))
+            text="Each cashier signs in with the username  staff  and their own password.",
+            font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+            wraplength=380, justify=tk.LEFT,
+        ).pack(anchor="w", pady=(6, 8))
 
-        tk.Label(
-            cashier_card,
-            text="Login: 'staff'  |  Entering their specific password opens their register shift.",
-            font=("Segoe UI", 8),
-            fg=COLOR_TEXT_WALNUT,
-            bg="#141D2B",
-        ).pack(anchor="w", pady=(0, 6))
+        c_btn_row = tk.Frame(cashier_card, bg=COLOR_CARD_DARK)
+        c_btn_row.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        self._make_button(
+            c_btn_row, text="Add a cashier", bg=COLOR_SUCCESS_BTN, fg="#FFFFFF",
+            command=self.prompt_add_cashier, padx=14, pady=7,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(
+            c_btn_row, text="Change password or turn off", bg=COLOR_PANEL_WARM,
+            fg=COLOR_TEXT_SECONDARY, command=self.open_accounts_manager_dialog,
+            padx=14, pady=7, border_color=COLOR_CARD_BORDER,
+        ).pack(side=tk.LEFT)
 
-        # Cashier List Container (Scrollable)
-        list_outer = tk.Frame(cashier_card, bg=COLOR_RECESSED, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-        list_outer.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
-
-        self.cashier_canvas = tk.Canvas(list_outer, bg=COLOR_RECESSED, highlightthickness=0, height=120)
+        list_outer = tk.Frame(cashier_card, bg=COLOR_RECESSED)
+        list_outer.pack(fill=tk.BOTH, expand=True)
+        self.cashier_canvas = tk.Canvas(list_outer, bg=COLOR_RECESSED, highlightthickness=0, height=90)
         c_scroll = tk.Scrollbar(list_outer, orient=tk.VERTICAL, command=self.cashier_canvas.yview)
         self.cashier_canvas.configure(yscrollcommand=c_scroll.set)
         c_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1048,40 +981,154 @@ class AmayaControlPanel:
 
         self.cashier_rows_container = tk.Frame(self.cashier_canvas, bg=COLOR_RECESSED)
         c_win = self.cashier_canvas.create_window((0, 0), window=self.cashier_rows_container, anchor="nw")
+        self.cashier_canvas.bind("<Configure>", lambda e: self.cashier_canvas.itemconfig(c_win, width=e.width))
+        self.cashier_rows_container.bind(
+            "<Configure>",
+            lambda e: self.cashier_canvas.configure(scrollregion=self.cashier_canvas.bbox("all")),
+        )
 
-        def _on_c_config(e):
-            self.cashier_canvas.itemconfig(c_win, width=e.width)
-        self.cashier_canvas.bind("<Configure>", _on_c_config)
-        self.cashier_rows_container.bind("<Configure>", lambda e: self.cashier_canvas.configure(scrollregion=self.cashier_canvas.bbox("all")))
+        self._update_main_status(0)
 
-        # Cashier Action Buttons
-        c_btn_row = tk.Frame(cashier_card, bg="#141D2B")
-        c_btn_row.pack(fill=tk.X)
+    # -- Home page helpers ---------------------------------------------------
+    def _make_launch_tile(self, parent, idx, title, desc, url, accent) -> tk.Frame:
+        tile = tk.Frame(
+            parent, bg=COLOR_CARD_DARK, padx=0, pady=0, cursor="hand2",
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+        )
+        tk.Frame(tile, width=5, bg=accent).pack(side=tk.LEFT, fill=tk.Y)
+        body = tk.Frame(tile, bg=COLOR_CARD_DARK, padx=16, pady=12)
+        body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        t = tk.Label(body, text=title, font=("Segoe UI", 12, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK)
+        t.pack(anchor="w")
+        d = tk.Label(body, text=desc, font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+                     wraplength=330, justify=tk.LEFT)
+        d.pack(anchor="w", pady=(2, 0))
+        arrow = tk.Label(tile, text="Open", font=("Segoe UI", 10, "bold"), fg=accent, bg=COLOR_CARD_DARK, padx=16)
+        arrow.pack(side=tk.RIGHT)
 
-        self._make_button(
-            c_btn_row,
-            text="+ Add New Cashier",
-            bg=COLOR_SUCCESS_BTN,
-            fg="#FFFFFF",
-            command=self.prompt_add_cashier,
-            padx=10,
-            pady=4,
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        def _open(_e=None) -> None:
+            if getattr(self, "_shop_active_ports", 0) < 4:
+                if not messagebox.askyesno(
+                    "Shop system is not fully on",
+                    "This page may not load yet because the shop system is not fully on.\n\nOpen it anyway?",
+                ):
+                    return
+            webbrowser.open(url)
 
-        self._make_button(
-            c_btn_row,
-            text="⚙️ Manage Passwords & Status",
-            bg=COLOR_PANEL_WARM,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.open_accounts_manager_dialog,
-            padx=10,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT)
+        for w in (tile, body, t, d, arrow):
+            w.bind("<Button-1>", _open)
+        return tile
+
+    def _on_power_clicked(self) -> None:
+        active = getattr(self, "_shop_active_ports", 0)
+        if getattr(self, "_shop_has_error", False):
+            self._begin_start_tracking()
+            self.restart_all_services()
+        elif active == 0:
+            self._begin_start_tracking()
+            self.start_all_services()
+        elif messagebox.askyesno(
+            "Turn off the shop system?",
+            "Customers will not be able to order and cashiers will be signed out of the register.\n\nTurn it off?",
+        ):
+            self._suppress_errors = True  # a normal shutdown must not look like a failure
+            self._start_clicked_at = 0.0
+            self.stop_all_services()
+
+    def _begin_start_tracking(self) -> None:
+        self._suppress_errors = False
+        self._start_clicked_at = time.time()
+        self._warn_since = {}
+
+    def _confirm_restart(self) -> None:
+        if messagebox.askyesno(
+            "Restart the shop system?",
+            "This takes about a minute. Cashiers may need to refresh their page.\n\nRestart now?",
+        ):
+            self._begin_start_tracking()
+            self.restart_all_services()
+
+    def _update_main_status(self, active_ports: int, step_styles: dict[str, str] | None = None) -> None:
+        self._shop_active_ports = active_ports
+        step_styles = step_styles or {}
+        now = time.time()
+        suppress = getattr(self, "_suppress_errors", False)
+        warn_since = getattr(self, "_warn_since", None)
+        if warn_since is None:
+            warn_since = self._warn_since = {}
+
+        # Work out each step: pending / working / ready / error
+        steps: dict[str, str] = {}
+        for sid in self._step_order:
+            style = step_styles.get(sid, "STOPPED")
+            if style == "RUNNING":
+                steps[sid] = "ready"
+                warn_since.pop(sid, None)
+            elif style == "ERROR" and not suppress:
+                steps[sid] = "error"
+            elif style == "WARN" and not suppress:
+                first = warn_since.setdefault(sid, now)
+                steps[sid] = "error" if now - first > WARN_GRACE_SECONDS else "working"
+            elif style == "STARTING":
+                steps[sid] = "working"
+                warn_since.pop(sid, None)
+            else:
+                steps[sid] = "pending"
+                warn_since.pop(sid, None)
+
+        ready = sum(1 for v in steps.values() if v == "ready")
+        failed = [sid for sid, v in steps.items() if v == "error"]
+        recently_clicked = now - getattr(self, "_start_clicked_at", 0.0) < 20
+        busy = any(v in ("working", "error") for v in steps.values()) or recently_clicked
+        self._shop_has_error = bool(failed)
+
+        step_verbs = {
+            "mysql": "Starting the database", "api": "Starting the server",
+            "customer": "Starting the customer site", "portal": "Starting the register site",
+        }
+        if failed:
+            dot, head = STEP_ERROR, "Something went wrong"
+            names = " and ".join(self._step_names[f] for f in failed)
+            sub = f"The {names.lower()} did not start properly. Press Try again. If it keeps happening, call your IT person."
+            btn = ("Try again", COLOR_DANGER_BTN, COLOR_DANGER_BTN_HOVER)
+        elif ready >= 4:
+            dot, head = STEP_READY, "The shop system is on"
+            sub = "Customers can order and cashiers can sign in."
+            btn = ("Turn off", COLOR_DANGER_BTN, COLOR_DANGER_BTN_HOVER)
+        elif busy:
+            dot, head = STEP_WORKING, f"Getting ready… {ready} of 4 done"
+            first_wait = next((s_ for s_ in self._step_order if steps[s_] != "ready"), "mysql")
+            sub = step_verbs[first_wait] + ". This can take up to a minute."
+            btn = ("Turn off", COLOR_DANGER_BTN, COLOR_DANGER_BTN_HOVER)
+        else:
+            dot, head = COLOR_DANGER_TEXT, "The shop system is off"
+            sub = "Customers cannot order and cashiers cannot sign in yet."
+            btn = ("Turn on shop system", COLOR_SUCCESS_BTN, COLOR_SUCCESS_BTN_HOVER)
+
+        if not getattr(self, "main_status_dot", None):
+            return
+        self.main_status_dot.configure(fg=dot)
+        self.main_system_status_banner.configure(text=head)
+        self.main_status_sub.configure(text=sub)
+        self.main_power_btn.configure(text=btn[0], bg=btn[1], activebackground=btn[2])
+
+        # Progress segments
+        if busy or ready > 0:
+            if not self.main_steps_frame.winfo_ismapped():
+                self.main_steps_frame.pack(fill=tk.X, pady=(16, 0))
+            colours = {"pending": STEP_PENDING, "working": STEP_WORKING, "ready": STEP_READY, "error": STEP_ERROR}
+            labels = {"pending": ("Waiting", COLOR_TEXT_MUTED), "working": ("Starting…", STEP_WORKING),
+                      "ready": ("Ready", STEP_READY), "error": ("Problem", STEP_ERROR)}
+            for sid in self._step_order:
+                self._step_bars[sid].configure(bg=colours[steps[sid]])
+                text, colour = labels[steps[sid]]
+                self._step_state_lbls[sid].configure(text=text, fg=colour)
+        elif self.main_steps_frame.winfo_ismapped():
+            self.main_steps_frame.pack_forget()
 
     def load_main_accounts(self) -> None:
         if hasattr(self, "cashier_status_label") and self.cashier_status_label:
-            self.cashier_status_label.configure(text="Querying database...", fg=COLOR_WARN_TEXT)
+            self.cashier_status_label.configure(text="Loading…", fg=COLOR_WARN_TEXT)
 
         def _worker():
             node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
@@ -1113,79 +1160,61 @@ class AmayaControlPanel:
         for w in self.cashier_rows_container.winfo_children():
             w.destroy()
 
-        if error or not accounts:
-            if hasattr(self, "cashier_status_label") and self.cashier_status_label:
-                self.cashier_status_label.configure(
-                    text="Offline / Unavailable" if error else "0 Cashiers Configured",
-                    fg=COLOR_TEXT_MUTED,
-                )
-
-            notice_frame = tk.Frame(self.cashier_rows_container, bg=COLOR_RECESSED, pady=10, padx=8)
-            notice_frame.pack(fill=tk.X, padx=4)
-
+        def _note(text: str, fg: str) -> None:
             tk.Label(
-                notice_frame,
-                text=(
-                    "⚠️ Database is offline. Start MySQL (:3306) to load live cashiers."
-                    if error
-                    else "No active accounts found in database. Click '+ Add New Cashier' below."
-                ),
-                font=("Segoe UI", 8, "italic"),
-                fg=COLOR_WARN_TEXT if error else COLOR_TEXT_MUTED,
-                bg=COLOR_RECESSED,
-                wraplength=340,
-                justify=tk.LEFT,
+                self.cashier_rows_container, text=text, font=("Segoe UI", 10),
+                fg=fg, bg=COLOR_RECESSED, wraplength=360, justify=tk.LEFT, padx=10, pady=10,
             ).pack(anchor="w")
+
+        if error or not accounts:
+            self.cashier_status_label.configure(text="", fg=COLOR_TEXT_MUTED)
+            self.admin_status_badge.configure(text="Not checked", fg=COLOR_TEXT_MUTED, bg=COLOR_RECESSED)
+            if error:
+                _note("Cannot load cashiers yet. Turn on the shop system first, then press Refresh list.", COLOR_WARN_TEXT)
+            else:
+                _note("No cashiers yet. Press Add a cashier.", COLOR_TEXT_MUTED)
             return
 
-        if hasattr(self, "cashier_status_label") and self.cashier_status_label:
-            staff_count = sum(1 for a in accounts if a.get("role") == "staff")
-            self.cashier_status_label.configure(text=f"{staff_count} Cashiers Active (Live MySQL)", fg=COLOR_SUCCESS_TEXT)
-
-        # Admin account status
-        admin_acc = next((a for a in accounts if a.get("role") == "admin"), None)
-        if admin_acc and hasattr(self, "admin_status_badge") and self.admin_status_badge:
-            self.admin_status_badge.configure(
-                text="● VERIFIED ACTIVE",
-                bg=COLOR_SUCCESS_BG,
-                fg=COLOR_SUCCESS_TEXT,
-            )
-
-        # Render cashiers
         staff_list = [a for a in accounts if a.get("role") == "staff"]
+        active_n = sum(1 for a in staff_list if a.get("isActive", True))
+        self.cashier_status_label.configure(
+            text=f"{active_n} can sign in" if staff_list else "", fg=COLOR_SUCCESS_TEXT,
+        )
+
+        if any(a.get("role") == "admin" for a in accounts):
+            self.admin_status_badge.configure(text="Account ready", fg=COLOR_SUCCESS_TEXT, bg=COLOR_SUCCESS_BG)
+
         if not staff_list:
-            tk.Label(
-                self.cashier_rows_container,
-                text="No cashiers configured yet. Click '+ Add New Cashier' below.",
-                font=("Segoe UI", 8),
-                fg=COLOR_TEXT_MUTED,
-                bg=COLOR_RECESSED,
-            ).pack(pady=8)
+            _note("No cashiers yet. Press Add a cashier.", COLOR_TEXT_MUTED)
             return
 
         for idx, staff in enumerate(staff_list):
             row_bg = COLOR_PANEL_WARM if idx % 2 == 0 else COLOR_CARD_DARK
-            row = tk.Frame(self.cashier_rows_container, bg=row_bg, padx=8, pady=6, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-            row.pack(fill=tk.X, padx=4, pady=2)
-
-            left = tk.Frame(row, bg=row_bg)
-            left.pack(side=tk.LEFT)
+            row = tk.Frame(self.cashier_rows_container, bg=row_bg, padx=10, pady=7)
+            row.pack(fill=tk.X)
             dname = staff.get("displayName") or f"Cashier {staff.get('id')}"
-            tk.Label(left, text=f"👤 {dname}", font=("Segoe UI", 9, "bold"), fg=COLOR_TEXT_PRIMARY, bg=row_bg).pack(anchor="w")
-
+            tk.Label(row, text=dname, font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT_PRIMARY, bg=row_bg).pack(side=tk.LEFT)
             is_act = staff.get("isActive", True)
-            status_text = "● Active" if is_act else "● Inactive"
-            status_col = COLOR_SUCCESS_TEXT if is_act else COLOR_DANGER_TEXT
-            tk.Label(left, text=f"login: staff  |  ID #{staff.get('id')}", font=("Consolas", 8), fg=COLOR_TEXT_WALNUT, bg=row_bg).pack(anchor="w")
+            tk.Label(
+                row, text="Can sign in" if is_act else "Turned off",
+                font=("Segoe UI", 9, "bold"),
+                fg=COLOR_SUCCESS_TEXT if is_act else COLOR_DANGER_TEXT, bg=row_bg,
+            ).pack(side=tk.RIGHT)
 
-            badge = tk.Label(row, text=status_text, font=("Segoe UI", 7, "bold"), fg=status_col, bg=COLOR_RECESSED, padx=6, pady=2, highlightthickness=1, highlightbackground=COLOR_HAIRLINE)
-            badge.pack(side=tk.RIGHT)
+    def _center_dialog(self, dlg: tk.Toplevel, width: int, height: int) -> None:
+        """Open a dialog centred over the main window (not at the screen's top-left)."""
+        self.root.update_idletasks()
+        rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+        rw, rh = self.root.winfo_width(), self.root.winfo_height()
+        x = max(0, rx + (rw - width) // 2)
+        y = max(0, ry + (rh - height) // 2)
+        dlg.geometry(f"{width}x{height}+{x}+{y}")
 
     def prompt_change_admin_password(self) -> None:
         dlg = tk.Toplevel(self.root)
         dlg.title("Change Owner Password")
-        dlg.geometry("420x240")
-        dlg.minsize(380, 220)
+        self._center_dialog(dlg, 420, 330)
+        dlg.minsize(380, 320)
         dlg.configure(bg=COLOR_CANVAS_BG)
         dlg.transient(self.root)
         dlg.grab_set()
@@ -1198,16 +1227,24 @@ class AmayaControlPanel:
         body = tk.Frame(dlg, bg=COLOR_CANVAS_BG, padx=16, pady=12)
         body.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(body, text="New Password (min 8 chars):", font=("Segoe UI", 8, "bold"), fg=COLOR_TEXT_SECONDARY, bg=COLOR_CANVAS_BG).pack(anchor="w", pady=(0, 4))
+        tk.Label(body, text="Current password:", font=("Segoe UI", 8, "bold"), fg=COLOR_TEXT_SECONDARY, bg=COLOR_CANVAS_BG).pack(anchor="w", pady=(0, 4))
+        cur_entry = tk.Entry(body, show="*", width=28, bg=COLOR_RECESSED, fg=COLOR_TEXT_PRIMARY, insertbackground=COLOR_TEXT_PRIMARY, relief=tk.FLAT, font=("Consolas", 10), highlightthickness=1, highlightbackground=COLOR_CARD_BORDER)
+        cur_entry.pack(fill=tk.X, pady=(0, 10))
+        cur_entry.focus_set()
+
+        tk.Label(body, text="New password (at least 8 characters):", font=("Segoe UI", 8, "bold"), fg=COLOR_TEXT_SECONDARY, bg=COLOR_CANVAS_BG).pack(anchor="w", pady=(0, 4))
         pwd_entry = tk.Entry(body, show="*", width=28, bg=COLOR_RECESSED, fg=COLOR_TEXT_PRIMARY, insertbackground=COLOR_TEXT_PRIMARY, relief=tk.FLAT, font=("Consolas", 10), highlightthickness=1, highlightbackground=COLOR_CARD_BORDER)
         pwd_entry.pack(fill=tk.X, pady=(0, 8))
-        pwd_entry.focus_set()
 
         msg_lbl = tk.Label(body, text="", font=("Segoe UI", 8), fg=COLOR_DANGER_TEXT, bg=COLOR_CANVAS_BG)
         msg_lbl.pack(anchor="w", pady=(0, 8))
 
         def _save():
             new_p = pwd_entry.get().strip()
+            cur_p = cur_entry.get()
+            if not cur_p:
+                msg_lbl.configure(text="Enter your current password first.", fg=COLOR_DANGER_TEXT)
+                return
             if len(new_p) < 8:
                 msg_lbl.configure(text="Password must be at least 8 characters.", fg=COLOR_DANGER_TEXT)
                 return
@@ -1219,7 +1256,7 @@ class AmayaControlPanel:
                     res = subprocess.run(
                         [node_exe, "src/account-manager.js", "set-admin-password", "--password-stdin"],
                         cwd=str(API_DIR),
-                        input=f"{new_p}\n",
+                        input=f"{cur_p}\n{new_p}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
@@ -1231,7 +1268,7 @@ class AmayaControlPanel:
                             self.load_main_accounts(),
                         ])
                     else:
-                        dlg.after(0, lambda: msg_lbl.configure(text=f"Error: {res.stderr or res.stdout}", fg=COLOR_DANGER_TEXT))
+                        dlg.after(0, lambda: msg_lbl.configure(text=(res.stderr or res.stdout or "").replace("ERROR:", "").strip() or "Could not change the password.", fg=COLOR_DANGER_TEXT))
                 except Exception as exc:
                     dlg.after(0, lambda: msg_lbl.configure(text=f"Error: {exc}", fg=COLOR_DANGER_TEXT))
             threading.Thread(target=_worker, daemon=True).start()
@@ -1244,7 +1281,7 @@ class AmayaControlPanel:
     def prompt_add_cashier(self) -> None:
         dlg = tk.Toplevel(self.root)
         dlg.title("Add New Cashier")
-        dlg.geometry("420x290")
+        self._center_dialog(dlg, 420, 290)
         dlg.minsize(380, 260)
         dlg.configure(bg=COLOR_CANVAS_BG)
         dlg.transient(self.root)
@@ -1307,486 +1344,399 @@ class AmayaControlPanel:
 
         btn_row = tk.Frame(body, bg=COLOR_CANVAS_BG)
         btn_row.pack(fill=tk.X)
-        self._make_button(btn_row, text="+ Add Cashier", bg=COLOR_SUCCESS_BTN, fg="#FFFFFF", command=_add, padx=12, pady=4).pack(side=tk.LEFT)
+        self._make_button(btn_row, text="Add cashier", bg=COLOR_SUCCESS_BTN, fg="#FFFFFF", command=_add, padx=12, pady=4).pack(side=tk.LEFT)
         self._make_button(btn_row, text="Cancel", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY, command=dlg.destroy, padx=10, pady=4).pack(side=tk.RIGHT)
 
     # ------------------------------------------------------------------
     # ADVANCED PANEL — TELEMETRY, 4 BOXES, MIGRATION, VAULT & LOGS
     # ------------------------------------------------------------------
     def _build_advanced_panel(self, parent: tk.Widget) -> None:
-        # 1. Advanced Header Bar
-        header = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=16,
-            pady=8,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        header.pack(fill=tk.X, pady=(0, 4))
+        """Technical tools page, written for the shop owner: plain words, grouped by what you want to do."""
+        scroll_canvas = tk.Canvas(parent, bg=COLOR_CANVAS_BG, highlightthickness=0)
+        scroll_bar = tk.Scrollbar(parent, orient=tk.VERTICAL, command=scroll_canvas.yview)
+        scroll_canvas.configure(yscrollcommand=scroll_bar.set)
+        scroll_bar.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = tk.Frame(scroll_canvas, bg=COLOR_CANVAS_BG)
+        inner_id = scroll_canvas.create_window((0, 0), window=inner, anchor="nw")
+        scroll_canvas.bind("<Configure>", lambda e: scroll_canvas.itemconfig(inner_id, width=e.width))
+        inner.bind("<Configure>", lambda e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all")))
 
-        title_frame = tk.Frame(header, bg=COLOR_PANEL_WARM)
-        title_frame.pack(side=tk.LEFT, fill=tk.Y)
+        def _wheel(event):
+            scroll_canvas.yview_scroll(int(-event.delta / 120), "units")
 
-        kicker_frame = tk.Frame(title_frame, bg=COLOR_PANEL_WARM)
-        kicker_frame.pack(anchor="w")
+        scroll_canvas.bind("<Enter>", lambda e: scroll_canvas.bind_all("<MouseWheel>", _wheel))
+        scroll_canvas.bind("<Leave>", lambda e: scroll_canvas.unbind_all("<MouseWheel>"))
+        parent = inner
 
-        tk.Label(kicker_frame, text="●", font=("Segoe UI", 7), fg=COLOR_BRASS, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
+        head = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        head.pack(fill=tk.X, pady=(4, 12))
         tk.Label(
-            kicker_frame,
-            text="AMAYA ATELIER • ADVANCED SYSTEM ORCHESTRATION & TELEMETRY",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_ACCENT_LEATHER,
-            bg=COLOR_PANEL_WARM,
-        ).pack(side=tk.LEFT)
-
+            head, text="Technical tools", font=("Georgia", 22, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w")
         tk.Label(
-            title_frame,
-            text="Advanced Control Panel & Diagnostics",
-            font=("Georgia", 13, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_PANEL_WARM,
-        ).pack(anchor="w", pady=(1, 0))
+            head,
+            text="You do not need this page every day. Use it to save a backup, or when the shop system will not start.",
+            font=("Segoe UI", 11), fg=COLOR_TEXT_WALNUT, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w", pady=(2, 0))
 
-        btn_bar = tk.Frame(header, bg=COLOR_PANEL_WARM)
-        btn_bar.pack(side=tk.RIGHT)
-
-        self._make_button(
-            btn_bar,
-            text="▶ Start All",
-            bg=COLOR_SUCCESS_BTN,
-            fg="#FFFFFF",
-            command=self.start_all_services,
-            padx=9,
-            pady=4,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="⏹ Stop All",
-            bg=COLOR_DANGER_BTN,
-            fg="#FFFFFF",
-            command=self.stop_all_services,
-            padx=9,
-            pady=4,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="🔄 Restart",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.restart_all_services,
-            padx=8,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="🧹 Free Ports",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_WARN_TEXT,
-            command=self.free_all_ports,
-            padx=8,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="🛠️ Setup / Migrate",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.run_setup_and_migrate,
-            padx=8,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="💾 Backup Now",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.backup_database_now,
-            padx=8,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            btn_bar,
-            text="👥 Accounts Dialog",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.open_accounts_manager_dialog,
-            padx=8,
-            pady=4,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=2)
-
-        # 2. Hardware Telemetry Panel (RAM & CPU scaling)
+        # 1. Computer health
+        self._adv_section_title(parent, "How the computer is doing")
         self._build_telemetry_panel(parent)
 
-        # 3. Service Cards Grid (2x2 layout, stretches proportionally with uniform columns)
-        cards_frame = tk.Frame(parent, bg=COLOR_CANVAS_BG)
-        cards_frame.pack(fill=tk.X, pady=3)
-        for col in range(2):
-            cards_frame.columnconfigure(col, weight=1, uniform="service_cards")
-
+        # 2. The four parts of the shop system
+        self._adv_section_title(parent, "Parts of the shop system")
+        parts = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        parts.pack(fill=tk.X)
+        parts.columnconfigure(0, weight=1)
         for idx, cfg in enumerate(SERVICES_CONFIG):
-            row_idx = idx // 2
-            col_idx = idx % 2
-            self._build_service_card(cards_frame, cfg, row_idx, col_idx)
+            self._build_service_card(parts, cfg, idx, 0)
 
-        # 4. Inventory & Menu Catalog Vault Ribbon (Archive & Clean / Recover)
-        vault_bar = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=12,
-            pady=6,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
+        # 3. Backups and fixes
+        self._adv_section_title(parent, "Backups and fixes")
+        tools = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        tools.pack(fill=tk.X)
+        tools.columnconfigure(0, weight=1, uniform="tools")
+        tools.columnconfigure(1, weight=1, uniform="tools")
+
+        def tool_card(row, col, title, desc, buttons, status_attr=None):
+            card = tk.Frame(
+                tools, bg=COLOR_CARD_DARK, padx=16, pady=12,
+                highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+            )
+            card.grid(row=row, column=col, sticky="nsew", padx=(0 if col == 0 else 6, 6 if col == 0 else 0), pady=(0, 10))
+            tk.Label(card, text=title, font=("Segoe UI", 11, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK).pack(anchor="w")
+            tk.Label(
+                card, text=desc, font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+                wraplength=430, justify=tk.LEFT,
+            ).pack(anchor="w", pady=(2, 8))
+            if status_attr:
+                lbl = tk.Label(
+                    card, text="Checking…", font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT,
+                    bg=COLOR_CARD_DARK, wraplength=430, justify=tk.LEFT,
+                )
+                lbl.pack(anchor="w", pady=(0, 8))
+                setattr(self, status_attr, lbl)
+            row_btns = tk.Frame(card, bg=COLOR_CARD_DARK)
+            row_btns.pack(anchor="w", side=tk.BOTTOM)
+            for text, bg, fg, cmd, border in buttons:
+                self._make_button(row_btns, text=text, bg=bg, fg=fg, command=cmd, padx=12, pady=6,
+                                  border_color=border).pack(side=tk.LEFT, padx=(0, 8))
+
+        tool_card(
+            0, 0, "Save a backup of your data",
+            "Saves a copy of your sales, menu and stock. A backup is also saved automatically every day.",
+            [
+                ("Back up now", COLOR_SUCCESS_BTN, "#FFFFFF", self.backup_database_now, None),
+                ("Open backups folder", COLOR_PANEL_WARM, COLOR_TEXT_SECONDARY, self.open_vault_backups_folder, COLOR_CARD_BORDER),
+            ],
         )
-        vault_bar.pack(fill=tk.X, pady=3)
+        tool_card(
+            0, 1, "The system will not start?",
+            "Closes programs that are stuck from last time, so the shop system can start again. Try this before calling for help.",
+            [("Fix stuck system", COLOR_PANEL_WARM, COLOR_WARN_TEXT, self._danger_cmd(
+                "Fix stuck system?", "This force-closes the shop programs",
+                [
+                    "Every shop program is closed by force, even ones that are working.",
+                    "Anyone using the register or the website is cut off immediately.",
+                    "An order being taken right now can be lost.",
+                    "Only do this when the shop system will not start.",
+                ],
+                "Force close and fix", self.free_all_ports), COLOR_CARD_BORDER)],
+        )
+        tool_card(
+            1, 0, "Menu and stock list",
+            "Clear them to start fresh. A copy is saved first, so you can bring everything back.",
+            [
+                ("Clear menu and stock", "#9A3412", "#FFFFFF", self._danger_cmd(
+                    "Clear menu and stock?", "Your whole menu and stock list will be emptied",
+                    [
+                        "Every menu item, recipe and stock item is removed from the live system.",
+                        "Customers will see an EMPTY menu until you bring the saved copy back.",
+                        "The cashiers cannot sell items that are no longer on the menu.",
+                        "A copy is saved first. Sales history and staff accounts are not touched.",
+                    ],
+                    "Clear menu and stock", self.archive_and_clean_catalog), None),
+                ("Bring back saved copy", COLOR_PANEL_WARM, COLOR_TEXT_SECONDARY, self._danger_cmd(
+                    "Bring back the saved copy?", "Your current menu and stock list will be replaced",
+                    [
+                        "The menu and stock list you have right now is replaced by the saved copy.",
+                        "Anything you added or changed since the copy was saved disappears from the live list.",
+                        "A safety copy of what is there now is kept first.",
+                    ],
+                    "Bring back saved copy", self.recover_archived_catalog), COLOR_CARD_BORDER),
+            ],
+            status_attr="vault_status_lbl",
+        )
+        tool_card(
+            1, 1, "After a system update",
+            "Your developer will tell you when to press this. It brings the database up to date.",
+            [("Update the database", COLOR_PANEL_WARM, COLOR_TEXT_SECONDARY, self._danger_cmd(
+                "Update the database?", "This changes how your data is stored",
+                [
+                    "Your developer should tell you when to do this. If they did not, press Cancel.",
+                    "It changes the structure of your database and cannot be undone with one click.",
+                    "Save a backup first (Back up now).",
+                ],
+                "Update the database", self.run_setup_and_migrate), COLOR_CARD_BORDER)],
+        )
 
-        vault_left = tk.Frame(vault_bar, bg=COLOR_PANEL_WARM)
-        vault_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
+        # 4. Activity log (for IT support) lives in its own window
+        foot = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        foot.pack(fill=tk.X, pady=(0, 6))
         tk.Label(
-            vault_left,
-            text="🗄️ INVENTORY & MENU CATALOG VAULT (ONE-CLICK ARCHIVE & CLEAN / RECOVER)",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_ACCENT_LEATHER,
-            bg=COLOR_PANEL_WARM,
-        ).pack(anchor="w")
-
-        self.vault_status_lbl = tk.Label(
-            vault_left,
-            text="Checking live catalog & archived vault snapshot...",
-            font=("Consolas", 8),
-            fg=COLOR_TEXT_WALNUT,
-            bg=COLOR_PANEL_WARM,
-        )
-        self.vault_status_lbl.pack(anchor="w", pady=(1, 0))
-
-        vault_btns = tk.Frame(vault_bar, bg=COLOR_PANEL_WARM)
-        vault_btns.pack(side=tk.RIGHT)
-
+            foot, text="Need to call for help? Your IT person may ask you to copy the activity log.",
+            font=("Segoe UI", 10), fg=COLOR_TEXT_MUTED, bg=COLOR_CANVAS_BG,
+        ).pack(side=tk.LEFT)
         self._make_button(
-            vault_btns,
-            text="🗄️ Archive & Clean",
-            bg="#9A3412",
-            fg="#FFFFFF",
-            command=self.archive_and_clean_catalog,
-            padx=9,
-            pady=3,
-        ).pack(side=tk.LEFT, padx=2)
+            foot, text="Open activity log", bg=COLOR_PANEL_WARM, fg=COLOR_TEXT_SECONDARY,
+            command=self._open_log_window, padx=12, pady=5, border_color=COLOR_CARD_BORDER,
+        ).pack(side=tk.RIGHT)
 
-        self._make_button(
-            vault_btns,
-            text="♻️ Recover Catalog",
-            bg=COLOR_SUCCESS_BTN,
-            fg="#FFFFFF",
-            command=self.recover_archived_catalog,
-            padx=9,
-            pady=3,
-        ).pack(side=tk.LEFT, padx=2)
-
-        self._make_button(
-            vault_btns,
-            text="📂 Backups",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.open_vault_backups_folder,
-            padx=8,
-            pady=3,
-            border_color=COLOR_CARD_BORDER,
-        ).pack(side=tk.LEFT, padx=(2, 0))
-
-        # 5. Live Diagnostics & Notebook Terminal
         self._build_console_panel(parent)
 
     # ------------------------------------------------------------------
-    # HARDWARE TELEMETRY PANEL (RAM, CPU & PORTS - AUTO-SCALING)
+    # OWNER PASSWORD GATE (page unlock and risky actions)
+    # ------------------------------------------------------------------
+    def _danger_cmd(self, title, headline, warnings, confirm_label, fn):
+        """Return a button command that asks for the owner password (with warnings) before running fn."""
+        def _run():
+            self._admin_gate(title, headline, warnings, confirm_label, fn)
+        return _run
+
+    def _admin_gate(
+        self,
+        title: str,
+        headline: str,
+        warnings: list[str],
+        confirm_label: str,
+        on_success,
+        require_ack: bool = True,
+        danger: bool = True,
+    ) -> None:
+        existing = getattr(self, "_gate_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+
+        accent = STEP_ERROR if danger else COLOR_BRASS
+        dlg = tk.Toplevel(self.root)
+        self._gate_window = dlg
+        dlg.title(title)
+        dlg.configure(bg=COLOR_CANVAS_BG)
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+
+        top = tk.Frame(dlg, bg=COLOR_PANEL_WARM, padx=20, pady=14)
+        top.pack(fill=tk.X)
+        tk.Frame(top, height=4, bg=accent).pack(fill=tk.X, pady=(0, 10))
+        tk.Label(
+            top, text=("Warning" if danger else "Owner only"), font=("Segoe UI", 10, "bold"),
+            fg=accent, bg=COLOR_PANEL_WARM,
+        ).pack(anchor="w")
+        tk.Label(
+            top, text=headline, font=("Georgia", 15, "bold"), fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_PANEL_WARM, wraplength=460, justify=tk.LEFT,
+        ).pack(anchor="w", pady=(2, 0))
+
+        body = tk.Frame(dlg, bg=COLOR_CANVAS_BG, padx=20, pady=12)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        for line in warnings:
+            row = tk.Frame(body, bg=COLOR_CANVAS_BG)
+            row.pack(fill=tk.X, pady=2)
+            tk.Label(row, text="•", font=("Segoe UI", 11, "bold"), fg=accent, bg=COLOR_CANVAS_BG).pack(side=tk.LEFT, anchor="n", padx=(0, 8))
+            tk.Label(
+                row, text=line, font=("Segoe UI", 10), fg=COLOR_TEXT_SECONDARY,
+                bg=COLOR_CANVAS_BG, wraplength=440, justify=tk.LEFT,
+            ).pack(side=tk.LEFT, anchor="w")
+
+        ack_var = tk.BooleanVar(value=not require_ack)
+        if require_ack:
+            tk.Checkbutton(
+                body, text="I understand and I want to continue.", variable=ack_var,
+                bg=COLOR_CANVAS_BG, fg=COLOR_TEXT_PRIMARY, selectcolor=COLOR_RECESSED,
+                activebackground=COLOR_CANVAS_BG, activeforeground=COLOR_TEXT_PRIMARY,
+                font=("Segoe UI", 10, "bold"), command=lambda: refresh(),
+            ).pack(anchor="w", pady=(12, 0))
+
+        tk.Label(
+            body, text="Type the owner password (the admin password) to continue:",
+            font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w", pady=(14, 4))
+        pwd_entry = tk.Entry(
+            body, show="*", bg=COLOR_RECESSED, fg=COLOR_TEXT_PRIMARY, insertbackground=COLOR_TEXT_PRIMARY,
+            relief=tk.FLAT, font=("Consolas", 11), highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+            highlightcolor=COLOR_BRASS,
+        )
+        pwd_entry.pack(fill=tk.X, ipady=4)
+        msg = tk.Label(body, text="", font=("Segoe UI", 10), fg=COLOR_DANGER_TEXT, bg=COLOR_CANVAS_BG,
+                       wraplength=460, justify=tk.LEFT)
+        msg.pack(anchor="w", pady=(6, 0))
+
+        btns = tk.Frame(body, bg=COLOR_CANVAS_BG)
+        btns.pack(fill=tk.X, pady=(12, 0))
+        confirm_btn = tk.Button(
+            btns, text=confirm_label, font=("Segoe UI", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+            bg=COLOR_DANGER_BTN if danger else COLOR_SUCCESS_BTN, fg="#FFFFFF",
+            activebackground=COLOR_DANGER_BTN_HOVER if danger else COLOR_SUCCESS_BTN_HOVER,
+            activeforeground="#FFFFFF", disabledforeground="#9A8A80", padx=16, pady=7,
+        )
+        confirm_btn.pack(side=tk.LEFT)
+        cancel_btn = self._make_button(
+            btns, text="Cancel", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY,
+            command=dlg.destroy, padx=16, pady=7, border_color=COLOR_CARD_BORDER,
+        )
+        cancel_btn.pack(side=tk.RIGHT)
+
+        busy = {"on": False}
+
+        def refresh(*_a) -> None:
+            ready = bool(pwd_entry.get()) and ack_var.get() and not busy["on"]
+            confirm_btn.configure(state=tk.NORMAL if ready else tk.DISABLED, bg=(
+                (COLOR_DANGER_BTN if danger else COLOR_SUCCESS_BTN) if ready else "#3A2E28"))
+
+        def submit(_e=None) -> None:
+            if str(confirm_btn["state"]) == "disabled":
+                return
+            wait = getattr(self, "_gate_locked_until", 0.0) - time.time()
+            if wait > 0:
+                msg.configure(text=f"Too many wrong tries. Please wait {int(wait) + 1} seconds.")
+                return
+            pw = pwd_entry.get()
+            busy["on"] = True
+            refresh()
+            msg.configure(text="Checking…", fg=COLOR_WARN_TEXT)
+
+            def _worker() -> None:
+                node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
+                try:
+                    res = subprocess.run(
+                        [node_exe, "src/account-manager.js", "verify-admin-password", "--password-stdin"],
+                        cwd=str(API_DIR), input=pw + chr(10), capture_output=True, text=True, timeout=10,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    ok = res.returncode == 0
+                    err = "" if ok else friendly_error(res)
+                except Exception:
+                    ok, err = False, "The database is off. Turn on the shop system first, then try again."
+                if not dlg.winfo_exists():
+                    return
+                dlg.after(0, lambda: _done(ok, err))
+
+            def _done(ok: bool, err: str) -> None:
+                busy["on"] = False
+                if ok:
+                    self._gate_fail_count = 0
+                    dlg.destroy()
+                    on_success()
+                    return
+                if err.startswith("Incorrect"):
+                    self._gate_fail_count = getattr(self, "_gate_fail_count", 0) + 1
+                    if self._gate_fail_count >= 5:
+                        self._gate_locked_until = time.time() + 60
+                        self._gate_fail_count = 0
+                        err = "Too many wrong tries. Please wait 60 seconds."
+                    else:
+                        err = f"That password is not correct. Try again ({5 - self._gate_fail_count} tries left)."
+                msg.configure(text=err, fg=COLOR_DANGER_TEXT)
+                pwd_entry.delete(0, tk.END)
+                refresh()
+                pwd_entry.focus_set()
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        confirm_btn.configure(command=submit)
+        pwd_entry.bind("<KeyRelease>", refresh)
+        pwd_entry.bind("<Return>", submit)
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        refresh()
+
+        dlg.update_idletasks()
+        self._center_dialog(dlg, max(520, dlg.winfo_reqwidth()), dlg.winfo_reqheight())
+        dlg.grab_set()
+        pwd_entry.focus_set()
+
+    def _adv_section_title(self, parent: tk.Widget, text: str) -> None:
+        tk.Label(
+            parent, text=text, font=("Georgia", 13, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_CANVAS_BG,
+        ).pack(anchor="w", pady=(4, 6))
+
+    # ------------------------------------------------------------------
+    # COMPUTER HEALTH (memory and workload)
     # ------------------------------------------------------------------
     def _build_telemetry_panel(self, parent: tk.Widget) -> None:
-        panel = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=14,
-            pady=6,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        panel.pack(fill=tk.X, pady=3)
+        shelf = tk.Frame(parent, bg=COLOR_CANVAS_BG)
+        shelf.pack(fill=tk.X, pady=(0, 10))
+        shelf.columnconfigure(0, weight=1, uniform="health")
+        shelf.columnconfigure(1, weight=1, uniform="health")
 
-        # Panel Title Bar with brass rivet
-        top_bar = tk.Frame(panel, bg=COLOR_PANEL_WARM)
-        top_bar.pack(fill=tk.X, pady=(0, 4))
+        def gauge(col, title, val_attr, canvas_attr, sub_attr, redraw):
+            frame = tk.Frame(
+                shelf, bg=COLOR_CARD_DARK, padx=16, pady=10,
+                highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+            )
+            frame.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 6, 6 if col == 0 else 0))
+            top = tk.Frame(frame, bg=COLOR_CARD_DARK)
+            top.pack(fill=tk.X)
+            tk.Label(top, text=title, font=("Segoe UI", 11, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK).pack(side=tk.LEFT)
+            val = tk.Label(top, text="Checking…", font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK)
+            val.pack(side=tk.RIGHT)
+            canvas = tk.Canvas(frame, height=12, bg=COLOR_RECESSED, highlightthickness=0)
+            canvas.pack(fill=tk.X, pady=(6, 6))
+            canvas.bind("<Configure>", redraw)
+            sub = tk.Label(frame, text="", font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK,
+                           wraplength=430, justify=tk.LEFT)
+            sub.pack(anchor="w")
+            setattr(self, val_attr, val)
+            setattr(self, canvas_attr, canvas)
+            setattr(self, sub_attr, sub)
 
-        title_left = tk.Frame(top_bar, bg=COLOR_PANEL_WARM)
-        title_left.pack(side=tk.LEFT)
-
-        tk.Label(
-            title_left,
-            text="●",
-            font=("Segoe UI", 7),
-            fg=COLOR_BRASS,
-            bg=COLOR_PANEL_WARM,
-        ).pack(side=tk.LEFT, padx=(0, 5))
-
-        tk.Label(
-            title_left,
-            text="SYSTEM HARDWARE VITALS & RESOURCE TELEMETRY",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_SECONDARY,
-            bg=COLOR_PANEL_WARM,
-        ).pack(side=tk.LEFT)
-
-        badge = tk.Label(
-            title_left,
-            text="● LIVE MONITORED (1.5s POLLING)",
-            font=("Segoe UI", 7, "bold"),
-            fg=COLOR_SUCCESS_TEXT,
-            bg=COLOR_SUCCESS_BG,
-            padx=6,
-            pady=1,
-            highlightthickness=1,
-            highlightbackground=COLOR_SUCCESS_BORDER,
-        )
-        badge.pack(side=tk.LEFT, padx=8)
-
-        tk.Label(
-            top_bar,
-            text="Dual-Stack IPv4 + IPv6 Guard Active • Zero-Collision Ports",
-            font=("Consolas", 8),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_PANEL_WARM,
-        ).pack(side=tk.RIGHT)
-
-        # 3-Column Responsive Meter Shelf
-        shelf = tk.Frame(panel, bg=COLOR_PANEL_WARM)
-        shelf.pack(fill=tk.X)
-        for col in range(3):
-            shelf.columnconfigure(col, weight=1, uniform="telemetry_cols")
-
-        # --- Gauge 1: RAM Memory (Horizontally scalable meter bar) ---
-        ram_frame = tk.Frame(
-            shelf,
-            bg=COLOR_RECESSED,
-            padx=10,
-            pady=5,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        ram_frame.grid(row=0, column=0, sticky="nsew", padx=3)
-
-        ram_top = tk.Frame(ram_frame, bg=COLOR_RECESSED)
-        ram_top.pack(fill=tk.X)
-        tk.Label(
-            ram_top,
-            text="🧠 SYSTEM RAM USAGE",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_SECONDARY,
-            bg=COLOR_RECESSED,
-        ).pack(side=tk.LEFT)
-        self.ram_val_lbl = tk.Label(
-            ram_top,
-            text="-- GB / -- GB (0.0%)",
-            font=("Consolas", 8, "bold"),
-            fg=COLOR_WARN_TEXT,
-            bg=COLOR_RECESSED,
-        )
-        self.ram_val_lbl.pack(side=tk.RIGHT)
-
-        # Meter Bar Canvas (auto-resizes on window scale!)
-        self.ram_canvas = tk.Canvas(
-            ram_frame,
-            height=12,
-            bg=COLOR_RECESSED,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        self.ram_canvas.pack(fill=tk.X, pady=(3, 2))
-        self.ram_canvas.bind("<Configure>", self._redraw_ram_meter)
-
-        self.ram_sub_lbl = tk.Label(
-            ram_frame,
-            text="Free: Checking...  |  Status: Healthy",
-            font=("Consolas", 7),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_RECESSED,
-        )
-        self.ram_sub_lbl.pack(anchor="w")
-
-        # --- Gauge 2: CPU Processor Load (Horizontally scalable meter bar) ---
-        cpu_frame = tk.Frame(
-            shelf,
-            bg=COLOR_RECESSED,
-            padx=10,
-            pady=5,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        cpu_frame.grid(row=0, column=1, sticky="nsew", padx=3)
-
-        cpu_top = tk.Frame(cpu_frame, bg=COLOR_RECESSED)
-        cpu_top.pack(fill=tk.X)
-        tk.Label(
-            cpu_top,
-            text="⚡ PROCESSOR LOAD (CPU)",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_SECONDARY,
-            bg=COLOR_RECESSED,
-        ).pack(side=tk.LEFT)
-        self.cpu_val_lbl = tk.Label(
-            cpu_top,
-            text="0.0% (-- Cores)",
-            font=("Consolas", 8, "bold"),
-            fg=COLOR_SUCCESS_TEXT,
-            bg=COLOR_RECESSED,
-        )
-        self.cpu_val_lbl.pack(side=tk.RIGHT)
-
-        self.cpu_canvas = tk.Canvas(
-            cpu_frame,
-            height=12,
-            bg=COLOR_RECESSED,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        self.cpu_canvas.pack(fill=tk.X, pady=(3, 2))
-        self.cpu_canvas.bind("<Configure>", self._redraw_cpu_meter)
-
-        self.cpu_sub_lbl = tk.Label(
-            cpu_frame,
-            text="Logical Cores Active  |  Thermal: Normal",
-            font=("Consolas", 7),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_RECESSED,
-        )
-        self.cpu_sub_lbl.pack(anchor="w")
-
-        # --- Gauge 3: Active Services & Port Guard ---
-        ports_frame = tk.Frame(
-            shelf,
-            bg=COLOR_RECESSED,
-            padx=10,
-            pady=5,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        ports_frame.grid(row=0, column=2, sticky="nsew", padx=3)
-
-        ports_top = tk.Frame(ports_frame, bg=COLOR_RECESSED)
-        ports_top.pack(fill=tk.X)
-        tk.Label(
-            ports_top,
-            text="🛡️ AMAYA SERVICE PORTS",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_SECONDARY,
-            bg=COLOR_RECESSED,
-        ).pack(side=tk.LEFT)
-        self.services_online_lbl = tk.Label(
-            ports_top,
-            text="0 of 4 Running",
-            font=("Consolas", 8, "bold"),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_RECESSED,
-        )
-        self.services_online_lbl.pack(side=tk.RIGHT)
-
-        # 4 Port Indicators Strip
-        dots_row = tk.Frame(ports_frame, bg=COLOR_RECESSED)
-        dots_row.pack(fill=tk.X, pady=(3, 2))
-        for p in (3306, 3001, 5173, 5174):
-            dot_chip = tk.Frame(dots_row, bg="#1C130E", highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=4, pady=1)
-            dot_chip.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-            tk.Label(dot_chip, text=f":{p}", font=("Consolas", 7, "bold"), fg=COLOR_TEXT_MUTED, bg="#1C130E").pack(side=tk.LEFT)
-            dot_lbl = tk.Label(dot_chip, text="●", font=("Segoe UI", 7), fg="#665245", bg="#1C130E")
-            dot_lbl.pack(side=tk.RIGHT, padx=(2, 0))
-            self.port_dot_widgets[p] = dot_lbl
-
-        tk.Label(
-            ports_frame,
-            text="Port Guardian IPv4/IPv6  |  Auto-Stale PID Clean",
-            font=("Consolas", 7),
-            fg=COLOR_TEXT_MUTED,
-            bg=COLOR_RECESSED,
-        ).pack(anchor="w")
+        gauge(0, "Computer memory", "ram_val_lbl", "ram_canvas", "ram_sub_lbl", self._redraw_ram_meter)
+        gauge(1, "Computer workload", "cpu_val_lbl", "cpu_canvas", "cpu_sub_lbl", self._redraw_cpu_meter)
 
     # ------------------------------------------------------------------
-    # LIVE DIAGNOSTICS & NOTEBOOK TERMINAL
+    # ACTIVITY LOG (separate window, for IT support)
     # ------------------------------------------------------------------
     def _build_console_panel(self, parent: tk.Widget) -> None:
-        console_outer = tk.Frame(
-            parent,
-            bg=COLOR_PANEL_WARM,
-            padx=12,
-            pady=6,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-        )
-        console_outer.pack(fill=tk.BOTH, expand=True, pady=(3, 6))
+        win = tk.Toplevel(self.root)
+        win.title("Activity log")
+        win.configure(bg=COLOR_CANVAS_BG)
+        win.minsize(640, 360)
+        win.withdraw()
+        win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        self.log_window = win
 
-        console_toolbar = tk.Frame(console_outer, bg=COLOR_PANEL_WARM)
-        console_toolbar.pack(fill=tk.X, pady=(0, 4))
-
+        bar = tk.Frame(win, bg=COLOR_PANEL_WARM, padx=14, pady=10)
+        bar.pack(fill=tk.X)
         tk.Label(
-            console_toolbar,
-            text="LIVE TERMINAL OUTPUT & DIAGNOSTICS (IPv4 + IPv6 PORT GUARD ACTIVE)",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_PANEL_WARM,
+            bar, text="Activity log", font=("Georgia", 14, "bold"),
+            fg=COLOR_TEXT_PRIMARY, bg=COLOR_PANEL_WARM,
         ).pack(side=tk.LEFT)
-
-        auto_chk = tk.Checkbutton(
-            console_toolbar,
-            text="Auto-Scroll",
-            variable=self.auto_scroll_var,
-            bg=COLOR_PANEL_WARM,
-            fg=COLOR_TEXT_SECONDARY,
-            selectcolor=COLOR_RECESSED,
-            activebackground=COLOR_PANEL_WARM,
-            activeforeground=COLOR_TEXT_PRIMARY,
-            font=("Segoe UI", 8),
-        )
-        auto_chk.pack(side=tk.RIGHT, padx=4)
-
+        tk.Checkbutton(
+            bar, text="Follow newest lines", variable=self.auto_scroll_var,
+            bg=COLOR_PANEL_WARM, fg=COLOR_TEXT_SECONDARY, selectcolor=COLOR_RECESSED,
+            activebackground=COLOR_PANEL_WARM, activeforeground=COLOR_TEXT_PRIMARY,
+            font=("Segoe UI", 9),
+        ).pack(side=tk.RIGHT, padx=4)
         self._make_button(
-            console_toolbar,
-            text="Copy Current Log",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.copy_current_log,
-            padx=8,
-            pady=2,
-            border_color=COLOR_CARD_BORDER,
+            bar, text="Clear this tab", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY,
+            command=self.clear_current_log, padx=10, pady=3, border_color=COLOR_CARD_BORDER,
         ).pack(side=tk.RIGHT, padx=2)
-
         self._make_button(
-            console_toolbar,
-            text="Clear Current Log",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=self.clear_current_log,
-            padx=8,
-            pady=2,
-            border_color=COLOR_CARD_BORDER,
+            bar, text="Copy for IT support", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY,
+            command=self.copy_current_log, padx=10, pady=3, border_color=COLOR_CARD_BORDER,
         ).pack(side=tk.RIGHT, padx=2)
 
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Amaya.TNotebook", background=COLOR_PANEL_WARM, borderwidth=0)
+        style.configure("Amaya.TNotebook", background=COLOR_CANVAS_BG, borderwidth=0)
         style.configure(
-            "Amaya.TNotebook.Tab",
-            background="#2C1F18",
-            foreground=COLOR_TEXT_WALNUT,
-            padding=(12, 4),
-            font=("Segoe UI", 8, "bold"),
-            borderwidth=1,
+            "Amaya.TNotebook.Tab", background="#2C1F18", foreground=COLOR_TEXT_WALNUT,
+            padding=(12, 5), font=("Segoe UI", 9, "bold"), borderwidth=1,
         )
         style.map(
             "Amaya.TNotebook.Tab",
@@ -1794,51 +1744,50 @@ class AmayaControlPanel:
             foreground=[("selected", "#FFFFFF")],
         )
 
-        self.notebook = ttk.Notebook(console_outer, style="Amaya.TNotebook")
-        self.notebook.pack(fill=tk.BOTH, expand=True)
+        self.notebook = ttk.Notebook(win, style="Amaya.TNotebook")
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         tabs_spec = [
-            ("all", "All Combined Logs"),
-            ("mysql", "0. MySQL (:3306)"),
-            ("api", "1. Backend API (:3001)"),
-            ("customer", "2. Customer Web (:5173)"),
-            ("portal", "3. Staff POS & Admin (:5174)"),
+            ("all", "Everything"),
+            ("mysql", "Database"),
+            ("api", "Server"),
+            ("customer", "Customer site"),
+            ("portal", "Register site"),
         ]
-
         for tab_id, tab_title in tabs_spec:
             tab_frame = tk.Frame(self.notebook, bg=COLOR_TERMINAL_BG)
             self.notebook.add(tab_frame, text=tab_title)
 
             scrollbar = tk.Scrollbar(tab_frame, orient=tk.VERTICAL)
             text_widget = tk.Text(
-                tab_frame,
-                bg=COLOR_TERMINAL_BG,
-                fg=COLOR_TERMINAL_FG,
-                insertbackground="#FFFFFF",
-                font=("Consolas", 9),
-                wrap=tk.WORD,
-                yscrollcommand=scrollbar.set,
-                padx=8,
-                pady=6,
-                borderwidth=0,
-                state=tk.DISABLED,
+                tab_frame, bg=COLOR_TERMINAL_BG, fg=COLOR_TERMINAL_FG, insertbackground="#FFFFFF",
+                font=("Consolas", 10), wrap=tk.WORD, yscrollcommand=scrollbar.set,
+                padx=8, pady=6, borderwidth=0, state=tk.DISABLED,
             )
             scrollbar.config(command=text_widget.yview)
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
             text_widget.tag_config("timestamp", foreground=COLOR_TEXT_MUTED)
-            text_widget.tag_config("prefix_mysql", foreground="#FBBF24", font=("Consolas", 9, "bold"))
-            text_widget.tag_config("prefix_api", foreground="#FB923C", font=("Consolas", 9, "bold"))
-            text_widget.tag_config("prefix_customer", foreground="#4ADE80", font=("Consolas", 9, "bold"))
-            text_widget.tag_config("prefix_portal", foreground="#93C5FD", font=("Consolas", 9, "bold"))
-            text_widget.tag_config("prefix_system", foreground=COLOR_BRASS_LIGHT, font=("Consolas", 9, "bold"))
+            text_widget.tag_config("prefix_mysql", foreground="#FBBF24", font=("Consolas", 10, "bold"))
+            text_widget.tag_config("prefix_api", foreground="#FB923C", font=("Consolas", 10, "bold"))
+            text_widget.tag_config("prefix_customer", foreground="#4ADE80", font=("Consolas", 10, "bold"))
+            text_widget.tag_config("prefix_portal", foreground="#93C5FD", font=("Consolas", 10, "bold"))
+            text_widget.tag_config("prefix_system", foreground=COLOR_BRASS_LIGHT, font=("Consolas", 10, "bold"))
             text_widget.tag_config("error", foreground="#FCA5A5")
             text_widget.tag_config("success", foreground="#86EFAC")
             text_widget.tag_config("warn", foreground="#FDE047")
             text_widget.tag_config("normal", foreground=COLOR_TERMINAL_FG)
 
             self.log_widgets[tab_id] = text_widget
+
+    def _open_log_window(self) -> None:
+        win = self.log_window
+        win.update_idletasks()
+        self._center_dialog(win, 900, 560)
+        win.deiconify()
+        win.lift()
+        win.focus_set()
 
     # ------------------------------------------------------------------
     # METER REDRAW HANDLERS (CALLED ON WINDOW RESIZE)
@@ -1855,11 +1804,11 @@ class AmayaControlPanel:
         if h <= 1:
             h = 12
         pct = getattr(self, "ram_pct_val", 0.0)
-        canvas.create_rectangle(0, 0, w, h, fill=COLOR_RECESSED, outline=COLOR_CARD_BORDER, width=1)
+        canvas.create_rectangle(0, 0, w, h, fill=COLOR_RECESSED, outline="")
         fill_w = max(0, min(w, int(w * (pct / 100.0))))
         if fill_w > 0:
-            bar_color = "#F59E0B" if pct < 85 else "#EF4444"
-            canvas.create_rectangle(1, 1, fill_w, h - 1, fill=bar_color, outline="")
+            bar_color = "#4ADE80" if pct < 70 else "#F59E0B" if pct < 85 else "#EF4444"
+            canvas.create_rectangle(0, 0, fill_w, h, fill=bar_color, outline="")
 
     def _redraw_cpu_meter(self, event=None) -> None:
         canvas = getattr(self, "cpu_canvas", None)
@@ -1873,155 +1822,89 @@ class AmayaControlPanel:
         if h <= 1:
             h = 12
         pct = getattr(self, "cpu_pct_val", 0.0)
-        canvas.create_rectangle(0, 0, w, h, fill=COLOR_RECESSED, outline=COLOR_CARD_BORDER, width=1)
+        canvas.create_rectangle(0, 0, w, h, fill=COLOR_RECESSED, outline="")
         fill_w = max(0, min(w, int(w * (pct / 100.0))))
         if fill_w > 0:
-            bar_color = "#22C55E" if pct < 75 else "#F59E0B" if pct < 90 else "#EF4444"
-            canvas.create_rectangle(1, 1, fill_w, h - 1, fill=bar_color, outline="")
+            bar_color = "#4ADE80" if pct < 75 else "#F59E0B" if pct < 90 else "#EF4444"
+            canvas.create_rectangle(0, 0, fill_w, h, fill=bar_color, outline="")
 
     # ------------------------------------------------------------------
-    # SERVICE CARDS (ARTISANAL STICKY NOTES & NOTEBOOK DESIGN)
+    # ONE ROW PER PART OF THE SHOP SYSTEM
     # ------------------------------------------------------------------
     def _build_service_card(self, parent: tk.Frame, cfg: dict, row_index: int, col_index: int) -> None:
         sid = cfg["id"]
-        card_bg = cfg.get("card_bg", COLOR_CARD_DARK)
-        card = tk.Frame(
-            parent,
-            bg=card_bg,
-            padx=14,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground=cfg.get("accent", COLOR_CARD_BORDER),
+        plain = {
+            "mysql": ("Database", "Stores your sales, menu, stock and accounts."),
+            "api": ("Server", "Connects the register and website to the database."),
+            "customer": ("Customer site", "The menu page your customers see."),
+            "portal": ("Register and admin site", "Where you and your cashiers work."),
+        }[sid]
+
+        row = tk.Frame(
+            parent, bg=COLOR_CARD_DARK,
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
         )
-        card.grid(row=row_index, column=col_index, sticky="nsew", padx=4, pady=4)
+        row.grid(row=row_index, column=0, sticky="ew", pady=(0, 6))
+        tk.Frame(row, width=5, bg=cfg.get("accent", COLOR_CARD_BORDER)).pack(side=tk.LEFT, fill=tk.Y)
 
-        # Tactile Sticky Note Top Tape Strip
-        tape_strip = tk.Frame(card, height=4, bg=cfg.get("tape_color", COLOR_ACCENT_LEATHER))
-        tape_strip.pack(fill=tk.X, pady=(0, 6))
+        body = tk.Frame(row, bg=COLOR_CARD_DARK, padx=14, pady=8)
+        body.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(body, text=plain[0], font=("Segoe UI", 11, "bold"), fg=COLOR_TEXT_PRIMARY, bg=COLOR_CARD_DARK).pack(anchor="w")
+        tk.Label(body, text=plain[1], font=("Segoe UI", 9), fg=COLOR_TEXT_MUTED, bg=COLOR_CARD_DARK).pack(anchor="w")
+        meta_lbl = tk.Label(body, text="Not running", font=("Segoe UI", 10), fg=COLOR_TEXT_WALNUT, bg=COLOR_CARD_DARK)
+        meta_lbl.pack(anchor="w", pady=(2, 0))
 
-        # Sticky Note Header Strip (Pinned Index Tag + Brass Rivet + Status Badge)
-        top_row = tk.Frame(card, bg=card_bg)
-        top_row.pack(fill=tk.X, pady=(0, 4))
-
-        # Pinned Number Tag Pill (like category tags in Amaya UI)
-        tag_frame = tk.Frame(
-            top_row,
-            bg=cfg.get("pill_bg", COLOR_NEUTRAL_BG),
-            padx=7,
-            pady=2,
-            highlightthickness=1,
-            highlightbackground=cfg.get("accent", COLOR_CARD_BORDER),
-        )
-        tag_frame.pack(side=tk.LEFT)
-
-        tk.Label(
-            tag_frame,
-            text="●",
-            font=("Segoe UI", 7),
-            fg=COLOR_BRASS,
-            bg=cfg.get("pill_bg", COLOR_NEUTRAL_BG),
-        ).pack(side=tk.LEFT, padx=(0, 4))
-
-        tk.Label(
-            tag_frame,
-            text=f"{cfg.get('pin_no', '#')}  {cfg.get('tag_role', 'SERVICE')}",
-            font=("Segoe UI", 8, "bold"),
-            fg=cfg.get("pill_fg", COLOR_TEXT_SECONDARY),
-            bg=cfg.get("pill_bg", COLOR_NEUTRAL_BG),
-        ).pack(side=tk.LEFT)
+        right = tk.Frame(row, bg=COLOR_CARD_DARK, padx=12)
+        right.pack(side=tk.RIGHT, fill=tk.Y)
+        right.columnconfigure(4, minsize=170)
 
         status_badge = tk.Label(
-            top_row,
-            text="● STOPPED",
-            font=("Segoe UI", 8, "bold"),
-            fg=COLOR_NEUTRAL_TEXT,
-            bg=COLOR_NEUTRAL_BG,
-            padx=8,
-            pady=2,
-            highlightthickness=1,
-            highlightbackground=COLOR_NEUTRAL_BORDER,
+            right, text="● Stopped", font=("Segoe UI", 10, "bold"), width=14,
+            fg=COLOR_NEUTRAL_TEXT, bg=COLOR_NEUTRAL_BG, padx=8, pady=4,
         )
-        status_badge.pack(side=tk.RIGHT)
+        status_badge.grid(row=0, column=0, padx=(0, 12), pady=10)
 
-        # Service Title (High contrast, bright on dark sticky note card)
-        title_lbl = tk.Label(
-            card,
-            text=cfg["name"],
-            font=("Segoe UI", 11, "bold"),
-            fg=COLOR_TEXT_PRIMARY,
-            bg=card_bg,
-        )
-        title_lbl.pack(anchor="w", pady=(2, 4))
-
-        # Recessed Metadata Shelf
-        meta_frame = tk.Frame(
-            card,
-            bg=COLOR_RECESSED,
-            padx=8,
-            pady=4,
-            highlightthickness=1,
-            highlightbackground=COLOR_HAIRLINE,
-        )
-        meta_frame.pack(fill=tk.X, pady=(0, 8))
-
-        meta_lbl = tk.Label(
-            meta_frame,
-            text=f"Port: :{cfg['port']}  |  PID: —  |  Status: Offline",
-            font=("Consolas", 8),
-            fg=COLOR_TEXT_WALNUT,
-            bg=COLOR_RECESSED,
-        )
-        meta_lbl.pack(anchor="w")
-
-        # Action Buttons Row (Fixed size, ergonomic button pads)
-        btn_row = tk.Frame(card, bg=card_bg)
-        btn_row.pack(fill=tk.X)
+        def _confirm_stop(s=sid, name=plain[0]):
+            extra = (
+                ["The database holds everything. Without it, NOTHING in the shop system works."]
+                if s == "mysql" else []
+            )
+            self._admin_gate(
+                title=f"Stop the {name.lower()}?",
+                headline=f"You are about to stop the {name.lower()}",
+                warnings=extra + [
+                    "Part of the shop system will stop working right away.",
+                    "Cashiers may be signed out, and an order being taken can be lost.",
+                    "Customers cannot order until you start it again.",
+                ],
+                confirm_label=f"Stop the {name.lower()}",
+                on_success=lambda: self.stop_service(s),
+            )
 
         start_btn = self._make_button(
-            btn_row,
-            text="▶ Start",
-            bg=COLOR_SUCCESS_BTN,
-            fg="#FFFFFF",
-            command=lambda s=sid: self.start_service(s),
-            padx=10,
-            pady=4,
+            right, text="Start", bg=COLOR_SUCCESS_BTN, fg="#FFFFFF",
+            command=lambda s=sid: self.start_service(s), padx=12, pady=5,
         )
-        start_btn.pack(side=tk.LEFT, padx=(0, 4))
-
+        start_btn.grid(row=0, column=1, padx=(0, 4), pady=10)
         stop_btn = self._make_button(
-            btn_row,
-            text="⏹ Stop",
-            bg=COLOR_DANGER_BTN,
-            fg="#FFFFFF",
-            command=lambda s=sid: self.stop_service(s),
-            padx=10,
-            pady=4,
+            right, text="Stop", bg=COLOR_DANGER_BTN, fg="#FFFFFF",
+            command=_confirm_stop, padx=12, pady=5,
         )
-        stop_btn.pack(side=tk.LEFT, padx=4)
-
+        stop_btn.grid(row=0, column=2, padx=4, pady=10)
         restart_btn = self._make_button(
-            btn_row,
-            text="🔄 Restart",
-            bg=COLOR_CARD_DARK,
-            fg=COLOR_TEXT_SECONDARY,
-            command=lambda s=sid: self.restart_service(s),
-            padx=10,
-            pady=4,
+            right, text="Restart", bg=COLOR_PANEL_WARM, fg=COLOR_TEXT_SECONDARY,
+            command=lambda s=sid: self.restart_service(s), padx=12, pady=5,
             border_color=COLOR_CARD_BORDER,
         )
-        restart_btn.pack(side=tk.LEFT, padx=4)
+        restart_btn.grid(row=0, column=3, padx=4, pady=10)
 
-        open_btn = self._make_button(
-            btn_row,
-            text=f"🌐 {cfg['open_label']}",
-            bg="#382414",
-            fg="#FCD34D",
-            command=lambda u=cfg["url"]: webbrowser.open(u),
-            padx=10,
-            pady=4,
-            border_color=cfg.get("accent", COLOR_CARD_BORDER),
-        )
-        open_btn.pack(side=tk.RIGHT)
+        open_label = {"customer": "Open site", "portal": "Open site", "mysql": "Open database viewer"}.get(sid)
+        if open_label:
+            self._make_button(
+                right, text=open_label, bg=COLOR_PANEL_WARM, fg=COLOR_BRASS_LIGHT,
+                command=lambda u=cfg["url"]: webbrowser.open(u), padx=12, pady=5,
+                border_color=COLOR_CARD_BORDER,
+            ).grid(row=0, column=4, padx=(4, 0), pady=10, sticky="w")
 
         self.card_widgets[sid] = {
             "badge": status_badge,
@@ -2222,8 +2105,48 @@ class AmayaControlPanel:
                     return
                 time.sleep(1)
 
+    def _schedule_migration_offer(self, pending: list[str]) -> None:
+        """Called from the health thread: ask once (on the UI thread) per distinct pending set."""
+        key = tuple(pending)
+        if not key or self._migration_running or self._migration_offered_for == key or self.is_closing:
+            return
+        self._migration_offered_for = key
+        self.root.after(0, lambda: self._offer_pending_migrations(list(key)))
+
+    def _offer_pending_migrations(self, pending: list[str]) -> None:
+        names = "\n".join(f"  • {name}" for name in pending)
+        self.enqueue_log(
+            "api", "warn",
+            f"Database is missing {len(pending)} update(s): {', '.join(pending)}. 'Update the database' applies them after a backup.",
+        )
+        if messagebox.askyesno(
+            "Database update needed",
+            f"The shop system was updated and the database needs {len(pending)} update(s) to match:\n\n{names}\n\n"
+            "Until then, pages that use them (dashboard, settings, finances) will show errors.\n\n"
+            "Back up the database and apply the update(s) now?",
+        ):
+            self.run_setup_and_migrate()
+        else:
+            self.enqueue_log("api", "info", "Database update postponed. Press 'Update the database' (After a system update) when ready.")
+
     def run_setup_and_migrate(self) -> None:
+        if self._migration_running:
+            self.enqueue_log("api", "warn", "A database update is already running.")
+            return
+        self._migration_running = True
+
+        def _finish() -> None:
+            self._migration_running = False
+            # Re-check health now instead of showing a stale badge for up to 5 seconds.
+            self._last_api_health_time = 0.0
+
         def _worker() -> None:
+            try:
+                _run()
+            finally:
+                _finish()
+
+        def _run() -> None:
             self.enqueue_log("system", "info", "Starting environment setup & database migration...")
             self._ensure_api_env_file()
             if not is_port_open(3306):
@@ -2316,11 +2239,11 @@ class AmayaControlPanel:
             b_ts = b_ts.replace("T", " ").split(".")[0] + " UTC"
 
         if has_backup:
-            backup_str = f"Ready ({b_menu} Products, {b_inv} Ingredients @ {b_ts})"
+            backup_str = f"{b_menu} menu items and {b_inv} stock items (saved {b_ts})"
         else:
-            backup_str = "None yet (Click 'Archive & Clean' to create snapshot)"
+            backup_str = "none yet. One is made when you press Clear menu and stock."
 
-        text = f"Live DB: {live_menu} Menu Products, {live_inv} Inventory Ingredients  |  Archived Vault: {backup_str}"
+        text = f"Right now: {live_menu} menu items and {live_inv} stock items.\nSaved copy: {backup_str}"
         fg_color = "#86EFAC" if (live_menu > 0 or live_inv > 0) else "#FDE047"
         self.root.after(0, lambda: self.vault_status_lbl.configure(text=text, fg=fg_color))
 
@@ -2339,8 +2262,8 @@ class AmayaControlPanel:
                         b_ts = parsed.get("createdAt", "")
                     except Exception:
                         pass
-                backup_txt = f"Ready ({b_menu} Products, {b_inv} Ingredients)" if has_b else "None yet"
-                msg = f"Live DB: (Start MySQL :3306 to inspect)  |  Archived Vault: {backup_txt}"
+                backup_txt = f"{b_menu} menu items and {b_inv} stock items" if has_b else "none yet"
+                msg = f"Right now: turn on the shop system to see this.\nSaved copy: {backup_txt}"
                 if hasattr(self, "vault_status_lbl"):
                     self.root.after(0, lambda: self.vault_status_lbl.configure(text=msg, fg="#D6C4B4"))
                 return
@@ -2370,13 +2293,13 @@ class AmayaControlPanel:
 
     def archive_and_clean_catalog(self) -> None:
         confirm = messagebox.askyesno(
-            "Archive & Clean Inventory + Menu Catalog?",
-            "This action will:\n\n"
-            "1. ARCHIVE your entire current Inventory Management ingredients, stock levels, cups, and Menu Management products/recipes into a safe Vault Snapshot (database/backups/catalog_vault_latest.json).\n\n"
-            "2. CLEAN SLATE your active Inventory Management and Menu Management database (0 products, 0 ingredients) so you can start completely fresh without duplicate-name conflicts.\n"
-            "   (Your 9 Menu Categories, 12 Inventory Categories, Staff Accounts, and Orders are kept intact!)\n\n"
-            "You can restore everything anytime with one click using '♻️ Recover Archived Inventory + Menu'.\n\n"
-            "Proceed with Archive & Clean?",
+            "Clear menu and stock?",
+            "This will:\n\n"
+            "1. Save a copy of your current menu items, recipes and stock list.\n"
+            "2. Empty the menu and stock list, so you can start fresh.\n\n"
+            "Your sales history and staff accounts are not touched.\n"
+            "You can bring everything back later with the Bring back saved copy button.\n\n"
+            "Clear the menu and stock now?",
         )
         if not confirm:
             return
@@ -2481,9 +2404,9 @@ class AmayaControlPanel:
         backups_file = ROOT_DIR / "database" / "backups" / "catalog_vault_latest.json"
         if not backups_file.is_file():
             messagebox.showwarning(
-                "No Archived Snapshot Found",
-                f"No archived catalog snapshot was found at:\n{backups_file}\n\n"
-                "Click '🗄️ Archive & Clean Inventory + Menu' first to create a Vault snapshot.",
+                "No saved copy yet",
+                "There is no saved copy of the menu and stock yet.\n\n"
+                "Press Clear menu and stock first. It saves a copy before clearing.",
             )
             return
 
@@ -2497,13 +2420,13 @@ class AmayaControlPanel:
             pass
 
         confirm = messagebox.askyesno(
-            "Recover Archived Inventory + Menu?",
-            f"Restore the archived Vault snapshot into the live MySQL database?\n\n"
-            f"• Snapshot Timestamp: {b_ts}\n"
-            f"• Menu Products to Restore: {b_menu}\n"
-            f"• Inventory Ingredients to Restore: {b_inv}\n\n"
-            f"(Any items currently in the live database will first be saved to a pre_recovery safety file in database/backups/.)\n\n"
-            f"Proceed with Full Recovery?",
+            "Bring back the saved copy?",
+            f"This puts your saved menu and stock list back.\n\n"
+            f"Saved on: {b_ts}\n"
+            f"Menu items: {b_menu}\n"
+            f"Stock items: {b_inv}\n\n"
+            f"What is there now is saved first, so nothing is lost.\n\n"
+            f"Bring it back now?",
         )
         if not confirm:
             return
@@ -2608,8 +2531,8 @@ class AmayaControlPanel:
     # ------------------------------------------------------------------
     def open_accounts_manager_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Amaya Atelier — Team Accounts & Cashier Passwords")
-        dialog.geometry("780x640")
+        dialog.title("Team accounts")
+        self._center_dialog(dialog, 780, 640)
         dialog.minsize(700, 520)
         dialog.configure(bg=COLOR_CANVAS_BG)
         dialog.transient(self.root)
@@ -2619,15 +2542,15 @@ class AmayaControlPanel:
         hdr.pack(fill=tk.X)
         tk.Label(
             hdr,
-            text="👥 TEAM ACCOUNTS & CASHIER CREDENTIALS",
-            font=("Segoe UI", 11, "bold"),
+            text="Team accounts",
+            font=("Georgia", 15, "bold"),
             fg=COLOR_TEXT_PRIMARY,
             bg=COLOR_PANEL_WARM,
         ).pack(anchor="w")
         tk.Label(
             hdr,
-            text="Owner signs in with 'admin'. Counter staff signs in with 'staff' + their unique cashier password.",
-            font=("Segoe UI", 8),
+            text="You sign in with the username admin. Each cashier signs in with the username staff and their own password.",
+            font=("Segoe UI", 10),
             fg=COLOR_TEXT_WALNUT,
             bg=COLOR_PANEL_WARM,
         ).pack(anchor="w", pady=(2, 0))
@@ -2642,8 +2565,9 @@ class AmayaControlPanel:
         )
         status_lbl.pack(fill=tk.X, padx=16, pady=(6, 2))
 
-        def show_status(msg: str, is_error: bool = False) -> None:
-            status_lbl.configure(text=msg, fg=COLOR_DANGER_TEXT if is_error else COLOR_SUCCESS_TEXT)
+        def show_status(msg: str, is_error: bool = False, neutral: bool = False) -> None:
+            colour = COLOR_DANGER_TEXT if is_error else (COLOR_WARN_TEXT if neutral else COLOR_SUCCESS_TEXT)
+            status_lbl.configure(text=msg, fg=colour)
 
         # Main Body
         body = tk.Frame(dialog, bg=COLOR_CANVAS_BG, padx=16, pady=4)
@@ -2652,7 +2576,7 @@ class AmayaControlPanel:
         # --- Card 1: Admin / Owner ---
         admin_card = tk.LabelFrame(
             body,
-            text=" 👑 Administrator / Owner Account ",
+            text=" Owner (you) ",
             bg=COLOR_PANEL_WARM,
             fg=COLOR_TEXT_PRIMARY,
             font=("Segoe UI", 9, "bold"),
@@ -2667,25 +2591,40 @@ class AmayaControlPanel:
         admin_info.pack(fill=tk.X, pady=(0, 6))
         tk.Label(
             admin_info,
-            text="Username: admin (Fixed)",
-            font=("Segoe UI", 9, "bold"),
+            text="Username: admin (cannot be changed)",
+            font=("Segoe UI", 10, "bold"),
             fg=COLOR_TEXT_PRIMARY,
             bg=COLOR_PANEL_WARM,
         ).pack(side=tk.LEFT)
         tk.Label(
             admin_info,
-            text="Full dashboard, reports & inventory control",
-            font=("Segoe UI", 8),
+            text="Full access: sales, reports and stock",
+            font=("Segoe UI", 9),
             fg=COLOR_TEXT_MUTED,
             bg=COLOR_PANEL_WARM,
         ).pack(side=tk.LEFT, padx=12)
+
+        admin_current_row = tk.Frame(admin_card, bg=COLOR_PANEL_WARM)
+        admin_current_row.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(
+            admin_current_row, text="Current password:", font=("Segoe UI", 9), width=16, anchor="w",
+            fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        admin_current_entry = tk.Entry(
+            admin_current_row, show="*", width=24, bg=COLOR_RECESSED, fg=COLOR_TEXT_PRIMARY,
+            insertbackground=COLOR_TEXT_PRIMARY, relief=tk.FLAT, font=("Consolas", 9),
+            highlightthickness=1, highlightbackground=COLOR_CARD_BORDER,
+        )
+        admin_current_entry.pack(side=tk.LEFT)
 
         admin_input_row = tk.Frame(admin_card, bg=COLOR_PANEL_WARM)
         admin_input_row.pack(fill=tk.X)
         tk.Label(
             admin_input_row,
-            text="New Owner Password:",
-            font=("Segoe UI", 8),
+            text="New password:",
+            font=("Segoe UI", 9),
+            width=16,
+            anchor="w",
             fg=COLOR_TEXT_WALNUT,
             bg=COLOR_PANEL_WARM,
         ).pack(side=tk.LEFT, padx=(0, 8))
@@ -2722,10 +2661,14 @@ class AmayaControlPanel:
 
         def save_admin_pwd():
             new_p = admin_pwd_entry.get().strip()
-            if len(new_p) < 8:
-                show_status("Admin password must be at least 8 characters.", is_error=True)
+            cur_p = admin_current_entry.get()
+            if not cur_p:
+                show_status("Enter your current password first.", is_error=True)
                 return
-            show_status("Updating admin password...")
+            if len(new_p) < 8:
+                show_status("The new password must be at least 8 characters.", is_error=True)
+                return
+            show_status("Saving…", neutral=True)
             def _worker():
                 node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -2733,22 +2676,22 @@ class AmayaControlPanel:
                     res = subprocess.run(
                         [node_exe, "src/account-manager.js", "set-admin-password", "--password-stdin"],
                         cwd=str(API_DIR),
-                        input=f"{new_p}\n",
+                        input=f"{cur_p}\n{new_p}\n",
                         capture_output=True,
                         text=True,
                         creationflags=creationflags,
                     )
                     if res.returncode == 0:
-                        dialog.after(0, lambda: [show_status("Owner password updated successfully!"), admin_pwd_entry.delete(0, tk.END)])
+                        dialog.after(0, lambda: [show_status("Your password was changed."), admin_pwd_entry.delete(0, tk.END), admin_current_entry.delete(0, tk.END)])
                     else:
-                        dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                        dialog.after(0, lambda: show_status(friendly_error(res), is_error=True))
                 except Exception as exc:
-                    dialog.after(0, lambda: show_status(f"Error: {exc}", is_error=True))
+                    dialog.after(0, lambda: show_status("Something went wrong. Please try again.", is_error=True))
             threading.Thread(target=_worker, daemon=True).start()
 
         self._make_button(
             admin_input_row,
-            text="Save Owner Password",
+            text="Save new password",
             bg=COLOR_ACCENT_MOCHA,
             fg="#FFFFFF",
             command=save_admin_pwd,
@@ -2759,7 +2702,7 @@ class AmayaControlPanel:
         # --- Card 2: Cashier Team (Staff Accounts) ---
         cashier_card = tk.LabelFrame(
             body,
-            text=" 👥 Counter Cashiers (Staff Accounts) ",
+            text=" Cashiers ",
             bg=COLOR_PANEL_WARM,
             fg=COLOR_TEXT_PRIMARY,
             font=("Segoe UI", 9, "bold"),
@@ -2772,8 +2715,8 @@ class AmayaControlPanel:
 
         tk.Label(
             cashier_card,
-            text="Shared Login Username: 'staff' (case-insensitive). Entering their specific password identifies who is on duty.",
-            font=("Segoe UI", 8),
+            text="The register knows who is working by the password they type in, so give each cashier a different one.",
+            font=("Segoe UI", 9),
             fg=COLOR_TEXT_WALNUT,
             bg=COLOR_PANEL_WARM,
         ).pack(anchor="w", pady=(0, 6))
@@ -2781,7 +2724,7 @@ class AmayaControlPanel:
         # Add Cashier Row
         add_frame = tk.Frame(cashier_card, bg=COLOR_PANEL_WARM, pady=4)
         add_frame.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(add_frame, text="Name:", font=("Segoe UI", 8), fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(add_frame, text="Name:", font=("Segoe UI", 9), fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
         new_name_entry = tk.Entry(
             add_frame,
             width=16,
@@ -2793,10 +2736,9 @@ class AmayaControlPanel:
             highlightthickness=1,
             highlightbackground=COLOR_CARD_BORDER,
         )
-        new_name_entry.insert(0, "Cashier 3")
         new_name_entry.pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Label(add_frame, text="Password:", font=("Segoe UI", 8), fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(add_frame, text="Password (6 or more characters):", font=("Segoe UI", 9), fg=COLOR_TEXT_WALNUT, bg=COLOR_PANEL_WARM).pack(side=tk.LEFT, padx=(0, 4))
         new_pwd_entry = tk.Entry(
             add_frame,
             width=16,
@@ -2814,9 +2756,9 @@ class AmayaControlPanel:
             name = new_name_entry.get().strip()
             pwd = new_pwd_entry.get().strip()
             if not name or len(pwd) < 6:
-                show_status("Cashier name is required and password must be at least 6 characters.", is_error=True)
+                show_status("Type a name and a password of at least 6 characters.", is_error=True)
                 return
-            show_status(f"Adding {name}...")
+            show_status(f"Adding {name}…", neutral=True)
             def _worker():
                 node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -2830,16 +2772,16 @@ class AmayaControlPanel:
                         creationflags=creationflags,
                     )
                     if res.returncode == 0:
-                        dialog.after(0, lambda: [show_status(f"Added {name} successfully!"), new_pwd_entry.delete(0, tk.END), reload_cashiers()])
+                        dialog.after(0, lambda: [show_status(f"{name} was added."), new_pwd_entry.delete(0, tk.END), reload_cashiers()])
                     else:
-                        dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                        dialog.after(0, lambda: show_status(friendly_error(res), is_error=True))
                 except Exception as exc:
-                    dialog.after(0, lambda: show_status(f"Error: {exc}", is_error=True))
+                    dialog.after(0, lambda: show_status("Something went wrong. Please try again.", is_error=True))
             threading.Thread(target=_worker, daemon=True).start()
 
         self._make_button(
             add_frame,
-            text="+ Add Cashier",
+            text="Add cashier",
             bg=COLOR_SUCCESS_BTN,
             fg="#FFFFFF",
             command=add_new_cashier,
@@ -2868,7 +2810,7 @@ class AmayaControlPanel:
         def reload_cashiers():
             for w in list_frame.winfo_children():
                 w.destroy()
-            show_status("Loading live cashiers...")
+            show_status("Loading cashiers…", neutral=True)
             def _worker():
                 node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -2878,26 +2820,39 @@ class AmayaControlPanel:
                         cwd=str(API_DIR),
                         capture_output=True,
                         text=True,
+                        timeout=8,
                         creationflags=creationflags,
                     )
-                    accounts = []
+                    accounts = None
                     for line in (res.stdout or "").splitlines():
                         if line.startswith("ACCOUNTS_JSON:"):
                             accounts = json.loads(line[len("ACCOUNTS_JSON:"):])
                             break
-                    dialog.after(0, lambda: render_cashier_rows(accounts))
-                except Exception as exc:
-                    dialog.after(0, lambda: show_status(f"Failed to load cashiers: {exc}", is_error=True))
+                    if accounts is None:
+                        dialog.after(0, lambda: render_cashier_rows(None))
+                    else:
+                        dialog.after(0, lambda: render_cashier_rows(accounts))
+                except Exception:
+                    dialog.after(0, lambda: render_cashier_rows(None))
             threading.Thread(target=_worker, daemon=True).start()
 
         def render_cashier_rows(accounts):
-            show_status("Live accounts loaded.")
-            staff_list = [a for a in accounts if a.get("role") == "staff"]
             for w in list_frame.winfo_children():
                 w.destroy()
 
+            if accounts is None:
+                show_status("Cannot load cashiers.", is_error=True)
+                tk.Label(
+                    list_frame,
+                    text="The database is off, so the cashier list is not available.\nClose this window, turn on the shop system, then open this window again.",
+                    fg=COLOR_WARN_TEXT, bg=COLOR_RECESSED, font=("Segoe UI", 10), justify=tk.LEFT,
+                ).pack(pady=16, padx=12, anchor="w")
+                return
+
+            staff_list = [a for a in accounts if a.get("role") == "staff"]
+            show_status("")
             if not staff_list:
-                tk.Label(list_frame, text="No cashiers found.", fg=COLOR_TEXT_MUTED, bg=COLOR_RECESSED, font=("Segoe UI", 9)).pack(pady=10)
+                tk.Label(list_frame, text="No cashiers yet. Type a name and password above, then press Add cashier.", fg=COLOR_TEXT_MUTED, bg=COLOR_RECESSED, font=("Segoe UI", 10)).pack(pady=16)
                 return
 
             for idx, staff in enumerate(staff_list):
@@ -2907,12 +2862,12 @@ class AmayaControlPanel:
 
                 left = tk.Frame(row, bg=row["bg"])
                 left.pack(side=tk.LEFT)
-                name_lbl = tk.Label(left, text=f"👤 {staff.get('displayName')}", font=("Segoe UI", 9, "bold"), fg=COLOR_TEXT_PRIMARY, bg=row["bg"])
+                name_lbl = tk.Label(left, text=staff.get('displayName') or f"Cashier {staff.get('id')}", font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT_PRIMARY, bg=row["bg"])
                 name_lbl.pack(anchor="w")
                 sub_lbl = tk.Label(
                     left,
-                    text=f"login: staff  |  Status: {'Active' if staff.get('isActive') else 'Deactivated'}",
-                    font=("Segoe UI", 8),
+                    text="Can sign in" if staff.get("isActive") else "Turned off (cannot sign in)",
+                    font=("Segoe UI", 9),
                     fg=COLOR_SUCCESS_TEXT if staff.get("isActive") else COLOR_DANGER_TEXT,
                     bg=row["bg"],
                 )
@@ -2921,6 +2876,7 @@ class AmayaControlPanel:
                 right = tk.Frame(row, bg=row["bg"])
                 right.pack(side=tk.RIGHT)
 
+                tk.Label(right, text="New password:", font=("Segoe UI", 9), fg=COLOR_TEXT_WALNUT, bg=row["bg"]).pack(side=tk.LEFT, padx=(0, 4))
                 new_pwd_entry = tk.Entry(
                     right,
                     width=14,
@@ -2939,25 +2895,25 @@ class AmayaControlPanel:
                     def _update():
                         p = entry_widget.get().strip()
                         if len(p) < 6:
-                            show_status(f"New password for {s_name} must be at least 6 characters.", is_error=True)
+                            show_status(f"{s_name}'s new password must be at least 6 characters.", is_error=True)
                             return
-                        show_status(f"Updating password for {s_name}...")
+                        show_status(f"Saving {s_name}'s password…", neutral=True)
                         def _w():
                             node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                             res = subprocess.run([node_exe, "src/account-manager.js", "set-cashier-password", str(s_id), "--password-stdin"], cwd=str(API_DIR), input=f"{p}\n", capture_output=True, text=True, creationflags=creationflags)
                             if res.returncode == 0:
-                                dialog.after(0, lambda: [show_status(f"Password for {s_name} updated!"), entry_widget.delete(0, tk.END)])
+                                dialog.after(0, lambda: [show_status(f"{s_name}'s password was changed."), entry_widget.delete(0, tk.END)])
                             else:
-                                dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                                dialog.after(0, lambda: show_status(friendly_error(res), is_error=True))
                         threading.Thread(target=_w, daemon=True).start()
                     return _update
 
-                self._make_button(right, text="Set Password", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY, command=make_update_pwd_cmd(staff.get("id"), staff.get("displayName"), new_pwd_entry), padx=6, pady=2, border_color=COLOR_CARD_BORDER).pack(side=tk.LEFT, padx=(0, 4))
+                self._make_button(right, text="Change password", bg=COLOR_CARD_DARK, fg=COLOR_TEXT_SECONDARY, command=make_update_pwd_cmd(staff.get("id"), staff.get("displayName"), new_pwd_entry), padx=6, pady=2, border_color=COLOR_CARD_BORDER).pack(side=tk.LEFT, padx=(0, 4))
 
                 def make_toggle_cmd(s_id, s_name):
                     def _toggle():
-                        show_status(f"Toggling {s_name}...")
+                        show_status(f"Updating {s_name}…", neutral=True)
                         def _w():
                             node_exe = shutil.which("node.exe") or shutil.which("node") or "node"
                             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -2965,13 +2921,13 @@ class AmayaControlPanel:
                             if res.returncode == 0:
                                 dialog.after(0, lambda: reload_cashiers())
                             else:
-                                dialog.after(0, lambda: show_status(f"Error: {res.stderr or res.stdout}", is_error=True))
+                                dialog.after(0, lambda: show_status(friendly_error(res), is_error=True))
                         threading.Thread(target=_w, daemon=True).start()
                     return _toggle
 
                 self._make_button(
                     right,
-                    text="Disable" if staff.get("isActive") else "Enable",
+                    text="Turn off" if staff.get("isActive") else "Turn on",
                     bg=COLOR_DANGER_BTN if staff.get("isActive") else COLOR_SUCCESS_BTN,
                     fg="#FFFFFF",
                     command=make_toggle_cmd(staff.get("id"), staff.get("displayName")),
@@ -3561,6 +3517,7 @@ class AmayaControlPanel:
                     current_state = self.service_states.get(sid)
                 port_open = mysql_open if sid == "mysql" else is_port_open(port)
                 port_status[port] = port_open
+                meta_override: str | None = None
 
                 if proc is not None and proc.poll() is None:
                     pid_str = str(proc.pid)
@@ -3572,23 +3529,23 @@ class AmayaControlPanel:
 
                 if sid == "mysql":
                     if port_open:
-                        badge_text = "● RUNNING"
+                        badge_text = "● Running"
                         badge_style = "RUNNING"
                         health_detail = "Listening on 127.0.0.1:3306"
                         with self._state_lock:
                             self.service_states[sid] = "RUNNING"
                     elif proc is not None and proc.poll() is None:
-                        badge_text = "● STARTING..."
+                        badge_text = "● Starting"
                         badge_style = "STARTING"
                         health_detail = "Initializing InnoDB..."
                     else:
-                        badge_text = "● STOPPED"
+                        badge_text = "● Stopped"
                         badge_style = "STOPPED"
                         health_detail = "Offline (Click Start All)"
                 elif sid == "api":
                     if port_open:
                         if not mysql_open:
-                            badge_text = "● MYSQL OFFLINE"
+                            badge_text = "● Waiting"
                             badge_style = "WARN"
                             health_detail = "Waiting for MySQL (:3306)"
                             with self._state_lock:
@@ -3598,55 +3555,80 @@ class AmayaControlPanel:
                             if now - self._last_api_health_time >= 5.0:
                                 self._cached_api_health = check_api_health()
                                 self._last_api_health_time = now
-                            health_state, health_detail = self._cached_api_health
+                            health_state, health_detail, pending = self._cached_api_health
                             if health_state == "ok":
-                                badge_text = "● RUNNING"
+                                badge_text = "● Running"
                                 badge_style = "RUNNING"
                                 with self._state_lock:
                                     self.service_states[sid] = "RUNNING"
-                            elif health_state == "db_error":
-                                badge_text = "● DB WARNING"
+                            elif health_state == "migrations":
+                                # The server is fine; the database is older than the code.
+                                badge_text = "● Update needed"
                                 badge_style = "WARN"
+                                meta_override = (
+                                    "Applying the database update…" if self._migration_running
+                                    else f"Database is missing {len(pending)} update(s). Press 'Update the database' (it backs up first). Restart will not fix this."
+                                )
+                                with self._state_lock:
+                                    self.service_states[sid] = "WARN"
+                                self._schedule_migration_offer(pending)
+                            elif health_state == "db_error":
+                                badge_text = "● Check needed"
+                                badge_style = "WARN"
+                                meta_override = f"Running, but cannot use the database: {health_detail}"
                                 with self._state_lock:
                                     self.service_states[sid] = "WARN"
                             else:
-                                badge_text = "● UNHEALTHY"
+                                badge_text = "● Not responding"
                                 badge_style = "WARN"
+                                meta_override = "Running, but not answering. Try Restart."
                                 with self._state_lock:
                                     self.service_states[sid] = "WARN"
                     elif proc is not None and proc.poll() is None:
-                        badge_text = "● STARTING..."
+                        badge_text = "● Starting"
                         badge_style = "STARTING"
                         health_detail = "Booting Express..."
                     elif current_state == "ERROR":
-                        badge_text = "● ERROR"
+                        badge_text = "● Problem"
                         badge_style = "ERROR"
                         health_detail = "Exited with error"
                     else:
-                        badge_text = "● STOPPED"
+                        badge_text = "● Stopped"
                         badge_style = "STOPPED"
                         health_detail = "Offline"
                 else:
                     if port_open:
-                        badge_text = "● RUNNING"
+                        badge_text = "● Running"
                         badge_style = "RUNNING"
                         health_detail = f"Serving http://localhost:{port}"
                         with self._state_lock:
                             self.service_states[sid] = "RUNNING"
                     elif proc is not None and proc.poll() is None:
-                        badge_text = "● STARTING..."
+                        badge_text = "● Starting"
                         badge_style = "STARTING"
                         health_detail = "Starting Vite..."
                     elif current_state == "ERROR":
-                        badge_text = "● ERROR"
+                        badge_text = "● Problem"
                         badge_style = "ERROR"
                         health_detail = "Exited with error"
                     else:
-                        badge_text = "● STOPPED"
+                        badge_text = "● Stopped"
                         badge_style = "STOPPED"
                         health_detail = "Offline"
 
-                meta_text = f"Port: :{port}  |  PID: {pid_str}  |  Status: {health_detail}"
+                if meta_override:
+                    meta_text = meta_override
+                elif badge_style == "WARN":
+                    meta_text = (
+                        "Waiting for the database to start" if "Waiting" in badge_text
+                        else "Running, but it needs a check. Try Restart."
+                    )
+                else:
+                    meta_text = {
+                        "RUNNING": "Working normally",
+                        "STARTING": "Starting up…",
+                        "ERROR": "Stopped because of a problem. Try Restart.",
+                    }.get(badge_style, "Not running")
                 updates[sid] = (badge_text, badge_style, meta_text, pid_str)
 
             if not self.is_closing:
@@ -3706,17 +3688,22 @@ class AmayaControlPanel:
             used_g = ram_info.get("used_gb", 0.0)
             tot_g = ram_info.get("total_gb", 0.0)
             free_g = ram_info.get("free_gb", 0.0)
-            self.ram_val_lbl.configure(text=f"{used_g} GB / {tot_g} GB ({self.ram_pct_val}%)")
-            status_word = "Optimal" if self.ram_pct_val < 85 else "High Load"
-            self.ram_sub_lbl.configure(text=f"Free: {free_g} GB  |  Status: {status_word}")
+            self.ram_val_lbl.configure(text=f"{self.ram_pct_val:.0f}% in use")
+            if self.ram_pct_val < 70:
+                advice = "Plenty of room."
+            elif self.ram_pct_val < 85:
+                advice = "Getting full, but fine for now."
+            else:
+                advice = "Very full. Close other programs, or the shop system may run slowly."
+            self.ram_sub_lbl.configure(text=f"{used_g} of {tot_g} GB used. {advice}")
             self._redraw_ram_meter()
 
         if hasattr(self, "cpu_val_lbl"):
             self.cpu_pct_val = cpu_info.get("pct", 0.0)
             cores_cnt = cpu_info.get("cores", 4)
-            self.cpu_val_lbl.configure(text=f"{self.cpu_pct_val}% ({cores_cnt} Cores)")
-            load_word = "Normal" if self.cpu_pct_val < 75 else "Elevated"
-            self.cpu_sub_lbl.configure(text=f"{cores_cnt} Logical Cores  |  Thermal: {load_word}")
+            self.cpu_val_lbl.configure(text=f"{self.cpu_pct_val:.0f}% busy")
+            busy_word = "Running smoothly." if self.cpu_pct_val < 75 else "The computer is busy right now."
+            self.cpu_sub_lbl.configure(text=busy_word)
             self._redraw_cpu_meter()
 
         # Update Ports indicators and active count
@@ -3731,34 +3718,13 @@ class AmayaControlPanel:
             if dot:
                 dot.configure(fg=COLOR_SUCCESS_TEXT if is_on else "#9CA3AF")
 
-        # Update Main View Status Banner
-        if hasattr(self, "main_system_status_banner") and self.main_system_status_banner:
-            if active_ports == 4:
-                self.main_system_status_banner.configure(
-                    text="● ALL 4 SERVICES ONLINE & HEALTHY (Port Guard IPv4 + IPv6 Active)",
-                    bg=COLOR_SUCCESS_BG,
-                    fg=COLOR_SUCCESS_TEXT,
-                    highlightbackground=COLOR_SUCCESS_BORDER,
-                )
-            elif active_ports > 0:
-                self.main_system_status_banner.configure(
-                    text=f"● PARTIAL SERVICES ACTIVE ({active_ports} of 4 Online) — Waiting for all ports...",
-                    bg=COLOR_WARN_BG,
-                    fg=COLOR_WARN_TEXT,
-                    highlightbackground=COLOR_WARN_BORDER,
-                )
-            else:
-                self.main_system_status_banner.configure(
-                    text="● ALL SERVICES OFFLINE (Click 'Start All Services' below to begin)",
-                    bg=COLOR_DANGER_BG,
-                    fg=COLOR_DANGER_TEXT,
-                    highlightbackground=COLOR_DANGER_BORDER,
-                )
+        # Update Home page status
+        self._update_main_status(active_ports, {sid: v[1] for sid, v in updates.items()})
 
         # Update Sidebar Port Dots and Count
         if hasattr(self, "sidebar_services_count_lbl") and self.sidebar_services_count_lbl:
             self.sidebar_services_count_lbl.configure(
-                text=f"{active_ports}/4 On",
+                text=f"{active_ports} of 4 ready",
                 fg=COLOR_SUCCESS_TEXT if active_ports > 0 else COLOR_TEXT_MUTED,
             )
         for p, is_on in port_status.items():
