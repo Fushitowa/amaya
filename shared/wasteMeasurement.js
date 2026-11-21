@@ -96,14 +96,6 @@ export function getWasteUnitDimension(unit) {
   return getUnitDimension(unit);
 }
 
-export function getDefaultMeasurementMethod(item) {
-  const dim = getWasteUnitDimension(item?.unit);
-  if (dim === "mass" || dim === "volume") {
-    return "remaining_count";
-  }
-  return "direct_measure";
-}
-
 export function getMeasurementMethodLabel(value, item) {
   const isCount = getWasteUnitDimension(item?.unit) === "count";
   if (value === "remaining_count") {

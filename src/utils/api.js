@@ -71,10 +71,5 @@ export async function apiFetchBlobWithMeta(path, options = {}) {
   return { blob, truncated, totalCount, exportedCount };
 }
 
-export async function apiFetchBlob(path, options = {}) {
-  const { blob } = await apiFetchBlobWithMeta(path, options);
-  return blob;
-}
-
 export { API_BASE_URL };
 

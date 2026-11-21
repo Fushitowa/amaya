@@ -137,16 +137,6 @@ export const notifyMenuDeleted = (product) =>
     message: `Item “${product?.name}” removed from menu`,
   });
 
-/** Notify when an inventory item exceeds its maximum or reaches zero stock.
- * A shared server-side state prevents duplicate alerts during polling. */
-export function notifyInventoryLevels() {
-  return apiRequest("/notifications/inventory-alerts/check", { method: "POST", body: "{}" })
-    .then((result) => {
-      if (result.alerts) window.dispatchEvent(new Event("amaya:notifications-updated"));
-      return result;
-    });
-}
-
 /* ---- relative time ---- */
 
 export function formatRelativeTime(timestamp) {
