@@ -17,6 +17,8 @@ export const FIN_ACTIONS = {
   withdrawal: { label: "Owner Withdrawal", term: "Owner Drawing" },
   capital: { label: "Add Owner's Money", term: "Capital Injection" },
   transfer: { label: "Move Money Between Accounts", term: "Fund Transfer" },
+  equipment: { label: "Buy Equipment", term: "Fixed Asset Purchase" },
+  vat: { label: "Pay VAT to BIR", term: "VAT Remittance (Output VAT Payable)" },
 };
 
 export const FIN_RECON_COLUMNS = [
@@ -44,6 +46,7 @@ const ENTRY_TYPE_LABELS = {
   ap_settlement: "Paid a bill",
   depreciation: "Equipment wear & tear",
   income_tax: "Income tax",
+  equipment_purchase: "Equipment bought",
   void_reversal: "Cancellation",
 };
 

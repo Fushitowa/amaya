@@ -58,4 +58,5 @@ export const MIGRATIONS = [
   "052_inventory_shrinkage_account.sql",
   "053_period_closures.sql",
   "054_drawer_variance_thresholds.sql",
+  "055_vat_equipment_opening_float.sql",
 ];

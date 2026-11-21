@@ -28,8 +28,9 @@ function createFinClientRequestId() {
 }
 
 /**
- * The money pop-ups: record an expense, pay a bill or tax, equipment wear & tear, income tax,
- * owner withdrawal, owner money added, and moving money between accounts. The page opens one with
+ * The money pop-ups: record an expense, pay a bill or tax, pay VAT to BIR, buy equipment,
+ * equipment wear & tear, income tax, owner withdrawal, owner money added, and moving money
+ * between accounts. The page opens one with
  * `ref.current.open(mode)`; everything the form needs lives here.
  */
 export default function FinanceActionDialog({
@@ -47,6 +48,7 @@ export default function FinanceActionDialog({
   equipmentNetBookValue,
   openAp2010Display,
   openTax2030Display,
+  vatOwed2020 = 0,
   onNotice,
 }) {
   const setNotice = onNotice;
@@ -59,7 +61,7 @@ export default function FinanceActionDialog({
     };
   }, []);
 
-  const [actionModal, setActionModal] = useState(null); // null | 'opex' | 'settle' | 'depreciation' | 'income_tax' | 'drawing' | 'capital' | 'transfer'
+  const [actionModal, setActionModal] = useState(null); // null | 'opex' | 'settle' | 'vat' | 'equipment' | 'depreciation' | 'income_tax' | 'drawing' | 'capital' | 'transfer'
   const [formAmount, setFormAmount] = useState("");
   const [formMemo, setFormMemo] = useState("");
   const [formExpenseCode, setFormExpenseCode] = useState("6120");
@@ -155,6 +157,8 @@ export default function FinanceActionDialog({
     ? (payablesTotals.glTax2030Balance || 0)
     : (payablesTotals.glAp2010Balance || 0);
 
+  const vatOwedAmount = round2(Math.max(0, Number(vatOwed2020 || 0)));
+
   const untrackedBalanceForSettle = round2(Math.max(0, glBalanceForSettle - trackedOpenTotalForSettle));
   const maxSettleableAmount = selectedPayable
     ? round2(selectedPayable.remainingAmount)
@@ -211,7 +215,7 @@ export default function FinanceActionDialog({
     const preferredCode = String(preferredOpex?.accountCode || "6120");
     const preferredCategories = EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(preferredCode)).sort((a, b) => a.accountCodes.length - b.accountCodes.length);
     setFormExpenseCategory(preferredCategories[0]?.slug || "");
-    setFormPrimaryAccount(mode === "settle" ? "1030" : "1010");
+    setFormPrimaryAccount(mode === "settle" || mode === "vat" || mode === "equipment" ? "1030" : "1010");
     setFormSecondaryAccount(mode === "transfer" ? "1030" : "1010");
 
     if (mode === "opex") {
@@ -226,6 +230,10 @@ export default function FinanceActionDialog({
           ? `Payment for ${firstOpen.billNumber}${firstOpen.vendorName ? ` (${firstOpen.vendorName})` : ""}`
           : (liabCode === "2030" ? "Income tax payment" : "Bill payment"),
       );
+    } else if (mode === "vat") {
+      setFormMemo("VAT payment to BIR");
+    } else if (mode === "equipment") {
+      setFormMemo("Bought equipment");
     } else if (mode === "depreciation") {
       // Spread what is left to depreciate (net book value), not the original cost.
       setEstimatorCost(equipmentNetBookValue > 0 ? String(equipmentNetBookValue) : "");
@@ -319,6 +327,30 @@ export default function FinanceActionDialog({
         return;
       }
 
+      if (actionModal === "vat") {
+        if (amount > vatOwedAmount + 0.001) {
+          setFormError(`You only owe ${peso(vatOwedAmount)} in VAT collected on orders.`);
+          focusInvalidField("amount");
+          return;
+        }
+        const vatResult = await apiRequest("/finances/journal-entries", {
+          method: "POST",
+          body: JSON.stringify({
+            entryType: "ap_settlement",
+            memo: cleanMemo,
+            clientRequestId: reqId,
+            lines: [
+              { accountCode: "2020", debit: amount, credit: 0, lineMemo: cleanMemo },
+              { accountCode: formPrimaryAccount, debit: 0, credit: amount, lineMemo: cleanMemo },
+            ],
+          }),
+        });
+        setActionModal(null);
+        setNotice(withWarnings(`Paid ${peso(amount)} of VAT to BIR: ${cleanMemo}`, vatResult));
+        window.dispatchEvent(new Event("amaya:stock-mutated"));
+        return;
+      }
+
       let entryType = "adjustment";
       let budgetCheckFailed = false;
       let lines = [];
@@ -350,6 +382,12 @@ export default function FinanceActionDialog({
           if (formVendorName.trim()) extraBody.vendorName = formVendorName.trim();
           if (formDueDate) extraBody.dueDate = formDueDate;
         }
+      } else if (actionModal === "equipment") {
+        entryType = "equipment_purchase";
+        lines = [
+          { accountCode: "1510", debit: amount, credit: 0, lineMemo: cleanMemo },
+          { accountCode: formPrimaryAccount, debit: 0, credit: amount, lineMemo: cleanMemo },
+        ];
       } else if (actionModal === "depreciation") {
         if (equipmentNetBookValue <= 0) {
           setFormError("There is no equipment value left to write down.");
@@ -430,6 +468,7 @@ export default function FinanceActionDialog({
     : 0;
 
   useImperativeHandle(ref, () => ({ open: openActionModal }));
+  const isPayFromOnly = actionModal === "vat" || actionModal === "equipment";
 
   return (
       <FinDialog
@@ -443,6 +482,10 @@ export default function FinanceActionDialog({
             ? "Record an Expense"
             : actionModal === "settle"
               ? (settleLiabilityCode === "2030" ? "Pay Income Tax You Owe" : "Pay Unpaid Bills")
+              : actionModal === "vat"
+                ? "Pay VAT to BIR"
+                : actionModal === "equipment"
+                  ? "Buy Equipment"
               : actionModal === "depreciation"
                 ? "Record Equipment Wear & Tear"
                 : actionModal === "income_tax"
@@ -658,6 +701,47 @@ export default function FinanceActionDialog({
                 <label htmlFor="fin-settle-liquid">Pay From *</label>
                 <select
                   id="fin-settle-liquid"
+                  className="fin-form-input"
+                  value={formPrimaryAccount}
+                  onChange={(e) => setFormPrimaryAccount(e.target.value)}
+                >
+                  {liquidAccountOptions.map((opt) => (
+                    <option key={opt.code} value={opt.code}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* 2B. PAY VAT TO BIR / BUY EQUIPMENT */}
+          {isPayFromOnly && (
+            <>
+              <div className="fin-callout">
+                {actionModal === "vat" ? (
+                  <>
+                    <div>
+                      VAT collected on orders and not yet paid: <strong>{peso(vatOwedAmount)}</strong>
+                    </div>
+                    <small style={{ color: "#6b5847" }}>
+                      VAT is the customers&apos; money you hold for BIR. Paying it lowers your cash and what you owe. It is not a new expense, so your profit stays the same.
+                    </small>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      Equipment bought so far: <strong>{peso(grossEquip1510)}</strong>
+                    </div>
+                    <small style={{ color: "#6b5847" }}>
+                      For things that last more than a year, like an espresso machine, fridge or grinder. It lowers your cash but is not an expense today: spread its cost with Equipment Wear &amp; Tear. Small supplies go under Record an Expense.
+                    </small>
+                  </>
+                )}
+              </div>
+
+              <div className="fin-form-group">
+                <label htmlFor="fin-payfrom-liquid">Paid From *</label>
+                <select
+                  id="fin-payfrom-liquid"
                   className="fin-form-input"
                   value={formPrimaryAccount}
                   onChange={(e) => setFormPrimaryAccount(e.target.value)}
@@ -947,6 +1031,15 @@ export default function FinanceActionDialog({
                   Fill Full: {peso(maxSettleableAmount)}
                 </button>
               )}
+              {actionModal === "vat" && vatOwedAmount > 0 && (
+                <button
+                  type="button"
+                  className="fin-inline-cta"
+                  onClick={() => setFormAmount(vatOwedAmount.toFixed(2))}
+                >
+                  Fill Full: {peso(vatOwedAmount)}
+                </button>
+              )}
             </div>
             <input
               ref={amountInputRef}
@@ -1025,8 +1118,10 @@ export default function FinanceActionDialog({
             >
               {formSubmitting
                 ? "Saving…"
-                : actionModal === "settle"
+                : actionModal === "settle" || actionModal === "vat"
                   ? "Confirm Payment"
+                  : actionModal === "equipment"
+                    ? "Save Purchase"
                   : actionModal === "depreciation"
                     ? "Save Wear & Tear"
                     : actionModal === "income_tax"

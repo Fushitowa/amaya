@@ -14,6 +14,8 @@ import {
   Download,
   Search,
   Menu,
+  Receipt,
+  Wrench,
 } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
 import { peso, round2, manilaToday } from "../utils/financeFormat.js";
@@ -272,6 +274,7 @@ export default function FinancialReconciliationCenter({ onOpenNav } = {}) {
 
   const openAp2010Display = round2(Math.max(payablesTotals.unpaidAp2010 || 0, payablesTotals.glAp2010Balance || 0));
   const openTax2030Display = round2(Math.max(payablesTotals.unpaidTax2030 || 0, payablesTotals.glTax2030Balance || 0));
+  const vatOwed2020 = round2(Math.max(0, accountBalanceMap.get("2020") || 0));
 
   const handleConfirmReverse = async (e) => {
     e.preventDefault();
@@ -357,8 +360,10 @@ export default function FinancialReconciliationCenter({ onOpenNav } = {}) {
   const runAction = (mode) => (mode === "close" ? setMonthCloseOpen(true) : openActionModal(mode));
   const recordActions = [
     { key: "opex", Icon: PlusCircle, label: FIN_ACTIONS.expense.label, hint: "Rent, supplies, utilities", mode: "opex" },
+    { key: "equipment", Icon: Wrench, label: FIN_ACTIONS.equipment.label, hint: "Machines and tools that last years", term: FIN_ACTIONS.equipment.term, mode: "equipment" },
     { key: "wear", Icon: PlusCircle, label: FIN_ACTIONS.wear.label, hint: "Spread equipment cost over time", term: FIN_ACTIONS.wear.term, mode: "depreciation" },
     { key: "tax", Icon: PlusCircle, label: FIN_ACTIONS.tax.label, hint: "Record or set aside tax", term: FIN_ACTIONS.tax.term, mode: "income_tax" },
+    { key: "vat", Icon: Receipt, label: FIN_ACTIONS.vat.label, hint: vatOwed2020 > 0 ? `${peso(vatOwed2020)} collected on orders` : "VAT collected on orders", term: FIN_ACTIONS.vat.term, mode: "vat" },
     { key: "close", Icon: Lock, label: "Close the Month", hint: "Lock the month's figures", mode: "close" },
   ];
   const ownerActions = [
@@ -598,7 +603,7 @@ export default function FinancialReconciliationCenter({ onOpenNav } = {}) {
                 }}
               >
                 <option value="">Everything</option>
-                {["operating_expense", "ap_settlement", "income_tax", "depreciation", "capital_injection", "owner_withdrawal", "account_transfer", "adjustment", "inventory_restock", "opening_balance", "void_reversal"].map((type) => (
+                {["operating_expense", "ap_settlement", "income_tax", "equipment_purchase", "depreciation", "capital_injection", "owner_withdrawal", "account_transfer", "adjustment", "inventory_restock", "opening_balance", "void_reversal"].map((type) => (
                   <option key={type} value={type}>{entryTypeLabel(type)}</option>
                 ))}
               </select>
@@ -668,6 +673,7 @@ export default function FinancialReconciliationCenter({ onOpenNav } = {}) {
         equipmentNetBookValue={equipmentNetBookValue}
         openAp2010Display={openAp2010Display}
         openTax2030Display={openTax2030Display}
+        vatOwed2020={vatOwed2020}
         onNotice={setNotice}
       />
 

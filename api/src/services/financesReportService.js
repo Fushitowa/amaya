@@ -390,7 +390,8 @@ export async function getCashFlowReport(rawFrom, rawTo) {
          WHEN e.effective_type = 'operating_expense' THEN -e.liquid_net
          WHEN e.effective_type = 'ap_settlement'
           AND COALESCE(e.payable_bill_category, '') NOT IN ('inventory_restock', 'income_tax')
-          AND NOT (e.payable_bill_category IS NULL AND e.has_2030 = 1) THEN -e.liquid_net
+          AND NOT (e.payable_bill_category IS NULL AND e.has_2030 = 1)
+          AND NOT (e.payable_bill_category IS NULL AND e.has_2020 = 1) THEN -e.liquid_net
          ELSE 0
        END), 0.00) AS opex_cash_outflow,
        COALESCE(SUM(CASE
@@ -406,7 +407,7 @@ export async function getCashFlowReport(rawFrom, rawTo) {
        COALESCE(SUM(CASE
          WHEN e.effective_type <> 'opening_balance' AND e.has_1510 = 1 AND e.has_1050 = 0 AND e.has_3010 = 0 AND e.has_3020 = 0 THEN 0
          WHEN e.effective_type = 'income_tax' THEN -e.liquid_net
-         WHEN e.effective_type = 'ap_settlement' AND (e.payable_bill_category = 'income_tax' OR (e.payable_bill_category IS NULL AND e.has_2030 = 1)) THEN -e.liquid_net
+         WHEN e.effective_type = 'ap_settlement' AND (e.payable_bill_category = 'income_tax' OR (e.payable_bill_category IS NULL AND (e.has_2030 = 1 OR e.has_2020 = 1))) THEN -e.liquid_net
          WHEN e.effective_type NOT IN ('capital_injection', 'opening_balance', 'owner_withdrawal', 'sales_revenue', 'operating_expense', 'inventory_restock', 'ap_settlement')
           AND NOT (e.has_3010 = 1 AND e.has_1050 = 0 AND e.has_4010 = 0 AND e.has_5010 = 0)
           AND NOT (e.has_3020 = 1 AND e.has_1050 = 0 AND e.has_4010 = 0 AND e.has_5010 = 0)
@@ -455,6 +456,7 @@ export async function getCashFlowReport(rawFrom, rawTo) {
               MAX(CASE WHEN coa.account_code = '3020' THEN 1 ELSE 0 END) AS has_3020,
               MAX(CASE WHEN coa.account_code = '4010' THEN 1 ELSE 0 END) AS has_4010,
               MAX(CASE WHEN coa.account_code = '5010' THEN 1 ELSE 0 END) AS has_5010,
+              MAX(CASE WHEN coa.account_code = '2020' THEN 1 ELSE 0 END) AS has_2020,
               MAX(CASE WHEN coa.account_code = '2030' THEN 1 ELSE 0 END) AS has_2030,
               MAX(CASE WHEN coa.account_code = '2040' THEN 1 ELSE 0 END) AS has_2040,
               MAX(CASE WHEN coa.account_code = '2045' THEN 1 ELSE 0 END) AS has_2045,

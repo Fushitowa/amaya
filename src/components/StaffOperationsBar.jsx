@@ -35,6 +35,8 @@ function StaffOperationsBar({ variant = "compact", darkMode = false }) {
   const [isClosing, setIsClosing] = useState(false);
 
   const [openingFloat, setOpeningFloat] = useState("1000");
+  const [floatNote, setFloatNote] = useState("");
+  const [drawerBook, setDrawerBook] = useState(null); // { bookCash, otherShiftOpen, reviewLimit }
   const [terminalLabel, setTerminalLabel] = useState(getDefaultTerminalLabel);
   const [countedCash, setCountedCash] = useState("");
   const [closingNotes, setClosingNotes] = useState("");
@@ -114,7 +116,16 @@ function StaffOperationsBar({ variant = "compact", darkMode = false }) {
     setClosedReceipt(null);
     if (mode === "open-shift") {
       setOpeningFloat("1000");
+      setFloatNote("");
+      setDrawerBook(null);
       setTerminalLabel(getDefaultTerminalLabel());
+      // Pre-fill with what the books say is in the drawer, so a mismatch is noticed at the start.
+      apiRequest("/sessions/drawer-book")
+        .then((res) => {
+          setDrawerBook(res || null);
+          if (res?.bookCash != null) setOpeningFloat(String(Number(res.bookCash).toFixed(2)));
+        })
+        .catch(() => {});
     } else if (mode === "close-shift") {
       setCountedCash(session?.expectedCash != null ? String(session.expectedCash) : "");
       setClosingNotes("");
@@ -154,6 +165,14 @@ function StaffOperationsBar({ variant = "compact", darkMode = false }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalMode, requestClose]);
 
+  const bookCash = drawerBook?.bookCash ?? null;
+  const floatGap = bookCash == null || String(openingFloat).trim() === "" || !Number.isFinite(Number(openingFloat))
+    ? 0
+    : Math.round((Number(openingFloat) - Number(bookCash)) * 100) / 100;
+  const floatGapTooBig = floatGap !== 0
+    && drawerBook?.reviewLimit != null
+    && Math.abs(floatGap) > Number(drawerBook.reviewLimit);
+
   const handleOpenShift = async (e) => {
     e.preventDefault();
     if (busy) return;
@@ -170,10 +189,11 @@ function StaffOperationsBar({ variant = "compact", darkMode = false }) {
         body: JSON.stringify({
           openingFloat: parsedFloat,
           terminalLabel: terminalLabel.trim() || "Counter 1",
+          ...(floatGap !== 0 ? { floatNote: floatNote.trim() } : {}),
         }),
       });
       setSession(res?.session || null);
-      setNotice(`Shift opened (${res?.session?.terminalLabel || "Counter"}).`);
+      setNotice(`Shift opened (${res?.session?.terminalLabel || "Counter"}).${floatGap !== 0 ? ` Drawer ${floatGap > 0 ? "over" : "short"} by ${peso(Math.abs(floatGap))} at opening was recorded.` : ""}`);
       window.dispatchEvent(new CustomEvent("amaya:session-changed"));
       requestClose();
     } catch (err) {
@@ -418,6 +438,37 @@ function StaffOperationsBar({ variant = "compact", darkMode = false }) {
                       required
                     />
                   </label>
+                  {bookCash != null && (
+                    <p style={{ margin: 0, fontSize: "0.8rem", color: "#7b6659" }}>
+                      The books say <strong>{peso(bookCash)}</strong> should be in the drawer. Count the cash and enter what is really there.
+                    </p>
+                  )}
+                  {drawerBook?.otherShiftOpen && (
+                    <p style={{ margin: 0, fontSize: "0.8rem", color: "#7b6659" }}>
+                      Another shift is still open on this drawer, so the float isn&apos;t checked against the books.
+                    </p>
+                  )}
+                  {floatGap !== 0 && (
+                    <>
+                      <p role="status" style={{ margin: 0, fontSize: "0.82rem", color: "#9a3b2a", fontWeight: 600 }}>
+                        {floatGap > 0 ? "Over" : "Short"} by {peso(Math.abs(floatGap))}.{" "}
+                        {floatGapTooBig
+                          ? "That is more than the review limit, so it won't be posted automatically. The owner will be told to check it in Finance."
+                          : "It will be saved in Finance as cash drawer over/short."}
+                      </p>
+                      <label className="sop-field">
+                        <span>Reason for the difference (optional)</span>
+                        <input
+                          type="text"
+                          className="sop-input"
+                          maxLength={255}
+                          value={floatNote}
+                          onChange={(e) => setFloatNote(e.target.value)}
+                          placeholder="e.g. Recounted twice, ₱20 in coins missing"
+                        />
+                      </label>
+                    </>
+                  )}
                   <div className="sop-dialog-footer">
                     <button type="button" className="sop-btn" onClick={requestClose} disabled={busy}>
                       Cancel

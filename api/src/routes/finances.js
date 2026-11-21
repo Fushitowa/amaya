@@ -1144,6 +1144,7 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     "ap_settlement",
     "depreciation",
     "income_tax",
+    "equipment_purchase",
   ];
   if (!validTypes.includes(entryType)) {
     throw httpError(400, `Invalid entryType. Allowed types: ${validTypes.join(", ")}`);
@@ -1247,8 +1248,10 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
   if (finalLines.some((l) => l.accountCode === "6030")) {
     throw httpError(400, "Waste cost is worked out from your inventory waste records, so it can't be entered by hand.");
   }
-  if (finalLines.some((l) => l.accountCode === "2020")) {
-    throw httpError(400, "VAT collected is recorded automatically from orders, so it can't be entered by hand.");
+  // VAT collected (2020) is posted only by orders. The one manual entry allowed is paying it to BIR:
+  // an ap_settlement that lowers 2020 and takes the money out of cash, GCash, the bank or the owner reserve.
+  if (finalLines.some((l) => l.accountCode === "2020" && !(entryType === "ap_settlement" && l.debit > 0))) {
+    throw httpError(400, "VAT collected is recorded automatically from orders. To pay VAT to BIR, use Pay VAT to BIR.");
   }
   if (finalLines.some((l) => PAYROLL_EXPENSE_ACCOUNT_CODES.includes(l.accountCode))) {
     throw httpError(400, PAYROLL_ONLY_MESSAGE);
@@ -1365,8 +1368,8 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       warnings.push(...await liquidShortfallWarnings(connection, creditLines));
     } else if (entryType === "ap_settlement") {
       const liabCodes = [...new Set(debitLines.map((l) => l.accountCode))];
-      if (liabCodes.length !== 1 || !["2010", "2030"].includes(liabCodes[0])) {
-        throw httpError(400, "A payment of what you owe must pay off unpaid supplier bills or income tax owed, one at a time.");
+      if (liabCodes.length !== 1 || !["2010", "2020", "2030"].includes(liabCodes[0])) {
+        throw httpError(400, "A payment of what you owe must pay off unpaid supplier bills, VAT owed or income tax owed, one at a time.");
       }
       if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
         throw httpError(400, "Pay what you owe from the cash drawer, GCash, the store bank or the owner reserve.");
@@ -1399,9 +1402,21 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
         trackedRows.reduce((s, r) => s + Number(r.original_amount || 0) - Number(r.paid_amount || 0), 0),
       );
       const untrackedBalance = round2(Math.max(0, glBalance - trackedOpen));
-      if (totalAmount > untrackedBalance + 0.001) {
+      if (targetLiability === "2020") {
+        if (totalAmount > glBalance + 0.001) {
+          throw httpError(409, `You only owe ₱${Math.max(0, glBalance).toFixed(2)} in VAT collected on orders, so you can't pay ₱${totalAmount.toFixed(2)}.`);
+        }
+      } else if (totalAmount > untrackedBalance + 0.001) {
         throw httpError(409, "Tracked unpaid bills must be settled via POST /api/finances/payables/:id/settle.");
       }
+    } else if (entryType === "equipment_purchase") {
+      if (!debitLines.every((l) => l.accountCode === "1510")) {
+        throw httpError(400, "Buying equipment must add to Kitchen & Espresso Equipment.");
+      }
+      if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
+        throw httpError(400, "Pay for equipment from the cash drawer, GCash, the store bank or the owner reserve.");
+      }
+      warnings.push(...await liquidShortfallWarnings(connection, creditLines));
     } else if (entryType === "owner_withdrawal") {
       if (!debitLines.every((l) => l.accountCode === "3020") || !creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
         throw httpError(400, "An owner withdrawal must come out of the cash drawer, GCash, the store bank or the owner reserve.");

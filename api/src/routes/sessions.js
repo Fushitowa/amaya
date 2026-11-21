@@ -10,14 +10,47 @@ import {
   summarizeIncomeStatementLines,
 } from "../utils/ledgerService.js";
 import { parseStrictFiniteNumber } from "../utils/wasteMeasurement.js";
+import { computeExpectedCash, DRAWER_SPEND_FILTER_SQL, SESSION_DRAWER_SPEND_JOIN_SQL } from "../utils/drawerCash.js";
+import { DRAWER_DEFAULTS, normalizeDrawerThresholds } from "../../../shared/drawerThresholds.js";
 
 const router = Router();
+
+const peso = (value) => `₱${Number(value || 0).toFixed(2)}`;
+
+// What the books say is in the cash drawer (account 1010), and whether another shift is still open.
+async function readDrawerBook(executor, { lock = false } = {}) {
+  if (lock) {
+    // Serialise shift opens against each other so two cashiers can't both reconcile the same drawer.
+    await executor.execute("SELECT id FROM chart_of_accounts WHERE account_code = '1010' FOR UPDATE");
+  }
+  const [[balanceRow]] = await executor.execute(
+    `SELECT COALESCE(SUM(jel.debit - jel.credit), 0.00) AS balance
+       FROM journal_entry_lines jel
+       JOIN chart_of_accounts coa ON coa.id = jel.account_id
+      WHERE coa.account_code = '1010'`,
+  );
+  const [[openRow]] = await executor.execute("SELECT COUNT(*) AS open_count FROM cashier_sessions WHERE status = 'open'");
+  return {
+    bookCash: round2(balanceRow?.balance || 0),
+    otherShiftOpen: Number(openRow?.open_count || 0) > 0,
+  };
+}
+
+async function loadDrawerLimits(executor) {
+  try {
+    const [[row]] = await executor.query("SELECT drawer_variance_ok, drawer_variance_review FROM business_settings WHERE id = 1 LIMIT 1");
+    return normalizeDrawerThresholds(row?.drawer_variance_ok, row?.drawer_variance_review);
+  } catch (error) {
+    if (Number(error?.errno) === 1054) return { ...DRAWER_DEFAULTS };
+    throw error;
+  }
+}
 
 function mapSessionRow(row) {
   const openingFloat = Number(row.opening_float || 0);
   const cashSales = Number(row.cash_sales || 0);
   const cashRestocks = Number(row.cash_restocks || 0);
-  const liveExpectedCash = Number((openingFloat + cashSales - cashRestocks).toFixed(2));
+  const liveExpectedCash = computeExpectedCash({ openingFloat, cashSales, drawerSpend: cashRestocks });
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
@@ -28,6 +61,9 @@ function mapSessionRow(row) {
     closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : null,
     status: row.status,
     openingFloat,
+    openingBookCash: row.opening_book_cash == null ? null : Number(row.opening_book_cash),
+    openingVariance: row.opening_variance == null ? null : Number(row.opening_variance),
+    openingNote: row.opening_note || "",
     expectedCash: row.expected_cash != null ? Number(row.expected_cash) : liveExpectedCash,
     countedCash: row.counted_cash == null ? null : Number(row.counted_cash),
     variance: row.variance == null ? null : Number(row.variance),
@@ -80,28 +116,7 @@ const SESSION_AGGREGATE_SQL = `
        WHERE session_id IS NOT NULL
        GROUP BY session_id
     ) ms ON ms.session_id = cs.id
-    LEFT JOIN (
-      SELECT je.session_id,
-             COALESCE(SUM(jel.credit - jel.debit), 0.00) AS cash_restocks
-        FROM journal_entries je
-        JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
-        JOIN chart_of_accounts coa ON coa.id = jel.account_id
-       WHERE je.session_id IS NOT NULL
-         AND coa.account_code = '1010'
-         AND (
-           je.entry_type IN (
-             'inventory_restock',
-             'operating_expense',
-             'ap_settlement',
-             'income_tax',
-             'owner_withdrawal',
-             'capital_injection',
-             'account_transfer'
-           )
-           OR (je.entry_type = 'void_reversal' AND je.order_id IS NULL)
-         )
-       GROUP BY je.session_id
-    ) rs ON rs.session_id = cs.id
+    ${SESSION_DRAWER_SPEND_JOIN_SQL}
 `;
 
 async function fetchSessionById(sessionId) {
@@ -181,6 +196,17 @@ router.get("/current", requireAuth, requireRole("admin", "staff"), async (reques
   response.json({ session: row ? mapSessionRow(row) : null });
 });
 
+// Pre-fills the opening float with what the books say is in the drawer.
+router.get("/drawer-book", requireAuth, requireRole("admin", "staff"), async (_request, response) => {
+  const drawer = await readDrawerBook(pool);
+  const limits = await loadDrawerLimits(pool);
+  response.json({
+    bookCash: drawer.otherShiftOpen ? null : drawer.bookCash,
+    otherShiftOpen: drawer.otherShiftOpen,
+    reviewLimit: limits.review,
+  });
+});
+
 router.post("/open", requireAuth, requireRole("admin", "staff"), async (request, response) => {
   const rawFloat = request.body?.openingFloat ?? 0;
   const openingFloat = rawFloat === "" || rawFloat == null ? 0 : Number(rawFloat);
@@ -189,6 +215,8 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
   }
   const terminalLabel = String(request.body?.terminalLabel || "Counter 1").trim().slice(0, 80) || "Counter 1";
   const cashierNameSnapshot = String(request.authUser?.displayName || request.authUser?.username || "Staff").slice(0, 100);
+  const floatNote = String(request.body?.floatNote || "").trim().slice(0, 255);
+  const cleanFloat = round2(openingFloat);
 
   const connection = await pool.getConnection();
   let sessionId;
@@ -203,12 +231,73 @@ router.post("/open", requireAuth, requireRole("admin", "staff"), async (request,
     if (existingOpen) {
       throw httpError(409, "You already have an open register session. Close it before opening a new one.");
     }
+
+    // Check the counted float against what the books say is in the drawer (account 1010).
+    // Skipped while another shift is open: that shift is still moving the same drawer.
+    // A difference up to the "review" drawer limit is posted as over/short so the books match the
+    // drawer again. A bigger one is never posted automatically (one miscount must not swing the
+    // profit report): it is saved on the shift and the owner is told to sort it out in Finance.
+    // Opening a shift is never blocked, so the store can always trade.
+    const drawer = await readDrawerBook(connection, { lock: true });
+    let openingBookCash = null;
+    let openingVariance = null;
+    let postOpeningVariance = false;
+    if (!drawer.otherShiftOpen) {
+      openingBookCash = drawer.bookCash;
+      openingVariance = round2(cleanFloat - openingBookCash);
+      if (Math.abs(openingVariance) < 0.01) {
+        openingVariance = 0;
+      } else {
+        const { review } = await loadDrawerLimits(connection);
+        postOpeningVariance = Math.abs(openingVariance) <= review;
+      }
+    }
+
     const [result] = await connection.execute(
-      `INSERT INTO cashier_sessions (user_id, cashier_name_snapshot, terminal_label, opening_float, status)
-       VALUES (?, ?, ?, ?, 'open')`,
-      [request.authUser.sub, cashierNameSnapshot, terminalLabel, Number(openingFloat.toFixed(2))],
+      `INSERT INTO cashier_sessions (user_id, cashier_name_snapshot, terminal_label, opening_float, opening_book_cash, opening_variance, opening_note, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`,
+      [request.authUser.sub, cashierNameSnapshot, terminalLabel, cleanFloat, openingBookCash, openingVariance, floatNote || null],
     );
     sessionId = result.insertId;
+
+    if (openingVariance && postOpeningVariance) {
+      const absVariance = round2(Math.abs(openingVariance));
+      const isShortage = openingVariance < 0;
+      await postBalancedEntry(connection, {
+        entryType: "adjustment",
+        memo: (isShortage
+          ? `Cash drawer short at opening of Shift #${sessionId}: -₱${absVariance.toFixed(2)} (${floatNote || "no reason given"})`
+          : `Cash drawer over at opening of Shift #${sessionId}: +₱${absVariance.toFixed(2)} (${floatNote})`).slice(0, 255),
+        referenceNumber: `SHIFT-${sessionId}-OPEN`,
+        sessionId,
+        idempotencyKey: `session:${sessionId}:opening_variance`,
+        createdBy: request.authUser.sub,
+        lines: isShortage
+          ? [
+              { accountCode: "6040", debit: absVariance, credit: 0, lineMemo: `Cash short at opening of shift #${sessionId}` },
+              { accountCode: "1010", debit: 0, credit: absVariance, lineMemo: `Drawer matched to counted float, shift #${sessionId}` },
+            ]
+          : [
+              { accountCode: "1010", debit: absVariance, credit: 0, lineMemo: `Cash over at opening of shift #${sessionId}` },
+              { accountCode: "6040", debit: 0, credit: absVariance, lineMemo: `Drawer matched to counted float, shift #${sessionId}` },
+            ],
+      });
+    }
+    if (openingVariance && !postOpeningVariance) {
+      const gap = round2(Math.abs(openingVariance));
+      await connection.execute(
+        `INSERT INTO notifications (user_id, event_key, type, title, message)
+         SELECT id, ?, 'drawer_opening_gap', ?, ?
+           FROM users
+          WHERE is_active = TRUE AND role = 'admin'
+         ON DUPLICATE KEY UPDATE event_key = VALUES(event_key)`,
+        [
+          `drawer-opening-gap-${sessionId}`,
+          `Cash drawer ${openingVariance < 0 ? "short" : "over"} by ${peso(gap)} at shift opening`.slice(0, 180),
+          `${cashierNameSnapshot} opened Shift #${sessionId} with ${peso(cleanFloat)}, but the books say ${peso(openingBookCash)} should be in the drawer. This was too big to post automatically. In Finance, record where the money went (for example Move Money Between Accounts or Owner Withdrawal), or record the shortage as an adjustment.${floatNote ? ` Cashier's reason: ${floatNote}` : ""}`.slice(0, 1000),
+        ],
+      );
+    }
 
     // Ensure Beginning-of-Day (BOD) asset snapshot exists for today
     const today = getManilaDateString();
@@ -303,21 +392,14 @@ router.post("/:id/close", requireAuth, requireRole("admin", "staff"), async (req
          JOIN chart_of_accounts coa ON coa.id = jel.account_id
         WHERE je.session_id = ?
           AND coa.account_code = '1010'
-          AND (
-            je.entry_type IN (
-              'inventory_restock',
-              'operating_expense',
-              'ap_settlement',
-              'income_tax',
-              'owner_withdrawal',
-              'capital_injection',
-              'account_transfer'
-            )
-            OR (je.entry_type = 'void_reversal' AND je.order_id IS NULL)
-          )`,
+          AND ${DRAWER_SPEND_FILTER_SQL}`,
       [sessionId],
     );
-    const expectedCash = Number((Number(session.opening_float || 0) + Number(cashRow?.cash_sales || 0) - Number(restockRow?.cash_restocks || 0)).toFixed(2));
+    const expectedCash = computeExpectedCash({
+      openingFloat: session.opening_float,
+      cashSales: cashRow?.cash_sales,
+      drawerSpend: restockRow?.cash_restocks,
+    });
     const roundedCounted = Number(countedCash.toFixed(2));
     const variance = Number((roundedCounted - expectedCash).toFixed(2));
 

@@ -4,6 +4,7 @@ import { httpError, requireAuth, requireRole } from "../middleware/auth.js";
 import { normalizeTargetFoodCost } from "../utils/costing.js";
 import { loadBusinessSettings } from "./settings.js";
 import { round2 } from "../../../shared/units.js";
+import { computeExpectedCash, SESSION_DRAWER_SPEND_JOIN_SQL } from "../utils/drawerCash.js";
 import { getManilaTodayDateStr } from "../../../shared/manilaDate.js";
 import { hasValidNetIncomeAccess, lockLaborKeys } from "./finances.js";
 import { loadPayrollLinesInRange, queryLaborMetrics } from "../services/laborMetricsService.js";
@@ -797,8 +798,10 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
       `SELECT cs.*,
               COALESCE(os.orders_count, 0) AS orders_count,
               COALESCE(os.paid_sales, 0) AS paid_sales,
-              COALESCE(os.cash_sales, 0) AS cash_sales
+              COALESCE(os.cash_sales, 0) AS cash_sales,
+              COALESCE(rs.cash_restocks, 0) AS cash_restocks
          FROM cashier_sessions cs
+         ${SESSION_DRAWER_SPEND_JOIN_SQL}
          LEFT JOIN (
            SELECT session_id,
                   COUNT(*) AS orders_count,
@@ -984,7 +987,9 @@ router.get("/staff/:id/activity", requireAuth, requireRole("admin"), async (requ
         openedAt: new Date(row.opened_at).toISOString(),
         closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : null,
         openingFloat,
-        expectedCash: row.expected_cash != null ? Number(row.expected_cash) : round2(openingFloat + cashSales),
+        expectedCash: row.expected_cash != null
+          ? Number(row.expected_cash)
+          : computeExpectedCash({ openingFloat, cashSales, drawerSpend: row.cash_restocks }),
         countedCash: row.counted_cash == null ? null : Number(row.counted_cash),
         variance: row.variance == null ? null : Number(row.variance),
         ordersCount: Number(row.orders_count || 0),

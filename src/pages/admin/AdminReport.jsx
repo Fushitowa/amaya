@@ -2,11 +2,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarDays,
+  ChartColumn,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Coins,
   Download,
   Filter,
+  History,
+  Lock,
+  LockOpen,
   Menu,
+  Package,
   Receipt,
   Search,
+  ShoppingBag,
+  Trophy,
+  Users,
   X,
 } from "lucide-react";
 
@@ -45,8 +59,88 @@ import {
   sortRestockSuggestions,
 } from "../../../shared/restockSuggestion.js";
 import "../../assets/css/admin/AdminReport.css";
+import "../../assets/css/admin/MenuNotebook.css";
+import "../../assets/css/admin/InventoryNotebook.css";
+import "../../assets/css/admin/ReportNotebook.css";
 import "../../assets/css/sidebar.css";
 import "../../assets/css/sidebar-collapse.css";
+
+// Best sellers card: three per page, up to three pages (top 9).
+const BEST_PAGE_SIZE = 3;
+const BEST_PAGE_COUNT = 3;
+
+// Same shape as a real best-seller row, but invisible: it holds the row's height
+// so the card never shrinks when a page has fewer than three items.
+// With `blank`, it shows as an empty numbered write-in line instead (used when nothing sold).
+function BestSellerGhostRow({ rank = 0, blank = false }) {
+  return (
+    <li className={`rp-best-row ${blank ? "rp-best-blank" : "rp-best-ghost"}`} aria-hidden="true">
+      <span className="rp-best-rank"><small>No.</small><span>{rank}</span></span>
+      <div className="rp-best-body">
+        <div className="rp-best-name"><strong>Item</strong><small>Size</small></div>
+        <dl className="rp-best-figs">
+          <div><dt>Sales</dt><dd>₱0.00</dd></div>
+          <div><dt>Cost to make</dt><dd>₱0.00</dd></div>
+          <div><dt>Profit</dt><dd>₱0.00 <em>0%</em></dd></div>
+        </dl>
+        <div className="rp-best-share"><span className="nbi-gauge" /><span>0% of all sales</span></div>
+      </div>
+      <div className="rp-best-sold"><span className="rp-hl">0</span><small>sold</small></div>
+    </li>
+  );
+}
+
+// Binder divider tabs on the notebook's edge, one per report section.
+const REPORT_SECTIONS = [
+  { id: "rp-sales", label: "Sales", tone: "butter" },
+  { id: "rp-profit", label: "Profit", tone: "sage" },
+  { id: "rp-products", label: "Products", tone: "peach" },
+  { id: "rp-staff", label: "Staff", tone: "sky" },
+  { id: "rp-stock", label: "Stock", tone: "rose" },
+  { id: "rp-history", label: "History", tone: "lilac" },
+];
+
+// Hidden amount on the profit receipt until the owner PIN is entered.
+function Masked() {
+  return <span className="rp-masked" title="Enter the owner PIN to see this">₱ • • • •</span>;
+}
+
+// Hand-drawn ink arrow that points at the amount beside it.
+function InkArrow() {
+  return (
+    <svg className="rp-arrow" viewBox="0 0 120 56" aria-hidden="true" focusable="false">
+      <path className="rp-arrow-line" pathLength="1" d="M6 44c12 9 34 11 52 3 14-6 26-17 37-19 6-1 11 0 15 2" />
+      <path className="rp-arrow-head" pathLength="1" d="M97 17c5 4 10 8 14 13-6 2-12 3-18 6" />
+    </svg>
+  );
+}
+
+// One bar split into cash, GCash and card, with the amounts underneath.
+function PaymentSplit({ cash, gcash, card }) {
+  const parts = [
+    { key: "cash", label: "Cash", value: Number(cash || 0) },
+    { key: "gcash", label: "GCash", value: Number(gcash || 0) },
+    { key: "card", label: "Card", value: Number(card || 0) },
+  ];
+  const total = parts.reduce((sum, part) => sum + part.value, 0);
+  return (
+    <span className="rp-pay">
+      <span className="rp-pay-bar" aria-hidden="true">
+        {total > 0 && parts.map((part) => (part.value > 0 ? (
+          <span key={part.key} className={`is-${part.key}`} style={{ flexGrow: part.value }} />
+        ) : null))}
+      </span>
+      <span className="rp-pay-legend">
+        {parts.map((part) => (
+          <span key={part.key}>
+            <i className={`is-${part.key}`} aria-hidden="true" />
+            {part.label} {compactPeso(part.value)}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
 
 const RANGE_OPTIONS = [
   { key: "today", label: "Today (Session)", bookmark: "TODAY" },
@@ -59,17 +153,17 @@ const RANGE_OPTIONS = [
 const STOCK_FILTERS = ["all", "attention", "healthy"];
 
 const ROSTER_FILTERS = [
-  { key: "all", label: "All Staff" },
-  { key: "with_sales", label: "With Sales" },
+  { key: "all", label: "Everyone" },
+  { key: "with_sales", label: "Made sales" },
   { key: "inactive", label: "Inactive" },
 ];
 
 const ROSTER_SORTS = [
-  { key: "grossSales", label: "Sales (High -> Low)" },
-  { key: "ordersCount", label: "Number of orders" },
-  { key: "attributedGrossProfit", label: "Profit" },
-  { key: "averageTicket", label: "Average order" },
-  { key: "displayName", label: "Staff Name (A-Z)" },
+  { key: "grossSales", label: "Most money first" },
+  { key: "ordersCount", label: "Most orders first" },
+  { key: "attributedGrossProfit", label: "Most profit first" },
+  { key: "averageTicket", label: "Biggest average order" },
+  { key: "displayName", label: "Name, A to Z" },
 ];
 
 const MOVEMENT_FILTERS = [
@@ -202,6 +296,32 @@ function AdminReport() {
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const sheetRef = useRef(null);
+  const [activeSection, setActiveSection] = useState(REPORT_SECTIONS[0].id);
+
+  // Light up the divider tab of the section nearest the top of the page.
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return undefined;
+    // Viewport root: works whether the sheet scrolls (desktop) or the window does (narrow screens).
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActiveSection(visible[0].target.id);
+    }, { rootMargin: "0px 0px -65% 0px" });
+    REPORT_SECTIONS.forEach((sec) => {
+      const node = document.getElementById(sec.id);
+      if (node) observer.observe(node);
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  const jumpToSection = (id) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    setActiveSection(id);
+    node.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+  };
 
   // Period + Staff Filter State
   const [rangeKey, setRangeKey] = useState("all");
@@ -234,7 +354,7 @@ function AdminReport() {
   const restockCloseTimerRef = useRef(null);
 
   // Products Show-All Toggle
-  const [productsShowAll, setProductsShowAll] = useState(false);
+  const [bestPageRaw, setBestPage] = useState(0);
 
   // Staff Attribution Roster Filters
   const [rosterFilter, setRosterFilter] = useState("all");
@@ -832,10 +952,11 @@ function AdminReport() {
     () => (Array.isArray(coreState.productsData?.items) ? coreState.productsData.items : []),
     [coreState.productsData],
   );
-  const displayedProducts = useMemo(
-    () => (productsShowAll ? rankedProducts : rankedProducts.slice(0, 8)),
-    [productsShowAll, rankedProducts],
-  );
+  // Best sellers: the top 9, three to a page.
+  const bestTotal = Math.min(rankedProducts.length, BEST_PAGE_SIZE * BEST_PAGE_COUNT);
+  const bestPageCount = Math.max(1, Math.ceil(bestTotal / BEST_PAGE_SIZE));
+  const bestPage = Math.min(bestPageRaw, bestPageCount - 1);
+  const pagedProducts = rankedProducts.slice(bestPage * BEST_PAGE_SIZE, Math.min(bestTotal, (bestPage + 1) * BEST_PAGE_SIZE));
 
   // Stock Health Live Snapshot
   const pendingCount = useMemo(
@@ -1132,6 +1253,7 @@ function AdminReport() {
 
   const handleRangeChange = (nextKey) => {
     setRangeKey(nextKey);
+    setBestPage(0);
     setOrdersPage(1);
     setMovPage(1);
   };
@@ -1164,6 +1286,22 @@ function AdminReport() {
   const ledgerOrders = Array.isArray(ordersState.data?.items) ? ordersState.data.items : [];
   const ledgerOrdersTotal = Number(ordersState.data?.total || 0);
 
+  const periodTitle = rangeKey === "today"
+    ? "Today's session"
+    : rangeKey === "all"
+      ? "All sessions"
+      : rangeKey === "custom"
+        ? "Custom dates"
+        : `Last ${rangeOption.label}`;
+  const chartTitle = rangeKey === "today"
+    ? "Sales by hour, today"
+    : rangeKey === "custom" && customStart === customEnd
+      ? "Sales by hour"
+      : rangeKey === "all"
+        ? "Sales over all time"
+        : `Sales, ${periodTitle.toLowerCase()}`;
+  const profitLocked = Boolean(incomeStatementSummary?.profitLocked);
+
   return (
     <div className={`admin-report-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
       {mobileNavOpen && (
@@ -1188,162 +1326,122 @@ function AdminReport() {
         }}
       />
 
-      <main className="admin-report-main">
-        <header className="admin-report-topbar">
-          <div className="admin-report-topbar-title">
-            <div className="report-topbar-title-row">
-              <button
-                type="button"
-                className="report-mobile-menu-btn"
-                onClick={() => setMobileNavOpen(true)}
-                aria-label="Open navigation menu"
-              >
-                <Menu size={21} aria-hidden="true" />
-              </button>
-              <span className="admin-report-section-label">
-                <i className="topbar-label-pin" aria-hidden="true" />
-                ADMIN PORTAL
-              </span>
-            </div>
-            <h1>Sales &amp; Inventory Reports</h1>
-          </div>
-          <div className="admin-report-topbar-actions">
-            <div className="admin-report-date report-pinned-date">
-              <span className="report-date-pin" aria-hidden="true" />
-              <span>REPORT DATE</span>
-              <strong>{liveDate}</strong>
-              <small>Generated {generatedStamp}</small>
-            </div>
-          </div>
-        </header>
+      <main className="admin-report-main nb-main rp-main">
+        <div className="nb-desk rp-desk">
+          <section className="nb-notebook rp-notebook" aria-label="Sales and inventory report">
+            <div className="nb-spiral" aria-hidden="true" />
 
-        <div className="admin-report-content">
-          {selectedFilterStaff && (
-            <div className="report-cross-filter-banner" role="region" aria-label="Staff cross-filter">
-              <div className="report-cross-filter-copy">
-                <Filter size={15} aria-hidden="true" />
-                <span>
-                  Filtered to <strong>{selectedFilterStaff.displayName}</strong>
-                  {" "}
-                  ({selectedFilterStaff.role === "admin" ? "Admin" : "Cashier"})
+            <div className="nb-page">
+              <header className="nb-head rp-head">
+                <button
+                  type="button"
+                  className="report-mobile-menu-btn rp-menu-btn"
+                  onClick={() => setMobileNavOpen(true)}
+                  aria-label="Open navigation menu"
+                >
+                  <Menu size={20} aria-hidden="true" />
+                </button>
+                <span className="nb-crest" aria-hidden="true">
+                  <ChartColumn size={20} strokeWidth={2} />
                 </span>
-              </div>
-              <div className="report-cross-filter-actions">
-                <button
-                  type="button"
-                  className="report-cross-filter-btn secondary"
-                  onClick={(e) => handleOpenStaffModal(selectedFilterStaff, e)}
-                >
-                  Inspect Activity Logbook
-                </button>
-                <button
-                  type="button"
-                  className="report-cross-filter-btn"
-                  onClick={() => {
-                    setStaffFilterId(null);
-                    setOrdersPage(1);
-                    setMovPage(1);
-                  }}
-                >
-                  <X size={14} aria-hidden="true" />
-                  Clear Filter
-                </button>
-              </div>
-            </div>
-          )}
-
-          {coreState.error && (
-            <div className="report-inline-alert" role="alert">
-              <AlertTriangle size={16} aria-hidden="true" />
-              <span>{coreState.error}</span>
-            </div>
-          )}
-
-          <div className="admin-report-hero-grid">
-            <section className="admin-report-panel trend-panel report-notebook-sheet" aria-label="Revenue trend">
-              <div className="report-notebook-spine" aria-hidden="true">
-                {Array.from({ length: 8 }).map((_, idx) => (
-                  <span key={idx} className="report-spine-ring">
-                    <i className="report-spine-hole" />
-                    <b className="report-spine-wire" />
-                  </span>
-                ))}
-              </div>
-
-              <div className="report-notebook-bookmark" aria-hidden="true">
-                <span className="report-bookmark-eyelet" />
-                <span className="report-bookmark-text">{rangeOption.bookmark}</span>
-              </div>
-
-              <div className="report-notebook-page">
-                <div className="panel-heading trend-heading">
-                  <div>
-                    <span className="admin-report-eyebrow">SALES CHART</span>
-                    <h2>
-                      {rangeKey === "today"
-                        ? "Today's Hourly Sales"
-                        : rangeKey === "all"
-                          ? "All-Time Sales"
-                          : rangeKey === "custom"
-                            ? "Custom Date Sales"
-                            : `Last ${rangeOption.label} Sales`}
-                    </h2>
-                    <span className="trend-hero-total">{peso(summary.grossCollectedSales)}</span>
-                  </div>
-                  <div className="trend-heading-actions">
-                    <div className="admin-report-range" role="tablist" aria-label="Reporting period">
-                      {RANGE_OPTIONS.map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          role="tab"
-                          aria-selected={option.key === rangeKey}
-                          className={option.key === rangeKey ? "active" : ""}
-                          onClick={() => handleRangeChange(option.key)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="report-export-group">
-                      <select
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                        aria-label="CSV export report type"
-                        className="report-export-select"
-                      >
-                        <option value="orders">Orders CSV</option>
-                        <option value="staff">Staff CSV</option>
-                        <option value="products">Products CSV</option>
-                        <option value="inventory">Inventory CSV</option>
-                      </select>
-                      <button
-                        type="button"
-                        className="admin-report-export"
-                        onClick={() => handleExportCsv(exportType)}
-                        disabled={exportBusy || customRangeInvalid}
-                      >
-                        <Download size={14} aria-hidden="true" />
-                        <span>{exportBusy ? "Exporting..." : exportNotice || "Export CSV"}</span>
-                      </button>
-                    </div>
-                  </div>
+                <div className="nb-head-copy">
+                  <h1>Sales &amp; inventory report</h1>
+                  <p>
+                    {periodTitle}, as of {liveDate}
+                    <span className="nb-live">
+                      <span className="nb-live-dot" aria-hidden="true" />
+                      {Number(summary.paidOrdersCount || 0).toLocaleString()} paid {summary.paidOrdersCount === 1 ? "order" : "orders"}
+                    </span>
+                  </p>
                 </div>
+                <div className="nb-head-actions">
+                  <label className="nb-field nb-sort">
+                    <span className="rp-field-label">Export</span>
+                    <select
+                      value={exportType}
+                      onChange={(e) => setExportType(e.target.value)}
+                      aria-label="Which report to export as CSV"
+                    >
+                      <option value="orders">Orders</option>
+                      <option value="staff">Staff</option>
+                      <option value="products">Products</option>
+                      <option value="inventory">Inventory</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="nb-btn nb-btn-primary"
+                    onClick={() => handleExportCsv(exportType)}
+                    disabled={exportBusy || customRangeInvalid}
+                  >
+                    <Download size={15} strokeWidth={2.2} aria-hidden="true" />
+                    {exportBusy ? "Exporting…" : "Download CSV"}
+                  </button>
+                </div>
+              </header>
 
-                {exportError && (
-                  <div className="report-inline-alert compact" role="alert">
-                    <AlertTriangle size={14} aria-hidden="true" />
-                    <span>{exportError}</span>
-                  </div>
-                )}
+              {exportNotice && (
+                <div className="nbi-banner ok" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  <span>{exportNotice}</span>
+                </div>
+              )}
+              {exportError && (
+                <div className="nbi-banner warn" role="alert">
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <span>{exportError}</span>
+                </div>
+              )}
+              {coreState.error && (
+                <div className="nbi-banner warn" role="alert">
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <span>{coreState.error}</span>
+                </div>
+              )}
+              {selectedFilterStaff && (
+                <div className="nbi-banner rp-filter-banner" role="region" aria-label="Staff filter">
+                  <Filter size={15} aria-hidden="true" />
+                  <span>
+                    Showing only orders handled by <strong>{selectedFilterStaff.displayName}</strong>
+                    {" "}({selectedFilterStaff.role === "admin" ? "Admin" : "Cashier"})
+                  </span>
+                  <button type="button" onClick={(e) => handleOpenStaffModal(selectedFilterStaff, e)}>
+                    Open activity log
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStaffFilterId(null);
+                      setOrdersPage(1);
+                      setMovPage(1);
+                    }}
+                  >
+                    <X size={13} aria-hidden="true" /> Show everyone
+                  </button>
+                </div>
+              )}
 
+              <div className="nb-toolbar rp-toolbar">
+                <div className="nb-tabs" role="tablist" aria-label="Reporting period">
+                  {RANGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={option.key === rangeKey}
+                      className={`nb-tab ${option.key === rangeKey ? "is-active" : ""}`}
+                      onClick={() => handleRangeChange(option.key)}
+                    >
+                      {option.key === "custom" && <CalendarDays size={14} strokeWidth={2.2} aria-hidden="true" />}
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 {rangeKey === "custom" && (
-                  <div className="admin-report-custom-row">
-                    <div className="custom-input-group">
-                      <label htmlFor="custom-report-start">From</label>
+                  <div className="nb-tools rp-dates">
+                    <label className="nb-field">
+                      <span className="rp-field-label">From</span>
                       <input
-                        id="custom-report-start"
                         type="date"
                         value={customStart}
                         onChange={(e) => {
@@ -1351,13 +1449,11 @@ function AdminReport() {
                           setOrdersPage(1);
                           setMovPage(1);
                         }}
-                        className="admin-report-datetime-input"
                       />
-                    </div>
-                    <div className="custom-input-group">
-                      <label htmlFor="custom-report-end">To</label>
+                    </label>
+                    <label className="nb-field">
+                      <span className="rp-field-label">To</span>
                       <input
-                        id="custom-report-end"
                         type="date"
                         value={customEnd}
                         onChange={(e) => {
@@ -1365,1216 +1461,1039 @@ function AdminReport() {
                           setOrdersPage(1);
                           setMovPage(1);
                         }}
-                        className="admin-report-datetime-input"
                       />
-                    </div>
-                    <span className="custom-range-hint">
-                      {customRangeInvalid
-                        ? "Start date must be on or before end date"
-                        : customStart === customEnd
-                          ? "Single-day hourly breakdown (Manila)"
-                          : "Daily Manila breakdown"}
-                    </span>
-                  </div>
-                )}
-
-                {customRangeInvalid ? (
-                  <div className="admin-report-empty" role="alert">
-                    <span>!</span>
-                    <strong>Invalid custom date range</strong>
-                    <p>Ensure the &ldquo;From&rdquo; date is on or before the &ldquo;To&rdquo; date.</p>
-                  </div>
-                ) : isCoreLoading ? (
-                  <div className="admin-report-empty">
-                    <span>▥</span>
-                    <strong>Loading period ledger...</strong>
-                    <p>Fetching server-computed financials across settled orders.</p>
-                  </div>
-                ) : summary.paidOrdersCount > 0 ? (
-                  <div className="report-trend" key={`${rangeKey}-${staffFilterId ?? "all"}`}>
-                    <svg
-                      className="report-trend-chart"
-                      viewBox={`0 0 ${trend.width} ${trend.height}`}
-                      role="img"
-                      aria-label={`Revenue trend across ${trend.points.length} periods, totalling ${peso(summary.grossCollectedSales)} and peaking at ${peso(trend.best?.sales || 0)}`}
-                    >
-                      {trend.gridLines.map((line) => (
-                        <line
-                          key={line.y}
-                          x1={trend.padLeft}
-                          y1={line.y}
-                          x2={trend.width - trend.padRight}
-                          y2={line.y}
-                          className={line.isBaseline ? "report-trend-grid baseline" : "report-trend-grid"}
-                        />
-                      ))}
-
-                      {trend.gridLines.map((line) => (
-                        <text
-                          key={`label-${line.y}`}
-                          x={trend.padLeft - 10}
-                          y={line.y}
-                          className="report-trend-axis-label"
-                          textAnchor="end"
-                          dominantBaseline="middle"
-                        >
-                          {compactPeso(line.value)}
-                        </text>
-                      ))}
-
-                      {trend.points.map((point, index) => (
-                        <rect
-                          key={point.key}
-                          x={point.barX}
-                          y={point.barHeight > 0 ? point.y : trend.baseline - 2}
-                          width={point.barWidth}
-                          height={Math.max(point.barHeight, 2)}
-                          rx="4"
-                          style={{ "--bar-index": Math.min(index, 24) }}
-                          className={`report-trend-bar${index === trend.points.length - 1 ? " latest" : ""}${point.sales === 0 ? " zero" : ""}`}
-                        >
-                          <title>{`${point.label} · ${peso(point.sales)} · ${point.orders} order${point.orders === 1 ? "" : "s"}`}</title>
-                        </rect>
-                      ))}
-
-                      {trend.labelledPoints.map((point) => (point.showLabel ? (
-                        <text
-                          key={`x-${point.key}`}
-                          x={point.x}
-                          y={trend.height - 8}
-                          className="report-trend-axis-label"
-                          textAnchor="middle"
-                        >
-                          {point.label}
-                        </text>
-                      ) : null))}
-                    </svg>
-                  </div>
-                ) : (
-                  <div className="admin-report-empty">
-                    <span>▥</span>
-                    <strong>No collected sales recorded for this period</strong>
-                    <p>Settled orders placed during {rangeOption.label.toLowerCase()} will appear here automatically.</p>
+                    </label>
                   </div>
                 )}
               </div>
-            </section>
 
-            <div className="admin-report-panel sales-summary report-pinned-paper">
-              <div className="report-paper-pin crimson" aria-hidden="true">
-                <span className="pin-shadow" />
-                <span className="pin-needle" />
-                <span className="pin-collar" />
-                <span className="pin-head">
-                  <span className="pin-glint" />
-                </span>
-              </div>
-
-              <div className="report-paper-bookmark" aria-hidden="true">
-                <span className="paper-bookmark-hole" />
-                <span className="paper-bookmark-label">LEDGER</span>
-              </div>
-
-              <div className="report-paper-inner">
-                <div className="panel-heading">
-                  <div>
-                    <span className="admin-report-eyebrow">SALES SUMMARY</span>
-                    <h2>
-                      {rangeKey === "today"
-                        ? "Today's Active Session"
-                        : rangeKey === "all"
-                          ? "All Sessions (All-Time)"
-                          : rangeKey === "custom"
-                            ? "Custom Range"
-                            : `Last ${rangeOption.label}`}
-                    </h2>
-                  </div>
-                  <span className="report-panel-icon">₱</span>
-                </div>
-
-                {summary.uncostedItemsCount > 0 && (
-                  <div className="report-uncosted-warning" role="status">
-                    <AlertTriangle size={13} aria-hidden="true" />
-                    <span>
-                      {summary.uncostedItemsCount} unit{summary.uncostedItemsCount === 1 ? "" : "s"} missing ingredient cost · cost is incomplete
+              <div className="nb-sheet rp-sheet" ref={sheetRef} role="region" aria-label="Report pages" tabIndex={0}>
+                {/* ---------- Sales ---------- */}
+                <section id="rp-sales" className="rp-section" aria-labelledby="rp-sales-title">
+                  <div className="nb-sheet-title">
+                    <h2 id="rp-sales-title">{chartTitle}</h2>
+                    <span className="nb-sheet-note">
+                      {peso(summary.grossCollectedSales)} collected
                     </span>
                   </div>
-                )}
 
-                <div className="sales-metrics">
-                  <div>
-                    <span>
-                      Total Sales
-                      {(Number(summary.taxCollected || 0) > 0 || Number(summary.discountTotal || 0) > 0) && (
-                        <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                          Before tax: {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
-                        </small>
-                      )}
-                    </span>
-                    <strong>{peso(summary.grossCollectedSales)}</strong>
-                  </div>
-                  <div>
-                    <span title="Cost of goods sold (COGS): ingredient cost of what you sold, plus the cost of wasted stock">
-                      Cost to make (sales + waste)
-                      <small style={{ display: "block", fontSize: "10.5px", fontWeight: 600, color: "#85776c" }}>
-                        Ingredients: {peso(summary.salesCogs)} · Wasted stock: {peso(summary.spoilageCost)}
-                      </small>
-                    </span>
-                    <strong>{peso(summary.totalCogs ?? summary.cogs)}</strong>
-                  </div>
-                  <div>
-                    <span className="sales-metric-label-with-badge" title="COGS %: how much of every peso of sales goes to cost to make, including waste. Lower is better">
-                      Cost to make % (including waste)
-                      {foodCostAnalysis.hasUncosted && (
-                        <span
-                          className="report-partial-cogs-badge"
-                          title="One or more sold units are missing Inventory or Menu unit costs"
-                        >
-                          Incomplete cost
-                        </span>
-                      )}
-                    </span>
-                    <strong>
-                      {foodCostAnalysis.actualPct != null ? (
-                        <>
-                          {foodCostAnalysis.actualPct.toFixed(1)}% (Goal: {Number(foodCostAnalysis.targetPct.toFixed(2))}%){" "}
-                          <small
-                            className={`sales-cost-variance-tag ${
-                              foodCostAnalysis.isOverTarget ? "is-over-target" : "is-on-target"
-                            }`}
-                          >
-                            ({foodCostAnalysis.varianceLabel})
-                          </small>
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </strong>
-                  </div>
-                  <div>
-                    <span title="Gross profit: total sales minus the cost to make, before other expenses">
-                      Profit after cost to make
-                    </span>
-                    <strong>
-                      {peso(summary.grossProfit)}
-                      {" "}
-                      <small className="sales-margin-tag">({Number(summary.marginPercent || 0).toFixed(1)}%)</small>
-                    </strong>
-                  </div>
-                  <div>
-                    <span title="Total sales divided by the number of paid orders">Average order</span>
-                    <strong>{peso(summary.averageOrderValue)}</strong>
-                  </div>
-                  <div>
-                    <span>Cash / GCash / Card</span>
-                    <strong>
-                      {compactPeso(summary.cashCollected)} · {compactPeso(summary.gcashCollected)} · {compactPeso(summary.cardCollected)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Cancelled Orders</span>
-                    <strong className={summary.voidedOrdersCount > 0 ? "due" : ""}>
-                      {summary.voidedOrdersCount} ({peso(summary.voidedSalesTotal)})
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Stock Purchases ({summary.inventoryRestockCount})</span>
-                    <strong>{peso(summary.inventoryExpenditure)}</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <section className="admin-report-stats" aria-label="Summary metrics">
-              <div className="report-kpi-slip tone-green">
-                <span className="kpi-slip-pin green" aria-hidden="true" />
-                <span className="report-stat-mark green">✓</span>
-                <div>
-                  <small>Items Sold</small>
-                  <strong>{Number(summary.unitsSold || 0).toLocaleString()}</strong>
-                  <span className="report-stat-note flat">
-                    {`Across ${summary.paidOrdersCount} paid order${summary.paidOrdersCount === 1 ? "" : "s"}${summary.unpaidOrdersCount > 0 ? ` · ${summary.unpaidOrdersCount} unpaid` : ""}`}
-                  </span>
-                </div>
-              </div>
-              <div className="report-kpi-slip tone-plum">
-                <span className="kpi-slip-pin plum" aria-hidden="true" />
-                <span className="report-stat-mark plum">₱</span>
-                <div>
-                  <small>Total Sales</small>
-                  <strong>{peso(summary.grossCollectedSales)}</strong>
-                  <span className={`report-stat-note ${salesTrend.tone}`}>{salesTrend.text}</span>
-                  {Number(summary.taxCollected || 0) > 0 && (
-                    <span className="report-stat-note flat">
-                      Before tax: {peso(summary.netSales)} · Tax: {peso(summary.taxCollected)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="report-kpi-slip tone-amber">
-                <span className="kpi-slip-pin amber" aria-hidden="true" />
-                <span className="report-stat-mark amber">◷</span>
-                <div>
-                  <small title="Total sales divided by the number of paid orders">Average order</small>
-                  <strong>{peso(summary.averageOrderValue)}</strong>
-                  <span className={`report-stat-note ${avgTrend.tone}`}>{avgTrend.text}</span>
-                </div>
-              </div>
-              <div className="report-kpi-slip tone-blue">
-                <span className="kpi-slip-pin blue" aria-hidden="true" />
-                <span className="report-stat-mark blue">▤</span>
-                <div>
-                  <small>Completed Orders</small>
-                  <strong>{Number(summary.paidOrdersCount || 0).toLocaleString()}</strong>
-                  <span className={`report-stat-note ${orderTrend.tone}`}>{orderTrend.text}</span>
-                </div>
-              </div>
-            </section>
-            <section className="report-income-statement report-income-statement--wide" aria-label="Income Statement Preparation">
-                <div>
-                  <span className="admin-report-eyebrow" title="Income statement: a summary of what the store earned and spent">YOUR PROFIT, STEP BY STEP</span>
-                  <h3>How much did the store earn?</h3>
-                </div>
-                <div className="report-income-formula">
-                  <span>Total Sales <strong>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</strong></span>
-                  <b aria-hidden="true">−</b>
-                  <span title="Cost of goods sold (COGS): ingredient cost of items sold, plus wasted stock">Cost to make, including waste <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}</strong></span>
-                  <b aria-hidden="true">=</b>
-                  <span title="Gross profit: sales minus cost to make, before other expenses">Profit before expenses <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</strong></span>
-                  <b aria-hidden="true">−</b>
-                  <span title="Operating expenses: everyday costs of running the store, such as rent, salaries and utilities">Running costs <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}</strong></span>
-                  <b aria-hidden="true">−</b>
-                  <span title="Depreciation: equipment losing value over time. Income tax: tax on the store's profit">Equipment wear &amp; tax <strong>{incomeStatementSummary?.profitLocked ? "₱••••••" : peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}</strong></span>
-                  <b aria-hidden="true">=</b>
-                  <span className="report-income-net" title="Net income: what the store keeps after all costs and tax">Take-home profit <strong>{netIncomePin.unlocked && incomeStatementSummary?.netIncome != null ? peso(incomeStatementSummary.netIncome) : "₱••••••"}</strong></span>
-                </div>
-                <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true)}>
-                  {netIncomePin.unlocked ? "🔒 Lock / Hide Net Income" : "🔒 View Net Income"}
-                </button>
-                {netIncomePin.unlocked && <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Change PIN</button>}
-                </section>
-          </div>
-
-          <div className="admin-report-middle-grid">
-            <section className="admin-report-sales-layout" aria-label="Sales breakdown">
-              <div className="admin-report-panel channel-panel report-folio-sheet">
-                <div className="report-paper-pin amber compact" aria-hidden="true">
-                  <span className="pin-shadow" />
-                  <span className="pin-needle" />
-                  <span className="pin-collar" />
-                  <span className="pin-head">
-                    <span className="pin-glint" />
-                  </span>
-                </div>
-                <div className="panel-heading">
-                  <div>
-                    <span className="admin-report-eyebrow" title="How customers ordered, such as dine-in or take-out">ORDER TYPES</span>
-                    <h2>Where orders come from</h2>
-                  </div>
-                  <span className="inventory-count">{channels.length} {channels.length === 1 ? "type" : "types"}</span>
-                </div>
-
-                <div className="report-breakdown" key={`mix-${rangeKey}-${staffFilterId ?? "all"}`}>
-                  {channels.length ? channels.map((channel, idx) => {
-                    const relPct = topChannelSales > 0 ? Math.max(6, Math.min(100, (channel.sales / topChannelSales) * 100)) : 0;
-                    const clipRight = Math.max(0, 100 - relPct);
-                    return (
-                      <div className="report-breakdown-row" key={channel.type} style={{ "--bar-index": idx }}>
-                        <div className="report-breakdown-head">
-                          <strong>{channel.type}</strong>
-                          <span>
-                            {channel.ordersCount} order{channel.ordersCount === 1 ? "" : "s"} · {peso(channel.sales)}
-                          </span>
-                        </div>
-                        <div className="report-breakdown-track">
-                          <div
-                            className="report-breakdown-bar"
-                            style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
-                          />
-                        </div>
-                        <small>{Math.round(channel.sharePercent || 0)}% of sales</small>
-                      </div>
-                    );
-                  }) : (
-                    <div className="admin-report-empty compact">
-                      <strong>No channel data yet</strong>
+                  {customRangeInvalid ? (
+                    <div className="nb-empty" role="alert">
+                      <CalendarDays size={24} aria-hidden="true" />
+                      <strong>The dates are the wrong way round</strong>
+                      <span>Pick a “From” date that is on or before the “To” date.</span>
                     </div>
-                  )}
-                </div>
-
-                <div className="report-status-row">
-                  <div className="report-status-pill completed">
-                    <strong>{summary.paidOrdersCount}</strong>
-                    <span>Paid</span>
-                  </div>
-                  <div className="report-status-pill pending">
-                    <strong>{summary.unpaidOrdersCount}</strong>
-                    <span>Unpaid</span>
-                  </div>
-                  <div className="report-status-pill voided">
-                    <strong>{summary.voidedOrdersCount}</strong>
-                    <span>Cancelled</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="admin-report-panel products-panel report-folio-sheet" aria-label="Ranked product performance">
-              <div className="report-folio-bookmark amber" aria-hidden="true">
-                <span className="folio-bookmark-hole" />
-                <span className="folio-bookmark-label">TOP</span>
-              </div>
-              <div className="panel-heading folio-heading-padded">
-                <div>
-                  <span className="admin-report-eyebrow">PRODUCT SALES</span>
-                  <h2 title="Items ranked by how much they earned, with the profit on each">Best sellers</h2>
-                </div>
-                <div className="report-panel-head-actions">
-                  <span className="inventory-count">{rankedProducts.length} items</span>
-                  {rankedProducts.length > 8 && (
-                    <button
-                      type="button"
-                      className="report-toggle-all-btn"
-                      onClick={() => setProductsShowAll((v) => !v)}
-                    >
-                      {productsShowAll ? "Show Top 8" : `Show all ${rankedProducts.length}`}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {displayedProducts.length ? (
-                <div className="inventory-table-wrap">
-                  <table className="inventory-table report-products-table">
-                    <thead>
-                      <tr>
-                        <th scope="col" title="Rank by sales, highest first">Rank</th>
-                        <th scope="col">Product</th>
-                        <th scope="col">Category</th>
-                        <th scope="col" title="How many were sold in this period">Sold</th>
-                        <th scope="col" title="Menu price of the item, plus the price of any add-ons">Price + add-ons</th>
-                        <th scope="col" title="Money collected from selling this item">Sales</th>
-                        <th scope="col" title="Cost of goods sold: the ingredient and packaging cost of the items sold">Cost to make</th>
-                        <th scope="col" title="Gross profit: sales minus cost to make. The percentage is profit out of sales">Profit</th>
-                        <th scope="col" title="How much of your total sales this item brought in">% of sales</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {displayedProducts.map((product, index) => {
-                        const sharePct = summary.grossCollectedSales > 0
-                          ? (product.sales / summary.grossCollectedSales) * 100
-                          : 0;
-                        const clipRight = Math.max(0, 100 - Math.max(4, Math.min(100, sharePct)));
-                        return (
-                          <tr key={`${product.productId || product.productName}-${product.sizeLabel}`}>
-                            <td><span className="report-rank">{index + 1}</span></td>
-                            <td>
-                              <div className="report-product-title-cell">
-                                <span>{product.productName}</span>
-                                <small>{product.sizeLabel || "Regular"}</small>
-                              </div>
-                            </td>
-                            <td>{product.category}</td>
-                            <td>{product.unitsSold}</td>
-                            <td>
-                              {peso(product.baseSales)}
-                              {product.addonSales > 0 && (
-                                <small className="report-sub-addon"> +{peso(product.addonSales)}</small>
-                              )}
-                            </td>
-                            <td>{peso(product.sales)}</td>
-                            <td>
-                              {peso(product.cogs)}
-                              {product.uncostedItemsCount > 0 && (
-                                <span
-                                  className="report-uncosted-mini"
-                                  title={`${product.uncostedItemsCount} sold unit(s) missing cost data`}
-                                >
-                                  Partial
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              {peso(product.grossProfit)}
-                              <small className="report-margin-mini"> ({Number(product.marginPercent || 0).toFixed(1)}%)</small>
-                            </td>
-                            <td>
-                              <span className="report-share">
-                                <span className="report-share-track">
-                                  <span
-                                    className="report-share-bar"
-                                    style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
-                                  />
-                                </span>
-                                {Math.round(sharePct)}%
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="admin-report-empty">
-                  <span>◔</span>
-                  <strong>No product sales in this period</strong>
-                  <p>Once paid orders are placed, your best sellers and their profit will appear here.</p>
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* Operations Spread: Cashier Shift Logbook (Left) + Stock Health Notebook (Right) */}
-          <div className="admin-report-ops-spread">
-            <section className="admin-report-panel cashier-panel report-folio-sheet" aria-label="Cashier attribution report">
-            <div className="cashier-logbook-spine" aria-hidden="true">
-              <span className="logbook-spine-rivet" />
-              <span className="logbook-spine-stamp">LOG · STAFF</span>
-              <span className="logbook-spine-rivet" />
-            </div>
-
-            <div className="report-folio-bookmark sage" aria-hidden="true">
-              <span className="folio-bookmark-hole" />
-              <span className="folio-bookmark-label">STAFF</span>
-            </div>
-
-            <div className="cashier-logbook-page">
-              <div className="panel-heading cashier-panel-heading folio-heading-padded">
-                <div>
-                  <span className="admin-report-eyebrow" title="Sales and profit credited to each staff member who handled the order">STAFF SALES · SHIFT LOGBOOK</span>
-                  <h2>Cashiers &amp; Staff Activity</h2>
-                  <p className="cashier-panel-description">
-                    Click any team member to see their shifts, sales, cost to make, orders, and stock changes.
-                  </p>
-                  {coreState.staffPerf?.laborLocked ? (
-                    <p className="cashier-panel-description">
-                      🔒 Wages, sales per labor hour and profit after wages are hidden.{" "}
-                      <button type="button" className="net-income-gate-button" onClick={() => netIncomePin.setModalOpen(true)}>Show with Owner PIN</button>
-                    </p>
-                  ) : coreState.staffPerf?.totals?.laborCost != null && (
-                    <p className="cashier-panel-description">
-                      Wages of staff linked to a POS login: {peso(coreState.staffPerf.totals.laborCost)} · profit after wages {peso(coreState.staffPerf.totals.profitAfterWages)}.
-                    </p>
-                  )}
-                </div>
-                <span className="cashier-active-note">
-                  {staffRosterTotals.activeWithSales} {staffRosterTotals.activeWithSales === 1 ? "member" : "members"} with sales
-                </span>
-              </div>
-
-              <div className="cashier-summary-bar" aria-label="Cashier sales summary">
-                <div className="cashier-summary-item">
-                  <span className="cashier-summary-label">Orders</span>
-                  <strong className="cashier-summary-val">{staffRosterTotals.ordersCount.toLocaleString()}</strong>
-                </div>
-                <div className="cashier-summary-item revenue">
-                  <span className="cashier-summary-label" title="Total sales credited to staff who handled the orders">Staff sales</span>
-                  <strong className="cashier-summary-val">{peso(staffRosterTotals.grossSales)}</strong>
-                </div>
-                <div className="cashier-summary-item">
-                  <span className="cashier-summary-label" title="Average amount per order">Average order</span>
-                  <strong className="cashier-summary-val">{peso(staffRosterTotals.averageTicket)}</strong>
-                </div>
-              </div>
-
-              <div className="cashier-roster-toolbar">
-                <div className="cashier-filter-group" role="group" aria-label="Filter staff roster">
-                  {ROSTER_FILTERS.map((rf) => (
-                    <button
-                      key={rf.key}
-                      type="button"
-                      className={`cashier-filter-pill ${rosterFilter === rf.key ? "is-active" : ""}`}
-                      aria-pressed={rosterFilter === rf.key}
-                      onClick={() => setRosterFilter(rf.key)}
-                    >
-                      {rf.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="cashier-sort-control">
-                  <span>Sort by</span>
-                  <select
-                    value={rosterSort}
-                    onChange={(e) => setRosterSort(e.target.value)}
-                    aria-label="Sort staff roster"
-                  >
-                    {ROSTER_SORTS.map((rs) => (
-                      <option key={rs.key} value={rs.key}>{rs.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {visibleStaffRoster.length ? (
-                <div className="cashier-table-wrap">
-                  <div className="cashier-bar-list" key={`cashier-bars-${rangeKey}-${rosterFilter}-${rosterSort}`}>
-                    <div className="cashier-bar-ruler" aria-hidden="true">
-                      <div className="cashier-bar-ruler-label">SHIFT LEDGER · SHARE OF SALES</div>
-                      <div className="cashier-bar-ruler-scale">
-                        <div>0%</div>
-                        <div>25%</div>
-                        <div>50%</div>
-                        <div>75%</div>
-                        <div>100%</div>
-                      </div>
+                  ) : isCoreLoading ? (
+                    <div className="nb-empty" role="status">
+                      <ChartColumn size={24} aria-hidden="true" />
+                      <strong>Loading sales</strong>
+                      <span>Adding up the paid orders for this period.</span>
                     </div>
-
-                    {visibleStaffRoster.map((cashier, index) => {
-                      const sharePct = Math.round(Number(cashier.sharePercent || 0));
-                      const barWidth = cashier.grossSales > 0 ? Math.max(4, Math.min(100, Number(cashier.sharePercent || 0))) : 0;
-                      const clipRight = Math.max(0, 100 - barWidth);
-                      const rankNum = String(index + 1).padStart(2, "0");
-                      const isZero = !(cashier.grossSales > 0);
-                      const tone = !cashier.isActive
-                        ? "inactive"
-                        : isZero
-                          ? "zero-sales"
-                          : index === 0
-                            ? "lead"
-                            : index === 1
-                              ? "second"
-                              : "standard";
-                      const isFilteredHere = Number(staffFilterId) === Number(cashier.userId);
-
-                      return (
-                        <button
-                          type="button"
-                          className={`cashier-bar-row ${tone}${isFilteredHere ? " is-filtered" : ""}`}
-                          key={cashier.userId}
-                          style={{ "--bar-index": Math.min(index, 5) }}
-                          onClick={(e) => handleOpenStaffModal(cashier, e)}
-                          aria-label={`Inspect ${cashier.displayName} activity logs (${peso(cashier.grossSales)}, ${cashier.ordersCount} orders)`}
-                        >
-                          <span className="cashier-bar-top">
-                            <span className="cashier-bar-identity">
-                              <span className="cashier-crest">
-                                <span className="cashier-rank" title={isZero ? "No sales in this period" : `Ranked #${index + 1} by sales`}>{isZero ? "–" : rankNum}</span>
-                                <span className="cashier-avatar" aria-hidden="true">{initials(cashier.displayName)}</span>
-                              </span>
-                              <span className="cashier-name-group">
-                                <span className="cashier-name-line">
-                                  <span className="cashier-name">{cashier.displayName}</span>
-                                  {tone === "lead" && <span className="cashier-lead-seal">Top Cashier</span>}
-                                  {!cashier.isActive && <span className="cashier-status-pill inactive">Inactive</span>}
-                                  {cashier.role === "admin" && <span className="cashier-status-pill role">Admin</span>}
-                                  {isFilteredHere && <span className="cashier-status-pill filtered">Filtered</span>}
-                                  {cashier.ordersCount > 0 && (
-                                    Number(cashier.unconfirmedOrdersCount || 0) > 0 ? (
-                                      <span
-                                        className="cashier-status-pill unconfirmed"
-                                        title="Paid orders the owner has not yet confirmed"
-                                        style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #f59e0b" }}
-                                      >
-                                        ⏳ {cashier.unconfirmedOrdersCount} to confirm ({peso(cashier.unconfirmedSales)})
-                                      </span>
-                                    ) : (
-                                      <span
-                                        className="cashier-status-pill confirmed"
-                                        title="The owner has confirmed all of this person's paid orders"
-                                        style={{ background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}
-                                      >
-                                        ✓ All confirmed
-                                      </span>
-                                    )
-                                  )}
-                                </span>
-                                <span className="cashier-meta-inline">
-                                  <span>{cashier.ordersCount} {cashier.ordersCount === 1 ? "order" : "orders"}</span>
-                                  <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                  <span title="Average amount per order">Average order {peso(cashier.averageTicket)}</span>
-                                  <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                  <span>Profit {peso(cashier.attributedGrossProfit)} ({Number(cashier.marginPercent || 0).toFixed(1)}%)</span>
-                                  {cashier.laborCost != null && (
-                                    <>
-                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                      <span title="Employer cost of payroll runs ending in this range: gross pay, employer contributions and 13th month">Wages {peso(cashier.laborCost)}</span>
-                                      {cashier.salesPerLaborHour != null && (
-                                        <>
-                                          <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                          <span title="Sales on this person's orders divided by the hours paid">{peso(cashier.salesPerLaborHour)} per labor hour</span>
-                                        </>
-                                      )}
-                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                      <span title="Profit on this person's orders minus their wages" style={{ color: cashier.profitAfterWages < 0 ? "#b91c1c" : undefined }}>After wages {peso(cashier.profitAfterWages)}</span>
-                                    </>
-                                  )}
-                                  {cashier.voidedOrdersCount > 0 && (
-                                    <>
-                                      <span className="cashier-meta-dot" aria-hidden="true">·</span>
-                                      <span className="cashier-void-flag">{cashier.voidedOrdersCount} cancelled</span>
-                                    </>
-                                  )}
-                                </span>
-                              </span>
-                            </span>
-                            <span className="cashier-bar-figures">
-                              <span className="cashier-bar-revenue">{peso(cashier.grossSales)}</span>
-                              <span className="cashier-bar-pct-badge">{sharePct}%</span>
-                              <span className="cashier-inspect-chip">
-                                Inspect logs
-                                <ArrowRight size={12} aria-hidden="true" />
-                              </span>
-                            </span>
-                          </span>
-
-                          <span
-                            className="cashier-bar-track"
-                            aria-hidden="true"
-                          >
-                            <span className="cashier-bar-ticks" aria-hidden="true">
-                              <span />
-                              <span />
-                              <span />
-                            </span>
-                            <span
-                              className={`cashier-bar-fill ${tone}`}
-                              style={{ clipPath: `inset(0 ${clipRight.toFixed(2)}% 0 0 round 999px)` }}
-                            />
-                            {barWidth > 0 && (
-                              <span
-                                className="cashier-bar-pip-carrier"
-                                aria-hidden="true"
-                                style={{ transform: `translateX(${(barWidth - 100).toFixed(2)}%)` }}
-                              >
-                                <span className="cashier-bar-pip" />
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="admin-report-empty">
-                  <span>◎</span>
-                  <strong>No matching staff accounts</strong>
-                  <p>Switch roster filters above or reset to view inactive and zero-sales cashiers.</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Right: Live Inventory Stock Health Notebook */}
-          <section className="admin-report-panel inventory-panel report-notebook-sheet" aria-label="Inventory report">
-            <div className="report-notebook-spine" aria-hidden="true">
-              {Array.from({ length: 10 }).map((_, idx) => (
-                <span key={idx} className="report-spine-ring">
-                  <i className="report-spine-hole" />
-                  <b className="report-spine-wire" />
-                </span>
-              ))}
-            </div>
-
-            <div className="report-notebook-bookmark" aria-hidden="true">
-              <span className="report-bookmark-eyelet" />
-              <span className="report-bookmark-text">STOCK</span>
-            </div>
-
-            <div className="report-notebook-page">
-              <div className="panel-heading inventory-panel-heading">
-                <div>
-                  <span className="admin-report-eyebrow">INVENTORY REPORT</span>
-                  <h2>Stock health</h2>
-                  <p className="inventory-panel-description">
-                    Live ingredient stock · Total stock value {peso(summary.inventoryAssetValue)}.
-                  </p>
-                </div>
-                <div className="inventory-panel-actions">
-                  <button
-                    type="button"
-                    className="restock-open-button"
-                    onClick={(e) => {
-                      restockTriggerRef.current = e.currentTarget;
-                      setRestockNotice("");
-                      setRestockClosing(false);
-                      setRestockModalOpen(true);
-                    }}
-                    aria-haspopup="dialog"
-                    aria-label={`View restock list, ${restockItems.length} items need restock`}
-                  >
-                    View restock list <span>{restockItems.length}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Little Straight Overview Bar (4 Metrics) */}
-              <div className="stock-overview-bar" aria-label="Inventory summary">
-                <div className="stock-overview-item">
-                  <span className="stock-overview-label">Tracked</span>
-                  <strong className="stock-overview-val">{stockBreakdown.total}</strong>
-                </div>
-                <div className="stock-overview-item healthy" title="Items that are not low, out of stock, or above the maximum. Moderate counts as healthy.">
-                  <span className="stock-overview-dot healthy" aria-hidden="true" />
-                  <span className="stock-overview-label">Healthy</span>
-                  <strong className="stock-overview-val">{stockBreakdown.healthy}</strong>
-                </div>
-                <div className="stock-overview-item critical" title="Items that are low or out of stock and need restocking">
-                  <span className="stock-overview-dot critical" aria-hidden="true" />
-                  <span className="stock-overview-label">Low &amp; Out</span>
-                  <strong className="stock-overview-val">{restockItems.length}</strong>
-                </div>
-                <div className="stock-overview-item over">
-                  <span className="stock-overview-dot over" aria-hidden="true" />
-                  <span className="stock-overview-label">Above Max</span>
-                  <strong className="stock-overview-val">{stockBreakdown.over}</strong>
-                </div>
-              </div>
-
-              {/* Minimal Toolbar (Controls only, legend moved to ruler) */}
-              <div className="stock-list-toolbar">
-                <div className="stock-filter-tabs" role="tablist" aria-label="Filter stock report">
-                  {STOCK_FILTERS.map((filter) => {
-                    const count = filter === "all"
-                      ? stockBreakdown.total
-                      : filter === "attention"
-                        ? stockBreakdown.attention
-                        : stockBreakdown.healthy;
-
-                    return (
-                      <button
-                        key={filter}
-                        type="button"
-                        role="tab"
-                        aria-selected={filter === stockFilter}
-                        className={filter === stockFilter ? "active" : ""}
-                        onClick={() => setStockFilter(filter)}
+                  ) : summary.paidOrdersCount > 0 ? (
+                    <div className="rp-chart" key={`${rangeKey}-${staffFilterId ?? "all"}`}>
+                      <svg
+                        viewBox={`0 0 ${trend.width} ${trend.height}`}
+                        role="img"
+                        aria-label={`Sales across ${trend.points.length} periods, totalling ${peso(summary.grossCollectedSales)} and peaking at ${peso(trend.best?.sales || 0)}`}
                       >
-                        {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
-                        <span>{count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <label className="stock-sort-control">
-                  <span>Sort by</span>
-                  <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort inventory items">
-                    <option value="name">Item name</option>
-                    <option value="category">Category</option>
-                    <option value="low">Stock level: low to high</option>
-                    <option value="high">Stock level: high to low</option>
-                    <option value="status">Health status</option>
-                  </select>
-                </label>
-              </div>
-
-              {inventoryLoading && inventory.length === 0 ? (
-                <div className="admin-report-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
-              ) : inventoryError && inventory.length === 0 ? (
-                <div className="admin-report-empty" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
-              ) : visibleStock.length ? (
-                <div className="stock-table-wrap">
-                  <div className="stock-bar-list" key={`stock-bars-${stockFilter}-${stockSort}`}>
-                    {/* Logbook Scale Ruler Header with Integrated Health Legend */}
-                    <div className="stock-bar-ruler" aria-hidden="true">
-                      <div className="stock-bar-ruler-top">
-                        <div className="stock-bar-ruler-label">STOCK LEVEL · % OF MAXIMUM</div>
-                        <div className="stock-bar-ruler-legend" title="Bar colour shows how full the stock is: red up to 20%, orange up to 40%, yellow up to 70%, green above 70%">
-                          <span className="stock-ruler-dot critical" /> ≤20%
-                          <span className="stock-ruler-dot low" /> ≤40%
-                          <span className="stock-ruler-dot moderate" /> ≤70%
-                          <span className="stock-ruler-dot available" /> &gt;70%
-                        </div>
-                      </div>
-                      <div className="stock-bar-ruler-scale">
-                        <div>0%</div>
-                        <div>25%</div>
-                        <div>50%</div>
-                        <div>75%</div>
-                        <div>100%</div>
-                      </div>
-                    </div>
-
-                    {/* Integrated One-Bar Cards */}
-                    {visibleStock.map((item, index) => {
-                      const pct = item.capacityPercent ?? 0;
-                      const hasMax = item.maximumStock != null;
-                      const barWidth = hasMax ? Math.max(0, Math.min(100, pct)) : 0;
-                      const rankNum = String(index + 1).padStart(2, "0");
-
-                      return (
-                        <div
-                          className={`stock-bar-row ${item.healthTone}`}
-                          key={item.id ?? item.item}
-                          tabIndex={0}
-                          aria-label={`${item.item}: ${item.quantity.toLocaleString()} ${item.unit}, status: ${item.label}`}
-                        >
-                          {/* Top Row: Identity & Status Meta */}
-                          <div className="stock-bar-top">
-                            <div className="stock-bar-identity">
-                              <span className="stock-bar-pin-tag">
-                                <span className="stock-bar-pin-dot" />
-                                #{rankNum}
-                              </span>
-                              <div className="stock-bar-name-group">
-                                <span className="stock-bar-name">{item.item}</span>
-                                <span className="stock-bar-category-pill">{item.category}</span>
-                              </div>
-                            </div>
-
-                            <div className="stock-bar-figures">
-                              <div className="stock-bar-quantity-stack">
-                                <span className="stock-bar-qty-current">
-                                  {item.quantity.toLocaleString()} <span className="stock-bar-unit">{item.unit}</span>
-                                </span>
-                                <span className="stock-bar-qty-max">
-                                  {hasMax ? `/ ${Number(item.maximumStock).toLocaleString()} ${item.unit} max` : "No ceiling set"}
-                                </span>
-                              </div>
-
-                              {item.capacityPercent != null && (
-                                <span className={`stock-bar-pct-badge ${item.healthTone}`} title={`${item.reportedPercent}% of the maximum stock`}>
-                                  {item.reportedPercent}%
-                                </span>
-                              )}
-
-                              <span className={`inventory-status ${item.healthTone}`}>
-                                <span aria-hidden="true" />
-                                {item.label}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Bottom Row: Recessed Visual Progress Track */}
-                          <div
-                            className={`stock-bar-track${item.capacityPercent == null ? " untracked" : ""}`}
-                            role={item.capacityPercent == null ? undefined : "progressbar"}
-                            aria-label={`${item.item} stock capacity`}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-valuenow={item.reportedPercent ?? undefined}
-                            aria-valuetext={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of target maximum`}
-                            title={item.reportedPercent == null ? "Maximum stock is not set" : `${item.reportedPercent}% of target maximum`}
+                        {trend.gridLines.map((line) => (
+                          <line
+                            key={line.y}
+                            x1={trend.padLeft}
+                            y1={line.y}
+                            x2={trend.width - trend.padRight}
+                            y2={line.y}
+                            className={line.isBaseline ? "rp-grid is-base" : "rp-grid"}
+                          />
+                        ))}
+                        {trend.gridLines.map((line) => (
+                          <text
+                            key={`label-${line.y}`}
+                            x={trend.padLeft - 10}
+                            y={line.y}
+                            className="rp-axis"
+                            textAnchor="end"
+                            dominantBaseline="middle"
                           >
-                            <span className="stock-bar-ticks" aria-hidden="true">
-                              <span />
-                              <span />
-                              <span />
-                              <span />
-                            </span>
+                            {compactPeso(line.value)}
+                          </text>
+                        ))}
+                        {trend.points.map((point, index) => {
+                          const isBest = trend.best && point.key === trend.best.key && point.sales > 0;
+                          return (
+                            <rect
+                              key={point.key}
+                              x={point.barX}
+                              y={point.barHeight > 0 ? point.y : trend.baseline - 2}
+                              width={point.barWidth}
+                              height={Math.max(point.barHeight, 2)}
+                              rx="4"
+                              style={{ "--bar-index": Math.min(index, 24) }}
+                              className={`rp-bar${isBest ? " is-best" : ""}${point.sales === 0 ? " is-zero" : ""}`}
+                            >
+                              <title>{`${point.label}: ${peso(point.sales)}, ${point.orders} order${point.orders === 1 ? "" : "s"}`}</title>
+                            </rect>
+                          );
+                        })}
+                        {trend.best && trend.best.sales > 0 && trend.points.length > 1 && (
+                          <text
+                            x={trend.best.x}
+                            y={Math.max(14, trend.best.y - 10)}
+                            className="rp-best-note"
+                            textAnchor="middle"
+                          >
+                            best
+                          </text>
+                        )}
+                        {trend.labelledPoints.map((point) => (point.showLabel ? (
+                          <text
+                            key={`x-${point.key}`}
+                            x={point.x}
+                            y={trend.height - 8}
+                            className="rp-axis"
+                            textAnchor="middle"
+                          >
+                            {point.label}
+                          </text>
+                        ) : null))}
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="nb-empty">
+                      <ChartColumn size={24} aria-hidden="true" />
+                      <strong>No paid orders in this period</strong>
+                      <span>Choose a longer period above, or check back after the next sale.</span>
+                    </div>
+                  )}
+                </section>
 
-                            {hasMax ? (
-                              <span
-                                className={`stock-bar-fill ${item.healthTone}`}
-                                style={{ width: `${barWidth}%` }}
-                              >
-                                {barWidth > 10 && (
-                                  <span className="stock-bar-pip-carrier">
-                                    <span className="stock-bar-pip" />
-                                  </span>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="stock-bar-fill untracked" />
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                {/* ---------- Profit: receipt + cost ledger ---------- */}
+                <section id="rp-profit" className="rp-section" aria-labelledby="rp-profit-title">
+                  <div className="nb-sheet-title">
+                    <h2 id="rp-profit-title">How much did the store earn?</h2>
+                    <span className="nb-sheet-note">read it top to bottom</span>
                   </div>
-                </div>
-              ) : (
-                <div className="admin-report-empty">
-                  <span>◔</span>
-                  <strong>Nothing to show for this filter</strong>
-                  <p>Switch filters to review the rest of your tracked ingredients and supplies.</p>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
 
-          {/* Stock & restock history: one entry per stock change, newest first */}
-          <section className="admin-report-panel report-folio-sheet report-ledger-panel lg-panel" aria-label="Stock and restock history">
-            <header className="lg-head">
-              <div className="lg-head-copy">
-                <h2>Stock &amp; restock history</h2>
-                <p>Every time an ingredient was restocked, used, wasted or adjusted.</p>
-              </div>
-              <div className="lg-head-stat">
-                <strong>{movTotal.toLocaleString()}</strong>
-                <span>{movTotal === 1 ? "entry" : "entries"}</span>
-                {movSummary.totalRestockCount > 0 && (
-                  <small>
-                    {peso(movSummary.totalRestockCost)} spent on {movSummary.totalRestockCount} {movSummary.totalRestockCount === 1 ? "restock" : "restocks"}
-                  </small>
-                )}
-              </div>
-            </header>
+                  <div className="rp-profit-grid">
+                    <article className="rp-receipt" aria-label="Profit, step by step">
+                      <span className="nb-tape" aria-hidden="true" />
+                      <div className="rp-receipt-paper">
+                        <header className="rp-receipt-head">
+                          <strong>Amaya</strong>
+                          <span>Profit slip, {periodTitle.toLowerCase()}</span>
+                        </header>
 
-            <div className="lg-controls">
-              <div className="lg-chips" role="group" aria-label="Show these stock changes">
-                {MOVEMENT_FILTERS.map((mf) => (
-                  <button
-                    key={mf.key || "all"}
-                    type="button"
-                    className={`lg-chip${movTypeFilter === mf.key ? " is-active" : ""}`}
-                    aria-pressed={movTypeFilter === mf.key}
-                    onClick={() => {
-                      setMovTypeFilter(mf.key);
-                      setMovPage(1);
-                    }}
-                  >
-                    {mf.label}
-                  </button>
-                ))}
-              </div>
-              <label className="lg-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  placeholder="Search ingredient, supplier or note"
-                  value={movSearch}
-                  onChange={(e) => {
-                    setMovSearch(e.target.value);
-                    setMovPage(1);
-                  }}
-                  aria-label="Search stock history"
-                />
-              </label>
-            </div>
-
-            {movState.error && (
-              <div className="report-inline-alert compact" role="alert">
-                <AlertTriangle size={14} aria-hidden="true" />
-                <span>{movState.error}</span>
-              </div>
-            )}
-
-            {movItems.length ? (
-              <>
-                <ul className="lg-list">
-                  {movItems.map((mov) => {
-                    const tone = getMovementTone(mov.type);
-                    const linkedStaff = mov.actorId ? staffById.get(Number(mov.actorId)) : null;
-                    const when = splitLedgerDate(mov.timestamp);
-                    const change = Number(mov.quantityChange);
-                    const hasLevels = mov.beforeQuantity != null && mov.afterQuantity != null;
-                    const source = [mov.supplierName, mov.referenceNo].filter(Boolean).join(" · ");
-                    return (
-                      <li key={mov.id} className={`lg-row tone-${tone}`}>
-                        <div className="lg-when">
-                          <strong>{when.day}</strong>
-                          <span>{when.time}</span>
-                        </div>
-                        <div className="lg-main">
-                          <div className="lg-title">
-                            <span className="lg-name">{mov.itemName}</span>
-                            <span className={`lg-tag tone-${tone}`}>{getMovementPlainLabel(mov)}</span>
+                        <dl className="rp-receipt-lines">
+                          <div title="Sales after discounts, before tax">
+                            <dt>Total sales</dt>
+                            <dd>{peso(incomeStatementSummary?.netSalesRevenue ?? summary.netSales ?? 0)}</dd>
                           </div>
-                          <div className="lg-meta">
-                            {hasLevels && (
-                              <span title="Stock before and after this change">
-                                {mov.beforeQuantity} → {mov.afterQuantity} {mov.unit || ""}
-                              </span>
-                            )}
-                            {source && <span>{source}</span>}
-                            {mov.note && <span>{mov.note}</span>}
-                            {mov.orderNumber && (
-                              <button
-                                type="button"
-                                className="lg-link"
-                                onClick={(e) => handleOpenOrderModal({ id: mov.orderNumber }, e)}
-                              >
-                                Order #{mov.orderNumber}
-                              </button>
-                            )}
-                            <span>
-                              by{" "}
-                              {linkedStaff ? (
-                                <button
-                                  type="button"
-                                  className="lg-link"
-                                  onClick={(e) => handleOpenStaffModal(linkedStaff, e)}
-                                >
-                                  {mov.actor}
-                                </button>
-                              ) : (
-                                mov.actor || "System"
-                              )}
-                            </span>
+                          <div className="is-less" title="Cost of goods sold: ingredients of items sold, plus wasted stock">
+                            <dt>Cost to make, with waste</dt>
+                            <dd>{profitLocked ? <Masked /> : `−${peso(incomeStatementSummary?.cogs ?? summary.totalCogs ?? summary.cogs ?? 0)}`}</dd>
                           </div>
-                        </div>
-                        <div className="lg-amount">
-                          <strong className={change >= 0 ? "is-up" : "is-down"}>
-                            {change > 0 ? "+" : ""}{mov.quantityChange} {mov.unit || ""}
-                          </strong>
-                          {mov.batchCost != null && <span title="What this restock cost">{peso(mov.batchCost)}</span>}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <LedgerPager page={movPage} total={movTotal} onPage={setMovPage} noun="stock history" />
-              </>
-            ) : (
-              <div className="admin-report-empty compact">
-                <strong>No stock changes found</strong>
-                <p>
-                  {movTypeFilter || movSearch.trim()
-                    ? "Try a different filter or search."
-                    : "Restocks, ingredients used in orders, waste and adjustments will show up here."}
-                </p>
-              </div>
-            )}
-          </section>
-
-          {/* Order history: one entry per order, newest first */}
-          <section className="admin-report-panel report-folio-sheet report-ledger-panel lg-panel" aria-label="Order history">
-            <header className="lg-head">
-              <div className="lg-head-copy">
-                <h2>Order history</h2>
-                <p>Every order in this period, including cancelled ones.</p>
-              </div>
-              <div className="lg-head-stat">
-                <strong>{ledgerOrdersTotal.toLocaleString()}</strong>
-                <span>{ledgerOrdersTotal === 1 ? "order" : "orders"}</span>
-              </div>
-            </header>
-
-            <div className="lg-controls">
-              <div className="lg-chips" role="group" aria-label="Show orders by status">
-                {ORDER_STATUS_FILTERS.map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    className={`lg-chip${ordersStatusFilter === st ? " is-active" : ""}`}
-                    aria-pressed={ordersStatusFilter === st}
-                    onClick={() => {
-                      setOrdersStatusFilter(st);
-                      setOrdersPage(1);
-                    }}
-                  >
-                    {st}
-                  </button>
-                ))}
-              </div>
-              <label className="lg-select">
-                <span>Paid by</span>
-                <select
-                  value={ordersPaymentFilter}
-                  onChange={(e) => {
-                    setOrdersPaymentFilter(e.target.value);
-                    setOrdersPage(1);
-                  }}
-                  aria-label="Show orders by payment method"
-                >
-                  {PAYMENT_METHOD_FILTERS.map((pm) => (
-                    <option key={pm} value={pm}>{pm === "All" ? "Any method" : pm}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="lg-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  placeholder="Search order number or customer"
-                  value={ordersSearch}
-                  onChange={(e) => {
-                    setOrdersSearch(e.target.value);
-                    setOrdersPage(1);
-                  }}
-                  aria-label="Search order history"
-                />
-              </label>
-            </div>
-
-            {ordersState.error && (
-              <div className="report-inline-alert compact" role="alert">
-                <AlertTriangle size={14} aria-hidden="true" />
-                <span>{ordersState.error}</span>
-              </div>
-            )}
-
-            {ledgerOrders.length ? (
-              <>
-                <ul className="lg-list">
-                  {ledgerOrders.map((ord) => {
-                    const statusClass = String(ord.status || "Pending").toLowerCase();
-                    const when = splitLedgerDate(ord.createdAt);
-                    return (
-                      <li key={ord.id} className={`lg-row order-${statusClass}`}>
-                        <div className="lg-when">
-                          <strong>{when.day}</strong>
-                          <span>{when.time}</span>
-                        </div>
-                        <div className="lg-main">
-                          <div className="lg-title">
-                            <span className="lg-name">{ord.customer || "Walk-in customer"}</span>
-                            <span className={`lg-tag order-${statusClass}`}>{ord.status}</span>
+                          <div className="is-subtotal" title="Gross profit: sales minus cost to make">
+                            <dt>Profit before expenses</dt>
+                            <dd>{profitLocked ? <Masked /> : peso(incomeStatementSummary?.grossProfit ?? summary.grossProfit ?? 0)}</dd>
                           </div>
-                          <div className="lg-meta">
-                            <span>Order #{ord.id}</span>
-                            <span>{getPaymentMethodLabel(ord.paymentMethod)}, {getPaymentStatusLabel(ord)}</span>
-                            <span>by {ord.cashier || "Staff"}</span>
+                          <div className="is-less" title="Operating expenses such as rent, salaries and utilities">
+                            <dt>Running costs</dt>
+                            <dd>{profitLocked ? <Masked /> : `−${peso(incomeStatementSummary?.totalOperatingExpenses ?? incomeStatementSummary?.operatingExpenses ?? 0)}`}</dd>
                           </div>
-                        </div>
-                        <div className="lg-amount">
-                          <strong>{peso(ord.total)}</strong>
+                          <div className="is-less" title="Depreciation (equipment losing value) and income tax">
+                            <dt>Equipment wear &amp; tax</dt>
+                            <dd>{profitLocked ? <Masked /> : `−${peso(Number(incomeStatementSummary?.depreciation || 0) + Number(incomeStatementSummary?.tax || 0))}`}</dd>
+                          </div>
+                          <div className="is-total" title="Net income: what the store keeps after all costs and tax">
+                            <dt>Take-home profit</dt>
+                            <dd>
+                              {netIncomePin.unlocked && incomeStatementSummary?.netIncome != null
+                                ? peso(incomeStatementSummary.netIncome)
+                                : <Masked />}
+                            </dd>
+                          </div>
+                        </dl>
+
+                        <div className="rp-receipt-actions">
                           <button
                             type="button"
-                            className="lg-action"
-                            onClick={(e) => handleOpenOrderModal(ord, e)}
-                            aria-label={`View order ${ord.id}`}
+                            className="rp-receipt-btn"
+                            onClick={() => (netIncomePin.unlocked ? netIncomePin.lock() : netIncomePin.setModalOpen(true))}
                           >
-                            <Receipt size={13} aria-hidden="true" />
-                            View
+                            {netIncomePin.unlocked
+                              ? <><Lock size={14} aria-hidden="true" /> Hide profit</>
+                              : <><LockOpen size={14} aria-hidden="true" /> Show profit with PIN</>}
                           </button>
+                          {netIncomePin.unlocked && (
+                            <button type="button" className="rp-receipt-link" onClick={() => netIncomePin.setModalOpen(true)}>
+                              Change PIN
+                            </button>
+                          )}
                         </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <LedgerPager page={ordersPage} total={ledgerOrdersTotal} onPage={setOrdersPage} noun="order history" />
-              </>
-            ) : (
-              <div className="admin-report-empty compact">
-                <strong>No orders found</strong>
-                <p>Try a different status, payment method or search.</p>
+
+                        <footer className="rp-receipt-foot">Printed {generatedStamp}</footer>
+                      </div>
+                    </article>
+
+                    <article className="rp-ledger" aria-label="Costs and payments">
+                      <svg className="rp-clip" viewBox="0 0 24 64" aria-hidden="true">
+                        <path d="M8 46V12a5 5 0 0 1 10 0v38a8 8 0 0 1-16 0V16" />
+                      </svg>
+                      <header className="rp-ledger-head">
+                        <h3 className="rp-sub">Costs &amp; payments</h3>
+                        <span className="rp-ledger-stamp">{periodTitle}</span>
+                      </header>
+                      {summary.uncostedItemsCount > 0 && (
+                        <p className="rp-flag" role="status">
+                          <AlertTriangle size={14} aria-hidden="true" />
+                          {summary.uncostedItemsCount} sold unit{summary.uncostedItemsCount === 1 ? " has" : "s have"} no ingredient cost yet, so costs below are too low.
+                        </p>
+                      )}
+                      <dl className="rp-ledger-rows">
+                        <div>
+                          <dt title="Cost of goods sold: ingredients of what you sold, plus wasted stock">
+                            Cost to make
+                            <small>Ingredients {peso(summary.salesCogs)}, wasted stock {peso(summary.spoilageCost)}</small>
+                          </dt>
+                          <dd>{peso(summary.totalCogs ?? summary.cogs)}</dd>
+                        </div>
+                        <div>
+                          <dt title="How much of every peso of sales goes to cost to make. Lower is better">
+                            Cost as % of sales
+                            <small>Goal: {Number(foodCostAnalysis.targetPct.toFixed(2))}% or less</small>
+                          </dt>
+                          <dd>
+                            {foodCostAnalysis.actualPct != null ? `${foodCostAnalysis.actualPct.toFixed(1)}%` : "—"}
+                            {foodCostAnalysis.varianceLabel && (
+                              <span className={`rp-tag ${foodCostAnalysis.isOverTarget ? "is-bad" : "is-good"}`}>
+                                {foodCostAnalysis.varianceLabel}
+                              </span>
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt title="Gross profit: total sales minus the cost to make">Profit after cost to make</dt>
+                          <dd>
+                            {peso(summary.grossProfit)}
+                            <span className="rp-tag is-good">{Number(summary.marginPercent || 0).toFixed(1)}% margin</span>
+                          </dd>
+                        </div>
+                        <div className="rp-ledger-pay">
+                          <dt>Paid by</dt>
+                          <dd>
+                            <PaymentSplit cash={summary.cashCollected} gcash={summary.gcashCollected} card={summary.cardCollected} />
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Cancelled orders</dt>
+                          <dd className={summary.voidedOrdersCount > 0 ? "is-bad" : ""}>
+                            {summary.voidedOrdersCount}
+                            <small>{peso(summary.voidedSalesTotal)}</small>
+                          </dd>
+                        </div>
+                        <div className="rp-ledger-spent">
+                          <dt>Stock bought <small>{summary.inventoryRestockCount} {summary.inventoryRestockCount === 1 ? "restock" : "restocks"}</small></dt>
+                          <dd>
+                            <InkArrow />
+                            <span className="rp-hl">{peso(summary.inventoryExpenditure)}</span>
+                          </dd>
+                        </div>
+                      </dl>
+                      <span className="rp-dogear" aria-hidden="true" />
+                    </article>
+                  </div>
+                </section>
+
+                {/* ---------- Products ---------- */}
+                <section id="rp-products" className="rp-section" aria-labelledby="rp-products-title">
+                  <div className="nb-sheet-title">
+                    <h2 id="rp-products-title">What sold, and how</h2>
+                    <span className="nb-sheet-note">{rankedProducts.length} {rankedProducts.length === 1 ? "item" : "items"} sold</span>
+                  </div>
+
+                  <div className="rp-products-grid">
+                    <article className="nb-card rp-card" aria-label="Order types">
+                      <span className="nb-tape" aria-hidden="true" />
+                      <h3 className="rp-sub">Where orders come from</h3>
+                      <div className="rp-channels" key={`mix-${rangeKey}-${staffFilterId ?? "all"}`}>
+                        {channels.length ? channels.map((channel) => {
+                          const relPct = topChannelSales > 0 ? Math.max(4, Math.min(100, (channel.sales / topChannelSales) * 100)) : 0;
+                          return (
+                            <div className="rp-channel" key={channel.type}>
+                              <div className="rp-channel-head">
+                                <strong>{channel.type}</strong>
+                                <span>{Math.round(channel.sharePercent || 0)}%</span>
+                              </div>
+                              <div className="nbi-gauge"><span style={{ width: `${relPct}%` }} /></div>
+                              <small>{channel.ordersCount} order{channel.ordersCount === 1 ? "" : "s"}, {peso(channel.sales)}</small>
+                            </div>
+                          );
+                        }) : (
+                          <p className="rp-muted">No orders in this period yet.</p>
+                        )}
+                      </div>
+                      <div className="rp-status-row">
+                        <span className="nb-chip nb-chip-ok">{summary.paidOrdersCount} paid</span>
+                        <span className="nb-chip nb-chip-warn">{summary.unpaidOrdersCount} unpaid</span>
+                        <span className="nb-chip nb-chip-alert">{summary.voidedOrdersCount} cancelled</span>
+                      </div>
+                    </article>
+
+                    <article className="rp-best" aria-labelledby="rp-best-title">
+                      <span className="nb-tape rp-best-tape" aria-hidden="true" />
+                      <header className="rp-best-head">
+                        <svg className="rp-rosette" viewBox="0 0 64 80" aria-hidden="true" focusable="false">
+                          <path d="M22 44 12 76l11-6 7 9 6-30z" fill="#8f3322" />
+                          <path d="M42 44l10 32-11-6-7 9-6-30z" fill="#b0412c" />
+                          <path d="M32 4l5 4 6-1 2 6 6 3-1 6 4 5-4 5 1 6-6 3-2 6-6-1-5 4-5-4-6 1-2-6-6-3 1-6-4-5 4-5-1-6 6-3 2-6 6 1z" fill="#e2b867" stroke="#9c6b26" strokeWidth="1" />
+                          <circle cx="32" cy="28" r="13" fill="#fff6dc" stroke="#9c6b26" strokeWidth="1.2" />
+                          <path d="M32 20.5l2.3 4.7 5.2.8-3.8 3.6.9 5.1-4.6-2.4-4.6 2.4.9-5.1-3.8-3.6 5.2-.8z" fill="#b0412c" />
+                        </svg>
+                        <div>
+                          <h3 id="rp-best-title">Best sellers</h3>
+                          <p>
+                            {bestTotal ? `Top ${bestTotal} by sales` : "Ranked by sales"}, {periodTitle.toLowerCase()}
+                          </p>
+                        </div>
+                      </header>
+
+                      <div className="rp-best-page">
+                          <ol className="rp-best-list" key={`best-${bestPage}-${rangeKey}`}>
+                            {pagedProducts.map((product, index) => {
+                              const rank = bestPage * BEST_PAGE_SIZE + index + 1;
+                              const medal = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "plain";
+                              const sharePct = summary.grossCollectedSales > 0
+                                ? (product.sales / summary.grossCollectedSales) * 100
+                                : 0;
+                              return (
+                                <li key={`${product.productId || product.productName}-${product.sizeLabel}`} className={`rp-best-row medal-${medal}`}>
+                                  <span className="rp-best-rank" aria-label={`Rank ${rank}`}>
+                                    <small aria-hidden="true">No.</small>
+                                    <span aria-hidden="true">{rank}</span>
+                                  </span>
+                                  <div className="rp-best-body">
+                                    <div className="rp-best-name">
+                                      <strong>{product.productName}</strong>
+                                      <small>{product.sizeLabel || "Regular"}, {product.category}</small>
+                                    </div>
+                                    <dl className="rp-best-figs">
+                                      <div>
+                                        <dt>Sales</dt>
+                                        <dd>{peso(product.sales)}</dd>
+                                      </div>
+                                      <div>
+                                        <dt title="Ingredient and packaging cost of the items sold">Cost to make</dt>
+                                        <dd>
+                                          {peso(product.cogs)}
+                                          {product.uncostedItemsCount > 0 && (
+                                            <em className="is-bad" title={`${product.uncostedItemsCount} sold unit(s) missing cost data`}>incomplete</em>
+                                          )}
+                                        </dd>
+                                      </div>
+                                      <div>
+                                        <dt>Profit</dt>
+                                        <dd className="is-good">{peso(product.grossProfit)} <em>{Number(product.marginPercent || 0).toFixed(1)}%</em></dd>
+                                      </div>
+                                    </dl>
+                                    <div className="rp-best-share" title={product.addonSales > 0 ? `Includes ${peso(product.addonSales)} from add-ons` : undefined}>
+                                      <span className="nbi-gauge" aria-hidden="true"><span style={{ width: `${Math.max(3, Math.min(100, sharePct))}%` }} /></span>
+                                      <span>{Math.round(sharePct)}% of all sales</span>
+                                    </div>
+                                  </div>
+                                  <div className="rp-best-sold">
+                                    <span className="rp-hl">{Number(product.unitsSold || 0).toLocaleString()}</span>
+                                    <small>sold</small>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                            {/* Invisible stand-ins keep the card three rows tall on short pages and when empty */}
+                            {Array.from({ length: BEST_PAGE_SIZE - pagedProducts.length }).map((_, i) => (
+                              <BestSellerGhostRow
+                                key={`ghost-${i}`}
+                                blank={!pagedProducts.length}
+                                rank={pagedProducts.length + i + 1}
+                              />
+                            ))}
+                          </ol>
+
+                          {!pagedProducts.length && (
+                            <div className="rp-best-empty" role="status">
+                              <div className="rp-best-slip">
+                                <strong>Nothing sold yet</strong>
+                                <span>The first paid order {rangeKey === "today" ? "today " : ""}gets written on line 1.</span>
+                              </div>
+                              <svg className="rp-pencil" viewBox="0 0 240 40" aria-hidden="true" focusable="false">
+                                <defs>
+                                  <linearGradient id="rp-pencil-body" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0" stopColor="#ffd86b" />
+                                    <stop offset="0.34" stopColor="#f4b630" />
+                                    <stop offset="0.36" stopColor="#ffcf4d" />
+                                    <stop offset="0.66" stopColor="#e9a521" />
+                                    <stop offset="0.68" stopColor="#f6bb3a" />
+                                    <stop offset="1" stopColor="#c9851a" />
+                                  </linearGradient>
+                                  <linearGradient id="rp-pencil-metal" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0" stopColor="#eef0f2" />
+                                    <stop offset="0.45" stopColor="#a9adb3" />
+                                    <stop offset="0.55" stopColor="#d8dbdf" />
+                                    <stop offset="1" stopColor="#7d838a" />
+                                  </linearGradient>
+                                  <linearGradient id="rp-pencil-wood" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0" stopColor="#f6dcb6" />
+                                    <stop offset="1" stopColor="#d8ae7c" />
+                                  </linearGradient>
+                                  <linearGradient id="rp-pencil-eraser" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0" stopColor="#f6a7a0" />
+                                    <stop offset="1" stopColor="#d26e66" />
+                                  </linearGradient>
+                                </defs>
+                                <ellipse cx="122" cy="33" rx="108" ry="4" fill="#3b2619" opacity="0.14" />
+                                <rect x="6" y="8" width="26" height="22" rx="6" fill="url(#rp-pencil-eraser)" />
+                                <rect x="26" y="7" width="22" height="24" fill="url(#rp-pencil-metal)" />
+                                <path d="M31 7v24M36 7v24M41 7v24" stroke="#7d838a" strokeOpacity="0.6" />
+                                <rect x="48" y="8" width="146" height="22" fill="url(#rp-pencil-body)" />
+                                <path d="M194 8l30 11-30 11z" fill="url(#rp-pencil-wood)" />
+                                <path d="M194 8c2 3 2 19 0 22" fill="none" stroke="#c9851a" strokeWidth="1.2" />
+                                <path d="M214 15.4l12 3.6-12 3.6z" fill="#3d3a38" />
+                                <text x="74" y="22.5" fill="#6b4a0f" fontSize="8.5" fontWeight="700" letterSpacing="1.5" opacity="0.75">AMAYA · HB</text>
+                              </svg>
+                            </div>
+                          )}
+                      </div>
+
+                          {bestPageCount > 1 && (
+                            <nav className="rp-best-pager" aria-label="Best seller pages">
+                              <button type="button" onClick={() => setBestPage(Math.max(0, bestPage - 1))} disabled={bestPage === 0}>
+                                <ChevronLeft size={15} aria-hidden="true" /> Previous
+                              </button>
+                              <span className="rp-best-dots">
+                                {Array.from({ length: bestPageCount }).map((_, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    className={i === bestPage ? "is-active" : ""}
+                                    aria-label={`Show ranks ${i * BEST_PAGE_SIZE + 1} to ${Math.min(bestTotal, (i + 1) * BEST_PAGE_SIZE)}`}
+                                    aria-current={i === bestPage ? "page" : undefined}
+                                    onClick={() => setBestPage(i)}
+                                  />
+                                ))}
+                                <small>{bestPage * BEST_PAGE_SIZE + 1}–{Math.min(bestTotal, (bestPage + 1) * BEST_PAGE_SIZE)} of {bestTotal}</small>
+                              </span>
+                              <button type="button" onClick={() => setBestPage(Math.min(bestPageCount - 1, bestPage + 1))} disabled={bestPage >= bestPageCount - 1}>
+                                Next <ChevronRight size={15} aria-hidden="true" />
+                              </button>
+                            </nav>
+                          )}
+                    </article>
+                  </div>
+                </section>
+
+                {/* ---------- Staff: a log sheet on a clipboard ---------- */}
+                <section id="rp-staff" className="rp-section" aria-labelledby="rp-staff-title">
+                  <div className="rp-clipboard">
+                    <svg className="rp-clip-holder" viewBox="0 0 220 76" aria-hidden="true" focusable="false">
+                      <defs>
+                        <linearGradient id="rp-clip-brass" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0" stopColor="#fff0c4" />
+                          <stop offset="0.18" stopColor="#e6bf6c" />
+                          <stop offset="0.5" stopColor="#b98a3a" />
+                          <stop offset="0.72" stopColor="#d9ae5a" />
+                          <stop offset="1" stopColor="#7d5520" />
+                        </linearGradient>
+                        <linearGradient id="rp-clip-wire" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0" stopColor="#8a6024" />
+                          <stop offset="0.5" stopColor="#f7dc98" />
+                          <stop offset="1" stopColor="#8a6024" />
+                        </linearGradient>
+                      </defs>
+                      <ellipse cx="110" cy="70" rx="92" ry="5" fill="#1d120a" opacity="0.35" />
+                      <path d="M66 32c2-20 18-28 44-28s42 8 44 28" fill="none" stroke="url(#rp-clip-wire)" strokeWidth="5" strokeLinecap="round" />
+                      <path d="M14 66V44c0-9 6-14 16-14h44c6-14 18-20 36-20s30 6 36 20h44c10 0 16 5 16 14v22z" fill="url(#rp-clip-brass)" stroke="#6b4614" strokeWidth="1.2" />
+                      <path d="M22 60V46c0-6 4-9 10-9h46c5-12 15-18 32-18s27 6 32 18h46c6 0 10 3 10 9v14" fill="none" stroke="#fff3cf" strokeOpacity="0.55" strokeWidth="1" />
+                      <rect x="94" y="26" width="32" height="9" rx="4.5" fill="#4a300c" opacity="0.75" />
+                      <circle cx="36" cy="52" r="5" fill="url(#rp-clip-wire)" stroke="#6b4614" strokeWidth="0.8" />
+                      <circle cx="184" cy="52" r="5" fill="url(#rp-clip-wire)" stroke="#6b4614" strokeWidth="0.8" />
+                      <path d="M34.5 50.5l3 3M182.5 50.5l3 3" stroke="#6b4614" strokeWidth="0.9" />
+                    </svg>
+
+                    <article className="rp-attend">
+                      <span className="rp-attend-ribbon" aria-hidden="true"><span>Team</span></span>
+
+                      <header className="rp-attend-head">
+                        <h2 id="rp-staff-title">Cashiers &amp; staff</h2>
+                        <p>
+                          {periodTitle}, as of {liveDate}
+                          <span className="rp-attend-note">
+                            {staffRosterTotals.activeWithSales} {staffRosterTotals.activeWithSales === 1 ? "person" : "people"} made sales
+                          </span>
+                        </p>
+                      </header>
+
+                      <dl className="rp-attend-fields" aria-label="Staff sales summary">
+                        <div><dt>Orders</dt><dd>{staffRosterTotals.ordersCount.toLocaleString()}</dd></div>
+                        <div><dt title="Money from the orders your staff handled">Money taken in</dt><dd>{peso(staffRosterTotals.grossSales)}</dd></div>
+                        <div><dt>Average order</dt><dd>{peso(staffRosterTotals.averageTicket)}</dd></div>
+                        <div>
+                          <dt>Wages paid</dt>
+                          <dd>
+                            {coreState.staffPerf?.laborLocked ? (
+                              <button type="button" className="rp-receipt-link" onClick={() => netIncomePin.setModalOpen(true)}>
+                                <LockOpen size={13} aria-hidden="true" /> Enter PIN to see
+                              </button>
+                            ) : coreState.staffPerf?.totals?.laborCost != null ? (
+                              <>
+                                {peso(coreState.staffPerf.totals.laborCost)}
+                                <small>{peso(coreState.staffPerf.totals.profitAfterWages)} left after wages</small>
+                              </>
+                            ) : "—"}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      <div className="rp-controls rp-attend-controls">
+                        <div className="rp-pills" role="group" aria-label="Filter staff">
+                          {ROSTER_FILTERS.map((rf) => (
+                            <button
+                              key={rf.key}
+                              type="button"
+                              className={`rp-pill${rosterFilter === rf.key ? " is-active" : ""}`}
+                              aria-pressed={rosterFilter === rf.key}
+                              onClick={() => setRosterFilter(rf.key)}
+                            >
+                              {rf.label}
+                            </button>
+                          ))}
+                        </div>
+                        <label className="nb-field nb-sort">
+                          <span className="rp-field-label">Sort</span>
+                          <select value={rosterSort} onChange={(e) => setRosterSort(e.target.value)} aria-label="Sort staff">
+                            {ROSTER_SORTS.map((rs) => (
+                              <option key={rs.key} value={rs.key}>{rs.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      {visibleStaffRoster.length ? (
+                        <div className="rp-attend-table" key={`staff-${rangeKey}-${rosterFilter}-${rosterSort}`}>
+                          <div className="rp-attend-cols" aria-hidden="true">
+                            <span>No.</span>
+                            <span>Staff member</span>
+                            <span className="is-num">Orders</span>
+                            <span className="is-num">Average order</span>
+                            <span className="is-num">Profit</span>
+                            <span className="is-num">Sales</span>
+                            <span>Orders checked</span>
+                            <span />
+                          </div>
+                          <ol className="rp-attend-rows">
+                            {visibleStaffRoster.map((cashier, index) => {
+                              const sharePct = Number(cashier.sharePercent || 0);
+                              const isZero = !(cashier.grossSales > 0);
+                              const isLead = index === 0 && !isZero && cashier.isActive;
+                              const isFilteredHere = Number(staffFilterId) === Number(cashier.userId);
+                              const toConfirm = Number(cashier.unconfirmedOrdersCount || 0);
+                              return (
+                                <li key={cashier.userId}>
+                                  <button
+                                    type="button"
+                                    className={`rp-attend-row${isLead ? " is-lead" : ""}${isFilteredHere ? " is-filtered" : ""}${!cashier.isActive ? " is-inactive" : ""}${isZero ? " is-zero" : ""}`}
+                                    onClick={(e) => handleOpenStaffModal(cashier, e)}
+                                    aria-label={`See what ${cashier.displayName} did: ${peso(cashier.grossSales)} from ${cashier.ordersCount} orders`}
+                                  >
+                                    <span className="rp-attend-no">{String(index + 1).padStart(2, "0")}</span>
+
+                                    <span className="rp-attend-who">
+                                      <span className="rp-attend-initials" aria-hidden="true">{initials(cashier.displayName)}</span>
+                                      <span className="rp-attend-name">
+                                        <strong>{cashier.displayName}</strong>
+                                        <span className="rp-attend-tags">
+                                          <span>{cashier.role === "admin" ? "Admin" : "Cashier"}</span>
+                                          {isLead && <span className="rp-attend-top"><Trophy size={11} aria-hidden="true" /> Top seller</span>}
+                                          {!cashier.isActive && <span className="is-muted">Inactive</span>}
+                                          {isFilteredHere && <span className="is-ink">Filtered</span>}
+                                          {cashier.voidedOrdersCount > 0 && <span className="is-bad">{cashier.voidedOrdersCount} cancelled</span>}
+                                        </span>
+                                        {cashier.laborCost != null && (
+                                          <span className="rp-attend-wages">
+                                            Wages {peso(cashier.laborCost)}
+                                            {cashier.salesPerLaborHour != null && `, earns ${peso(cashier.salesPerLaborHour)} in sales per hour`}
+                                            , <span className={cashier.profitAfterWages < 0 ? "is-bad" : ""}>{peso(cashier.profitAfterWages)} after wages</span>
+                                          </span>
+                                        )}
+                                      </span>
+                                    </span>
+
+                                    <span className="rp-attend-cell is-num" data-label="Orders">{cashier.ordersCount}</span>
+                                    <span className="rp-attend-cell is-num" data-label="Average order">{peso(cashier.averageTicket)}</span>
+                                    <span className="rp-attend-cell is-num" data-label="Profit">
+                                      {peso(cashier.attributedGrossProfit)}
+                                      <small>{Number(cashier.marginPercent || 0).toFixed(1)}% of their sales</small>
+                                    </span>
+                                    <span className="rp-attend-cell is-num rp-attend-sales" data-label="Sales">
+                                      <strong>{peso(cashier.grossSales)}</strong>
+                                      <span className="rp-attend-share" aria-hidden="true">
+                                        <span style={{ width: `${isZero ? 0 : Math.max(3, Math.min(100, sharePct))}%` }} />
+                                      </span>
+                                      <small>{Math.round(sharePct)}% of sales</small>
+                                    </span>
+
+                                    <span className="rp-attend-cell rp-attend-status" data-label="Orders checked">
+                                      {cashier.ordersCount > 0 ? (toConfirm > 0 ? (
+                                        <span className="rp-stamp is-warn" title="Paid orders the owner still needs to check">
+                                          {toConfirm} still to check
+                                          <small>{peso(cashier.unconfirmedSales)}</small>
+                                        </span>
+                                      ) : (
+                                        <span className="rp-stamp is-good" title="The owner checked all of this person's paid orders">
+                                          <CheckCircle2 size={12} aria-hidden="true" /> All checked
+                                        </span>
+                                      )) : (
+                                        <span className="rp-stamp is-none">No sales</span>
+                                      )}
+                                    </span>
+
+                                    <span className="rp-attend-open" aria-hidden="true">
+                                      Details <ArrowRight size={13} />
+                                    </span>
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </div>
+                      ) : (
+                        <div className="rp-attend-empty">
+                          <Users size={22} aria-hidden="true" />
+                          <strong>No staff match this filter</strong>
+                          <span>Choose “Everyone” to see the whole team.</span>
+                        </div>
+                      )}
+
+                      <footer className="rp-attend-foot">
+                        <span>Click anyone on the list to see everything they did.</span>
+                        <span className="rp-attend-sign">Checked by <i aria-hidden="true" /></span>
+                      </footer>
+                    </article>
+                  </div>
+                </section>
+
+                {/* ---------- Stock ---------- */}
+                <section id="rp-stock" className="rp-section" aria-labelledby="rp-stock-title">
+                  <div className="nb-sheet-title">
+                    <h2 id="rp-stock-title">Stock right now</h2>
+                    <span className="nb-sheet-note">worth {peso(summary.inventoryAssetValue)}</span>
+                  </div>
+
+                  <div className="rp-strip" aria-label="Stock summary">
+                    <div><span>Tracked</span><strong>{stockBreakdown.total}</strong></div>
+                    <div className="is-good" title="Not low, not out, and not above the maximum"><span>Healthy</span><strong>{stockBreakdown.healthy}</strong></div>
+                    <div className="is-bad" title="Low or out of stock"><span>Low or out</span><strong>{restockItems.length}</strong></div>
+                    <div className="is-over"><span>Above maximum</span><strong>{stockBreakdown.over}</strong></div>
+                    <div className="rp-strip-action">
+                      <button
+                        type="button"
+                        className="nb-btn nb-btn-primary"
+                        onClick={(e) => {
+                          restockTriggerRef.current = e.currentTarget;
+                          setRestockNotice("");
+                          setRestockClosing(false);
+                          setRestockModalOpen(true);
+                        }}
+                        aria-haspopup="dialog"
+                      >
+                        <ClipboardList size={15} aria-hidden="true" />
+                        Restock list
+                        <span className="rp-count">{restockItems.length}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rp-controls">
+                    <div className="rp-pills" role="tablist" aria-label="Filter stock">
+                      {STOCK_FILTERS.map((filter) => {
+                        const count = filter === "all"
+                          ? stockBreakdown.total
+                          : filter === "attention"
+                            ? stockBreakdown.attention
+                            : stockBreakdown.healthy;
+                        return (
+                          <button
+                            key={filter}
+                            type="button"
+                            role="tab"
+                            aria-selected={filter === stockFilter}
+                            className={`rp-pill${filter === stockFilter ? " is-active" : ""}`}
+                            onClick={() => setStockFilter(filter)}
+                          >
+                            {filter === "all" ? "All items" : filter === "attention" ? "Needs attention" : "Healthy"}
+                            <span>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <label className="nb-field nb-sort">
+                      <span className="rp-field-label">Sort</span>
+                      <select value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Sort stock">
+                        <option value="name">Item name</option>
+                        <option value="category">Category</option>
+                        <option value="low">Fullness: low to high</option>
+                        <option value="high">Fullness: high to low</option>
+                        <option value="status">Needs attention first</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  {inventoryLoading && inventory.length === 0 ? (
+                    <div className="nb-empty" role="status"><Package size={24} aria-hidden="true" /><strong>Loading stock</strong><span>Getting the latest quantities.</span></div>
+                  ) : inventoryError && inventory.length === 0 ? (
+                    <div className="nb-empty" role="alert"><AlertTriangle size={24} aria-hidden="true" /><strong>Stock couldn’t load</strong><span>{inventoryError}</span></div>
+                  ) : visibleStock.length ? (
+                    <>
+                      <p className="rp-legend" aria-hidden="true">
+                        Bar shows how full each item is compared to its maximum:
+                        <i className="health-critical" /> 20% or less
+                        <i className="health-low" /> 40% or less
+                        <i className="health-moderate" /> 70% or less
+                        <i className="health-available" /> above 70%
+                      </p>
+                      <ul className="rp-stock-grid" key={`stock-${stockFilter}-${stockSort}`}>
+                        {visibleStock.map((item) => {
+                          const hasMax = item.maximumStock != null;
+                          const barWidth = hasMax ? Math.max(0, Math.min(100, item.capacityPercent ?? 0)) : 0;
+                          return (
+                            <li
+                              key={item.id ?? item.item}
+                              className={`rp-stock tone-${item.healthTone}`}
+                              aria-label={`${item.item}: ${item.quantity.toLocaleString()} ${item.unit}, ${item.label}`}
+                            >
+                              <div className="rp-stock-top">
+                                <span className="rp-item">
+                                  <strong>{item.item}</strong>
+                                  <small>{item.category}</small>
+                                </span>
+                                <span className={`rp-health tone-${item.healthTone}`}>{item.label}</span>
+                              </div>
+                              <div className="rp-stock-qty">
+                                <strong>{item.quantity.toLocaleString()}</strong> {item.unit}
+                                <span>
+                                  {hasMax ? `of ${Number(item.maximumStock).toLocaleString()} max` : "no maximum set"}
+                                  {item.reportedPercent != null && hasMax ? ` · ${item.reportedPercent}%` : ""}
+                                </span>
+                              </div>
+                              <div
+                                className={`nbi-gauge health-${item.healthTone === "available" ? "ok" : item.healthTone}${hasMax ? "" : " no-maximum"}`}
+                                role={hasMax ? "progressbar" : undefined}
+                                aria-label={hasMax ? `${item.item} fullness` : undefined}
+                                aria-valuemin={hasMax ? 0 : undefined}
+                                aria-valuemax={hasMax ? 100 : undefined}
+                                aria-valuenow={hasMax ? item.reportedPercent ?? undefined : undefined}
+                              >
+                                {hasMax && <span style={{ width: `${barWidth}%` }} />}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : (
+                    <div className="nb-empty">
+                      <Package size={24} aria-hidden="true" />
+                      <strong>Nothing here for this filter</strong>
+                      <span>Choose “All items” to see everything you track.</span>
+                    </div>
+                  )}
+                </section>
+
+                {/* ---------- History ---------- */}
+                <section id="rp-history" className="rp-section" aria-labelledby="rp-history-title">
+                  <div className="nb-sheet-title">
+                    <h2 id="rp-history-title">History</h2>
+                    <span className="nb-sheet-note">newest first</span>
+                  </div>
+
+                  <div className="rp-history">
+                    <div className="rp-log" aria-label="Stock and restock history">
+                      <div className="rp-block-head">
+                        <h3 className="rp-sub">Stock changes <span>{movTotal.toLocaleString()}</span></h3>
+                        {movSummary.totalRestockCount > 0 && (
+                          <small className="rp-muted">
+                            {peso(movSummary.totalRestockCost)} spent on {movSummary.totalRestockCount} {movSummary.totalRestockCount === 1 ? "restock" : "restocks"}
+                          </small>
+                        )}
+                      </div>
+                      <div className="rp-controls">
+                        <div className="rp-pills" role="group" aria-label="Show these stock changes">
+                          {MOVEMENT_FILTERS.map((mf) => (
+                            <button
+                              key={mf.key || "all"}
+                              type="button"
+                              className={`rp-pill${movTypeFilter === mf.key ? " is-active" : ""}`}
+                              aria-pressed={movTypeFilter === mf.key}
+                              onClick={() => {
+                                setMovTypeFilter(mf.key);
+                                setMovPage(1);
+                              }}
+                            >
+                              {mf.label}
+                            </button>
+                          ))}
+                        </div>
+                        <label className="nb-field nb-search rp-search">
+                          <Search size={14} aria-hidden="true" />
+                          <input
+                            type="search"
+                            placeholder="Ingredient, supplier or note"
+                            value={movSearch}
+                            onChange={(e) => {
+                              setMovSearch(e.target.value);
+                              setMovPage(1);
+                            }}
+                            aria-label="Search stock history"
+                          />
+                        </label>
+                      </div>
+
+                      {movState.error && (
+                        <p className="rp-flag" role="alert"><AlertTriangle size={14} aria-hidden="true" />{movState.error}</p>
+                      )}
+
+                      {movItems.length ? (
+                        <>
+                          <ul className="lg-list rp-log-list">
+                            {movItems.map((mov) => {
+                              const tone = getMovementTone(mov.type);
+                              const linkedStaff = mov.actorId ? staffById.get(Number(mov.actorId)) : null;
+                              const when = splitLedgerDate(mov.timestamp);
+                              const change = Number(mov.quantityChange);
+                              const hasLevels = mov.beforeQuantity != null && mov.afterQuantity != null;
+                              const source = [mov.supplierName, mov.referenceNo].filter(Boolean).join(", ");
+                              return (
+                                <li key={mov.id} className={`rp-log-row tone-${tone}`}>
+                                  <div className="rp-when">
+                                    <strong>{when.day}</strong>
+                                    <span>{when.time}</span>
+                                  </div>
+                                  <div className="rp-log-main">
+                                    <div className="rp-log-title">
+                                      <strong>{mov.itemName}</strong>
+                                      <span className={`rp-move tone-${tone}`}>{getMovementPlainLabel(mov)}</span>
+                                    </div>
+                                    <div className="rp-log-meta">
+                                      {hasLevels && <span title="Stock before and after">{mov.beforeQuantity} → {mov.afterQuantity} {mov.unit || ""}</span>}
+                                      {source && <span>{source}</span>}
+                                      {mov.note && <span>{mov.note}</span>}
+                                      {mov.orderNumber && (
+                                        <button type="button" className="rp-link" onClick={(e) => handleOpenOrderModal({ id: mov.orderNumber }, e)}>
+                                          Order #{mov.orderNumber}
+                                        </button>
+                                      )}
+                                      <span>
+                                        by{" "}
+                                        {linkedStaff ? (
+                                          <button type="button" className="rp-link" onClick={(e) => handleOpenStaffModal(linkedStaff, e)}>{mov.actor}</button>
+                                        ) : (mov.actor || "System")}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="rp-log-amount">
+                                    <strong className={change >= 0 ? "is-up" : "is-down"}>
+                                      {change > 0 ? "+" : ""}{mov.quantityChange} {mov.unit || ""}
+                                    </strong>
+                                    {mov.batchCost != null && <span title="What this restock cost">{peso(mov.batchCost)}</span>}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                          <LedgerPager page={movPage} total={movTotal} onPage={setMovPage} noun="stock history" />
+                        </>
+                      ) : (
+                        <div className="nb-empty">
+                          <History size={22} aria-hidden="true" />
+                          <strong>No stock changes found</strong>
+                          <span>
+                            {movTypeFilter || movSearch.trim()
+                              ? "Try another filter or search."
+                              : "Restocks, ingredients used in orders, waste and adjustments appear here."}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rp-log" aria-label="Order history">
+                      <div className="rp-block-head">
+                        <h3 className="rp-sub">Orders <span>{ledgerOrdersTotal.toLocaleString()}</span></h3>
+                        <small className="rp-muted">Cancelled orders included</small>
+                      </div>
+                      <div className="rp-controls">
+                        <div className="rp-pills" role="group" aria-label="Show orders by status">
+                          {ORDER_STATUS_FILTERS.map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              className={`rp-pill${ordersStatusFilter === st ? " is-active" : ""}`}
+                              aria-pressed={ordersStatusFilter === st}
+                              onClick={() => {
+                                setOrdersStatusFilter(st);
+                                setOrdersPage(1);
+                              }}
+                            >
+                              {st}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="rp-control-pair">
+                          <label className="nb-field nb-sort">
+                            <span className="rp-field-label">Paid by</span>
+                            <select
+                              value={ordersPaymentFilter}
+                              onChange={(e) => {
+                                setOrdersPaymentFilter(e.target.value);
+                                setOrdersPage(1);
+                              }}
+                              aria-label="Show orders by payment method"
+                            >
+                              {PAYMENT_METHOD_FILTERS.map((pm) => (
+                                <option key={pm} value={pm}>{pm === "All" ? "Any" : pm}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="nb-field nb-search rp-search">
+                            <Search size={14} aria-hidden="true" />
+                            <input
+                              type="search"
+                              placeholder="Order number or customer"
+                              value={ordersSearch}
+                              onChange={(e) => {
+                                setOrdersSearch(e.target.value);
+                                setOrdersPage(1);
+                              }}
+                              aria-label="Search order history"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {ordersState.error && (
+                        <p className="rp-flag" role="alert"><AlertTriangle size={14} aria-hidden="true" />{ordersState.error}</p>
+                      )}
+
+                      {ledgerOrders.length ? (
+                        <>
+                          <ul className="lg-list rp-log-list">
+                            {ledgerOrders.map((ord) => {
+                              const statusClass = String(ord.status || "Pending").toLowerCase();
+                              const when = splitLedgerDate(ord.createdAt);
+                              return (
+                                <li key={ord.id} className={`rp-log-row order-${statusClass}`}>
+                                  <div className="rp-when">
+                                    <strong>{when.day}</strong>
+                                    <span>{when.time}</span>
+                                  </div>
+                                  <div className="rp-log-main">
+                                    <div className="rp-log-title">
+                                      <strong>{ord.customer || "Walk-in customer"}</strong>
+                                      <span className={`rp-move order-${statusClass}`}>{ord.status}</span>
+                                    </div>
+                                    <div className="rp-log-meta">
+                                      <span>Order #{ord.id}</span>
+                                      <span>{getPaymentMethodLabel(ord.paymentMethod)}, {getPaymentStatusLabel(ord)}</span>
+                                      <span>by {ord.cashier || "Staff"}</span>
+                                    </div>
+                                  </div>
+                                  <div className="rp-log-amount">
+                                    <strong>{peso(ord.total)}</strong>
+                                    <button
+                                      type="button"
+                                      className="rp-view"
+                                      onClick={(e) => handleOpenOrderModal(ord, e)}
+                                      aria-label={`View order ${ord.id}`}
+                                    >
+                                      <Receipt size={13} aria-hidden="true" />
+                                      View
+                                    </button>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                          <LedgerPager page={ordersPage} total={ledgerOrdersTotal} onPage={setOrdersPage} noun="order history" />
+                        </>
+                      ) : (
+                        <div className="nb-empty">
+                          <Receipt size={22} aria-hidden="true" />
+                          <strong>No orders found</strong>
+                          <span>Try another status, payment method or search.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
               </div>
-            )}
+            </div>
           </section>
 
-          {insights.length ? (
-            <section className="admin-report-insights" aria-label="Report highlights">
-              <div className="report-highlights-heading">
-                <div>
-                  <span className="admin-report-eyebrow">PERIOD SUMMARY</span>
-                  <h2>Report highlights</h2>
-                  <p>Key signals from the selected reporting period.</p>
-                </div>
-              </div>
-              {insights.map((insight) => (
-                <div key={insight.label} className={`admin-report-insight report-pinned-note ${insight.tone}`}>
-                  <div className={`report-paper-pin mini ${insight.tone === "positive" ? "sage" : insight.tone === "warning" ? "crimson" : "amber"}`} aria-hidden="true">
-                    <span className="pin-shadow" />
-                    <span className="pin-needle" />
-                    <span className="pin-collar" />
-                    <span className="pin-head">
-                      <span className="pin-glint" />
-                    </span>
-                  </div>
-                  <span className="report-insight-icon" aria-hidden="true">
-                    {insight.label === "Best day" || insight.label === "Peak hour"
-                      ? "↗"
-                      : insight.label === "Top channel"
-                        ? "◉"
-                        : insight.label === "Best seller"
-                          ? "★"
-                          : insight.label === "Ingredient cost target" || insight.label === "Food cost target"
-                            ? "%"
-                            : "!"}
-                  </span>
-                  <div className="report-insight-copy">
-                    <span>{insight.label}</span>
-                    <strong>{insight.value}</strong>
-                  </div>
-                </div>
-              ))}
-            </section>
-          ) : null}
+          <nav className="rp-dividers" aria-label="Jump to a section">
+            {REPORT_SECTIONS.map((sec) => (
+              <button
+                key={sec.id}
+                type="button"
+                className={`rp-divider tone-${sec.tone}${activeSection === sec.id ? " is-active" : ""}`}
+                aria-current={activeSection === sec.id ? "true" : undefined}
+                onClick={() => jumpToSection(sec.id)}
+              >
+                {sec.label}
+              </button>
+            ))}
+          </nav>
+
+          <aside className="nb-notes rp-notes" aria-label="Report overview">
+            <h2 className="nb-notes-title">At a glance</h2>
+            <article className="nb-note nb-note-butter">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Coins size={16} strokeWidth={2} aria-hidden="true" /><span>Total sales</span></div>
+              <strong className="rp-note-money">{peso(summary.grossCollectedSales)}</strong>
+              <small className={`rp-delta ${salesTrend.tone}`}>{salesTrend.text}</small>
+              {Number(summary.taxCollected || 0) > 0 && (
+                <small className="rp-note-sub">{peso(summary.netSales)} before {peso(summary.taxCollected)} tax</small>
+              )}
+            </article>
+            <article className="nb-note nb-note-sage">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><CheckCircle2 size={16} strokeWidth={2} aria-hidden="true" /><span>Completed orders</span></div>
+              <strong>{Number(summary.paidOrdersCount || 0).toLocaleString()}</strong>
+              <small className={`rp-delta ${orderTrend.tone}`}>{orderTrend.text}</small>
+              {summary.unpaidOrdersCount > 0 && <small className="rp-note-sub">{summary.unpaidOrdersCount} still unpaid</small>}
+            </article>
+            <article className="nb-note nb-note-peach">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><Receipt size={16} strokeWidth={2} aria-hidden="true" /><span>Average order</span></div>
+              <strong className="rp-note-money">{peso(summary.averageOrderValue)}</strong>
+              <small className={`rp-delta ${avgTrend.tone}`}>{avgTrend.text}</small>
+            </article>
+            <article className="nb-note nb-note-rose">
+              <span className="nb-pin" aria-hidden="true" />
+              <div className="nb-note-top"><ShoppingBag size={16} strokeWidth={2} aria-hidden="true" /><span>Items sold</span></div>
+              <strong>{Number(summary.unitsSold || 0).toLocaleString()}</strong>
+              <small>Across {summary.paidOrdersCount} paid {summary.paidOrdersCount === 1 ? "order" : "orders"}</small>
+            </article>
+
+            {insights.length > 0 && (
+              <article className="rp-index-card" aria-label="Things to notice">
+                <h3>Worth noticing</h3>
+                <ul>
+                  {insights.map((insight) => (
+                    <li key={insight.label} className={`tone-${insight.tone}`}>
+                      <span>{insight.label}</span>
+                      {insight.value}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            )}
+          </aside>
         </div>
       </main>
 
