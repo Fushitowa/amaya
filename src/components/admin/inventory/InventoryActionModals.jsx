@@ -204,14 +204,14 @@ export function InventoryRestockModal({
               value={restockCreditAccountCode}
               onChange={(event) => setRestockCreditAccountCode(event.target.value)}
             >
-              <option value="1010">1010 - Cash Drawer (Counter 1)</option>
-              <option value="1020">1020 - GCash Official Wallet</option>
-              <option value="1030">1030 - Store Bank Account</option>
-              <option value="1040">1040 - Owner Capital Reserve</option>
-              <option value="2010">2010 - Accounts Payable (Supplier Credit)</option>
-              <option value="3010">3010 - Owner Capital Contribution</option>
+              <option value="1010">Cash drawer</option>
+              <option value="1020">GCash wallet</option>
+              <option value="1030">Store bank</option>
+              <option value="1040">Owner reserve</option>
+              <option value="2010">Pay the supplier later (unpaid bill)</option>
+              <option value="3010">Owner puts in new money</option>
             </select>
-            <small>Credits the selected account and debits 1050 Merchandise Inventory.</small>
+            <small>The money comes out of the option you pick, and the stock is added to your inventory value.</small>
           </label>
         )}
         {restockBatchCost !== "" && Number(restockBatchCost) === 0 && (
@@ -348,7 +348,7 @@ export function InventoryInternalUseModal({
           <div>
             <span className="admin-inventory-eyebrow">INTERNAL STORE USE</span>
             <h3 id="internal-use-dialog-title">Use {internalUseItem.item}</h3>
-            <p>Available on hand: {internalUseItem.quantity} {internalUseItem.unit} · Moves cost from Inventory Asset (1050) to OPEX.</p>
+            <p>Available on hand: {internalUseItem.quantity} {internalUseItem.unit} · Moves the cost from your inventory value to a running cost.</p>
           </div>
           <button
             type="button"
@@ -397,7 +397,7 @@ export function InventoryInternalUseModal({
           </div>
         </fieldset>
         <label htmlFor="internal-use-account" className="inventory-restock-field" style={{ marginBottom: "0.75rem" }}>
-          Expense Account (All OPEX Targets)
+          What it was used for
           <select
             id="internal-use-account"
             value={internalUseAccount}

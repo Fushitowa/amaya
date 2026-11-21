@@ -824,8 +824,8 @@ export default function StoreAssetsHeroCard() {
                 ) : (
                   <>
                     <p style={{ fontSize: "0.82rem", color: "#634b35", margin: 0 }}>
-                      Enter the opening capital amounts allocated across store channels. All debits are automatically
-                      balanced against <strong>3010 Owner&apos;s Capital</strong>.
+                      Enter the opening capital amounts allocated across store channels. The total is recorded
+                      automatically as <strong>money the owner put in</strong>.
                     </p>
 
                     <div className="fin-form-group">

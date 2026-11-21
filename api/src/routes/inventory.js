@@ -853,7 +853,7 @@ router.post("/:id/restock", requireAuth, requireRole("admin"), async (request, r
   const diluteZeroCost = Boolean(request.body?.diluteZeroCost);
   const rawCreditAccount = String(request.body?.creditAccountCode || "1010").trim();
   if (!ALLOWED_RESTOCK_ACCOUNTS.has(rawCreditAccount)) {
-    throw httpError(400, "Invalid restock funding account. Allowed: 1010, 1020, 1030, 1040, 2010, 3010.");
+    throw httpError(400, "Choose how the restock was paid: cash drawer, GCash, store bank, owner reserve, unpaid supplier bill, or new money from the owner.");
   }
   const supplierName = String(request.body?.supplierName || "").trim().slice(0, 120) || null;
   const referenceNo = String(request.body?.referenceNo || "").trim().slice(0, 80) || null;

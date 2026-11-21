@@ -225,7 +225,7 @@ export default function UtilityBillPanel({ category, month, onChanged }) {
         <div className="ub-lpg">
           <h4><Flame size={15} aria-hidden="true" /> LPG tanks from inventory</h4>
           <p>
-            Tanks taken out as internal store use (Inventory → Internal use, account 6133).
+            Counted when a tank is taken out of inventory for the store's own use (Inventory → Internal use).
             {lpg.averageDaysPerTank != null ? ` A tank lasts about ${lpg.averageDaysPerTank} days, about ${peso(lpg.averageCostPerDay)} a day.` : " Swap at least two tanks to see days per tank."}
           </p>
           {lpg.items.length > 0 && (

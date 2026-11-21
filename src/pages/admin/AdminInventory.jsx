@@ -55,20 +55,20 @@ const inventoryUnitGroups = [
 ];
 const INTERNAL_USE_QUICK_PICKS = [
   { code: "6113", title: "Staff Meals", subtitle: "Crew food & drinks" },
-  { code: "6144", title: "Sanitation (6144)", subtitle: "Cleaners, disinfectants" },
-  { code: "6140", title: "Operating Supplies", subtitle: "Cups, straws, paper (6140)" },
-  { code: "6133", title: "LPG / Gas (6133)", subtitle: "Kitchen gas, stove fuel" },
+  { code: "6144", title: "Sanitation", subtitle: "Cleaners, disinfectants" },
+  { code: "6140", title: "Operating Supplies", subtitle: "Cups, straws, paper" },
+  { code: "6133", title: "LPG / Gas", subtitle: "Kitchen gas, stove fuel" },
 ];
 
 const INTERNAL_USE_OPTIONS = [
-  { code: "6113", label: "6113 - Employee Benefits (Staff Meals)", hint: "Logs under Labor & Payroll OPEX. Keeps Customer COGS (5010) and Food Spoilage (6030) clean." },
-  { code: "6144", label: "6144 - Sanitation Supplies (Cleaners, Disinfectants)", hint: "Logs under Operating Supplies OPEX (Sanitation)." },
-  { code: "6140", label: "6140 - Operating Supplies (Paper Goods, Store Supplies)", hint: "Logs under Operating Supplies OPEX." },
-  { code: "6141", label: "6141 - Linen & Uniforms (Towels, Aprons)", hint: "Logs under Operating Supplies OPEX (Linen & Uniforms)." },
-  { code: "6142", label: "6142 - Dining Supplies (Utensils, Trays, Glasses)", hint: "Logs under Operating Supplies OPEX (Dining Supplies)." },
-  { code: "6143", label: "6143 - Kitchen Supplies (Tools, Containers)", hint: "Logs under Operating Supplies OPEX (Kitchen Supplies)." },
-  { code: "6133", label: "6133 - LPG / Cooking Gas", hint: "Logs under Utilities OPEX (LPG / Cooking Gas)." },
-  { code: "6130", label: "6130 - Utilities (General Store Fuel / Utilities)", hint: "Logs under Utilities OPEX." },
+  { code: "6113", label: "Staff meals (crew food and drinks)", hint: "Counted under Labor and Payroll. It stays out of the cost of ingredients sold and out of waste." },
+  { code: "6144", label: "Sanitation supplies (cleaners, disinfectants)", hint: "Counted under Operating Supplies, as Sanitation." },
+  { code: "6140", label: "Operating supplies (paper goods, store supplies)", hint: "Counted under Operating Supplies." },
+  { code: "6141", label: "Linen and uniforms (towels, aprons)", hint: "Counted under Operating Supplies, as Linen and Uniforms." },
+  { code: "6142", label: "Dining supplies (utensils, trays, glasses)", hint: "Counted under Operating Supplies, as Dining Supplies." },
+  { code: "6143", label: "Kitchen supplies (tools, containers)", hint: "Counted under Operating Supplies, as Kitchen Supplies." },
+  { code: "6133", label: "LPG and cooking gas", hint: "Counted under Utilities, as LPG." },
+  { code: "6130", label: "Other utilities (general store fuel)", hint: "Counted under Utilities." },
 ];
 
 const packageUnitOptions = ["pack", "box", "bag", "bottle", "can", "sack", "set", "tub", "jar", "carton"];

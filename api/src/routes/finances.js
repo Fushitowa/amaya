@@ -1245,10 +1245,10 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
   }
 
   if (finalLines.some((l) => l.accountCode === "6030")) {
-    throw httpError(400, "Waste Cost (6030) is calculated from inventory waste records and cannot be entered as a manual journal amount.");
+    throw httpError(400, "Waste cost is worked out from your inventory waste records, so it can't be entered by hand.");
   }
   if (finalLines.some((l) => l.accountCode === "2020")) {
-    throw httpError(400, "Account 2020 (Sales Tax / VAT Payable) is reserved strictly for automated POS order transactions.");
+    throw httpError(400, "VAT collected is recorded automatically from orders, so it can't be entered by hand.");
   }
   if (finalLines.some((l) => PAYROLL_EXPENSE_ACCOUNT_CODES.includes(l.accountCode))) {
     throw httpError(400, PAYROLL_ONLY_MESSAGE);
@@ -1316,13 +1316,13 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
     const touchesDepreciationAccounts = finalLines.some((l) => l.accountCode === "6210" || l.accountCode === "1520");
     if (entryType === "depreciation" || touchesDepreciationAccounts) {
       if (entryType !== "depreciation") {
-        throw httpError(400, "Depreciation accounts (6210 / 1520) may only be posted with entryType 'depreciation'.");
+        throw httpError(400, "Equipment wear and tear can only be recorded as a depreciation entry.");
       }
       if (finalLines.some((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
-        throw httpError(400, "Depreciation is strictly non-cash and cannot touch liquid accounts (1010–1040).");
+        throw httpError(400, "Equipment wear and tear is not a cash payment, so it can't involve the cash drawer, GCash, the store bank or the owner reserve.");
       }
       if (!debitLines.every((l) => l.accountCode === "6210") || !creditLines.every((l) => l.accountCode === "1520")) {
-        throw httpError(400, "Depreciation entries must strictly debit 6210 and credit 1520.");
+        throw httpError(400, "A depreciation entry must add to equipment wear and tear and reduce the equipment's value.");
       }
 
       await connection.execute(
@@ -1352,24 +1352,24 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
         throw httpError(400, "The selected expense category does not match the expense account.");
       }
       if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode) || l.accountCode === "2010")) {
-        throw httpError(400, "Operating expenses must be paid via 1010–1040 or accrued to 2010 Accounts Payable.");
+        throw httpError(400, "Pay a running cost from the cash drawer, GCash, the store bank or the owner reserve, or save it as an unpaid bill.");
       }
       warnings.push(...await liquidShortfallWarnings(connection, creditLines));
     } else if (entryType === "income_tax") {
       if (!debitLines.every((l) => l.accountCode === "6310")) {
-        throw httpError(400, "Income tax entries must debit 6310 Income Tax Expense.");
+        throw httpError(400, "An income tax entry must be recorded as an income tax cost.");
       }
       if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode) || l.accountCode === "2030")) {
-        throw httpError(400, "Income tax must be paid via 1010–1040 or accrued to 2030 Income Tax Payable.");
+        throw httpError(400, "Pay income tax from the cash drawer, GCash, the store bank or the owner reserve, or save it as income tax still owed.");
       }
       warnings.push(...await liquidShortfallWarnings(connection, creditLines));
     } else if (entryType === "ap_settlement") {
       const liabCodes = [...new Set(debitLines.map((l) => l.accountCode))];
       if (liabCodes.length !== 1 || !["2010", "2030"].includes(liabCodes[0])) {
-        throw httpError(400, "Manual ap_settlement must debit a single payable account (2010 or 2030).");
+        throw httpError(400, "A payment of what you owe must pay off unpaid supplier bills or income tax owed, one at a time.");
       }
       if (!creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
-        throw httpError(400, "Payable settlements must credit a liquid account (1010–1040).");
+        throw httpError(400, "Pay what you owe from the cash drawer, GCash, the store bank or the owner reserve.");
       }
       warnings.push(...await liquidShortfallWarnings(connection, creditLines));
       const targetLiability = liabCodes[0];
@@ -1404,16 +1404,16 @@ router.post("/journal-entries", requireAuth, requireRole("admin"), async (reques
       }
     } else if (entryType === "owner_withdrawal") {
       if (!debitLines.every((l) => l.accountCode === "3020") || !creditLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
-        throw httpError(400, "Owner withdrawals must debit 3020 and credit a liquid account (1010–1040).");
+        throw httpError(400, "An owner withdrawal must come out of the cash drawer, GCash, the store bank or the owner reserve.");
       }
       await assertLiquidFunds(connection, creditLines, "withdraw");
     } else if (entryType === "capital_injection") {
       if (!debitLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode)) || !creditLines.every((l) => l.accountCode === "3010")) {
-        throw httpError(400, "Capital injections must debit a liquid account (1010–1040) and credit 3010.");
+        throw httpError(400, "Money the owner puts in must go into the cash drawer, GCash, the store bank or the owner reserve.");
       }
     } else if (entryType === "account_transfer") {
       if (!finalLines.every((l) => LIQUID_ACCOUNT_CODES.has(l.accountCode))) {
-        throw httpError(400, "Liquid account transfers must strictly use accounts 1010–1040.");
+        throw httpError(400, "Transfers can only be made between the cash drawer, GCash, the store bank or the owner reserve.");
       }
       await assertLiquidFunds(connection, creditLines, "transfer");
     }
@@ -1618,7 +1618,7 @@ router.post("/payables/:id/settle", requireAuth, requireRole("admin"), async (re
 
   const paymentAccountCode = String(request.body?.paymentAccountCode || "").trim();
   if (!LIQUID_ACCOUNT_CODES.has(paymentAccountCode)) {
-    throw httpError(400, "Invalid paymentAccountCode. Must be a liquid account (1010–1040).");
+    throw httpError(400, "Choose where the payment came from: the cash drawer, GCash, the store bank or the owner reserve.");
   }
   const amount = parseExactMoney(request.body?.amount, "Settlement amount");
   if (request.body?.notes !== undefined && request.body?.notes !== null && typeof request.body.notes !== "string") {

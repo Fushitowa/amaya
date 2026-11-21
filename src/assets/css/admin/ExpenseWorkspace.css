@@ -1,0 +1,144 @@
+/* ==========================================================================
+   Expense category page: an open notebook.
+   Left page = this month's plan (budget note + bills / staff plan).
+   Right page = expense history. Title sits on the desk above both.
+
+   How the sizing works (so it stays predictable):
+   - .xp-page fills the area under the top bar and never grows past it.
+   - .xp-spread takes whatever height is left; each page scrolls INSIDE itself.
+   - Pages are size containers, so the budget note and tables adapt to the
+     width of their page, not to the screen.
+   Prefix: xp-  (the shared ec- buttons, fields and tables are reused.)
+   ========================================================================== */
+
+.xp-page {
+  --ec-line: #e3d6c1; --ec-line-soft: #efe5d3; --ec-ink: #2d1f1a; --ec-muted: #75655a; --ec-brown: #8b5e3c;
+  --ec-deep: #3b2619; --ec-brass: #b8864f; --ec-ok: #4f9a63; --ec-warn: #d98b3a; --ec-high: #c4523f; --ec-over: #a4372b;
+  --ec-serif: "Playfair Display", Georgia, serif; --ec-sans: "DM Sans", system-ui, sans-serif;
+  --xp-paper: #fffaf2; --xp-butter: #fdeeb0; --xp-butter-ink: #4d3c0d; --xp-sage: #e1e9cc; --xp-sage-ink: #34411a;
+  color: var(--ec-ink); font-family: var(--ec-sans);
+}
+.xp-page *, .xp-page *::before, .xp-page *::after { box-sizing: border-box; }
+.xp-page :focus-visible { outline: 2px solid var(--ec-brown); outline-offset: 2px; }
+
+.expense-category-page .admin-report-content.xp-page {
+  flex: 1 1 auto; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto;
+  padding: 16px 24px 20px; display: flex; flex-direction: column; gap: 14px; overflow-x: hidden; overflow-y: auto;
+}
+
+/* ---------- Title, on the desk ---------- */
+.xp-title { flex: 0 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 3px double var(--ec-brass); }
+.xp-title-main { min-width: 0; }
+.xp-back { display: inline-flex; align-items: center; gap: 6px; color: var(--ec-muted); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.xp-back:hover { color: var(--ec-deep); }
+.xp-title h2 { margin: 4px 0 0; font: 700 clamp(26px, 2.6vw, 32px)/1.1 var(--ec-serif); letter-spacing: -.3px; }
+.xp-sub { margin: 2px 0 0; color: #7a5a3c; font: 600 20px/1.2 "Caveat", "Segoe Print", cursive; }
+.xp-kinds { display: flex; flex-wrap: wrap; margin: 8px 0 0; padding: 0; list-style: none; color: #5f4a38; font-size: 12.5px; }
+.xp-kinds li { padding: 0 12px; border-left: 1px solid var(--ec-line); }
+.xp-kinds li:first-child { padding-left: 0; border-left: 0; }
+.xp-kinds-label { color: var(--ec-muted); font-weight: 600; }
+.xp-note { margin: 6px 0 0; color: #8a623d; font-size: 12.5px; }
+.xp-title-action { flex: 0 0 auto; }
+
+/* ---------- The open notebook ---------- */
+.xp-spread {
+  flex: 1 1 auto; min-height: 460px; display: grid; grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1.1fr);
+  background: var(--xp-paper); border: 1px solid #e8d9c2; border-radius: 4px; overflow: hidden;
+  box-shadow: 0 1px 0 #fff inset, 0 3px 0 -1px #f4eadb, 0 5px 0 -1px #eadcc6, 0 22px 36px -20px rgba(59, 38, 25, .4);
+}
+.xp-spread--single { grid-template-columns: minmax(0, 1fr); }
+
+.xp-leaf { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 22px 26px 16px; }
+.xp-leaf--plan { gap: 20px; overflow-y: auto; background: linear-gradient(270deg, rgba(120, 84, 48, .09), transparent 7%); }
+.xp-leaf--plan > * { flex: 0 0 auto; }
+.xp-leaf--history { background: linear-gradient(90deg, rgba(120, 84, 48, .09), transparent 7%); }
+.xp-spread--single .xp-leaf--history { background: none; }
+
+/* Gutter: punched holes with a brass thread */
+.xp-gutter { position: relative; background: linear-gradient(90deg, #e7d7bf, #f3e8d6 50%, #e7d7bf); border-inline: 1px solid #dcc9ab; }
+.xp-gutter::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 50% 24px, #4a3223 0 3.3px, #2b1a10 3.3px 4.2px, transparent 4.8px) 0 0 / 100% 36px repeat-y; }
+.xp-gutter::after {
+  content: ""; position: absolute; left: 50%; top: 24px; bottom: 12px; width: 3px; transform: translateX(-50%);
+  background: linear-gradient(90deg, #946531, #e2c48b 48%, #9a6b36);
+  -webkit-mask-image: repeating-linear-gradient(to bottom, transparent 0 7px, #000 7px 29px, transparent 29px 36px);
+  mask-image: repeating-linear-gradient(to bottom, transparent 0 7px, #000 7px 29px, transparent 29px 36px);
+}
+
+/* ---------- Budget as a taped sticky note (both the plan page and the single-page strip) ---------- */
+.xp-strip { flex: 0 0 auto; container-type: inline-size; }
+.xp-page .ec-budget {
+  position: relative; padding: 20px 22px 16px; border: 0; border-bottom: 0;
+  background: var(--xp-butter); color: var(--xp-butter-ink);
+  box-shadow: 0 1px 1px rgba(80, 55, 10, .14), 0 14px 18px -14px rgba(90, 60, 10, .45);
+}
+.xp-page .ec-budget::before { content: ""; position: absolute; top: -9px; left: 50%; width: 64px; height: 18px; translate: -50% 0; rotate: -2deg; background: rgba(255, 253, 249, .75); box-shadow: 0 1px 2px rgba(60, 40, 20, .18); }
+.xp-page .ec-budget::after { content: ""; position: absolute; right: 0; bottom: 0; width: 20px; height: 20px; background: linear-gradient(135deg, transparent 50%, rgba(60, 40, 10, .16) 50%); }
+.xp-page .ec-labor-plan { background: var(--xp-sage); color: var(--xp-sage-ink); }
+.xp-page .ec-budget .ec-envelope-label, .xp-page .ec-budget .ec-month { color: inherit; opacity: .8; }
+.xp-page .ec-budget .ec-envelope-sentence { color: inherit; }
+.xp-page .ec-budget .ec-track { background: rgba(77, 60, 13, .16); }
+
+/* stacked by default (a half-width page) */
+.xp-page .ec-envelope { grid-template-columns: minmax(0, 1fr) auto; gap: 12px 16px; padding: 0; }
+.xp-page .ec-envelope-main { order: 1; }
+.xp-page .ec-envelope-side { order: 2; }
+.xp-page .ec-envelope-mid { order: 3; grid-column: 1 / -1; padding: 0; border: 0; }
+.xp-page .ec-edit { order: 4; border-top-color: rgba(77, 60, 13, .3); }
+.xp-page .ec-envelope-figure { font-size: clamp(26px, 3vw, 32px); }
+
+/* wide strip (single-page categories): three columns */
+@container (min-width: 760px) {
+  .xp-strip .ec-envelope { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 32px; align-items: center; }
+  .xp-strip .ec-envelope-main { order: 1; }
+  .xp-strip .ec-envelope-mid { order: 2; grid-column: auto; padding-left: 32px; border-left: 1px solid rgba(77, 60, 13, .25); }
+  .xp-strip .ec-envelope-side { order: 3; }
+  .xp-strip .ec-edit { grid-column: 1 / -1; }
+}
+
+/* ---------- Bills panel inside the plan page ---------- */
+.xp-page .ub-panel { margin: 0; padding: 0; border: 0; }
+.xp-page .ub-head h3 { font: 700 16px/1.3 var(--ec-sans); }
+.xp-page .ub-head p { margin: 4px 0 0; max-width: 56ch; color: var(--ec-muted); font-size: 12.5px; line-height: 1.5; }
+.xp-page .ub-insight { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+.xp-page .ub-insight > div { padding: 10px 12px; border-radius: 0; border-color: var(--ec-line); background: #fff; }
+.xp-page .ub-insight strong { font: 700 20px/1.2 var(--ec-serif); font-variant-numeric: tabular-nums; }
+.xp-page .ub-form { border-radius: 0; border-color: var(--ec-line); }
+.xp-page .ub-panel .ec-table-wrap { max-height: none; overflow-x: auto; overflow-y: visible; }
+.xp-page .ub-panel .ec-table { min-width: 560px; }
+.xp-page .ub-panel .ec-table th, .xp-page .ub-panel .ec-table td { padding: 9px 10px; font-size: 12.5px; }
+
+/* ---------- History page ---------- */
+.xp-leaf-head { flex: 0 0 auto; }
+.xp-leaf-head h3 { margin: 0; font: 700 16px/1.3 var(--ec-sans); }
+.xp-leaf-head p { margin: 3px 0 0; color: var(--ec-muted); font-size: 12.5px; line-height: 1.5; }
+.xp-filters { flex: 0 0 auto; display: grid; gap: 8px 16px; padding: 12px 0 10px; }
+.xp-filters .ec-search { width: 100%; }
+.xp-leaf--history .ec-alert { flex: 0 0 auto; margin: 0 0 8px; }
+.xp-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; border-top: 1px solid var(--ec-ink); }
+.xp-table { min-width: 520px; }
+.xp-pager { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding-top: 10px; border-top: 3px double var(--ec-brass); color: var(--ec-muted); font-size: 12.5px; }
+.xp-pager > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- Smaller screens: stack the pages and let the whole page scroll ---------- */
+@media (max-width: 1100px) {
+  .expense-category-page .admin-report-main { height: auto; min-height: 100vh; overflow: visible; }
+  .expense-category-page .admin-report-content.xp-page { padding: 14px 16px 24px; overflow: visible; }
+  .xp-title { flex-direction: column; align-items: stretch; }
+  .xp-title-action { align-self: flex-start; }
+  .xp-spread { grid-template-columns: minmax(0, 1fr); min-height: 0; overflow: visible; }
+  .xp-gutter { display: none; }
+  .xp-leaf { padding: 20px 18px 16px; }
+  .xp-leaf--plan { overflow: visible; background: none; border-bottom: 3px double var(--ec-brass); }
+  .xp-leaf--history { background: none; }
+  .xp-table-scroll { flex: 0 0 auto; max-height: 480px; }
+}
+@media (max-width: 600px) {
+  .xp-sub { font-size: 18px; }
+  .xp-pager > div { width: 100%; }
+}
+
+body.dark-mode .xp-spread { background: #2c2019; border-color: #4a382c; }
+body.dark-mode .xp-leaf--plan, body.dark-mode .xp-leaf--history { background: none; }
+body.dark-mode .xp-gutter { background: linear-gradient(90deg, #3b2c22, #33251d); border-color: #4a382c; }
+body.dark-mode .xp-page { --ec-line: #4a382c; --ec-line-soft: #3d2d23; --ec-ink: #f2e6d8; --ec-muted: #c8b6a3; }
+body.dark-mode .xp-page .ub-insight > div { background: #33251d; }

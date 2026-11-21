@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
-  Award,
+  Check,
   CheckCircle2,
+  Clock,
   ChartNoAxesColumnIncreasing,
   Menu,
   CircleDollarSign,
@@ -35,6 +36,7 @@ import IngredientCostFlowCard from "../../components/IngredientCostFlowCard.jsx"
 import { getStockHealth } from "../../utils/stockHealth.js";
 import { formatWasteQty, getWasteReasonMeta } from "../../utils/wasteMeasurement.js";
 import "../../assets/css/admin/AdminDashboard.css";
+import "../../assets/css/admin/AdminDashboardOffice.css";
 import "../../assets/css/order-details-modal.css";
 import "../../assets/css/portal-hero.css";
 import "../../assets/css/portal-user.css";
@@ -51,6 +53,26 @@ function getSalesLogStatus(status) {
   }
   return { label: "Pending", tone: "pending" };
 }
+
+function Segmented({ label, value, options, onChange }) {
+  return (
+    <div className="od-seg" role="group" aria-label={label}>
+      {options.map(([key, text]) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={value === key}
+          className={value === key ? "is-on" : ""}
+          onClick={() => onChange(key)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ORDER_ROW_LIMIT = 100;
 
 function AdminDashboard() {
   const { sidebarCollapsed, toggleSidebar } = useSidebar();
@@ -541,6 +563,7 @@ function AdminDashboard() {
   const [ordersTab, setOrdersTab] = useState("today");
   const todaysOrders = useMemo(() => orders.filter((order) => isToday(order.createdAt)), [orders]);
   const displayOrders = ordersTab === "today" ? todaysOrders : orders;
+  const visibleOrders = useMemo(() => displayOrders.slice(0, ORDER_ROW_LIMIT), [displayOrders]);
 
   const liveDate = formatManilaDate(new Date(), {
     month: "long",
@@ -1195,117 +1218,85 @@ function AdminDashboard() {
 
           <CostRatioTiles />
 
-          <section className="admin-panel admin-cashier-confirm-panel" aria-label="Cashier Sales and Owner Confirmation">
-            <div className="admin-cashier-confirm-head">
-              <div>
-                <span className="admin-cashier-eyebrow">OWNER REMITTANCE &amp; COUNTER CASH GATE</span>
-                <h3>Cashier Sales &amp; Owner Confirmation</h3>
+          <section className="od-cashier" aria-labelledby="od-cashier-title">
+            <header className="od-head">
+              <div className="od-head-text">
+                <h2 id="od-cashier-title">Cashier sales &amp; owner confirmation</h2>
                 <p>
-                  Inspect transactions and product sales handled by each assigned cashier. Unconfirmed counter cash is added to Store Total Asset Value once confirmed by the Owner.
+                  Check what each cashier sold, then confirm it. Counter cash is added to Store Total Asset Value only after you confirm.
                 </p>
               </div>
-              <Link to="/admin/reports" className="restock-open-button">
-                Full Staff Report <ArrowUpRight size={13} aria-hidden="true" />
+              <Link to="/admin/reports" className="od-link">
+                Full staff report <ArrowUpRight size={14} aria-hidden="true" />
               </Link>
-            </div>
+            </header>
 
             {cashierConfirmNotice && (
-              <div className="admin-cashier-confirm-toast" role="status">
-                <CheckCircle2 size={15} aria-hidden="true" />
+              <div className="od-banner od-banner--ok" role="status">
+                <CheckCircle2 size={16} aria-hidden="true" />
                 <span>{cashierConfirmNotice}</span>
               </div>
             )}
 
             {staffPerformance.length === 0 ? (
-              <div className="admin-waste-empty">
-                <strong>No active cashier accounts found</strong>
-                <p>Assigned cashier orders and product sales will appear here for Owner verification.</p>
+              <div className="od-empty">
+                <strong>No cashier accounts yet</strong>
+                <p>Sales handled by each cashier will show up here for you to confirm.</p>
               </div>
             ) : (
-              <div className="admin-cashier-confirm-grid">
+              <div className="od-notes">
                 {staffPerformance.map((member) => {
                   const unconfirmedCount = Number(member.unconfirmedOrdersCount || 0);
                   const unconfirmedSales = Number(member.unconfirmedSales || 0);
                   const unconfirmedCash = Number(member.unconfirmedCashSales || 0);
                   const isBusy = confirmingStaffId === member.userId;
+                  const tone = unconfirmedCount > 0 ? "pending" : member.ordersCount > 0 ? "done" : "idle";
 
                   return (
-                    <article
-                      key={member.userId}
-                      className={`admin-cashier-confirm-card ${unconfirmedCount > 0 ? "has-pending" : "is-confirmed"}`}
-                    >
-                      <div className="admin-cashier-card-top">
-                        <div className="admin-cashier-identity">
-                          <span className="admin-cashier-avatar" aria-hidden="true">
-                            {String(member.displayName || "S").charAt(0).toUpperCase()}
-                          </span>
-                          <div>
-                            <strong>
-                              {member.displayName}
-                              {member.role === "admin" && (
-                                <span style={{ marginLeft: "6px", fontSize: "10.5px", fontWeight: 700, padding: "2px 6px", borderRadius: "999px", background: "#f3ebe2", color: "#5a3e2b" }}>
-                                  Admin
-                                </span>
-                              )}
-                            </strong>
-                            <small>
-                              {member.ordersCount} order{member.ordersCount === 1 ? "" : "s"} · {member.unitsSold} product unit{member.unitsSold === 1 ? "" : "s"} sold
-                            </small>
-                          </div>
+                    <article key={member.userId} className={`od-note od-note--${tone}`}>
+                      <div className="od-note-top">
+                        <span className="od-avatar" aria-hidden="true">
+                          {String(member.displayName || "S").charAt(0).toUpperCase()}
+                        </span>
+                        <div className="od-note-who">
+                          <strong>
+                            {member.displayName}
+                            {member.role === "admin" && <span className="od-tag">Admin</span>}
+                          </strong>
+                          <small>
+                            {member.ordersCount} order{member.ordersCount === 1 ? "" : "s"} · {member.unitsSold} unit{member.unitsSold === 1 ? "" : "s"} sold
+                          </small>
                         </div>
+                      </div>
 
-                        {unconfirmedCount > 0 ? (
-                          <span className="admin-cashier-badge is-pending">
-                            ⏳ {unconfirmedCount} Unconfirmed
-                          </span>
-                        ) : member.ordersCount > 0 ? (
-                          <span className="admin-cashier-badge is-confirmed">
-                            ✓ Sales Confirmed
-                          </span>
+                      <span className={`od-badge od-badge--${tone}`}>
+                        {tone === "pending" ? (
+                          <><Clock size={13} aria-hidden="true" /> {unconfirmedCount} to confirm</>
+                        ) : tone === "done" ? (
+                          <><Check size={13} aria-hidden="true" /> Confirmed</>
                         ) : (
-                          <span className="admin-cashier-badge is-neutral">
-                            No Sales Yet
-                          </span>
+                          "No sales yet"
                         )}
-                      </div>
+                      </span>
 
-                      <div className="admin-cashier-metrics-row">
-                        <div>
-                          <span>Total Sales</span>
-                          <strong>₱{Number(member.grossSales || 0).toFixed(2)}</strong>
-                        </div>
-                        <div>
-                          <span>Pending Counter Cash</span>
-                          <strong className={unconfirmedCash > 0 ? "is-amber" : ""}>
-                            ₱{unconfirmedCash.toFixed(2)}
-                          </strong>
-                        </div>
-                        <div>
-                          <span>Confirmed Sales</span>
-                          <strong className="is-green">
-                            ₱{Number(member.confirmedSales || 0).toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
+                      <dl className="od-note-figures">
+                        <div><dt>Total sales</dt><dd>₱{Number(member.grossSales || 0).toFixed(2)}</dd></div>
+                        <div><dt>Cash waiting</dt><dd className={unconfirmedCash > 0 ? "is-amber" : ""}>₱{unconfirmedCash.toFixed(2)}</dd></div>
+                        <div><dt>Confirmed</dt><dd className="is-green">₱{Number(member.confirmedSales || 0).toFixed(2)}</dd></div>
+                      </dl>
 
-                      <div className="admin-cashier-card-actions">
-                        <button
-                          type="button"
-                          className="admin-cashier-inspect-btn"
-                          onClick={(e) => openStaffActivityModal(member, e)}
-                        >
-                          Inspect Sales &amp; Products
+                      <div className="od-note-actions">
+                        <button type="button" className="od-btn od-btn--ghost" onClick={(e) => openStaffActivityModal(member, e)}>
+                          View sales
                         </button>
                         {unconfirmedCount > 0 && (
                           <button
                             type="button"
-                            className="admin-cashier-confirm-btn"
+                            className="od-btn od-btn--solid"
                             onClick={() => handleDirectConfirmCashierSales(member)}
                             disabled={isBusy}
                           >
-                            {isBusy
-                              ? "Confirming..."
-                              : `✓ Confirm Sales (₱${unconfirmedSales.toFixed(2)})`}
+                            {isBusy ? "Confirming…" : `Confirm ₱${unconfirmedSales.toFixed(2)}`}
                           </button>
                         )}
                       </div>
@@ -1316,432 +1307,268 @@ function AdminDashboard() {
             )}
           </section>
 
-
-          
-          <section className="admin-middle-grid">
-
-            
-            <div className="admin-panel sales-panel sales-paper-sheet">
-              {/* Top Pushpin / Thumbtack holding the paper sheet */}
-              <div className="sales-paper-pin" aria-hidden="true">
-                <span className="sales-pin-shadow" />
-                <span className="sales-pin-needle" />
-                <span className="sales-pin-collar" />
-                <span className="sales-pin-head">
-                  <i className="sales-pin-glint" />
-                </span>
-              </div>
-
-              {/* Little Bookmark Flag Tag on the Top-Right Paper Edge */}
-              <div className="sales-paper-bookmark" aria-hidden="true">
-                <span className="sales-bookmark-hole" />
-                <span className="sales-bookmark-label">{salesRange.toUpperCase()}</span>
-              </div>
-
-              {/* Paper Sheet Interior */}
-              <div className="sales-paper-inner">
-                <div className="panel-header sales-panel-header sales-paper-header">
-                  <div className="sales-paper-title-block">
-                    <div className="sales-paper-meta-row">
-                      <span className="sales-paper-eyebrow">PINNED REVENUE MEMO</span>
-                      <span className="sales-paper-stamp">VERIFIED</span>
-                    </div>
-                    <h3>Sales Overview</h3>
-                    <p>
-                      Sales performance for {chartRangeLabel}
-                      {usingCachedTrendFallback ? " (showing cached latest 500 orders)" : ""}
-                    </p>
-                  </div>
-
-                  <div className="sales-header-controls">
-                    <span className="sales-total"><ChartNoAxesColumnIncreasing size={14} /> ₱{periodSales.toFixed(2)}</span>
-                    <span className="sales-profit-badge" title="Gross Profit for selected range">
-                      ₱{periodProfit.toFixed(2)} profit
-                    </span>
-                    <select
-                      className="sales-filter"
-                      value={salesRange}
-                      onChange={(event) => setSalesRange(event.target.value)}
-                      aria-label="Sales chart date range"
-                    >
-                      <option value="today">Today's session</option>
-                      <option value="week">Last 7 days</option>
-                      <option value="month">Last 30 days</option>
-                      <option value="year">This year</option>
-                    </select>
-                  </div>
+          <section className="admin-middle-grid od-row od-row--middle">
+            <section className="od-sheet od-sales" aria-labelledby="od-sales-title">
+              <span className="od-tape" aria-hidden="true" />
+              <header className="od-head">
+                <div className="od-head-text">
+                  <h2 id="od-sales-title">Sales overview</h2>
+                  <p>
+                    Paid sales for {chartRangeLabel}
+                    {usingCachedTrendFallback ? " (using the latest 500 orders on this device)" : ""}
+                  </p>
                 </div>
+                <div className="od-controls">
+                  <span className="od-figure">
+                    <ChartNoAxesColumnIncreasing size={14} aria-hidden="true" /> ₱{periodSales.toFixed(2)}
+                  </span>
+                  <span className="od-figure od-figure--profit" title="Gross profit for the selected range">
+                    ₱{periodProfit.toFixed(2)} profit
+                  </span>
+                  <select
+                    className="od-select"
+                    value={salesRange}
+                    onChange={(event) => setSalesRange(event.target.value)}
+                    aria-label="Sales chart date range"
+                  >
+                    <option value="today">Today's session</option>
+                    <option value="week">Last 7 days</option>
+                    <option value="month">Last 30 days</option>
+                    <option value="year">This year</option>
+                  </select>
+                </div>
+              </header>
 
-                <div className="sales-chart sales-paper-chart">
-                  <div className="chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
-                    {salesBuckets.map((bucket, idx) => (
+              <div className="od-chart">
+                <div className="od-chart-bars" role="img" aria-label={`Sales total ₱${periodSales.toFixed(2)} for ${chartRangeLabel}`}>
+                  {salesBuckets.map((bucket, idx) => (
+                    <div className="od-col" key={`${salesRange}-${bucket.start.toISOString()}`} style={{ "--i": idx }}>
                       <div
-                        className="chart-column"
-                        key={`${salesRange}-${bucket.start.toISOString()}`}
-                        style={{ "--bar-index": idx }}
-                      >
-                        <div
-                          className="chart-bar"
-                          title={`₱${bucket.total.toFixed(2)} sales (₱${(bucket.profit || 0).toFixed(2)} profit)`}
-                          style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }}
-                        />
-                        <span>{bucket.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-
-            
-            <div className="admin-panel orders-panel orders-ticket-rail-panel">
-              {/* Aluminum Ticket Grabber Rail along Top Edge */}
-              <div className="orders-rail-bar" aria-hidden="true">
-                <span className="orders-rail-screw left" />
-                <div className="orders-rail-groove">
-                  <span className="orders-rail-label">AMAYA POS • ORDER SLIP RAIL</span>
-                  <div className="orders-rail-marbles">
-                    <i /><i /><i /><i /><i /><i /><i />
-                  </div>
-                </div>
-                <span className="orders-rail-screw right" />
-              </div>
-
-              {/* Thermal Receipt Slip Suspended Under the Rail */}
-              <div className="orders-receipt-slip">
-                <div className="panel-header orders-receipt-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-                  <div className="orders-receipt-title-block">
-                    <div className="orders-receipt-meta">
-                      <span className="orders-live-led" aria-hidden="true" />
-                      <span className="orders-receipt-eyebrow">LIVE REGISTER FEED</span>
-                      <span className="orders-receipt-serial">#REG-01</span>
+                        className={`od-bar${bucket.total > 0 ? " has-sales" : ""}`}
+                        title={`₱${bucket.total.toFixed(2)} sales (₱${(bucket.profit || 0).toFixed(2)} profit)`}
+                        style={{ height: `${Math.max(bucket.total > 0 ? 6 : 2, (bucket.total / chartMaximum) * 100)}%` }}
+                      />
+                      <span>{bucket.label}</span>
                     </div>
-                    <h3>Today&apos;s Orders &amp; Transactions</h3>
-                    <p>Active daily session ({liveDate})</p>
-                  </div>
-
-                  <div className="orders-receipt-tabs" role="group" aria-label="Order time range">
-                    <button
-                      type="button"
-                      className={`orders-receipt-tab${ordersTab === "today" ? " is-active" : ""}`}
-                      aria-pressed={ordersTab === "today"}
-                      onClick={() => setOrdersTab("today")}
-                    >
-                      Today's Session ({todaysOrders.length})
-                    </button>
-                    <button
-                      type="button"
-                      className={`orders-receipt-tab${ordersTab === "all" ? " is-active" : ""}`}
-                      aria-pressed={ordersTab === "all"}
-                      onClick={() => setOrdersTab("all")}
-                    >
-                      All Recent ({orders.length})
-                    </button>
-                  </div>
+                  ))}
                 </div>
+              </div>
+            </section>
 
-                <div className="orders-table-wrapper orders-receipt-body">
-                  <table className="admin-orders-table orders-receipt-table">
-                    <thead>
+            <section className="od-sheet od-orders" aria-labelledby="od-orders-title">
+              <header className="od-head">
+                <div className="od-head-text">
+                  <h2 id="od-orders-title">Orders &amp; transactions</h2>
+                  <p>{ordersTab === "today" ? `Today's session, ${liveDate}` : "Most recent orders"}</p>
+                </div>
+                <Segmented
+                  label="Order time range"
+                  value={ordersTab}
+                  onChange={setOrdersTab}
+                  options={[
+                    ["today", `Today (${todaysOrders.length})`],
+                    ["all", `All recent (${orders.length})`],
+                  ]}
+                />
+              </header>
+
+              <div className="od-table-wrap">
+                <table className="od-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Order</th>
+                      <th scope="col">Customer</th>
+                      <th scope="col">Cashier</th>
+                      <th scope="col" className="is-num">Total</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleOrders.length === 0 ? (
                       <tr>
-                        <th>Ticket #</th>
-                        <th>Customer</th>
-                        <th>Cashier in Charge</th>
-                        <th>Total</th>
-                        <th>Status</th>
+                        <td colSpan="5">
+                          <div className="od-empty">
+                            <strong>{ordersTab === "today" ? "No orders yet today" : "No orders yet"}</strong>
+                            <p>{ordersTab === "today" ? "Counter orders from today's session will appear here as they come in." : "New orders will appear here."}</p>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-
-                    <tbody>
-                      {displayOrders.length === 0 ? (
-                        <tr>
-                          <td colSpan="5" className="empty-orders-cell">
-                            <div className="empty-orders-state">
-                              <strong>{ordersTab === "today" ? "No orders placed today yet" : "No orders yet"}</strong>
-                              <span>{ordersTab === "today" ? "Counter transactions from today's session will appear here in real time." : "New customer orders will appear here."}</span>
-                            </div>
+                    ) : (
+                      visibleOrders.map((order) => (
+                        <tr key={order.id} className="is-clickable" onClick={(e) => openOrderModal(order, e)}>
+                          <td>
+                            <button
+                              type="button"
+                              className="od-order-id"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openOrderModal(order, e);
+                              }}
+                              title={`Open order #${order.id}`}
+                            >
+                              #{order.id}
+                            </button>
+                          </td>
+                          <td>{order.customer || "Walk-in customer"}</td>
+                          <td>
+                            <span className="od-cashier-tag">
+                              <UserRound size={13} aria-hidden="true" /> {order.cashier || "Staff"}
+                            </span>
+                          </td>
+                          <td className="is-num">₱{Number(order.total || 0).toFixed(2)}</td>
+                          <td>
+                            <span className={`od-status od-status--${getSalesLogStatus(order.status).tone}`}>
+                              {getSalesLogStatus(order.status).label}
+                            </span>
                           </td>
                         </tr>
-                      ) : (
-                        displayOrders.map((order, idx) => (
-                          <tr
-                            key={order.id}
-                            className="orders-receipt-row is-clickable"
-                            style={{ "--ticket-index": idx }}
-                            onClick={(e) => openOrderModal(order, e)}
-                          >
-                            <td>
-                              <button
-                                type="button"
-                                className="orders-ticket-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openOrderModal(order, e);
-                                }}
-                                title={`Inspect order #${order.id}`}
-                              >
-                                <strong className="orders-ticket-code">{order.id}</strong>
-                              </button>
-                            </td>
-                            <td>{order.customer || "Walk-in Customer"}</td>
-                            <td>
-                              <span className="orders-cashier-tag" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 8px", background: "rgba(139, 94, 60, 0.12)", border: "1px solid rgba(139, 94, 60, 0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", color: "#8B5E3C" }}>
-                                <UserRound size={13} aria-hidden="true" /> {order.cashier || "Staff"}
-                              </span>
-                            </td>
-                            <td className="orders-ticket-amount">₱{Number(order.total || 0).toFixed(2)}</td>
-                            <td>
-                              <span className={`order-status-pill status-${getSalesLogStatus(order.status).tone}`}>
-                                {getSalesLogStatus(order.status).label}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Thermal Receipt Barcode & Zigzag Serrated Tear Footer */}
-                <div className="orders-receipt-footer" aria-live="polite" aria-label={`${displayOrders.length} recorded transactions`}>
-                  <div className="orders-receipt-barcode" aria-hidden="true" />
-                  <span className="orders-receipt-cut-note">
-                    THERMAL LOG • {displayOrders.length} RECORDED TRANSACTION{displayOrders.length === 1 ? "" : "S"}
-                  </span>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </div>
 
+              <footer className="od-foot" aria-live="polite">
+                {displayOrders.length > visibleOrders.length
+                  ? `Showing the latest ${visibleOrders.length} of ${displayOrders.length} orders`
+                  : `${displayOrders.length} order${displayOrders.length === 1 ? "" : "s"} recorded`}
+              </footer>
+            </section>
           </section>
 
-
-
-          <section className="admin-bottom-grid">
-            <div className="admin-panel top-products-panel top-products-showcase">
-              {/* Brass Hanging Chain & Cafe Medallion Crest */}
-              <div className="showcase-hanging-hardware" aria-hidden="true">
-                <span className="showcase-nail" />
-                <span className="showcase-chain left" />
-                <span className="showcase-chain right" />
-                <span className="showcase-medallion">★ TOP SELLERS</span>
-              </div>
-
-              {/* Corner Brass Rivets */}
-              <span className="showcase-rivet tl" aria-hidden="true" />
-              <span className="showcase-rivet tr" aria-hidden="true" />
-              <span className="showcase-rivet bl" aria-hidden="true" />
-              <span className="showcase-rivet br" aria-hidden="true" />
-
-              {/* Inner Velvet/Parchment Menu Display Board */}
-              <div className="showcase-board-inner">
-                <div className="panel-header top-products-header showcase-board-header">
-                  <div className="showcase-title-block">
-                    <div className="showcase-meta-row">
-                      <span className="showcase-eyebrow">CURATED MENU HALL OF FAME</span>
-                    </div>
-                    <h3>Most Bought Menu Products</h3>
-                    <p>
-                      {topProductsTab === "today"
-                        ? `Ranked by paid units sold today (${todaysUnitsSold} units across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items)`
-                        : `All-time paid product rankings (${allTimeRankedUnits} units across ${rankedProducts.length} menu items)`}
-                    </p>
-                  </div>
-                  <div className="top-products-tabs showcase-tabs" role="tablist" aria-label="Product ranking period">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={topProductsTab === "all"}
-                      className={topProductsTab === "all" ? "active" : ""}
-                      onClick={() => setTopProductsTab("all")}
-                    >
-                      All-Time ({allTimeRankedUnits})
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={topProductsTab === "today"}
-                      className={topProductsTab === "today" ? "active" : ""}
-                      onClick={() => setTopProductsTab("today")}
-                    >
-                      Today ({todaysUnitsSold})
-                    </button>
-                  </div>
+          <section className="admin-bottom-grid od-row od-row--bottom">
+            <section className="od-sheet od-top" aria-labelledby="od-top-title">
+              <header className="od-head">
+                <div className="od-head-text">
+                  <h2 id="od-top-title">Most bought menu products</h2>
+                  <p>
+                    {topProductsTab === "today"
+                      ? `Today: ${todaysUnitsSold} unit${todaysUnitsSold === 1 ? "" : "s"} across ${rankedProducts.filter((p) => p.unitsSold > 0).length} items`
+                      : `All time: ${allTimeRankedUnits} unit${allTimeRankedUnits === 1 ? "" : "s"} across ${rankedProducts.length} menu items`}
+                  </p>
                 </div>
+                <Segmented
+                  label="Product ranking period"
+                  value={topProductsTab}
+                  onChange={setTopProductsTab}
+                  options={[
+                    ["all", `All time (${allTimeRankedUnits})`],
+                    ["today", `Today (${todaysUnitsSold})`],
+                  ]}
+                />
+              </header>
 
-                <div className="top-products-list showcase-plaque-list">
-                  {rankedProducts.length === 0 ? (
-                    <div className="empty-orders-state">
-                      <strong>No menu products found</strong>
-                      <span>Add products in Menu Management to track their sales ranking.</span>
-                    </div>
-                  ) : (
-                    rankedProducts.map((product, idx) => (
-                      <div
+              <ol className="od-top-list">
+                {rankedProducts.length === 0 ? (
+                  <li className="od-empty">
+                    <strong>No menu products yet</strong>
+                    <p>Add products in Menu Management to see how they rank.</p>
+                  </li>
+                ) : (
+                  rankedProducts.map((product) => {
+                    const hasSales = product.unitsSold > 0;
+                    return (
+                      <li
                         key={product.key}
-                        style={{ "--plaque-index": idx }}
-                        className={`top-product-row showcase-plaque-row${product.unitsSold > 0 ? " has-sales" : " no-sales"}${product.rank <= 3 && product.unitsSold > 0 ? ` is-top-${product.rank}` : ""}`}
+                        className={`od-top-row${hasSales ? "" : " is-quiet"}${hasSales && product.rank <= 3 ? ` is-podium-${product.rank}` : ""}`}
                       >
-                        <span className="top-product-rank showcase-rank-seal">
-                          {product.rank <= 3 && product.unitsSold > 0 ? (
-                            <Award size={13} aria-hidden="true" />
-                          ) : null}
-                          #{product.rank}
-                        </span>
-
-                        <div className="showcase-thumb-frame">
-                          {product.image ? (
-                            <img className="top-product-thumb" src={product.image} alt={product.name} />
-                          ) : (
-                            <div className="top-product-thumb top-product-thumb-fallback" aria-hidden="true">
-                              {product.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="top-product-main">
-                          <div className="top-product-title-row">
-                            <strong className="top-product-name">{product.name}</strong>
-                            <span className="top-product-category">{product.category}</span>
-                            {!product.inCatalog && (
-                              <span className="top-product-archived-tag">Archived</span>
-                            )}
-                            {product.topSize && (
-                              <span className="top-product-size-tag">Top: {product.topSize}</span>
-                            )}
+                        <span className="od-rank">{product.rank}</span>
+                        {product.image ? (
+                          <img className="od-thumb" src={product.image} alt="" />
+                        ) : (
+                          <span className="od-thumb od-thumb--blank" aria-hidden="true">
+                            {product.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="od-top-main">
+                          <div className="od-top-title">
+                            <strong>{product.name}</strong>
+                            <span className="od-chip">{product.category}</span>
+                            {!product.inCatalog && <span className="od-chip od-chip--warn">Archived</span>}
+                            {product.topSize && <span className="od-chip">Top size: {product.topSize}</span>}
                           </div>
-
-                          <div className="top-product-bar-track showcase-bar-track" aria-hidden="true">
-                            <div
-                              className="top-product-bar-fill showcase-bar-fill"
-                              style={{ transform: `scaleX(${product.barPercent / 100})` }}
-                            />
+                          <div className="od-track" aria-hidden="true">
+                            <span style={{ transform: `scaleX(${product.barPercent / 100})` }} />
                           </div>
                         </div>
-
-                        <div className="top-product-metrics showcase-plaque-metrics">
-                          <div className="top-product-units">
+                        <div className="od-top-nums">
+                          <div>
                             <strong>{product.unitsSold} sold</strong>
                             <span>
-                              {product.unitsSold > 0
+                              {hasSales
                                 ? `${product.sharePercent.toFixed(1)}% · ${product.ordersCount} order${product.ordersCount === 1 ? "" : "s"}`
                                 : `Base ₱${product.basePrice.toFixed(2)}`}
                             </span>
                           </div>
-                          <div className="top-product-revenue">
+                          <div>
                             <strong>₱{product.revenue.toFixed(2)}</strong>
                             <span className={product.profit > 0 ? "is-profit" : ""}>
-                              {product.unitsSold > 0 ? `₱${product.profit.toFixed(2)} profit` : "No sales yet"}
+                              {hasSales ? `₱${product.profit.toFixed(2)} profit` : "No sales yet"}
                             </span>
                           </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-            <section className="admin-panel admin-report-panel inventory-panel low-stock-panel low-stock-notebook" aria-label="Moderate and lowest stock inventory report">
-              {/* 3D Animated Leather Cover that slowly swings open on mount */}
-              <div className="low-stock-notebook-cover" aria-hidden="true">
-                <div className="low-stock-cover-inner">
-                  <span className="low-stock-cover-crest">AMAYA CAFE</span>
-                  <strong className="low-stock-cover-title">STOCK WATCHLIST</strong>
-                  <span className="low-stock-cover-sub">Inventory Capacity Ledger</span>
-                </div>
-              </div>
+                      </li>
+                    );
+                  })
+                )}
+              </ol>
+            </section>
 
-              {/* Spiral Wire Binding Spine + Perforated Holes */}
-              <div className="low-stock-notebook-spine" aria-hidden="true">
-                {Array.from({ length: 10 }).map((_, idx) => (
-                  <span key={idx} className="low-stock-ring-pair">
-                    <i className="low-stock-ring-hole" />
-                    <b className="low-stock-ring-wire" />
-                  </span>
-                ))}
-              </div>
-
-              {/* Bookmark Ribbon */}
-              <div className="low-stock-notebook-ribbon" aria-hidden="true" />
-
-              {/* Ruled Notebook Page Interior */}
-              <div className="low-stock-notebook-page">
-                <div className="panel-header top-products-header inventory-panel-heading low-stock-notebook-header">
-                  <div className="low-stock-title-block">
-                    <div className="low-stock-meta-row">
-                      <span className="low-stock-eyebrow">INVENTORY LEDGER</span>
-                      <span className="low-stock-date-chip">{liveDate}</span>
-                    </div>
-                    <h3>Stock Watchlist</h3>
+            <section className="od-sheet od-notebook" aria-labelledby="od-stock-title">
+              <span className="od-spiral" aria-hidden="true" />
+              <div className="od-notebook-page">
+                <header className="od-head">
+                  <div className="od-head-text">
+                    <h2 id="od-stock-title">Stock watchlist</h2>
                     <p>
-                      {lowStockBreakdown.total} item{lowStockBreakdown.total === 1 ? "" : "s"} at or below 70% capacity
+                      {lowStockBreakdown.total} item{lowStockBreakdown.total === 1 ? "" : "s"} at or below 70% of max stock · {liveDate}
                     </p>
                   </div>
-                  <div className="inventory-panel-actions">
-                    <div className="top-products-tabs" role="tablist" aria-label="Filter stock watchlist">
-                      {[
+                  <div className="od-controls">
+                    <Segmented
+                      label="Filter stock watchlist"
+                      value={stockFilter}
+                      onChange={setStockFilter}
+                      options={[
                         ["all", `All (${lowStockBreakdown.total})`],
                         ["lowest", `Lowest (${lowStockBreakdown.critical + lowStockBreakdown.low})`],
                         ["moderate", `Moderate (${lowStockBreakdown.moderate})`],
-                      ].map(([key, label]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          role="tab"
-                          aria-selected={stockFilter === key}
-                          className={stockFilter === key ? "active" : ""}
-                          onClick={() => setStockFilter(key)}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <Link to="/admin/inventory" className="restock-open-button" aria-label="Manage inventory">
-                      Inventory <ArrowUpRight size={13} aria-hidden="true" />
+                      ]}
+                    />
+                    <Link to="/admin/inventory" className="od-link" aria-label="Manage inventory">
+                      Inventory <ArrowUpRight size={14} aria-hidden="true" />
                     </Link>
                   </div>
-                </div>
+                </header>
 
                 {inventoryLoading && inventory.length === 0 ? (
-                  <div className="admin-report-empty compact"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
+                  <div className="od-empty"><strong>Loading stock levels</strong><p>Fetching the latest inventory quantities.</p></div>
                 ) : inventoryError && inventory.length === 0 ? (
-                  <div className="admin-report-empty compact" role="alert"><strong>Inventory report unavailable</strong><p>{inventoryError}</p></div>
+                  <div className="od-empty" role="alert"><strong>Can't show stock levels</strong><p>{inventoryError}</p></div>
                 ) : visibleLowStock.length ? (
-                  <div className="low-stock-notebook-body stock-table-wrap">
-                    <div className="low-stock-notebook-col-head" aria-hidden="true">
-                      <span># / Inventory Item &amp; Category</span>
-                      <span>Stock Level</span>
-                      <span>Max Stock</span>
+                  <div className="od-stock">
+                    <div className="od-stock-head" aria-hidden="true">
+                      <span>Item</span>
+                      <span>Stock level</span>
+                      <span>Max stock</span>
                       <span>Status</span>
                     </div>
-                    <ol className="low-stock-notebook-list">
-                      {visibleLowStock.map((item, idx) => (
-                        <li
-                          key={item.id ?? item.item}
-                          className="low-stock-notebook-line"
-                          style={{ "--line-index": idx }}
-                        >
-                          <div className="low-stock-line-main">
-                            <span className="low-stock-line-num" aria-hidden="true">
-                              {String(idx + 1).padStart(2, "0")}
-                            </span>
-                            <div className="low-stock-line-item">
-                              <strong>{item.item}</strong>
-                              <small>{item.category || "Uncategorized"}</small>
-                            </div>
+                    <ul className="od-stock-list">
+                      {visibleLowStock.map((item) => (
+                        <li key={item.id ?? item.item} className="od-stock-row">
+                          <div className="od-stock-item">
+                            <strong>{item.item}</strong>
+                            <small>{item.category || "Uncategorized"}</small>
                           </div>
-
-                          <div className="low-stock-line-level">
-                            <div className="stock-level-value">
+                          <div className="od-stock-level">
+                            <div className="od-stock-qty">
                               <span>{item.quantity.toLocaleString()} {item.unit}</span>
                               {item.reportedPercent != null && (
-                                <span className={`stock-level-percent ${item.healthTone}`}>
-                                  {item.reportedPercent}%
-                                </span>
+                                <b className={`is-${item.healthTone}`}>{item.reportedPercent}%</b>
                               )}
                             </div>
                             <div
-                              className="stock-level-track"
+                              className="od-meter"
                               role="progressbar"
                               aria-label={`${item.item} stock level`}
                               aria-valuemin={0}
@@ -1749,122 +1576,100 @@ function AdminDashboard() {
                               aria-valuenow={item.reportedPercent ?? 0}
                             >
                               <span
-                                className={`stock-level-fill ${item.healthTone}`}
+                                className={`is-${item.healthTone}`}
                                 style={{ width: `${Math.max(item.quantity > 0 ? 4 : 0, item.capacityPercent ?? 0)}%` }}
                               />
                             </div>
                           </div>
-
-                          <div className="low-stock-line-max">
+                          <div className="od-stock-max">
                             {item.maximumStock == null ? (
-                              <span className="max-unset">Not set</span>
+                              <span className="is-unset">Not set</span>
                             ) : (
                               <span>{item.maximumStock.toLocaleString()} {item.unit}</span>
                             )}
                           </div>
-
-                          <div className="low-stock-line-status">
-                            <span className={`inventory-status ${item.healthTone}`}>
-                              <span aria-hidden="true" />
-                              {item.label}
-                            </span>
+                          <div className="od-stock-status">
+                            <span className={`od-pill od-pill--${item.healthTone}`}>{item.label}</span>
                           </div>
                         </li>
                       ))}
-                    </ol>
+                    </ul>
                   </div>
                 ) : (
-                  <div className="admin-report-empty compact low-stock-notebook-empty">
-                    <strong>All pages clear — inventory is healthy</strong>
-                    <p>No items are currently in the moderate, running low, or critical range.</p>
+                  <div className="od-empty">
+                    <strong>Everything is well stocked</strong>
+                    <p>No items are in the moderate, running low, or critical range.</p>
                   </div>
                 )}
               </div>
             </section>
-
           </section>
 
-          <section className="admin-panel admin-waste-tracker" aria-label="Zero-Guesswork Waste and Spoilage Tracker">
-            <div className="admin-waste-header">
-              <div>
-                <h2>Waste &amp; Spoilage Tracker</h2>
-                <p>Verified stock shrinkage, standardized reasons, and GL spoilage ledger reconciliation</p>
+          <section className="od-waste" aria-labelledby="od-waste-title">
+            <header className="od-head">
+              <div className="od-head-text">
+                <h2 id="od-waste-title">Waste &amp; spoilage tracker</h2>
+                <p>Stock lost to spoilage or spills, with the reason and who recorded it.</p>
               </div>
-              <div className="admin-waste-toolbar">
-                <div className="admin-waste-scopes" role="group" aria-label="Waste log time filter">
-                  {[
+              <div className="od-controls">
+                <Segmented
+                  label="Waste log time filter"
+                  value={wasteScope}
+                  onChange={handleWasteScopeSwitch}
+                  options={[
                     ["today", "Today"],
-                    ["shift", "Active Shift"],
-                    ["all", "All History"],
-                  ].map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={wasteScope === key}
-                      className={`admin-waste-scope-btn${wasteScope === key ? " is-active" : ""}`}
-                      onClick={() => handleWasteScopeSwitch(key)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="admin-waste-cta-btn"
-                  onClick={() => setShowWasteModal(true)}
-                >
+                    ["shift", "Active shift"],
+                    ["all", "All history"],
+                  ]}
+                />
+                <button type="button" className="od-btn od-btn--solid" onClick={() => setShowWasteModal(true)}>
                   <Trash2 size={15} aria-hidden="true" />
-                  Log Waste / Spoilage
+                  Log waste
                 </button>
               </div>
-            </div>
+            </header>
 
             {wasteStatusNote && (
-              <div className="admin-waste-status-banner" role="status">
-                <span>{wasteStatusNote}</span>
-              </div>
+              <div className="od-banner od-banner--ok" role="status"><span>{wasteStatusNote}</span></div>
             )}
-
             {wasteLogsError && (
-              <div className="admin-waste-error-banner" role="alert">
-                <span>{wasteLogsError}</span>
-              </div>
+              <div className="od-banner od-banner--error" role="alert"><span>{wasteLogsError}</span></div>
             )}
 
-            <div className="admin-waste-kpis">
-              <article className="admin-waste-kpi-card is-danger">
-                <span>Waste Loss Today</span>
+            <div className="od-notes od-notes--kpi">
+              <article className="od-note od-note--loss">
+                <span className="od-kpi-label">Waste loss today</span>
                 <strong>₱{Number(wasteSummary.totalWasteLossToday || 0).toFixed(2)}</strong>
-                <small>Credited from 1050 Inventory Asset → DR 6030 Spoilage</small>
+                <small>Counted as a spoilage expense and taken off your inventory value</small>
               </article>
-              <article className="admin-waste-kpi-card">
-                <span>Waste Events Today</span>
+              <article className="od-note od-note--pending">
+                <span className="od-kpi-label">Waste events today</span>
                 <strong>{wasteSummary.totalWasteEventsToday || 0}</strong>
-                <small>Unreversed verified waste entries logged today</small>
+                <small>Entries logged today that haven't been reversed</small>
               </article>
-              <article className="admin-waste-kpi-card">
-                <span>Top Wasted Item Today</span>
+              <article className="od-note od-note--done">
+                <span className="od-kpi-label">Most wasted item today</span>
                 <strong>{topWastedItem ? topWastedItem.itemName : "None today"}</strong>
                 <small>
                   {topWastedItem
                     ? `${formatWasteQty(topWastedItem.totalDeductedQuantity, topWastedItem.unit)} · ₱${Number(topWastedItem.totalWasteValue || 0).toFixed(2)} loss`
-                    : "Zero waste deductions recorded today"}
+                    : "No waste recorded today"}
                 </small>
               </article>
             </div>
 
             {wasteLogs.length ? (
-              <div className="admin-waste-table-wrap">
-                <table className="admin-waste-table">
+              <div className="od-table-wrap">
+                <table className="od-table od-table--waste">
                   <thead>
                     <tr>
-                      <th>Item</th>
-                      <th>Deducted</th>
-                      <th>Reason</th>
-                      <th>Measured Input</th>
-                      <th>Staff &amp; Note</th>
-                      <th>Loss Value</th>
-                      <th>Audit</th>
+                      <th scope="col">Item</th>
+                      <th scope="col">Deducted</th>
+                      <th scope="col">Reason</th>
+                      <th scope="col">Measured</th>
+                      <th scope="col">Staff &amp; note</th>
+                      <th scope="col" className="is-num">Loss</th>
+                      <th scope="col">Audit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1874,41 +1679,27 @@ function AdminDashboard() {
                         <tr key={entry.id} className={entry.isReversed ? "is-reversed" : ""}>
                           <td>
                             <strong>{entry.itemName}</strong>
-                            <small className="admin-waste-cell-sub">
+                            <small className="od-sub">
                               {formatWasteQty(entry.beforeQuantity, entry.unit)} → {formatWasteQty(entry.afterQuantity, entry.unit)}
                             </small>
                           </td>
-                          <td>
-                            <span className="admin-waste-qty-pill">
-                              -{formatWasteQty(entry.deductedQuantity, entry.unit)}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="admin-waste-reason-pill">{reasonMeta.label}</span>
-                          </td>
-                          <td className="admin-waste-cell-muted">
+                          <td><span className="od-chip od-chip--loss">-{formatWasteQty(entry.deductedQuantity, entry.unit)}</span></td>
+                          <td><span className="od-chip">{reasonMeta.label}</span></td>
+                          <td className="is-muted">
                             {entry.measurementMethod === "remaining_count"
                               ? `Left: ${formatWasteQty(entry.measuredInputQty, entry.measuredInputUnit)}${entry.tareWeight > 0 ? ` (tare ${formatWasteQty(entry.tareWeight, entry.measuredInputUnit || entry.unit)})` : ""}`
                               : `Direct: ${formatWasteQty(entry.measuredInputQty, entry.measuredInputUnit)}`}
                           </td>
                           <td>
-                            <div className="admin-waste-note-col">
-                              <strong>{entry.actor}</strong>
-                              <span>{entry.note}</span>
-                            </div>
+                            <strong>{entry.actor}</strong>
+                            <small className="od-sub">{entry.note}</small>
                           </td>
-                          <td className="admin-waste-value-cell">
-                            ₱{Number(entry.wasteValue || 0).toFixed(2)}
-                          </td>
+                          <td className="is-num">₱{Number(entry.wasteValue || 0).toFixed(2)}</td>
                           <td>
                             {entry.isReversed ? (
-                              <span className="admin-waste-reversed-tag">Reversed</span>
+                              <span className="od-chip">Reversed</span>
                             ) : (
-                              <button
-                                type="button"
-                                className="admin-waste-rev-action"
-                                onClick={(e) => openReverseDialog(entry, e)}
-                              >
+                              <button type="button" className="od-btn od-btn--ghost od-btn--sm" onClick={(e) => openReverseDialog(entry, e)}>
                                 <RotateCcw size={13} aria-hidden="true" />
                                 Reverse
                               </button>
@@ -1921,15 +1712,15 @@ function AdminDashboard() {
                 </table>
               </div>
             ) : (
-              <div className="admin-waste-empty">
+              <div className="od-empty">
                 <strong>
                   {wasteLogsLoading
-                    ? "Loading waste logs..."
+                    ? "Loading waste logs…"
                     : wasteLogsError
-                      ? "Unable to load waste logs"
-                      : "No waste entries in this scope"}
+                      ? "Can't load waste logs"
+                      : "No waste entries for this period"}
                 </strong>
-                <p>Use Log Waste / Spoilage to record weighed remaining counts or measured spills.</p>
+                <p>Use Log waste to record a weighed leftover or a measured spill.</p>
               </div>
             )}
           </section>

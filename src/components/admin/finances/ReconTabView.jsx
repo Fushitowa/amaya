@@ -40,7 +40,7 @@ export default function ReconTabView({ reconData, reconPage, reconMaxPage, setRe
                         </td>
                         <td>{peso(row.openingTotalAssets)}</td>
                         <td>{row.closingTotalAssets != null ? peso(row.closingTotalAssets) : "Shift still open"}</td>
-                        <td style={{ fontWeight: 700, color: row.netAssetDelta == null ? "#5a4029" : Number(row.netAssetDelta) >= 0 ? "#1e7047" : "#c53030" }}>
+                        <td style={{ fontWeight: 700, whiteSpace: "nowrap", color: row.netAssetDelta == null ? "#5a4029" : Number(row.netAssetDelta) >= 0 ? "#1e7047" : "#c53030" }}>
                           {row.netAssetDelta != null ? `${Number(row.netAssetDelta) >= 0 ? "+" : "-"}${peso(Math.abs(Number(row.netAssetDelta)))}` : "—"}
                         </td>
                         <td>{peso(row.grossSales)}</td>

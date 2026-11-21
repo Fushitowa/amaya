@@ -13,6 +13,7 @@ import {
   Lock,
   Download,
   Search,
+  Menu,
 } from "lucide-react";
 import { apiRequest } from "../utils/api.js";
 import { peso, round2, manilaToday } from "../utils/financeFormat.js";
@@ -21,7 +22,6 @@ import ProfitReportTabView from "./admin/finances/ProfitReportTabView.jsx";
 import ReconTabView from "./admin/finances/ReconTabView.jsx";
 import ReverseDialog from "./admin/finances/ReverseDialog.jsx";
 import FinanceActionDialog from "./admin/finances/FinanceActionDialog.jsx";
-import { isManualExpenseAccount } from "./admin/finances/financeAccounts.js";
 import { downloadCsv } from "../utils/financeCsv.js";
 import { reconRows, journalRows, profitReportRows, cashFlowRows, balanceSheetRows } from "../utils/financeExport.js";
 import { useNetIncomePin } from "../hooks/useNetIncomePin.js";
@@ -30,6 +30,15 @@ import { FIN_TABS, FIN_ACTIONS, entryTypeLabel } from "../config/financeLabels.j
 
 import { BalanceSheetTabView, CashFlowTabView, JournalAuditTabView } from "./admin/finances/FinancialStatementTabs.jsx";
 import "../assets/css/admin/FinancialManagement.css";
+import "../assets/css/admin/FinanceCenter.css";
+
+const FIN_TAB_ICONS = [
+  ["recon", Calendar],
+  ["pnl", TrendingUp],
+  ["cashflow", Wallet],
+  ["balancesheet", Scale],
+  ["journal", BookOpen],
+];
 
 const LIQUID_ACCOUNT_CODES_LIST = ["1010", "1020", "1030", "1040"];
 
@@ -42,41 +51,8 @@ const LIQUID_ACCOUNT_OPTIONS = [
 ];
 
 // USAR order: labor, controllable expenses, then occupancy.
-const OPEX_GROUP_ORDER = [
-  "Labor & Payroll",
-  "Utilities",
-  "Marketing",
-  "Operating Supplies",
-  "Repairs & Maintenance",
-  "General & Administrative (G&A)",
-  "Others",
-  "Utilities & Rent (Legacy)",
-  "Occupancy",
-];
 
-function groupOpexByExpenseGroup(items = []) {
-  const buckets = new Map();
-  for (const item of items) {
-    const grp = item.expenseGroup || "Others";
-    if (!buckets.has(grp)) buckets.set(grp, []);
-    buckets.get(grp).push(item);
-  }
-  const rank = (name) => {
-    const idx = OPEX_GROUP_ORDER.indexOf(name);
-    return idx === -1 ? OPEX_GROUP_ORDER.length : idx;
-  };
-  return [...buckets.entries()]
-    .sort(([a], [b]) => {
-      const diff = rank(a) - rank(b);
-      return diff !== 0 ? diff : a.localeCompare(b);
-    })
-    .map(([group, rows]) => ({
-      group,
-      rows: [...rows].sort((a, b) => String(a.accountCode).localeCompare(String(b.accountCode))),
-    }));
-}
-
-export default function FinancialReconciliationCenter() {
+export default function FinancialReconciliationCenter({ onOpenNav } = {}) {
   const netIncomePin = useNetIncomePin();
   const [activeTab, setActiveTab] = useState("recon"); // 'recon', 'pnl', 'cashflow', 'balancesheet', 'journal'
   const [loading, setLoading] = useState(false);
@@ -290,12 +266,6 @@ export default function FinancialReconciliationCenter() {
     }));
   }, [coaAccounts, showCodes]);
 
-  const groupedOpexAccounts = useMemo(
-    // Payroll accounts (salaries, wages, OT, contributions, 13th month) are posted by Payroll Runs only.
-    () => groupOpexByExpenseGroup(coaAccounts.filter(isManualExpenseAccount)),
-    [coaAccounts],
-  );
-
   const grossEquip1510 = accountBalanceMap.get("1510") || 0;
   const accumDepr1520 = accountBalanceMap.get("1520") || 0;
   const equipmentNetBookValue = round2(Math.max(0, grossEquip1510 - accumDepr1520));
@@ -384,239 +354,140 @@ export default function FinancialReconciliationCenter() {
   const reconMaxPage = Math.max(1, Math.ceil(reconTotal / 25));
   const journalMaxPage = Math.max(1, Math.ceil(journalTotal / 25));
 
+  const runAction = (mode) => (mode === "close" ? setMonthCloseOpen(true) : openActionModal(mode));
+  const recordActions = [
+    { key: "opex", Icon: PlusCircle, label: FIN_ACTIONS.expense.label, hint: "Rent, supplies, utilities", mode: "opex" },
+    { key: "wear", Icon: PlusCircle, label: FIN_ACTIONS.wear.label, hint: "Spread equipment cost over time", term: FIN_ACTIONS.wear.term, mode: "depreciation" },
+    { key: "tax", Icon: PlusCircle, label: FIN_ACTIONS.tax.label, hint: "Record or set aside tax", term: FIN_ACTIONS.tax.term, mode: "income_tax" },
+    { key: "close", Icon: Lock, label: "Close the Month", hint: "Lock the month's figures", mode: "close" },
+  ];
+  const ownerActions = [
+    { key: "drawing", Icon: Wallet, label: FIN_ACTIONS.withdrawal.label, hint: "Take money out for yourself", term: FIN_ACTIONS.withdrawal.term, mode: "drawing" },
+    { key: "capital", Icon: PlusCircle, label: FIN_ACTIONS.capital.label, hint: "Put your own money in", term: FIN_ACTIONS.capital.term, mode: "capital" },
+    { key: "transfer", Icon: ArrowLeftRight, label: FIN_ACTIONS.transfer.label, hint: "Between cash, GCash and bank", term: FIN_ACTIONS.transfer.term, mode: "transfer" },
+  ];
   return (
-    <section className="financial-center-panel" aria-label="Money and Books">
-      <div className="financial-center-header">
-        <div className="financial-center-title">
-          <h3>
-            <Scale size={20} aria-hidden="true" />
-            <span title="Double-entry financial management and asset reconciliation">Money &amp; Books</span>
-          </h3>
-          <p>Where your money is, what you earned, what you owe, and a full history of every change.</p>
+    <section className="lb-folio" aria-label="Money and Books">
+      <aside className="lb-rail">
+        <div className="lb-rail-head">
+          {onOpenNav && (
+            <button type="button" className="lb-menu-btn" onClick={onOpenNav} aria-label="Open navigation menu">
+              <Menu size={20} aria-hidden="true" />
+            </button>
+          )}
+          <h1>Money and Books</h1>
+          <p>Where your money is, what you earned, what you owe, and every change along the way.</p>
         </div>
 
-        <div className="fin-action-toolbar">
-          <div className="fin-toolbar-cluster" role="group" aria-label="Expenses and adjustments">
-            <span className="fin-toolbar-cluster-label">Expenses &amp; Adjustments</span>
-            <div className="fin-toolbar-cluster-actions">
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("opex")}
-              >
-                <PlusCircle size={14} aria-hidden="true" /> {FIN_ACTIONS.expense.label}
-              </button>
-              {openAp2010Display > 0 && (
-                <button
-                  type="button"
-                  className="fin-action-btn is-alert-ap"
-                  onClick={() => openActionModal("settle", { liabilityCode: "2010" })}
-                >
-                  Unpaid Bills: {peso(openAp2010Display)} &rarr; Pay Now
-                </button>
-              )}
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("depreciation")}
-              >
-                <PlusCircle size={14} aria-hidden="true" /> <span title={FIN_ACTIONS.wear.term}>{FIN_ACTIONS.wear.label}</span>
-              </button>
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("income_tax")}
-              >
-                <PlusCircle size={14} aria-hidden="true" /> <span title={FIN_ACTIONS.tax.term}>{FIN_ACTIONS.tax.label}</span>
-              </button>
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => setMonthCloseOpen(true)}
-              >
-                <Lock size={14} aria-hidden="true" /> Close the Month
-              </button>
-            </div>
+        {openAp2010Display > 0 && (
+          <div className="lb-note">
+            <span className="lb-note-label">Unpaid bills</span>
+            <strong>{peso(openAp2010Display)}</strong>
+            <button type="button" onClick={() => openActionModal("settle", { liabilityCode: "2010" })}>Pay now &rarr;</button>
           </div>
+        )}
 
-          <div className="fin-toolbar-cluster" role="group" aria-label="Owner money and transfers">
-            <span className="fin-toolbar-cluster-label">Owner&apos;s Money &amp; Transfers</span>
-            <div className="fin-toolbar-cluster-actions">
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("drawing")}
-              >
-                <Wallet size={14} aria-hidden="true" /> <span title={FIN_ACTIONS.withdrawal.term}>{FIN_ACTIONS.withdrawal.label}</span>
-              </button>
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("capital")}
-              >
-                <PlusCircle size={14} aria-hidden="true" /> <span title={FIN_ACTIONS.capital.term}>{FIN_ACTIONS.capital.label}</span>
-              </button>
-              <button
-                type="button"
-                className="fin-action-btn"
-                onClick={() => openActionModal("transfer")}
-              >
-                <ArrowLeftRight size={14} aria-hidden="true" /> <span title={FIN_ACTIONS.transfer.term}>{FIN_ACTIONS.transfer.label}</span>
-              </button>
-            </div>
+        <nav className="lb-rail-body" aria-label="Actions">
+          <div className="lb-group">
+            <h2>Record</h2>
+            <ul>{recordActions.map(({ key, Icon, label, hint, term, mode }) => (
+                <li key={key}>
+                  <button type="button" className="lb-act" onClick={() => runAction(mode)} title={term}>
+                    <span className="lb-act-icon"><Icon size={16} aria-hidden="true" /></span>
+                    <span className="lb-act-text"><strong>{label}</strong><small>{hint}</small></span>
+                  </button>
+                </li>
+              ))}</ul>
           </div>
+          <div className="lb-group">
+            <h2>Owner&apos;s money</h2>
+            <ul>{ownerActions.map(({ key, Icon, label, hint, term, mode }) => (
+                <li key={key}>
+                  <button type="button" className="lb-act" onClick={() => runAction(mode)} title={term}>
+                    <span className="lb-act-icon"><Icon size={16} aria-hidden="true" /></span>
+                    <span className="lb-act-text"><strong>{label}</strong><small>{hint}</small></span>
+                  </button>
+                </li>
+              ))}</ul>
+          </div>
+        </nav>
 
-          {activeTab === "balancesheet" && (
-            <div className="fin-date-filters">
-              <label htmlFor="fin-filter-asof">
-                As of
-                <input
-                  id="fin-filter-asof"
-                  type="date"
-                  max={manilaToday()}
-                  value={asOfDate}
-                  onChange={(e) => setAsOfDate(e.target.value)}
-                />
-              </label>
-              {asOfDate && (
-                <button type="button" className="fin-inline-cta" onClick={() => setAsOfDate("")}>
-                  Back to Today
-                </button>
-              )}
-            </div>
-          )}
-
-          {activeTab !== "balancesheet" && (
-            <div className="fin-date-filters">
-              <label htmlFor="fin-filter-from">
-                From
-                <input
-                  id="fin-filter-from"
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => {
-                    setFromDate(e.target.value);
-                    setReconPage(1);
-                    setJournalPage(1);
-                  }}
-                />
-              </label>
-              <label htmlFor="fin-filter-to">
-                To
-                <input
-                  id="fin-filter-to"
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => {
-                    setToDate(e.target.value);
-                    setReconPage(1);
-                    setJournalPage(1);
-                  }}
-                />
-              </label>
-              {(fromDate || toDate) && (
-                <button
-                  type="button"
-                  className="fin-inline-cta"
-                  onClick={() => {
-                    setFromDate("");
-                    setToDate("");
-                    setReconPage(1);
-                    setJournalPage(1);
-                  }}
-                >
-                  Clear Dates
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        <label className="fin-codes-toggle" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "#6b5847", margin: "0.4rem 0" }}>
+        <label className="lb-switch">
           <input type="checkbox" checked={showCodes} onChange={(e) => setShowCodes(e.target.checked)} />
-          Show account numbers (for accountants)
+          <span className="lb-switch-ui" aria-hidden="true" />
+          <span className="lb-switch-text">Show account numbers<small>For accountants</small></span>
         </label>
+      </aside>
 
-        <div className="financial-tabs-nav" role="tablist" aria-label="Money and Books sections" onKeyDown={handleTabKeyDown}>
-          <button
-            type="button"
-            role="tab"
-            id="fin-tab-recon"
-            aria-controls="fin-tabpanel"
-            tabIndex={activeTab === "recon" ? 0 : -1}
-            aria-selected={activeTab === "recon"}
-            className={`financial-tab-btn ${activeTab === "recon" ? "active" : ""}`}
-            onClick={() => setActiveTab("recon")}
-          >
-            <Calendar size={14} aria-hidden="true" />
-            <span title={FIN_TABS.recon.term}>{FIN_TABS.recon.label}</span>
-          </button>
+      <div className="lb-main">
+        <header className="lb-top">
+          <div className="lb-tabs" role="tablist" aria-label="Money and Books sections" onKeyDown={handleTabKeyDown}>
+            {FIN_TAB_ICONS.map(([key, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`fin-tab-${key}`}
+                aria-controls="fin-tabpanel"
+                tabIndex={activeTab === key ? 0 : -1}
+                aria-selected={activeTab === key}
+                className={`lb-tab${activeTab === key ? " is-active" : ""}`}
+                onClick={() => setActiveTab(key)}
+                title={FIN_TABS[key].term}
+              >
+                <Icon size={15} aria-hidden="true" />
+                <span>{FIN_TABS[key].label}</span>
+              </button>
+            ))}
+          </div>
 
-          <button
-            type="button"
-            role="tab"
-            id="fin-tab-pnl"
-            aria-controls="fin-tabpanel"
-            tabIndex={activeTab === "pnl" ? 0 : -1}
-            aria-selected={activeTab === "pnl"}
-            className={`financial-tab-btn ${activeTab === "pnl" ? "active" : ""}`}
-            onClick={() => setActiveTab("pnl")}
-          >
-            <TrendingUp size={14} aria-hidden="true" />
-            <span title={FIN_TABS.pnl.term}>{FIN_TABS.pnl.label}</span>
-          </button>
+          <div className="lb-tools">
+            {activeTab === "balancesheet" ? (
+              <div className="lb-period">
+                <label htmlFor="fin-filter-asof">
+                  <span>As of</span>
+                  <input id="fin-filter-asof" type="date" max={manilaToday()} value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
+                </label>
+                {asOfDate && <button type="button" className="lb-link" onClick={() => setAsOfDate("")}>Today</button>}
+              </div>
+            ) : (
+              <div className="lb-period">
+                <label htmlFor="fin-filter-from">
+                  <span>From</span>
+                  <input
+                    id="fin-filter-from"
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => { setFromDate(e.target.value); setReconPage(1); setJournalPage(1); }}
+                  />
+                </label>
+                <label htmlFor="fin-filter-to">
+                  <span>To</span>
+                  <input
+                    id="fin-filter-to"
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => { setToDate(e.target.value); setReconPage(1); setJournalPage(1); }}
+                  />
+                </label>
+                {(fromDate || toDate) && (
+                  <button
+                    type="button"
+                    className="lb-link"
+                    onClick={() => { setFromDate(""); setToDate(""); setReconPage(1); setJournalPage(1); }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+            <button type="button" className="lb-csv" disabled={exporting || !tabReady} onClick={handleExportCsv} aria-busy={exporting} title="Download this section as a CSV file">
+              <Download size={15} aria-hidden="true" /> {exporting ? "Preparing…" : "CSV"}
+            </button>
+          </div>
+        </header>
 
-          <button
-            type="button"
-            role="tab"
-            id="fin-tab-cashflow"
-            aria-controls="fin-tabpanel"
-            tabIndex={activeTab === "cashflow" ? 0 : -1}
-            aria-selected={activeTab === "cashflow"}
-            className={`financial-tab-btn ${activeTab === "cashflow" ? "active" : ""}`}
-            onClick={() => setActiveTab("cashflow")}
-          >
-            <Wallet size={14} aria-hidden="true" />
-            <span title={FIN_TABS.cashflow.term}>{FIN_TABS.cashflow.label}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            id="fin-tab-balancesheet"
-            aria-controls="fin-tabpanel"
-            tabIndex={activeTab === "balancesheet" ? 0 : -1}
-            aria-selected={activeTab === "balancesheet"}
-            className={`financial-tab-btn ${activeTab === "balancesheet" ? "active" : ""}`}
-            onClick={() => setActiveTab("balancesheet")}
-          >
-            <Scale size={14} aria-hidden="true" />
-            <span title={FIN_TABS.balancesheet.term}>{FIN_TABS.balancesheet.label}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            id="fin-tab-journal"
-            aria-controls="fin-tabpanel"
-            tabIndex={activeTab === "journal" ? 0 : -1}
-            aria-selected={activeTab === "journal"}
-            className={`financial-tab-btn ${activeTab === "journal" ? "active" : ""}`}
-            onClick={() => setActiveTab("journal")}
-          >
-            <BookOpen size={14} aria-hidden="true" />
-            <span title={FIN_TABS.journal.term}>{FIN_TABS.journal.label}</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="financial-tab-content" role="tabpanel" id="fin-tabpanel" aria-labelledby={`fin-tab-${activeTab}`}>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
-          <button type="button" className="fin-inline-cta" disabled={exporting || !tabReady} onClick={handleExportCsv} aria-busy={exporting}>
-            <Download size={13} aria-hidden="true" /> {exporting ? "Preparing file…" : "Download CSV"}
-          </button>
-        </div>
-
+        <div className="lb-sheet" role="tabpanel" id="fin-tabpanel" aria-labelledby={`fin-tab-${activeTab}`}>
         {notice && (
           <div className="fin-banner is-success" role="status" aria-live="polite">
             <span>
@@ -699,16 +570,15 @@ export default function FinancialReconciliationCenter() {
         {/* TAB 5: JOURNAL AUDIT */}
         {tabReady && activeTab === "journal" && (
           <>
-          <div className="fin-journal-filters" role="search" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end", margin: "0 0 0.6rem" }}>
-            <label htmlFor="fin-journal-search" style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.78rem", color: "#4a2c11", flex: "1 1 14rem" }}>
-              Search notes, references or numbers
-              <span style={{ position: "relative", display: "block" }}>
-                <Search size={13} aria-hidden="true" style={{ position: "absolute", left: "0.55rem", top: "50%", transform: "translateY(-50%)", color: "#8b5e3c" }} />
+          <div className="lb-filters" role="search">
+            <label className="lb-field lb-field--grow" htmlFor="fin-journal-search">
+              <span>Search notes, references or numbers</span>
+              <span className="lb-input-icon">
+                <Search size={14} aria-hidden="true" />
                 <input
                   id="fin-journal-search"
                   type="search"
                   className="fin-form-input"
-                  style={{ paddingLeft: "1.8rem", width: "100%" }}
                   maxLength={100}
                   value={journalSearchInput}
                   onChange={(e) => setJournalSearchInput(e.target.value)}
@@ -716,8 +586,8 @@ export default function FinancialReconciliationCenter() {
                 />
               </span>
             </label>
-            <label htmlFor="fin-journal-type" style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.78rem", color: "#4a2c11" }}>
-              What it was
+            <label className="lb-field" htmlFor="fin-journal-type">
+              <span>What it was</span>
               <select
                 id="fin-journal-type"
                 className="fin-form-input"
@@ -735,14 +605,14 @@ export default function FinancialReconciliationCenter() {
             </label>
             {netIncomePin.unlocked && (
               <>
-                <label htmlFor="fin-journal-min" style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.78rem", color: "#4a2c11" }}>
-                  Amount from (₱)
-                  <input id="fin-journal-min" type="number" inputMode="decimal" min="0" step="0.01" className="fin-form-input fin-input-tabular" style={{ width: "7.5rem" }} value={journalMin}
+                <label className="lb-field" htmlFor="fin-journal-min">
+                  <span>Amount from (₱)</span>
+                  <input id="fin-journal-min" type="number" inputMode="decimal" min="0" step="0.01" className="fin-form-input fin-input-tabular" value={journalMin}
                     onChange={(e) => { setJournalMin(e.target.value); setJournalPage(1); }} />
                 </label>
-                <label htmlFor="fin-journal-max" style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.78rem", color: "#4a2c11" }}>
-                  to (₱)
-                  <input id="fin-journal-max" type="number" inputMode="decimal" min="0" step="0.01" className="fin-form-input fin-input-tabular" style={{ width: "7.5rem" }} value={journalMax}
+                <label className="lb-field" htmlFor="fin-journal-max">
+                  <span>to (₱)</span>
+                  <input id="fin-journal-max" type="number" inputMode="decimal" min="0" step="0.01" className="fin-form-input fin-input-tabular" value={journalMax}
                     onChange={(e) => { setJournalMax(e.target.value); setJournalPage(1); }} />
                 </label>
               </>
@@ -750,7 +620,7 @@ export default function FinancialReconciliationCenter() {
             {(journalSearchInput || journalType || journalMin || journalMax) && (
               <button
                 type="button"
-                className="fin-inline-cta"
+                className="lb-link"
                 onClick={() => {
                   setJournalSearchInput("");
                   setJournalSearch("");
@@ -760,7 +630,7 @@ export default function FinancialReconciliationCenter() {
                   setJournalPage(1);
                 }}
               >
-                Clear Search
+                Clear search
               </button>
             )}
           </div>
@@ -780,6 +650,7 @@ export default function FinancialReconciliationCenter() {
           />
           </>
         )}
+        </div>
       </div>
 
       <FinanceActionDialog
@@ -788,7 +659,6 @@ export default function FinancialReconciliationCenter() {
         openPayables={openPayables}
         payablesTotals={payablesTotals}
         liquidAccountOptions={liquidAccountOptions}
-        groupedOpexAccounts={groupedOpexAccounts}
         withCode={withCode}
         netIncomePin={netIncomePin}
         pnlData={pnlData}

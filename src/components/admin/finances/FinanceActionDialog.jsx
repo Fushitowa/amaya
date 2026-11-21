@@ -2,9 +2,17 @@ import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { apiRequest } from "../../../utils/api.js";
 import { peso, round2, manilaToday, withWarnings } from "../../../utils/financeFormat.js";
-import { EXPENSE_NAV_CATEGORIES } from "../../../config/expenseNavigation.js";
+import { EXPENSE_NAV_CATEGORIES, EXPENSE_NAV_TREE } from "../../../config/expenseNavigation.js";
 import { isManualExpenseAccount } from "./financeAccounts.js";
 import FinDialog from "./FinDialog.jsx";
+
+// Plain names for accounts that sit beside more specific siblings inside one sidebar category,
+// where the chart-of-accounts name would just repeat the folder ("Utilities" under Utilities).
+const SPLIT_ACCOUNT_LABELS = Object.freeze({
+  "6130": "General utilities",
+  "6140": "General supplies",
+  "6010": "Other running costs",
+});
 
 function createFinClientRequestId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -30,7 +38,6 @@ export default function FinanceActionDialog({
   openPayables,
   payablesTotals,
   liquidAccountOptions,
-  groupedOpexAccounts,
   withCode,
   netIncomePin,
   pnlData,
@@ -88,6 +95,46 @@ export default function FinanceActionDialog({
     actionModalRef.current = actionModal;
   }, [actionModal]);
 
+
+  // "What was it for?" mirrors the Expenses and Payroll sidebar: same folders, same names.
+  // Each option is a sidebar category plus the account it posts to. A category that owns several
+  // manual accounts (e.g. Other Operating Supplies) lists each one, so ledger detail is kept.
+  const navOpexGroups = useMemo(() => {
+    const manual = new Map(coaAccounts.filter(isManualExpenseAccount).map((a) => [String(a.accountCode), a]));
+    const bySlug = new Map(EXPENSE_NAV_CATEGORIES.map((c) => [c.slug, c]));
+    const groups = EXPENSE_NAV_TREE.map((node) => {
+      const parent = bySlug.get(node.slug);
+      const leaves = node.children.length ? node.children.map((slug) => bySlug.get(slug)) : [parent];
+      const rows = leaves
+        .filter((leaf) => leaf && !leaf.readOnly)
+        .flatMap((leaf) => {
+          const codes = leaf.accountCodes.filter((code) => manual.has(code));
+          return codes.map((code) => ({
+            value: `${leaf.slug}|${code}`,
+            slug: leaf.slug,
+            code,
+            label: codes.length === 1
+              ? leaf.label
+              : code === "6020" ? `${leaf.label} (older records)` : (SPLIT_ACCOUNT_LABELS[code] || manual.get(code).accountName),
+          }));
+        });
+      return { group: parent?.label || node.slug, rows };
+    }).filter((grp) => grp.rows.length);
+    // Any manual account no sidebar category owns stays pickable rather than disappearing.
+    const covered = new Set(groups.flatMap((grp) => grp.rows.map((r) => r.code)));
+    const leftovers = [...manual.values()].filter((a) => !covered.has(String(a.accountCode)));
+    if (leftovers.length) {
+      groups.push({
+        group: "Other",
+        rows: leftovers.map((a) => ({ value: `|${a.accountCode}`, slug: "", code: String(a.accountCode), label: a.accountName })),
+      });
+    }
+    return groups;
+  }, [coaAccounts]);
+  const navOpexRows = useMemo(() => navOpexGroups.flatMap((grp) => grp.rows), [navOpexGroups]);
+  const selectedOpexValue =
+    (navOpexRows.find((r) => r.slug === formExpenseCategory && r.code === String(formExpenseCode))
+      || navOpexRows.find((r) => r.code === String(formExpenseCode)))?.value || "";
 
   const matchingOpenPayables = useMemo(
     () => openPayables.filter((p) => p.liabilityAccountCode === settleLiabilityCode),
@@ -422,32 +469,37 @@ export default function FinanceActionDialog({
                 <select
                   id="fin-opex-account"
                   className="fin-form-input"
-                  value={formExpenseCode}
+                  value={navOpexRows.length > 0 ? selectedOpexValue : formExpenseCode}
                   onChange={(e) => {
-                    const nextCode = e.target.value;
-                    setFormExpenseCode(nextCode);
-                    const nextCategories = EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(nextCode)).sort((a, b) => a.accountCodes.length - b.accountCodes.length);
-                    setFormExpenseCategory(nextCategories[0]?.slug || "");
+                    const [slug, code] = e.target.value.includes("|") ? e.target.value.split("|") : ["", e.target.value];
+                    // slug is "" for the "Other" group: fall back to the closest category for the account.
+                    setFormExpenseCode(code);
+                    if (slug) {
+                      setFormExpenseCategory(slug);
+                    } else {
+                      const nextCategories = EXPENSE_NAV_CATEGORIES.filter((category) => category.accountCodes.includes(code)).sort((a, b) => a.accountCodes.length - b.accountCodes.length);
+                      setFormExpenseCategory(nextCategories[0]?.slug || "");
+                    }
                   }}
                 >
-                  {groupedOpexAccounts.length > 0 ? (
-                    groupedOpexAccounts.map((grp) => (
+                  {navOpexRows.length > 0 ? (
+                    navOpexGroups.map((grp) => (
                       <optgroup key={grp.group} label={grp.group}>
-                        {grp.rows.map((acc) => (
-                          <option key={acc.accountCode} value={acc.accountCode}>
-                            {withCode(acc.accountCode, acc.accountName)}{acc.accountCode === "6020" ? " (old category)" : ""}
+                        {grp.rows.map((row) => (
+                          <option key={row.value} value={row.value}>
+                            {withCode(row.code, row.label)}
                           </option>
                         ))}
                       </optgroup>
                     ))
                   ) : (
                     <>
-                      <option value="6120">6120 - Rent &amp; Occupancy</option>
-                      <option value="6131">6131 - Electricity</option>
-                      <option value="6140">6140 - Operating Supplies</option>
-                      <option value="6144">6144 - Sanitation Supplies</option>
-                      <option value="6172">6172 - Taxes &amp; Licenses (Permits)</option>
-                      <option value="6010">6010 - Operating Expenses</option>
+                      <option value="6120">Rent and occupancy</option>
+                      <option value="6131">Electricity</option>
+                      <option value="6140">Operating supplies</option>
+                      <option value="6144">Sanitation supplies</option>
+                      <option value="6172">Taxes and licenses (permits)</option>
+                      <option value="6010">Other running costs</option>
                     </>
                   )}
                 </select>

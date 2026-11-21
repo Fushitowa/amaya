@@ -696,3 +696,119 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* ==========================================================================
+   Admin account desk pass: espresso name badge + sticky-note menu
+   (same warm office theme as the dashboard). Admin frame only.
+   ========================================================================== */
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-bottom {
+  padding: 18px 14px 16px;
+  border-top: 1px dashed #dcc8b2;
+  background: #f8eedd;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile {
+  position: relative;
+  min-height: 68px;
+  margin: 0;
+  padding: 16px 12px 12px;
+  border: 0;
+  background: #3a2618;
+  color: #fff;
+  box-shadow: 0 1px 1px rgba(28, 25, 23, 0.3), 0 14px 20px -14px rgba(28, 25, 23, 0.6);
+  transition: background-color 180ms ease;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile:hover { background: #4a3222; }
+
+/* lanyard slot */
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 30px;
+  height: 5px;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: #f8eedd;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile:focus-visible {
+  outline: 2px solid #c6a07f;
+  outline-offset: 2px;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile-avatar {
+  position: relative;
+  overflow: visible;
+  border: 2px solid #e8b863;
+  background: #fffaf0;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile-avatar img { border-radius: 50%; }
+
+.amaya-sidebar-profile-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #3a2618;
+  border-radius: 50%;
+  background: #5fbf6a;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile-copy strong {
+  color: #fff;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile-copy span {
+  color: #e8cfa6;
+  font-size: 10.5px;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-profile-chevron { color: #e8cfa6; opacity: 0.85; }
+
+/* menu pops up as a taped butter note */
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu {
+  bottom: calc(100% + 12px);
+  padding: 14px 8px 8px;
+  border: 0;
+  background: #fdeeb0;
+  box-shadow: 0 1px 1px rgba(80, 55, 10, 0.18), 0 18px 24px -14px rgba(90, 60, 10, 0.5);
+  rotate: -0.8deg;
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 56px;
+  height: 16px;
+  translate: -50% 0;
+  rotate: 2deg;
+  background: rgba(255, 253, 249, 0.75);
+  box-shadow: 0 1px 2px rgba(60, 40, 20, 0.18);
+}
+
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu .amaya-sidebar-link { color: #4d3c0d; }
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu .amaya-sidebar-link svg { color: #7a5f16; }
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu .amaya-sidebar-link:hover { background: rgba(255, 255, 255, 0.55); }
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu .amaya-sidebar-link--logout,
+.amaya-sidebar.amaya-sidebar--admin-frame .amaya-sidebar-account-menu .amaya-sidebar-link--logout svg { color: #9a3a2a; }
+
+/* collapsed rail: just the avatar on the badge */
+.amaya-sidebar.amaya-sidebar--admin-frame.amaya-sidebar--collapsed .amaya-sidebar-bottom { padding: 14px 8px !important; }
+.amaya-sidebar.amaya-sidebar--admin-frame.amaya-sidebar--collapsed .amaya-sidebar-profile {
+  width: 52px;
+  min-height: 56px;
+  margin: 0 auto;
+  padding: 12px 0 8px;
+}
+.amaya-sidebar.amaya-sidebar--admin-frame.amaya-sidebar--collapsed .amaya-sidebar-account-menu { rotate: 0deg; }

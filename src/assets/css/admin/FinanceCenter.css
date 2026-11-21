@@ -1,0 +1,318 @@
+@import url("https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Caveat:wght@500;600;700&display=swap");
+
+/* ==========================================================================
+   Money and Books: an open ledger on the desk.
+
+     .lb-folio  amber leather cover, holding two pages
+       ├─ .lb-rail   left page: the index (title, unpaid-bills note, actions, tick box)
+       └─ .lb-main   right page ─┬─ .lb-top    thumb-index tabs + date range + CSV
+                                 └─ .lb-sheet  ruled ledger paper (the only part that scrolls)
+
+   Prefix is "lb-" (logbook). Do not use "mb-" here: the menu builder owns that
+   prefix and its rules leak into this page once both stylesheets are loaded.
+   Under 1300px the book becomes a normal stacked, scrolling page.
+   ========================================================================== */
+
+.finance-center-page .admin-report-main {
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 255, 255, .55), transparent 55%),
+    #efe5d3;
+}
+.lb-page { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; padding: clamp(10px, 1.4vw, 20px); }
+
+.lb-folio {
+  /* paper & ink */
+  --lb-paper: #fdf9ef; --lb-paper-2: #f6efdf; --lb-ink: #2b2420; --lb-soft: #574b42; --lb-pencil: #807569;
+  /* ledger rulings */
+  --lb-rule: #eddcc0; --lb-rule-2: #d9be96; --lb-margin: #c4574d;
+  /* binding */
+  --lb-cloth: #9a6630; --lb-cloth-2: #74471d; --lb-brass: #c99a55;
+  --lb-mark: rgba(247, 214, 92, .55); --lb-bad: #a63a2f;
+  --lb-rail-w: clamp(220px, 17vw, 300px);
+  --lb-line: 32px;
+  --lb-fell: "IM Fell English", "Iowan Old Style", Georgia, serif;
+  --lb-hand: "Caveat", "Segoe Print", "Bradley Hand", cursive;
+
+  position: relative; display: grid; grid-template-columns: var(--lb-rail-w) minmax(0, 1fr);
+  width: 100%; max-width: 1780px; height: 100%; min-height: 0; padding: 9px; gap: 0;
+  border-radius: 14px; color: var(--lb-ink);
+  /* leather: a fine grain over warm amber */
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 3px),
+    var(--lb-cloth);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 0 0 1px var(--lb-cloth-2), 0 26px 44px -30px rgba(40, 30, 18, .75);
+}
+.lb-folio *, .lb-folio *::before, .lb-folio *::after { box-sizing: border-box; }
+.lb-folio :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid var(--lb-cloth); outline-offset: 2px; }
+
+/* ---------- Left page: the index ---------- */
+.lb-rail {
+  position: relative; display: flex; flex-direction: column; gap: 18px; min-height: 0;
+  padding: 26px 26px 20px 30px; border-radius: 7px 0 0 7px;
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--lb-line) - 1px), rgba(217, 190, 150, .4) calc(var(--lb-line) - 1px) var(--lb-line)),
+    var(--lb-paper-2);
+  background-attachment: local;
+  color: var(--lb-ink); overflow-y: auto; scrollbar-width: none;
+  box-shadow: inset -26px 0 28px -22px rgba(70, 50, 30, .42);
+}
+.lb-rail::-webkit-scrollbar { display: none; }
+.lb-rail > * { position: relative; z-index: 1; }
+
+/* coffee ring left on the page */
+.lb-rail::before {
+  content: ""; position: absolute; z-index: 0; right: -34px; bottom: 96px; width: 132px; height: 132px; pointer-events: none; opacity: .5;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23a07a52' stroke-linecap='round'%3E%3Cpath d='M60 10c28 0 50 21 50 49 0 29-23 51-51 50-27-1-49-23-49-50C10 31 33 9 61 10' stroke-width='5' stroke-opacity='.35'/%3E%3Cpath d='M60 16c24 0 43 19 43 43s-20 44-44 43C35 101 17 82 17 59s19-43 43-43' stroke-width='1.5' stroke-opacity='.4'/%3E%3Cpath d='M98 34c4 6 6 13 6 20' stroke-width='3' stroke-opacity='.35'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.lb-rail-head { padding-right: 28px; }
+/* paperclip holding the index page */
+.lb-rail-head::after {
+  content: ""; position: absolute; top: -34px; right: -6px; width: 22px; height: 64px; pointer-events: none; rotate: 8deg;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 64'%3E%3Cpath d='M15 22V52a5 5 0 0 1-10 0V10a8 8 0 0 1 16 0v40' fill='none' stroke='%237b7f86' stroke-width='2.1' stroke-linecap='round'/%3E%3Cpath d='M15 22V52a5 5 0 0 1-10 0V10a8 8 0 0 1 16 0v40' fill='none' stroke='%23e9ecef' stroke-width='.7' stroke-linecap='round' transform='translate(-.6 -.6)'/%3E%3C/svg%3E") center / contain no-repeat;
+  filter: drop-shadow(1px 2px 1px rgba(0, 0, 0, .2));
+}
+.lb-rail-head h1 { margin: 0; font: 400 clamp(27px, 2.1vw, 33px)/1.05 var(--lb-fell); letter-spacing: -.2px; color: var(--lb-ink); }
+/* pen scribble under the title */
+.lb-rail-head h1::after {
+  content: ""; display: block; width: 78%; height: 12px; margin-top: 6px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 12' preserveAspectRatio='none'%3E%3Cpath d='M2 7c30-4 62-5 96-3s70 2 120-3M10 10c40-3 90-4 150-2' fill='none' stroke='%23c4574d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") left / 100% 100% no-repeat;
+}
+.lb-rail-head p { margin: 10px 0 0; color: var(--lb-soft); font-size: 13px; line-height: 1.6; }
+.lb-menu-btn { display: none; margin-bottom: 14px; width: 40px; height: 40px; place-items: center; border: 1px solid var(--lb-rule-2); border-radius: 8px; background: var(--lb-paper); color: var(--lb-ink); cursor: pointer; }
+
+/* unpaid bills: a taped sticky note */
+.lb-note {
+  position: relative; display: grid; gap: 2px; padding: 16px 16px 14px; background: #fbe9a6; color: #4d3c0d;
+  rotate: -1.2deg; box-shadow: 0 1px 1px rgba(0, 0, 0, .15), 0 12px 16px -12px rgba(60, 40, 10, .55);
+}
+.lb-note::before { content: ""; position: absolute; top: -9px; left: 50%; width: 62px; height: 18px; translate: -50% 0; rotate: 3deg; background: rgba(236, 214, 178, .85); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.lb-note-label { font: 600 18px/1 var(--lb-hand); }
+.lb-note strong { font: 400 28px/1.15 var(--lb-fell); font-variant-numeric: tabular-nums; }
+.lb-note button { justify-self: start; margin-top: 8px; padding: 6px 14px; border: 0; border-radius: 999px; background: var(--lb-cloth); color: #fdf9ef; font: 700 12.5px inherit; cursor: pointer; transition: background-color .15s ease; }
+.lb-note button:hover { background: var(--lb-cloth-2); }
+
+/* action lists, written like index entries */
+.lb-rail-body { display: flex; flex-direction: column; gap: 14px; }
+.lb-group h2 { margin: 0 0 2px; color: var(--lb-margin); font: 700 23px/var(--lb-line) var(--lb-hand); }
+.lb-group ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.lb-act {
+  position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%;
+  min-height: calc(var(--lb-line) * 1.5); padding: 4px 4px; text-align: left;
+  border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.lb-act-icon {
+  display: grid; place-items: center; width: 28px; height: 28px; color: var(--lb-cloth);
+  border: 1.4px solid currentColor; border-radius: 52% 48% 55% 45% / 47% 55% 45% 53%; /* drawn by hand, not by compass */
+  transition: background-color .15s ease, color .15s ease;
+}
+.lb-act:hover .lb-act-icon { background: var(--lb-cloth); color: var(--lb-paper); }
+.lb-act-text { display: grid; gap: 0; min-width: 0; }
+.lb-act-text strong {
+  justify-self: start; padding: 0 3px; margin-left: -3px; color: var(--lb-ink); font-size: 14px; font-weight: 600; line-height: 1.35;
+  background: linear-gradient(100deg, transparent 2%, var(--lb-mark) 4%, var(--lb-mark) 96%, transparent 98%) no-repeat 0 60% / 0% 72%;
+  transition: background-size .28s ease;
+}
+.lb-act:hover .lb-act-text strong { background-size: 100% 72%; }
+.lb-act-text small { color: var(--lb-pencil); font-size: 12px; line-height: 1.35; }
+
+/* account-number tick box, pinned to the page's foot */
+.lb-switch { display: flex; align-items: center; gap: 12px; margin-top: auto; padding-top: 14px; border-top: 1px dashed var(--lb-rule-2); cursor: pointer; }
+.lb-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.lb-switch-ui {
+  position: relative; flex: 0 0 auto; width: 20px; height: 20px; background: var(--lb-paper);
+  border: 1.6px solid var(--lb-ink); border-radius: 3px 5px 2px 6px; rotate: -2deg;
+}
+.lb-switch-ui::after {
+  content: ""; position: absolute; left: 1px; top: -9px; width: 24px; height: 24px; opacity: 0; scale: .6; transition: opacity .15s ease, scale .2s ease;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 14c3 1 5 4 6 7 3-8 8-14 14-19' fill='none' stroke='%23c4574d' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.lb-switch input:checked + .lb-switch-ui::after { opacity: 1; scale: 1; }
+.lb-switch input:focus-visible + .lb-switch-ui { outline: 2px solid var(--lb-cloth); outline-offset: 3px; }
+.lb-switch-text { display: grid; gap: 1px; color: var(--lb-ink); font-size: 13px; font-weight: 600; line-height: 1.3; }
+.lb-switch-text small { color: var(--lb-pencil); font-size: 11.5px; font-weight: 400; }
+
+/* ---------- Right page ---------- */
+.lb-main {
+  position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border-radius: 0 7px 7px 0; background: var(--lb-paper);
+  box-shadow: inset 24px 0 26px -22px rgba(70, 50, 30, .38);
+  /* One centered writing column shared by the tabs row and the sheet, so both
+     stay lined up and centered at any window size or browser zoom. 100% here
+     resolves against .lb-main's width, the containing block of both rows. */
+  --lb-pad-l: clamp(32px, 3.6vw, 64px); --lb-pad-r: var(--lb-pad-l); --lb-col: 1240px;
+  --lb-slack: max(0px, (100% - var(--lb-pad-l) - var(--lb-pad-r) - var(--lb-col)) / 2);
+  --lb-inset-l: calc(var(--lb-pad-l) + var(--lb-slack));
+  --lb-inset-r: calc(var(--lb-pad-r) + var(--lb-slack));
+}
+/* binding stitches down the gutter */
+.lb-main::before {
+  content: ""; position: absolute; z-index: 3; top: 14px; bottom: 14px; left: -1px; width: 2px; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(116, 71, 29, .5) 0 9px, transparent 9px 17px);
+}
+
+/* thumb-index tabs + period tools */
+.lb-top {
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 20px;
+  padding: 16px var(--lb-inset-r) 0 var(--lb-inset-l); border-bottom: 1.5px solid var(--lb-rule-2);
+}
+.lb-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; margin-bottom: -1.5px; padding-top: 4px; }
+.lb-tabs::-webkit-scrollbar { display: none; }
+.lb-tab {
+  position: relative; display: inline-flex; align-items: center; gap: clamp(5px, .45vw, 7px); padding: 9px clamp(8px, .8vw, 14px) 10px;
+  border: 1.5px solid var(--lb-rule-2); border-bottom: 0; border-radius: 9px 9px 0 0;
+  background: var(--lb-paper-2); color: var(--lb-pencil); font: 600 clamp(12px, .78vw, 13.5px) inherit; white-space: nowrap; cursor: pointer;
+  transition: color .15s ease, background-color .15s ease, translate .15s ease;
+  translate: 0 3px;
+}
+.lb-tab:hover { color: var(--lb-ink); translate: 0 0; }
+.lb-tab.is-active { z-index: 1; translate: 0 0; background: var(--lb-paper); color: var(--lb-cloth-2); border-color: var(--lb-rule-2); box-shadow: 0 1.5px 0 var(--lb-paper); }
+.lb-tab.is-active::before { content: ""; position: absolute; top: -1.5px; left: 10px; right: 10px; height: 3px; border-radius: 0 0 3px 3px; background: var(--lb-margin); }
+
+.lb-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; padding-bottom: 10px; }
+.lb-period { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; }
+.lb-period label { display: grid; gap: 0; color: var(--lb-pencil); font: 600 16px/1 var(--lb-hand); }
+.lb-period input { height: 30px; padding: 0 2px; border: 0; border-bottom: 1.5px solid var(--lb-rule-2); border-radius: 0; background: transparent; color: var(--lb-ink); font: 500 13px inherit; font-variant-numeric: tabular-nums; }
+.lb-period input:focus { outline: none; border-bottom-color: var(--lb-margin); }
+.lb-link { padding: 4px 2px; border: 0; background: none; color: var(--lb-margin); font: 600 12.5px inherit; text-decoration: underline wavy; text-decoration-thickness: 1px; text-underline-offset: 4px; cursor: pointer; }
+.lb-link:hover { color: var(--lb-ink); }
+.lb-csv { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border: 1.5px solid var(--lb-cloth); border-radius: 999px; background: transparent; color: var(--lb-cloth-2); font: 700 12.5px inherit; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+.lb-csv:hover:not(:disabled) { background: var(--lb-cloth); color: var(--lb-paper); }
+.lb-csv:disabled { opacity: .5; cursor: not-allowed; }
+
+/* the ledger sheet: green rules, red double margin */
+.lb-sheet {
+  position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px;
+  padding: 24px var(--lb-inset-r) 30px var(--lb-inset-l); overflow-y: auto;
+  background:
+    linear-gradient(to right, transparent calc(clamp(32px, 3.6vw, 64px) - 16px), var(--lb-margin) 0, var(--lb-margin) calc(clamp(32px, 3.6vw, 64px) - 15px), transparent 0, transparent calc(clamp(32px, 3.6vw, 64px) - 12px), var(--lb-margin) 0, var(--lb-margin) calc(clamp(32px, 3.6vw, 64px) - 11px), transparent 0) 0 0 / 100% 100% no-repeat,
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--lb-line) - 1px), var(--lb-rule) calc(var(--lb-line) - 1px) var(--lb-line)),
+    var(--lb-paper);
+  background-attachment: local;
+  scrollbar-width: thin; scrollbar-color: var(--lb-rule-2) transparent;
+}
+.lb-sheet > * { flex-shrink: 0; }
+
+/* Journal search bar */
+.lb-filters { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.lb-field { display: grid; gap: 2px; color: var(--lb-pencil); font: 600 17px/1 var(--lb-hand); }
+.lb-field--grow { flex: 1 1 260px; }
+.lb-field input, .lb-field select { height: 38px; padding: 0 12px; border: 1.5px solid var(--lb-rule-2); border-radius: 6px; background: var(--lb-paper); color: var(--lb-ink); font: 500 13.5px "DM Sans", system-ui, sans-serif; }
+.lb-field input:focus, .lb-field select:focus { outline: none; border-color: var(--lb-cloth); }
+.lb-field input[type="number"] { width: 128px; }
+.lb-input-icon { position: relative; display: block; }
+.lb-input-icon svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--lb-cloth); }
+.lb-input-icon input { width: 100%; padding-left: 34px; }
+
+/* ---------- Section views, restyled to sit on ledger paper ---------- */
+.lb-sheet .fin-banner { padding: 12px 16px; border-radius: 6px; font-size: 13.5px; }
+.lb-sheet .fin-loading-state { min-height: 240px; border: 1.5px dashed var(--lb-rule-2); border-radius: 8px; background: rgba(253, 249, 239, .7); color: var(--lb-pencil); font: 600 22px var(--lb-hand); }
+
+.lb-sheet .net-income-gate-button { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--lb-ink); border-radius: 6px 8px 5px 9px; background: var(--lb-paper); color: var(--lb-ink); font-weight: 700; }
+.lb-sheet .net-income-gate-button:hover { background: var(--lb-paper-2); }
+
+.lb-sheet .fin-table-wrap {
+  max-height: none; overflow: visible; border: 1.5px solid var(--lb-rule-2); border-radius: 4px;
+  background: var(--lb-paper); box-shadow: 3px 4px 0 -1px var(--lb-paper-2), 3px 4px 0 0 var(--lb-rule-2);
+}
+/* Tables fit the page instead of scrolling sideways: headers and cells wrap,
+   padding and type tighten with the window, and long words may break. */
+.lb-sheet .fin-table { width: 100%; table-layout: auto; font-size: clamp(11.5px, .72vw, 13.5px); }
+.lb-sheet .fin-table thead th {
+  position: static; padding: 10px clamp(6px, .65vw, 14px); background: #f7ead2; border-bottom: 3px double var(--lb-margin);
+  color: var(--lb-cloth-2); font: 600 clamp(11px, .68vw, 12.5px)/1.25 "DM Sans", system-ui, sans-serif; letter-spacing: 0; text-transform: none;
+  white-space: normal; overflow-wrap: break-word; vertical-align: bottom;
+}
+.lb-sheet .fin-table td { padding: 10px clamp(6px, .65vw, 14px); border-bottom: 1px solid var(--lb-rule); color: var(--lb-ink); white-space: normal; overflow-wrap: normal; }
+.lb-sheet .fin-table td:first-child { white-space: nowrap; }
+.lb-sheet .fin-table :is(th, td) + :is(th, td) { border-left: 1px solid rgba(196, 87, 77, .16); }
+.lb-sheet .fin-table tbody tr:hover td { background: rgba(247, 214, 92, .14); }
+.lb-sheet .fin-table td[colspan] { color: var(--lb-pencil) !important; font: 600 22px/1.3 var(--lb-hand); border-left: 0; }
+.lb-sheet .fin-pagination button { border-radius: 999px; border: 1.5px solid var(--lb-rule-2); background: var(--lb-paper); }
+.lb-sheet .fin-empty-state-container { border-radius: 8px; background: transparent; border-color: var(--lb-rule-2); }
+
+/* collapsible notes (drawer history) read like a folded slip */
+.lb-sheet .fin-estimator-details { border: 1.5px solid var(--lb-rule-2); border-left: 4px solid var(--lb-cloth); border-radius: 4px; background: var(--lb-paper); padding: .7rem 1rem; }
+.lb-sheet .fin-estimator-details summary { color: var(--lb-ink); font-weight: 700; cursor: pointer; }
+
+/* Statements: hairlines on the ruled page */
+.lb-sheet .fin-statement-stack { width: 100%; max-width: 900px; margin-inline: auto; gap: 0; }
+.lb-sheet .fin-statement-row { padding: 12px 6px; border: 0; border-bottom: 1px solid var(--lb-rule-2); border-radius: 0; background: transparent; font-size: 14.5px; }
+.lb-sheet .fin-statement-row.is-deduction { border-color: var(--lb-rule-2); background: transparent; color: var(--lb-bad); }
+.lb-sheet .fin-statement-row.is-subtotal { margin-top: 6px; padding: 13px 10px; border: 0; border-bottom: 3px double var(--lb-ink); background: rgba(247, 234, 210, .75); color: var(--lb-ink); font: 400 17px var(--lb-fell); }
+.lb-sheet .fin-statement-row.is-profit-band { margin-top: 12px; padding: 16px 18px; border: 0; border-radius: 4px; background: var(--lb-cloth); color: var(--lb-paper); font: 400 19px var(--lb-fell); }
+.lb-sheet .fin-statement-card { padding: 18px 20px; border: 1.5px solid var(--lb-rule-2); border-radius: 4px; background: var(--lb-paper); box-shadow: none; }
+.lb-sheet .fin-statement-card-title { margin: 0 0 8px; color: var(--lb-cloth-2); font: 400 18px var(--lb-fell); letter-spacing: 0; text-transform: none; }
+.lb-sheet .fin-statement-line { padding: 6px 0; }
+.lb-sheet .fin-statement-card-total { border-top: 3px double var(--lb-ink); }
+.lb-sheet .fin-summary-hero { padding: 20px 24px; border-radius: 4px; background: var(--lb-cloth); box-shadow: none; color: var(--lb-paper); font: 400 20px var(--lb-fell); }
+
+.lb-sheet .fin-bs-grid { gap: 20px; }
+.lb-sheet .fin-bs-card { padding: 22px 24px; border: 1.5px solid var(--lb-rule-2); border-radius: 4px; background: var(--lb-paper); box-shadow: none; }
+.lb-sheet .fin-bs-card h4 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 3px double var(--lb-margin); color: var(--lb-ink); font: 400 21px var(--lb-fell); letter-spacing: 0; }
+.lb-sheet .fin-bs-section-label { color: var(--lb-cloth); font: 700 19px var(--lb-hand); letter-spacing: 0; text-transform: none; }
+.lb-sheet .fin-bs-total-row { border-top: 3px double var(--lb-ink); font-family: var(--lb-fell); }
+.lb-sheet .fin-subledger-box { border-color: var(--lb-rule-2); border-radius: 4px; }
+.lb-sheet .fin-bs-status-pill { border-radius: 6px; }
+
+/* ---------- Short windows: tighten the index page ---------- */
+@media (max-height: 820px) {
+  .lb-act-text small { display: none; }
+  .lb-rail-head p { display: none; }
+  .lb-act { min-height: var(--lb-line); }
+}
+
+/* ---------- Tabs row: tools sit above on the right; the tabs take the full row (so the
+   active tab always meets the sheet) and share it equally at any width or zoom ---------- */
+.lb-top { justify-content: flex-end; }
+.lb-tools { order: -1; padding-bottom: 4px; }
+.lb-tabs { flex: 1 1 100%; overflow: visible; }
+.lb-tab { flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; white-space: normal; line-height: 1.2; }
+/* narrower windows and zoomed-in browsers: drop the tab icons so labels keep their room */
+@media (max-width: 1500px) {
+  .lb-tab svg { display: none; }
+}
+
+/* ---------- Stacked, scrolling page under 1300px (ten money columns need the full width) ---------- */
+@media (max-width: 1300px) {
+  .finance-center-page .admin-report-main { height: auto; min-height: 100vh; overflow: visible; }
+  .lb-page { padding: 10px; align-items: flex-start; }
+  .lb-folio { display: flex; flex-direction: column; height: auto; padding: 7px; }
+  .lb-rail { overflow: visible; border-radius: 7px 7px 0 0; box-shadow: inset 0 -22px 24px -22px rgba(70, 50, 30, .38); }
+  .lb-rail::before { bottom: auto; top: 20px; right: -20px; }
+  .lb-menu-btn { display: grid; }
+  .lb-rail-body { flex-direction: row; flex-wrap: wrap; gap: 14px 28px; }
+  .lb-group { flex: 1 1 240px; }
+  .lb-switch { margin-top: 0; }
+  .lb-main { border-radius: 0 0 7px 7px; box-shadow: none; }
+  .lb-main::before { top: -1px; bottom: auto; left: 14px; right: 14px; width: auto; height: 2px; background: repeating-linear-gradient(to right, rgba(116, 71, 29, .5) 0 9px, transparent 9px 17px); }
+  .lb-top { padding: 10px 14px 0 14px; }
+  .lb-sheet { overflow: visible; padding: 18px 14px 22px 40px; }
+}
+/* phones: ten columns cannot fit, so the table alone scrolls rather than the whole page */
+@media (max-width: 760px) {
+  .lb-sheet .fin-table-wrap { overflow-x: auto; }
+  .lb-sheet .fin-table { min-width: 640px; }
+}
+@media (max-width: 520px) {
+  .lb-rail-head::after { display: none; }
+  .lb-sheet { padding-left: 34px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lb-act-icon, .lb-act-text strong, .lb-tab, .lb-switch-ui::after, .lb-csv { transition: none; }
+}
+
+/* ---------- Dark mode: the same ledger by lamplight ---------- */
+body.dark-mode .lb-folio {
+  --lb-paper: #2b2722; --lb-paper-2: #24211d; --lb-ink: #efe6d6; --lb-soft: #cfc3b2; --lb-pencil: #a99c8b;
+  --lb-rule: #3f362c; --lb-rule-2: #5a4a38; --lb-margin: #d9776c; --lb-cloth: #8a5a2a; --lb-cloth-2: #e3b97e; --lb-mark: rgba(247, 214, 92, .25);
+}
+body.dark-mode .lb-sheet .fin-table thead th { background: #352b21; }
+body.dark-mode .lb-sheet .fin-statement-row.is-subtotal { background: rgba(154, 102, 48, .22); }
+body.dark-mode .lb-note { background: #e9d68f; }
+
+/* Fell's old-style figures wobble in money columns: keep amounts in the body face */
+.lb-sheet :is(.fin-statement-row.is-subtotal, .fin-statement-row.is-profit-band, .fin-summary-hero, .fin-bs-total-row) > span:last-child,
+.lb-note strong { font-family: "DM Sans", system-ui, sans-serif; font-weight: 700; font-variant-numeric: tabular-nums; }

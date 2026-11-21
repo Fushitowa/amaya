@@ -391,10 +391,11 @@ function Sidebar({
             >
               <div className="amaya-sidebar-profile-avatar">
                 <img src={adminAvatar} alt="" aria-hidden="true" />
+                <i className="amaya-sidebar-profile-dot" aria-hidden="true" />
               </div>
               <div className="amaya-sidebar-profile-copy">
                 <strong>Administrator</strong>
-                <span>Admin</span>
+                <span>Owner access · signed in</span>
               </div>
               <ChevronUp className="amaya-sidebar-profile-chevron" aria-hidden="true" />
             </button>
